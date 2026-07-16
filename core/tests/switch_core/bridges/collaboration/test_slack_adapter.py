@@ -663,10 +663,7 @@ def test_outbound_mention_resolves_to_slack_user() -> None:
     adapter = _adapter()
     adapter._username_to_id["doe.jane"] = "U123"
 
-    assert (
-        adapter.translate_outbound("@doe.jane here you go")
-        == "<@U123> here you go"
-    )
+    assert adapter.translate_outbound("@doe.jane here you go") == "<@U123> here you go"
 
 
 def test_outbound_unknown_mention_left_as_plain_text() -> None:
