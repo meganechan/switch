@@ -1,0 +1,13 @@
+.git
+.venv
+**/.venv
+**/__pycache__
+*.pyc
+**/node_modules
+internal/deploy/terraform/.terraform
+deploy/remote/helm/switch/charts
+.claude
+.env
+.env.*
+*.tfstate*
+related-projects

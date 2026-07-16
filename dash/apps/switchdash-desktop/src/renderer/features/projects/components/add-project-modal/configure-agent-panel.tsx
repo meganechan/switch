@@ -1,0 +1,174 @@
+import { CircleAlert } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
+import { useEffect, useId } from 'react';
+import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { Button } from '@renderer/lib/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
+import { Input } from '@renderer/lib/ui/input';
+import { RadioGroup, RadioGroupItem } from '@renderer/lib/ui/radio-group';
+import { Switch } from '@renderer/lib/ui/switch';
+import type { AgentProviderKind } from '@shared/core/switch-servers/switch-servers';
+import type { ConfigureAgentFormState } from './modes';
+
+const PROVIDER_OPTIONS: { value: AgentProviderKind; label: string; hint: string }[] = [
+  {
+    value: 'anthropic',
+    label: 'Anthropic (claude.ai / Console / API key)',
+    hint: 'Channels work — the agent is session-addressable and replies in real time.',
+  },
+  {
+    value: 'third-party',
+    label: 'Third-party provider (Vertex AI / Bedrock / other)',
+    hint: 'Channels are ignored — the agent is session-passive (no synchronous replies).',
+  },
+];
+
+/**
+ * Onboarding form for a directory with no Switch agent yet. Collects everything
+ * the switch-connector `configure` skill asks for — target server, Switch agent
+ * name, description, provider kind (drives channels / addressability), and an
+ * optional notify handle — so the agent can be registered and its credentials
+ * written without leaving the app.
+ */
+export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
+  form,
+  serverId,
+  onAddServer,
+}: {
+  form: ConfigureAgentFormState;
+  serverId: string | null;
+  onAddServer: () => void;
+}) {
+  const nameId = useId();
+  const descriptionId = useId();
+  const notifyId = useId();
+
+  useEffect(() => {
+    if (switchServersStore.servers.length === 0) void switchServersStore.init();
+  }, []);
+
+  const servers = switchServersStore.servers;
+
+  if (servers.length === 0) {
+    return (
+      <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <span>
+            No Switch servers are registered yet. Add the server to register this agent on.
+          </span>
+          <Button variant="outline" size="sm" className="self-start" onClick={onAddServer}>
+            Add a server
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <FieldGroup>
+      <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
+        <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+        <span>
+          No Switch agent here yet. Register one below — its credentials are written to this
+          directory&apos;s
+          <span className="mx-1 font-mono">.claude/settings.local.json</span>.
+        </span>
+      </div>
+
+      <Field>
+        <FieldLabel>Switch server</FieldLabel>
+        <div className="rounded-md border border-border bg-background-1 px-3 py-1.5 text-sm">
+          {serverId
+            ? (servers.find((s) => s.id === serverId)?.name ?? serverId)
+            : 'No server selected'}
+        </div>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor={nameId}>Agent name</FieldLabel>
+        <Input
+          id={nameId}
+          placeholder="claude-code.my-repo.me"
+          value={form.agentName}
+          onChange={(e) => form.setAgentName(e.target.value)}
+          aria-invalid={form.agentName.length > 0 && !form.nameIsValid}
+        />
+        {form.agentName.length > 0 && !form.nameIsValid ? (
+          <span className="text-destructive text-xs">
+            Use lowercase letters, digits, <span className="font-mono">. - _</span>, starting with a
+            letter or digit. No spaces or uppercase.
+          </span>
+        ) : (
+          <span className="text-xs text-foreground-muted">
+            Visible to everyone in the agent&apos;s rooms — include your name so it&apos;s clear
+            which person&apos;s Claude Code this is.
+          </span>
+        )}
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+        <Input
+          id={descriptionId}
+          placeholder="Claude Code running in my-repo"
+          value={form.description}
+          onChange={(e) => form.setDescription(e.target.value)}
+        />
+      </Field>
+
+      <Field>
+        <FieldLabel>How do you run Claude Code?</FieldLabel>
+        <RadioGroup
+          value={form.providerKind ?? ''}
+          onValueChange={(value) => form.setProviderKind(value as AgentProviderKind)}
+          className="gap-2"
+        >
+          {PROVIDER_OPTIONS.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-start gap-2 rounded-md border border-border px-2 py-1.5"
+            >
+              <RadioGroupItem value={option.value} className="mt-0.5" />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-sm">{option.label}</span>
+                <span className="text-xs text-foreground-muted">{option.hint}</span>
+              </span>
+            </label>
+          ))}
+        </RadioGroup>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor={notifyId}>Notify handle (optional)</FieldLabel>
+        <Input
+          id={notifyId}
+          placeholder="your Slack / Mattermost handle"
+          value={form.notifyUser}
+          onChange={(e) => form.setNotifyUser(e.target.value)}
+        />
+        <span className="text-xs text-foreground-muted">
+          When someone addresses this agent while it&apos;s offline, Switch @-mentions this handle
+          so you get pinged. Leave blank to skip.
+        </span>
+      </Field>
+
+      <Field>
+        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm">Auto-create a session on notify</span>
+            <span className="text-xs text-foreground-muted">
+              switchdash watches this agent&apos;s rooms and starts a session automatically when
+              it&apos;s addressed with none running.
+            </span>
+          </span>
+          <Switch
+            className="mt-0.5"
+            checked={form.autoSession}
+            onCheckedChange={(checked) => form.setAutoSession(checked)}
+          />
+        </label>
+      </Field>
+    </FieldGroup>
+  );
+});

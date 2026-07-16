@@ -1,0 +1,289 @@
+import { DndContext } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { observer } from 'mobx-react-lite';
+import { Fragment, useEffect } from 'react';
+import { agentsStore } from '@renderer/features/projects/stores/agents-store';
+import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
+import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
+import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { SidebarProjectItem } from './project-item';
+import { SidebarSessionItem } from './session-item';
+import { makeDndId, SortableBranch, SortableLeaf, useSidebarDnd } from './sidebar-dnd';
+import {
+  groupByRoom,
+  isSubagentSession,
+  openRoomInGateway,
+  openRoomInMessagingApp,
+  RoomRow,
+  roomLabel,
+} from './sidebar-room-grouping';
+import { agentRoomGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
+import { SidebarSubagentList } from './sidebar-subagent-list';
+
+/** dnd container ids. Each identifies a reorderable sibling set. */
+const AGENTS_CONTAINER = 'agents';
+const ROOMS_CONTAINER = 'rooms';
+/** Sessions of one agent's room group (agent-focused view). */
+const agentSessionsContainer = (projectId: string, roomKey: string): string =>
+  `as:${projectId}|${roomKey}`;
+/** Sessions of one agent within a room (room-focused view). */
+const roomSessionsContainer = (roomKey: string, projectId: string): string =>
+  `rs:${roomKey}|${projectId}`;
+
+export const SidebarGroupedList = observer(function SidebarGroupedList() {
+  // Live session→room connections + room names live on the server; pull them
+  // once on mount and refresh names on focus so headers show names not ids.
+  useEffect(() => {
+    roomConnectionsStore.ensureLoaded();
+    void agentsStore.load();
+    void switchServersStore.init().then(() => switchRoomsStore.loadRoomNames());
+    const onFocus = () => {
+      void agentsStore.load();
+      void switchRoomsStore.loadRoomNames();
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
+
+  const showFilterEmptyState =
+    sidebarStore.hasActiveFilters && sidebarStore.filteredProjects.length === 0;
+
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
+      {showFilterEmptyState ? (
+        <p className="px-2 py-3 text-xs text-foreground-muted">No agents match filters</p>
+      ) : sidebarStore.grouping === 'room' ? (
+        <RoomFocusedTree />
+      ) : (
+        <AgentFocusedTree />
+      )}
+    </div>
+  );
+});
+
+const AgentFocusedTree = observer(function AgentFocusedTree() {
+  const projects = sidebarStore.filteredProjects;
+  // Populated during render (each rendered group registers its ordered ids) so
+  // the drag handler can resolve a container's siblings on drop.
+  const containers: Record<string, string[]> = {
+    [AGENTS_CONTAINER]: projects.map((project) => project.id),
+  };
+  const dnd = useSidebarDnd(containers, (containerId, orderedIds) => {
+    if (containerId === AGENTS_CONTAINER) sidebarStore.setProjectOrder(orderedIds);
+    else sidebarStore.setGroupOrder(containerId, orderedIds);
+  });
+
+  function renderSessionGroup(projectId: string, roomKey: string, roomSessions: SessionStore[]) {
+    const container = agentSessionsContainer(projectId, roomKey);
+    const ordered = sidebarStore.orderGroupItems(
+      container,
+      roomSessions,
+      (session) => session.data.id,
+      true
+    );
+    containers[container] = ordered.map((session) => session.data.id);
+    const depth = roomKey === UNASSIGNED_ROOM_KEY ? 1 : 2;
+    return (
+      <SortableContext
+        items={ordered.map((session) => makeDndId(container, session.data.id))}
+        strategy={verticalListSortingStrategy}
+      >
+        {ordered.map((session) => (
+          <SortableLeaf key={session.data.id} id={makeDndId(container, session.data.id)}>
+            <SidebarSessionItem projectId={projectId} sessionId={session.data.id} depth={depth} />
+          </SortableLeaf>
+        ))}
+      </SortableContext>
+    );
+  }
+
+  return (
+    <DndContext {...dnd}>
+      <SortableContext
+        items={projects.map((project) => makeDndId(AGENTS_CONTAINER, project.id))}
+        strategy={verticalListSortingStrategy}
+      >
+        {projects.map((project) => {
+          const projectId = project.id;
+          const expanded = sidebarStore.expandedProjectIds.has(projectId);
+          const allSessions = expanded ? sidebarStore.visibleSessionsForProject(projectId) : [];
+          // Subagent sessions nest under their subagent row; the rest group by room.
+          const subagentSessions = allSessions.filter(isSubagentSession);
+          const grouped = groupByRoom(allSessions.filter((s) => !isSubagentSession(s)));
+          return (
+            <SortableBranch
+              key={projectId}
+              id={makeDndId(AGENTS_CONTAINER, projectId)}
+              header={<SidebarProjectItem projectId={projectId} depth={0} />}
+            >
+              {/* The agent's own rooms/sessions come first, then its subagents. */}
+              {expanded &&
+                grouped.map(([roomKey, roomSessions]) => {
+                  // Sessions with no room sit at the same depth as the agent's
+                  // room rows (and subagent rows) — they are direct children of
+                  // the agent, just without a room header above them.
+                  if (roomKey === UNASSIGNED_ROOM_KEY) {
+                    return (
+                      <Fragment key={roomKey}>
+                        {renderSessionGroup(projectId, roomKey, roomSessions)}
+                      </Fragment>
+                    );
+                  }
+                  const groupKey = agentRoomGroupKey(projectId, roomKey);
+                  const roomExpanded = sidebarStore.isGroupExpanded(groupKey);
+                  return (
+                    <div key={roomKey}>
+                      <RoomRow
+                        label={roomLabel(roomKey)}
+                        count={roomSessions.length}
+                        expanded={roomExpanded}
+                        depth={1}
+                        bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
+                        onToggle={() => sidebarStore.toggleGroupExpanded(groupKey)}
+                        onOpenGateway={() => openRoomInGateway(roomKey)}
+                        onOpenChannel={
+                          switchRoomsStore.roomChannelUrl(roomKey)
+                            ? () => openRoomInMessagingApp(roomKey)
+                            : null
+                        }
+                      />
+                      {roomExpanded && renderSessionGroup(projectId, roomKey, roomSessions)}
+                    </div>
+                  );
+                })}
+              {expanded && (
+                <SidebarSubagentList projectId={projectId} sessions={subagentSessions} depth={1} />
+              )}
+            </SortableBranch>
+          );
+        })}
+      </SortableContext>
+    </DndContext>
+  );
+});
+
+const RoomFocusedTree = observer(function RoomFocusedTree() {
+  // Collect every visible session across mounted agents, tagged with its agent.
+  const tagged: { projectId: string; session: SessionStore }[] = [];
+  for (const project of sidebarStore.filteredProjects) {
+    for (const session of sidebarStore.visibleSessionsForProject(project.id)) {
+      tagged.push({ projectId: project.id, session });
+    }
+  }
+
+  const grouped = groupByRoom(tagged.map((t) => t.session));
+  const byKey = new Map(grouped);
+  const orderedRoomKeys = sidebarStore.orderRoomKeys(grouped.map(([roomKey]) => roomKey));
+
+  const containers: Record<string, string[]> = { [ROOMS_CONTAINER]: orderedRoomKeys };
+  const dnd = useSidebarDnd(containers, (containerId, orderedIds) => {
+    if (containerId === ROOMS_CONTAINER) sidebarStore.setRoomOrder(orderedIds);
+    else sidebarStore.setGroupOrder(containerId, orderedIds);
+  });
+
+  return (
+    <DndContext {...dnd}>
+      <SortableContext
+        items={orderedRoomKeys.map((roomKey) => makeDndId(ROOMS_CONTAINER, roomKey))}
+        strategy={verticalListSortingStrategy}
+      >
+        {orderedRoomKeys.map((roomKey) => {
+          const roomSessions = byKey.get(roomKey) ?? [];
+          // Rooms in this view always have sessions, so default to expanded.
+          const roomViewKey = roomViewGroupKey(roomKey);
+          const expanded = sidebarStore.isGroupExpanded(roomViewKey);
+          const sessionIds = new Set(roomSessions.map((s) => s.data.id));
+          const byProject = sidebarStore.filteredProjects
+            .map((project) => ({
+              projectId: project.id,
+              sessions: tagged
+                .filter((t) => t.projectId === project.id && sessionIds.has(t.session.data.id))
+                .map((t) => t.session),
+            }))
+            .filter((entry) => entry.sessions.length > 0);
+
+          return (
+            <SortableBranch
+              key={roomKey}
+              id={makeDndId(ROOMS_CONTAINER, roomKey)}
+              header={
+                <RoomRow
+                  label={roomLabel(roomKey)}
+                  count={roomSessions.length}
+                  expanded={expanded}
+                  depth={0}
+                  bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
+                  onToggle={() => sidebarStore.toggleGroupExpanded(roomViewKey)}
+                  onOpenGateway={() => openRoomInGateway(roomKey)}
+                  onOpenChannel={
+                    switchRoomsStore.roomChannelUrl(roomKey)
+                      ? () => openRoomInMessagingApp(roomKey)
+                      : null
+                  }
+                />
+              }
+            >
+              {expanded &&
+                byProject.map((entry) => {
+                  // Reuse the agent row so it matches the agent-focused view
+                  // (icon, hover-chevron, sizing). Its expand state is the global
+                  // project expand, shared across the rooms an agent appears in.
+                  const agentExpanded = sidebarStore.expandedProjectIds.has(entry.projectId);
+                  // The agent's own sessions in this room render under it; the
+                  // subagents that have a session here render as sibling rows at
+                  // the same depth as the agent (not nested inside it).
+                  const parentSessions = entry.sessions.filter((s) => !isSubagentSession(s));
+                  const subagentSessions = entry.sessions.filter(isSubagentSession);
+                  const container = roomSessionsContainer(roomKey, entry.projectId);
+                  const orderedParent = sidebarStore.orderGroupItems(
+                    container,
+                    parentSessions,
+                    (session) => session.data.id,
+                    true
+                  );
+                  containers[container] = orderedParent.map((session) => session.data.id);
+                  return (
+                    <Fragment key={entry.projectId}>
+                      <SidebarProjectItem projectId={entry.projectId} depth={1} />
+                      {agentExpanded && (
+                        <SortableContext
+                          items={orderedParent.map((session) =>
+                            makeDndId(container, session.data.id)
+                          )}
+                          strategy={verticalListSortingStrategy}
+                        >
+                          {orderedParent.map((session) => (
+                            <SortableLeaf
+                              key={session.data.id}
+                              id={makeDndId(container, session.data.id)}
+                            >
+                              <SidebarSessionItem
+                                projectId={entry.projectId}
+                                sessionId={session.data.id}
+                                depth={2}
+                              />
+                            </SortableLeaf>
+                          ))}
+                        </SortableContext>
+                      )}
+                      {subagentSessions.length > 0 && (
+                        <SidebarSubagentList
+                          projectId={entry.projectId}
+                          depth={1}
+                          sessions={subagentSessions}
+                          onlyWithSessions
+                          groupSessionsByRoom={false}
+                        />
+                      )}
+                    </Fragment>
+                  );
+                })}
+            </SortableBranch>
+          );
+        })}
+      </SortableContext>
+    </DndContext>
+  );
+});

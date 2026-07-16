@@ -1,0 +1,263 @@
+# ── Global ────────────────────────────────────────────────────────────────────
+global:
+  # StorageClass for all PVCs. Empty ("") uses the cluster's default
+  # StorageClass — the portable choice. Set it explicitly (e.g. "gp2" on EKS,
+  # "standard-rwo" on GKE) only if your cluster has no default or you need a
+  # specific class.
+  storageClass: ""
+  imageRegistry: ""
+  # Names of pre-existing dockerconfigjson Secrets used to pull images from a
+  # private registry (e.g. a private GHCR namespace). Applied to every pod. Leave
+  # empty for public images.
+  imagePullSecrets: []
+
+# ── Ingress ─────────────────────────────────────────────────────────────────
+# Generic Ingress for the web surface. Bring your own ingress controller
+# (ingress-nginx, Traefik, cloud ALB/GLB, …).
+#
+#   mode: existing  -> render nothing; wire up the services with your own
+#                      manifest. See samples/ingress.example.yaml.
+#   mode: managed   -> render one path-routed Ingress: the agent/MCP surface and
+#                      bridge webhooks (agentApiPaths) go to switch-core, and /
+#                      goes to the gateway SPA. Supply className/host, and tls
+#                      for HTTPS (e.g. with a cert-manager annotation).
+ingress:
+  mode: existing
+  className: ""
+  host: ""
+  # Extra annotations, merged over the streaming defaults below (yours win).
+  # For cert-manager TLS, add e.g.:
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+  annotations: {}
+  # Emit ingress-nginx annotations that keep MCP/SSE streams alive (long read
+  # timeouts, buffering off). Harmless on other controllers but ignored by them
+  # — set false and add your controller's equivalents via annotations.
+  streamingAnnotations: true
+  tls:
+    enabled: false
+    # Secret holding the cert; cert-manager creates it from the annotation
+    # above, or reference a pre-created TLS Secret.
+    secretName: ""
+  # Path prefixes on the primary host routed to switch-core instead of the
+  # gateway: the Bearer-auth agent bridge + MCP, public OAuth/MCP discovery,
+  # and the collaboration bridge webhooks.
+  agentApiPaths:
+    - /agents
+    - /mcp
+    - /oauth
+    - /.well-known
+    - /collab
+    - /health
+
+# ── Secrets ───────────────────────────────────────────────────────────────────
+# Two ways to supply secrets:
+#
+# 1. Chart-managed (default): set the values below (via --set / a values file)
+#    and the chart renders a Secret named <release>-secrets.
+#
+# 2. Bring your own (existingSecret): point the chart at a pre-existing Secret —
+#    e.g. one produced by the External Secrets Operator or sealed-secrets. The
+#    chart then renders no Secret and the values below are ignored. That Secret
+#    must contain these keys:
+#      POSTGRES_PASSWORD (unless postgresql.existingSecret is set),
+#      MATRIX_REGISTRATION_SHARED_SECRET, MATRIX_ADMIN_PASSWORD,
+#      AGENT_REGISTRATION_TOKEN, JWT_SECRET_KEY, GATEWAY_ADMIN_EMAIL,
+#      GATEWAY_ADMIN_PASSWORD,
+#      MATTERMOST_ADMIN_PASSWORD + MATTERMOST_USER_PASSWORD (if mattermost.enabled),
+#      GATEWAY_OIDC_CLIENT_SECRET (if switchCore.oidc.enabled).
+secrets:
+  # Name of a pre-existing Secret to read all of the above from. Empty = the
+  # chart manages its own Secret from the values below.
+  existingSecret: ""
+  postgresPassword: ""
+  matrixRegistrationSharedSecret: ""
+  matrixAdminPassword: ""
+  agentRegistrationToken: ""
+  jwtSecretKey: ""
+  gatewayAdminEmail: ""
+  gatewayAdminPassword: ""
+  mattermostAdminPassword: ""
+  mattermostUserPassword: ""
+  # Gateway OIDC client secret (required when switchCore.oidc.enabled).
+  gatewayOidcClientSecret: ""
+
+# ── Switch Core (FastAPI) ─────────────────────────────────────────────────────
+switchCore:
+  image: switch-core:latest
+  imagePullPolicy: Always
+  logLevel: INFO
+  # Public base URL the gateway is served on (used for links / OIDC redirects).
+  frontendBaseUrl: ""
+  # Set the Secure flag on the switch_auth session cookie. True here because the
+  # gateway is served over HTTPS (ALB / Tailscale); keep false only for plain-HTTP
+  # local dev.
+  cookieSecure: true
+  # Gateway OIDC login (bring-your-own IdP, e.g. Okta). Disabled by default;
+  # set enabled=true and supply issuerUrl/clientId (plus
+  # secrets.gatewayOidcClientSecret) to gate the gateway behind OIDC. Provider
+  # endpoints are read from the issuer's OIDC discovery document.
+  oidc:
+    enabled: false
+    # OIDC issuer base URL (discovery is read from <issuerUrl>/.well-known/...).
+    issuerUrl: ""
+    clientId: ""
+    scopes: "openid profile email"
+    providerLabel: "OIDC"
+    # Must exactly match the redirect URI registered with the IdP.
+    redirectUrl: ""
+    # Set false to disable password login entirely (OIDC-only).
+    passwordLoginEnabled: true
+  service:
+    type: ClusterIP
+    port: 8000
+  # switch-core keeps live Matrix sync sessions in memory, so it MUST run as a
+  # single replica — a second replica would double every client and split
+  # session state. This is enforced at render time; do not raise it.
+  replicaCount: 1
+  # Run DB migrations (alembic upgrade head) as a pre-upgrade hook Job, before
+  # the new pods roll, so a failed migration blocks the upgrade instead of
+  # crash-looping the new pods. switch-core also migrates on startup (which
+  # covers fresh installs, where pre-upgrade hooks don't run), so the Job is
+  # idempotent. Disable only if you run migrations out-of-band.
+  migrations:
+    preUpgradeJob: true
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+
+# ── Gateway (React + nginx) ──────────────────────────────────────────────────
+gateway:
+  image: gateway:latest
+  imagePullPolicy: Always
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 3000
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "200m"
+
+# ── Tuwunel (Matrix homeserver) ───────────────────────────────────────────────
+# The internal message bus. switch-core points here. RocksDB-backed (no Postgres
+# dependency); data lives on its own PVC.
+tuwunel:
+  image: jevolk/tuwunel:v1.7.1
+  imagePullPolicy: IfNotPresent
+  # Every Matrix user id is @localpart:<serverName>, so changing this on an
+  # existing deployment orphans all accounts.
+  serverName: "switch.local"
+  allowFederation: false
+  allowRegistration: false
+  maxRequestSize: "20000000"
+  # Set if the image runs as non-root and can't write the PVC, e.g. {fsGroup: 1000}.
+  podSecurityContext: {}
+  service:
+    type: ClusterIP
+    port: 8008
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "250m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+# ── Mattermost ───────────────────────────────────────────────────────────────
+mattermost:
+  enabled: true
+  # Pinned for reproducibility (floating :latest makes installs non-deterministic
+  # and can silently jump major versions). Mattermost does not support
+  # downgrades, so bump this deliberately. Requires >= v10.2 (see the API post
+  # deletion setting below).
+  image: mattermost/mattermost-team-edition:11.8.3
+  imagePullPolicy: IfNotPresent
+  adminUser: admin
+  teamName: switch
+  regularUser: user
+  siteUrl: ""
+  # User-facing Mattermost URL, used to build channel deeplinks (the
+  # mattermost:// links surfaced in switchdash). Distinct from the internal
+  # cluster address Switch connects to. Empty → falls back to the internal URL.
+  publicUrl: ""
+  maxUsersPerTeam: 1000
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8065
+  persistence:
+    size: 2Gi
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "250m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# ── Setup Job ─────────────────────────────────────────────────────────────────
+setup:
+  image: setup:latest
+  imagePullPolicy: Always
+  backoffLimit: 5
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────
+postgresql:
+  # managed  -> this chart runs an in-cluster Postgres StatefulSet (below).
+  # existing -> bring your own Postgres (RDS / Cloud SQL / Azure / self-run);
+  #             the StatefulSet/Service/init are not rendered and Switch
+  #             connects to postgresql.external.* instead.
+  mode: managed
+
+  # TLS mode for connecting to Postgres, applied to BOTH switch-core (asyncpg)
+  # and Mattermost. libpq/asyncpg values: disable | allow | prefer | require |
+  # verify-ca | verify-full. Keep "disable" for the in-cluster managed DB;
+  # managed cloud databases generally require "require" or stricter.
+  sslMode: disable
+
+  # Password source. By default the password is read from the chart-managed
+  # Secret (secrets.postgresPassword). To source it from a pre-existing Secret
+  # instead (e.g. synced by external-secrets / sealed-secrets), set
+  # existingSecret to that Secret's name; then secrets.postgresPassword is not
+  # required and no POSTGRES_PASSWORD is written into the chart Secret.
+  existingSecret: ""
+  existingSecretKey: POSTGRES_PASSWORD
+
+  # ── mode: existing ──────────────────────────────────────────────────────────
+  # Only used when mode=existing. The `switch` and `mattermost` databases and
+  # the user must already exist; the password comes from the Secret above.
+  external:
+    host: ""
+    port: 5432
+    username: postgres
+    database: switch
+
+  # ── mode: managed ───────────────────────────────────────────────────────────
+  image: postgres:16-alpine
+  imagePullPolicy: IfNotPresent
+  database: switch
+  persistence:
+    size: 10Gi
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      memory: 512Mi
+
+# ── Backups ───────────────────────────────────────────────────────────────────
+# This chart ships no backup jobs on purpose — an on-cluster backup shares the
+# storage backend it is meant to protect, and every target already has stronger,
+# portable primitives (CSI VolumeSnapshots, managed-DB backups, Velero). See
+# BACKUP.md for what to back up (the Tuwunel volume holds the Matrix signing key
+# — the irreplaceable server identity) and how, plus samples/volumesnapshot.example.yaml.

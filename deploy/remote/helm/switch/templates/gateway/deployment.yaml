@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "switch.fullname" . }}-gateway
+  labels:
+    {{- include "switch.labels" . | nindent 4 }}
+    {{- include "switch.selectorLabels" (dict "Release" .Release "component" "gateway") | nindent 4 }}
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "switch.selectorLabels" (dict "Release" .Release "component" "gateway") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "switch.labels" . | nindent 8 }}
+        {{- include "switch.selectorLabels" (dict "Release" .Release "component" "gateway") | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      {{- include "switch.imagePullSecrets" . | nindent 6 }}
+      {{- end }}
+      initContainers:
+        {{- include "switch.waitForHttp" (dict "name" "switch-core" "url" (printf "http://%s:%v/health" (include "switch.switchCoreHost" .) (.Values.switchCore.service.port | toString))) | nindent 8 }}
+      containers:
+        - name: gateway
+          image: {{ include "switch.image" (dict "global" .Values.global "image" .Values.gateway.image) }}
+          imagePullPolicy: {{ .Values.gateway.imagePullPolicy }}
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: default.conf
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: {{ include "switch.fullname" . }}-gateway-nginx

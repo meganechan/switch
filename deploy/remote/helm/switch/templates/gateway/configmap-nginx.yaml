@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "switch.fullname" . }}-gateway-nginx
+  labels:
+    {{- include "switch.labels" . | nindent 4 }}
+data:
+  default.conf: |
+    server {
+        listen 3000;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location /gateway {
+            proxy_pass http://{{ include "switch.switchCoreHost" . }}:{{ .Values.switchCore.service.port }};
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }

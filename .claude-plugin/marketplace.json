@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "switch-plugins",
+  "description": "Switch platform plugins for Claude Code",
+  "owner": {
+    "name": "SandboxAQ"
+  },
+  "plugins": [
+    {
+      "name": "switch-connector",
+      "description": "Connect Claude Code to a Switch platform instance as a participating agent",
+      "category": "integrations",
+      "source": "./connectors/claude-code-plugin"
+    }
+  ]
+}

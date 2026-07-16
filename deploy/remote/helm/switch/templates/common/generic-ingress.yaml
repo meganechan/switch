@@ -1,0 +1,64 @@
+{{- if eq .Values.ingress.mode "managed" }}
+{{- $svcCore := printf "%s-switch-core" (include "switch.fullname" .) }}
+{{- $svcGateway := printf "%s-gateway" (include "switch.fullname" .) }}
+# Generic Ingress for the Switch web surface (ingress.mode=managed).
+#
+# One host, path-routed. The agent/MCP surface and bridge webhooks go straight
+# to switch-core; everything else (the gateway SPA, which itself proxies
+# /gateway to switch-core) goes to the gateway. Bring your own ingress
+# controller: set ingress.className, ingress.host and, for HTTPS, ingress.tls.
+#
+# ingress.mode=existing renders nothing — see samples/ingress.example.yaml for
+# a copy-pasteable manifest to hand to your own controller instead.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "switch.fullname" . }}-web
+  labels:
+    {{- include "switch.labels" . | nindent 4 }}
+  {{- $ann := dict }}
+  {{- if .Values.ingress.streamingAnnotations }}
+  {{- $ann = dict
+      "nginx.ingress.kubernetes.io/proxy-read-timeout" "3600"
+      "nginx.ingress.kubernetes.io/proxy-send-timeout" "3600"
+      "nginx.ingress.kubernetes.io/proxy-buffering" "off"
+      "nginx.ingress.kubernetes.io/proxy-request-buffering" "off" }}
+  {{- end }}
+  {{- $ann = merge (deepCopy .Values.ingress.annotations) $ann }}
+  {{- if $ann }}
+  annotations:
+    {{- toYaml $ann | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if and .Values.ingress.tls.enabled .Values.ingress.host }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- if .Values.ingress.tls.secretName }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - {{ if .Values.ingress.host }}host: {{ .Values.ingress.host | quote }}
+      {{ end }}http:
+        paths:
+          {{- range $path := .Values.ingress.agentApiPaths }}
+          - path: {{ $path | quote }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcCore }}
+                port:
+                  number: {{ $.Values.switchCore.service.port }}
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcGateway }}
+                port:
+                  number: {{ .Values.gateway.service.port }}
+{{- end }}

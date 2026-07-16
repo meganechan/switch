@@ -1,0 +1,1 @@
+ALTER TABLE `conversations` RENAME COLUMN `session_id` TO `agent_session_id`;

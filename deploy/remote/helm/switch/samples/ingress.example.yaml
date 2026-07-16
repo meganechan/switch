@@ -1,0 +1,57 @@
+# Sample Ingress for a Switch install running with `ingress.mode=existing`.
+#
+# The chart renders no Ingress in that mode; apply something like this with your
+# own controller instead. Or just set `ingress.mode=managed` and let the chart
+# render the equivalent for you (className/host/tls/annotations via values).
+#
+# Replace:
+#   RELEASE   -> your Helm release name (the prefix on the Service names below;
+#                run `kubectl get svc` to confirm, e.g. `switch-switch-core`)
+#   switch.example.com -> your hostname
+#   letsencrypt-prod    -> your cert-manager ClusterIssuer (or drop TLS entirely)
+#
+# Routing mirrors the managed Ingress: the agent/MCP surface and bridge webhooks
+# go to switch-core; everything else (the gateway SPA, which proxies /gateway to
+# switch-core) goes to the gateway.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: switch-web
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # Keep MCP/SSE streams alive (ingress-nginx; adjust for your controller).
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - switch.example.com
+      secretName: switch-web-tls
+  rules:
+    - host: switch.example.com
+      http:
+        paths:
+          - path: /agents
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /mcp
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /oauth
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /.well-known
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /collab
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /health
+            pathType: Prefix
+            backend: { service: { name: RELEASE-switch-core, port: { number: 8000 } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: RELEASE-gateway, port: { number: 3000 } } }

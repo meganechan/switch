@@ -1,0 +1,555 @@
+import { makeObservable, observable, runInAction, toJS } from 'mobx';
+import { toast } from 'sonner';
+import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import type { ProjectSettingsStore } from '@renderer/features/projects/stores/project-settings-store';
+import { events, rpc } from '@renderer/lib/ipc';
+import type { Conversation } from '@shared/core/conversations/conversations';
+import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import {
+  lifecycleScriptStatusChannel,
+  sessionCreatedChannel,
+  sessionDeletedChannel,
+  sessionProvisionProgressChannel,
+  sessionProvisionedChannel,
+  sessionStatusUpdatedChannel,
+} from '@shared/core/sessions/sessionEvents';
+import type {
+  CreateSessionError,
+  CreateSessionParams,
+  SessionLifecycleStatus,
+} from '@shared/core/sessions/sessions';
+import { conversationRegistry } from './conversation-registry';
+import {
+  createUnprovisionedSession,
+  createUnregisteredSession,
+  isProvisioned,
+  isRegistered,
+  isUnprovisioned,
+  isUnregistered,
+  type SessionStore,
+} from './session-store';
+import { terminalRegistry } from './terminal-registry';
+import { workspaceRegistry } from './workspace-registry';
+
+function formatCreateSessionError(error: CreateSessionError): string {
+  switch (error.type) {
+    case 'agent-not-found':
+      return 'Agent not found.';
+    case 'already-exists':
+      return 'A session with this id already exists.';
+    case 'spawn-failed':
+      return error.message;
+  }
+}
+
+export class SessionManagerStore {
+  private readonly projectId: string;
+  private readonly _settingsStore: ProjectSettingsStore;
+  private _loadPromise: Promise<void> | null = null;
+  private _teardownPromises = new Map<string, Promise<void>>();
+  private _provisionPromises = new Map<string, Promise<void>>();
+  /** session:provisioned events that arrived before their session:created
+   * (main-process automation emits both back-to-back; the created handler is
+   * async, so provisioned can win the race). Applied once the session lands. */
+  private _pendingProvisioned = new Map<string, { path: string; workspaceId: string }>();
+
+  private _unsubSessionCreated: (() => void) | null = null;
+  private _unsubSessionDeleted: (() => void) | null = null;
+  private _unsubProvisionProgress: (() => void) | null = null;
+  private _unsubStatusUpdated: (() => void) | null = null;
+  private _unsubLifecycleScriptStatus: (() => void) | null = null;
+  private _unsubProvisioned: (() => void) | null = null;
+
+  sessions = observable.map<string, SessionStore>();
+
+  constructor(projectId: string, settingsStore: ProjectSettingsStore) {
+    this.projectId = projectId;
+    this._settingsStore = settingsStore;
+    makeObservable(this, { sessions: observable });
+
+    this._unsubSessionCreated = events.on(sessionCreatedChannel, ({ session }) => {
+      if (this.sessions.has(session.id)) return;
+      void rpc.agents.getAgentById(session.agentId).then((agent) => {
+        if (!agent || agent.projectId !== this.projectId || this.sessions.has(session.id)) return;
+        runInAction(() => {
+          this.sessions.set(session.id, createUnprovisionedSession(this.projectId, session));
+          // Acquire conversation/terminal managers inside the same action so the
+          // WorkspaceViewModel's reaction on `conversations.size` registers the
+          // manager's observable map as a dependency on its first evaluation.
+          // Pass no preloaded list: this session was created elsewhere (the
+          // auto-session watcher / another window), so there is no optimistic
+          // conversation to seed. An empty array would mark the manager as fully
+          // preloaded with zero conversations and disable its demand fetch,
+          // leaving the terminal stuck on a spinner; omitting it lets the manager
+          // load the real conversation via getConversationsForSession.
+          conversationRegistry.acquire(session.id, this.projectId);
+          terminalRegistry.acquire(session.id, this.projectId);
+          // A provisioned event for this session may have arrived first (the
+          // automation path emits created→provisioned back-to-back). Apply it
+          // now so the session reaches 'ready' without waiting for a restart.
+          const pending = this._pendingProvisioned.get(session.id);
+          if (pending) {
+            this._pendingProvisioned.delete(session.id);
+            this._applyProvisioned(session.id, pending.path, pending.workspaceId);
+          }
+        });
+      });
+    });
+
+    // A session removed by the main process out-of-band (a remote client
+    // terminated a shared session, or the reconciler pruned a vanished VM
+    // session). This window did not initiate the delete, so remove the row here
+    // — otherwise it lingers as a ghost until restart.
+    this._unsubSessionDeleted = events.on(
+      sessionDeletedChannel,
+      ({ sessionId, projectId: evtProjectId }) => {
+        if (evtProjectId !== this.projectId) return;
+        const store = this.sessions.get(sessionId);
+        if (!store) return;
+        console.info('SessionManager: removing session (remote-driven delete)', {
+          sessionId,
+          projectId: this.projectId,
+        });
+        runInAction(() => this.sessions.delete(sessionId));
+        this._releaseSessionRegistries(sessionId);
+        store.dispose();
+      }
+    );
+
+    this._unsubStatusUpdated = events.on(
+      sessionStatusUpdatedChannel,
+      ({ sessionId, projectId: evtProjectId, status }) => {
+        if (evtProjectId !== this.projectId) return;
+        const store = this.sessions.get(sessionId);
+        if (store && isProvisioned(store)) {
+          runInAction(() => {
+            store.data.status = status as SessionLifecycleStatus;
+          });
+        }
+      }
+    );
+
+    this._unsubProvisionProgress = events.on(
+      sessionProvisionProgressChannel,
+      ({ sessionId, projectId: evtProjectId, message }) => {
+        if (evtProjectId !== this.projectId) return;
+        const store = this.sessions.get(sessionId);
+        if (store?.isBootstrapping) {
+          runInAction(() => {
+            store.provisionProgressMessage = message;
+          });
+        }
+      }
+    );
+
+    this._unsubLifecycleScriptStatus = events.on(lifecycleScriptStatusChannel, (statusEvent) => {
+      if (
+        statusEvent.projectId !== this.projectId ||
+        statusEvent.status !== 'failed' ||
+        !statusEvent.surfaceFailure
+      ) {
+        return;
+      }
+      const { sessionId, type, message } = statusEvent;
+      const sessionName = this.sessions.get(sessionId)?.data.title;
+      const label = type[0].toUpperCase() + type.slice(1);
+      toast.error(`${label} script failed${sessionName ? ` for ${sessionName}` : ''}`, {
+        description: message,
+      });
+    });
+
+    // Handles sessions provisioned by the automation path (or any main-process caller)
+    // without renderer-initiated RPCs. The `isUnprovisioned` guard prevents a
+    // double-transition if the renderer-driven RPC already completed first.
+    this._unsubProvisioned = events.on(
+      sessionProvisionedChannel,
+      ({ sessionId, projectId: evtProjectId, path, workspaceId }) => {
+        if (evtProjectId !== this.projectId) return;
+        void this._doHandleProvisioned(sessionId, path, workspaceId);
+      }
+    );
+  }
+
+  private _releaseSessionRegistries(sessionId: string): void {
+    conversationRegistry.release(sessionId);
+    terminalRegistry.release(sessionId);
+  }
+
+  loadSessions(): Promise<void> {
+    if (!this._loadPromise) {
+      this._loadPromise = Promise.all([
+        rpc.sessions.getSessions(this.projectId),
+        rpc.sessions.getConversationsForProject(this.projectId),
+      ])
+        .then(([sessions, allConversations]) => {
+          const conversationsBySession = new Map<string, Conversation[]>();
+          for (const conv of allConversations) {
+            const list = conversationsBySession.get(conv.sessionId) ?? [];
+            list.push(conv);
+            conversationsBySession.set(conv.sessionId, list);
+          }
+          runInAction(() => {
+            for (const t of sessions) {
+              this.sessions.set(t.id, createUnprovisionedSession(this.projectId, t));
+              // Preload conversations for each session so sidebar badges are available immediately.
+              conversationRegistry.acquire(
+                t.id,
+                this.projectId,
+                conversationsBySession.get(t.id) ?? []
+              );
+              terminalRegistry.acquire(t.id, this.projectId);
+            }
+          });
+        })
+        .catch((e) => {
+          console.error('Error loading sessions', e);
+        });
+    }
+    return this._loadPromise;
+  }
+
+  async createSession(params: CreateSessionParams) {
+    // Register the session synchronously — before the first await — so callers
+    // that navigate to the session view immediately after invoking this find it
+    // in the sessions map (the view's guard redirects away otherwise).
+    runInAction(() => {
+      this.sessions.set(
+        params.id,
+        createUnregisteredSession(this.projectId, {
+          id: params.id,
+          lastInteractedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          title: params.title,
+          status: 'in_progress',
+          statusChangedAt: new Date().toISOString(),
+          isPinned: false,
+          subagentName: params.subagentName,
+        })
+      );
+    });
+
+    const agent = await rpc.agents.getAgentById(params.agentId);
+    if (!agent) {
+      runInAction(() => this.sessions.delete(params.id));
+      throw new Error(formatCreateSessionError({ type: 'agent-not-found' }));
+    }
+    const providerId = agent.providerId;
+
+    const clearOptimisticInitialConversationWorking = () => {
+      if (!params.initialPrompt?.trim()) return;
+      conversationRegistry
+        .acquire(params.id, this.projectId)
+        .conversations.get(params.id)
+        ?.clearWorking();
+    };
+
+    runInAction(() => {
+      // A session is its own (single) conversation in switchdash; create the
+      // optimistic conversation record keyed by the session id.
+      const optimistic: Conversation = {
+        id: params.id,
+        projectId: this.projectId,
+        sessionId: params.id,
+        providerId: providerId as AgentProviderId,
+        title: params.title,
+        lastInteractedAt: null,
+        autoApprove: params.autoApprove ?? false,
+        subagentName: params.subagentName,
+        isInitialConversation: true,
+      };
+      const conversationManager = conversationRegistry.acquire(params.id, this.projectId, [
+        optimistic,
+      ]);
+      if (params.initialPrompt?.trim()) {
+        void conversationManager.markConversationWorking(params.id);
+      }
+      terminalRegistry.acquire(params.id, this.projectId);
+    });
+
+    const result = await rpc.sessions
+      .createSession(JSON.parse(JSON.stringify(toJS(params))) as typeof params)
+      .catch((e: unknown) => {
+        const message = e instanceof Error ? e.message : String(e);
+        clearOptimisticInitialConversationWorking();
+        runInAction(() => {
+          const current = this.sessions.get(params.id);
+          if (current && isUnregistered(current)) {
+            current.phase = 'create-error';
+            current.errorMessage = message;
+          }
+        });
+        throw e;
+      });
+
+    if (!result.success) {
+      const message = formatCreateSessionError(result.error);
+      clearOptimisticInitialConversationWorking();
+      runInAction(() => {
+        const current = this.sessions.get(params.id);
+        if (current && isUnregistered(current)) {
+          current.phase = 'create-error';
+          current.errorMessage = message;
+        }
+      });
+      throw new Error(message);
+    }
+
+    runInAction(() => {
+      const current = this.sessions.get(params.id);
+      if (current && isUnregistered(current)) {
+        current.transitionToUnprovisioned(result.data.session, 'provision');
+        // Conversation and terminal registries already acquired in the optimistic phase.
+      }
+    });
+
+    this._settingsStore.pageData.invalidate();
+
+    await this.provisionSession(params.id);
+  }
+
+  async provisionSession(sessionId: string): Promise<void> {
+    await getProjectManagerStore().mountProject(this.projectId);
+    await this.loadSessions();
+
+    const inFlight = this._provisionPromises.get(sessionId);
+    if (inFlight) return inFlight;
+
+    const session = this.sessions.get(sessionId);
+    if (!session || !isUnprovisioned(session)) return;
+
+    runInAction(() => {
+      session.phase = 'provision';
+    });
+
+    const promise = this._doProvision(sessionId).finally(() => {
+      this._provisionPromises.delete(sessionId);
+    });
+
+    this._provisionPromises.set(sessionId, promise);
+    return promise;
+  }
+
+  private async _doProvision(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || !isUnprovisioned(session)) return;
+
+    // Single-phase provision: workspace bootstrap + session provider construction + registration.
+    const result = await rpc.sessions.provisionWorkspace(sessionId);
+    if (!result.success) {
+      const message = result.error.message;
+      runInAction(() => {
+        const current = this.sessions.get(sessionId);
+        if (current && isUnprovisioned(current)) {
+          current.phase = 'provision-error';
+          current.errorMessage = message;
+        }
+      });
+      return;
+    }
+
+    workspaceRegistry.setBootstrapState(this.projectId, result.data.workspaceId, { kind: 'ready' });
+
+    runInAction(() => {
+      const current = this.sessions.get(sessionId);
+      if (current && isUnprovisioned(current)) {
+        conversationRegistry.acquire(sessionId, this.projectId);
+        terminalRegistry.acquire(sessionId, this.projectId);
+        current.ensureRegisteredStores();
+        current.transitionToProvisioned(
+          { ...current.data, lastInteractedAt: new Date().toISOString() },
+          result.data.path,
+          result.data.workspaceId
+        );
+        current.activate();
+      }
+    });
+  }
+
+  private async _doHandleProvisioned(
+    sessionId: string,
+    path: string,
+    workspaceId: string
+  ): Promise<void> {
+    runInAction(() => {
+      const current = this.sessions.get(sessionId);
+      // The session:created handler is async, so a main-process automation
+      // path that emits created→provisioned can deliver provisioned first.
+      // Buffer it; the created handler applies it when the session lands.
+      if (!current) {
+        this._pendingProvisioned.set(sessionId, { path, workspaceId });
+        return;
+      }
+      this._applyProvisioned(sessionId, path, workspaceId);
+    });
+  }
+
+  /** Transition an already-registered unprovisioned session to provisioned.
+   * Must run inside a `runInAction`. */
+  private _applyProvisioned(sessionId: string, path: string, workspaceId: string): void {
+    const current = this.sessions.get(sessionId);
+    if (current && isUnprovisioned(current)) {
+      conversationRegistry.acquire(sessionId, this.projectId);
+      terminalRegistry.acquire(sessionId, this.projectId);
+      current.ensureRegisteredStores();
+      current.transitionToProvisioned(
+        { ...current.data, lastInteractedAt: new Date().toISOString() },
+        path,
+        workspaceId
+      );
+      current.activate();
+    }
+  }
+
+  async teardownSession(sessionId: string): Promise<void> {
+    const inFlight = this._teardownPromises.get(sessionId);
+    if (inFlight) return inFlight;
+
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+
+    runInAction(() => {
+      const current = this.sessions.get(sessionId);
+      if (!current) return;
+      if (isProvisioned(current)) {
+        current.transitionToUnprovisioned({ ...current.data }, 'teardown');
+      } else if (isUnprovisioned(current)) {
+        current.phase = 'teardown';
+      }
+    });
+
+    const promise = rpc.sessions
+      .teardownSession(this.projectId, sessionId)
+      .then(() => {
+        runInAction(() => {
+          const current = this.sessions.get(sessionId);
+          if (current && isUnprovisioned(current)) {
+            current.phase = 'idle';
+          }
+        });
+      })
+      .catch((err: unknown) => {
+        runInAction(() => {
+          const current = this.sessions.get(sessionId);
+          if (current && isUnprovisioned(current)) {
+            current.phase = 'teardown-error';
+          }
+        });
+        throw err;
+      })
+      .finally(() => {
+        this._teardownPromises.delete(sessionId);
+      });
+
+    this._teardownPromises.set(sessionId, promise);
+    return promise;
+  }
+
+  async setSessionPinned(sessionId: string, isPinned: boolean): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    await session.setPinned(isPinned);
+  }
+
+  async archiveSession(sessionId: string): Promise<void> {
+    const currentSession = this.sessions.get(sessionId);
+    if (!currentSession || !isRegistered(currentSession)) return;
+    const previousArchivedAt = currentSession.data.archivedAt;
+
+    try {
+      runInAction(() => {
+        const session = this.sessions.get(sessionId);
+        if (session && isRegistered(session)) {
+          session.data.archivedAt = new Date().toISOString();
+        }
+      });
+      await rpc.sessions.archiveSession(this.projectId, sessionId);
+    } catch (e) {
+      runInAction(() => {
+        const session = this.sessions.get(sessionId);
+        if (session && isRegistered(session)) {
+          session.data.archivedAt = previousArchivedAt;
+        }
+      });
+      throw e;
+    }
+
+    this._releaseSessionRegistries(sessionId);
+    runInAction(() => {
+      const session = this.sessions.get(sessionId);
+      if (session && isRegistered(session)) {
+        session.transitionToDryUnprovisioned({ ...session.data }, 'idle');
+      }
+    });
+  }
+
+  async restoreSession(sessionId: string): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    if (!session || !isRegistered(session)) return;
+    const archivedAt = session.data.archivedAt;
+
+    try {
+      await rpc.sessions.restoreSession(sessionId);
+      runInAction(() => {
+        const current = this.sessions.get(sessionId);
+        if (current && isRegistered(current)) {
+          current.data.archivedAt = undefined;
+        }
+      });
+    } catch (e) {
+      runInAction(() => {
+        const current = this.sessions.get(sessionId);
+        if (current && isRegistered(current)) {
+          current.data.archivedAt = archivedAt;
+        }
+      });
+      throw e;
+    }
+  }
+
+  async deleteSession(sessionId: string): Promise<void> {
+    return this.deleteSessions([sessionId]);
+  }
+
+  async deleteSessions(sessionIds: string[]): Promise<void> {
+    const removed = new Map<string, SessionStore>();
+
+    runInAction(() => {
+      for (const id of sessionIds) {
+        const t = this.sessions.get(id);
+        if (t) {
+          removed.set(id, t);
+          this.sessions.delete(id);
+        }
+      }
+    });
+
+    try {
+      // Release conversation and terminal registries before disposing each session.
+      removed.forEach((t, id) => {
+        this._releaseSessionRegistries(id);
+        t.dispose();
+      });
+      await rpc.sessions.deleteSessions(this.projectId, sessionIds);
+    } catch (e) {
+      runInAction(() => {
+        removed.forEach((t, id) => this.sessions.set(id, t));
+      });
+      throw e;
+    }
+  }
+
+  dispose(): void {
+    this._unsubSessionCreated?.();
+    this._unsubSessionCreated = null;
+    this._unsubSessionDeleted?.();
+    this._unsubSessionDeleted = null;
+    this._unsubProvisionProgress?.();
+    this._unsubProvisionProgress = null;
+    this._unsubStatusUpdated?.();
+    this._unsubStatusUpdated = null;
+    this._unsubLifecycleScriptStatus?.();
+    this._unsubLifecycleScriptStatus = null;
+    this._unsubProvisioned?.();
+    this._unsubProvisioned = null;
+  }
+}

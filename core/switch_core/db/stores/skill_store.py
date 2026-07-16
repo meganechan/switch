@@ -1,0 +1,2 @@
+class SkillStore:
+    pass

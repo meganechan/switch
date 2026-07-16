@@ -1,0 +1,244 @@
+import { resolveCommandPath } from '@switchdash/core/deps/runtime';
+import semver from 'semver';
+import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
+import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
+import { agentSshConnectionId } from '@main/core/workspaces/resolve-agent-workspace';
+import { log } from '@main/lib/logger';
+import { getPlugin, listPlugins } from '../providers/plugin-registry';
+import type { SwitchSetupResult, SwitchSetupStatus } from './switch-setup-service';
+
+const EXEC_TIMEOUT_MS = 120_000;
+
+type RunResult = { code: number; stdout: string; stderr: string };
+
+function unsupported(agentId: string): SwitchSetupStatus {
+  return {
+    agentId,
+    supported: false,
+    installed: false,
+    installedVersion: null,
+    latestVersion: null,
+    updateAvailable: false,
+  };
+}
+
+/**
+ * Parse JSON from remote CLI stdout that may be wrapped in login-shell noise
+ * (MOTD, profile banners, tunnel warnings, trailing prompt text). The remote
+ * shell profile can emit such text around the command output; version probes
+ * tolerate it via regex, but JSON.parse does not — so slice from the first
+ * bracket to the last matching one before parsing. Returns null on failure.
+ */
+function parseJsonLoose(stdout: string): unknown {
+  // Fast path: already-clean JSON.
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    // Fall through to noise-tolerant parsing.
+  }
+  const end = Math.max(stdout.lastIndexOf(']'), stdout.lastIndexOf('}'));
+  if (end === -1) return null;
+  // Try each opening bracket as a candidate start (to the last closing bracket).
+  // This tolerates leading banner lines even when a banner itself contains
+  // brackets, since only a real JSON start parses cleanly.
+  for (let i = 0; i <= end; i++) {
+    const c = stdout[i];
+    if (c !== '[' && c !== '{') continue;
+    try {
+      return JSON.parse(stdout.slice(i, end + 1));
+    } catch {
+      // Not this start; keep looking.
+    }
+  }
+  return null;
+}
+
+function isNewerVersion(installed: string, latest: string): boolean {
+  const a = semver.coerce(installed);
+  const b = semver.coerce(latest);
+  if (a === null || b === null) return false;
+  return semver.gt(b, a);
+}
+
+/**
+ * Remote counterpart of SwitchSetupService: drives an agent type's
+ * plugin-marketplace CLI (`<bin> plugin install/update/...`) on an SSH host to
+ * manage its Switch connector plugin. Versions come from the CLI's own JSON
+ * output (not on-disk manifests) so no SFTP round-trips are needed.
+ */
+export class RemoteSwitchSetupService {
+  constructor(private readonly ctx: SshExecutionContext) {}
+
+  private async resolve(agentId: string) {
+    const plugin = getPlugin(agentId);
+    const descriptor = plugin.capabilities.switchSetup;
+    if (descriptor.kind !== 'cli') return null;
+    const binaryName = plugin.capabilities.hostDependency.binaryNames[0];
+    if (!binaryName) return null;
+    const bin = (await resolveCommandPath(binaryName, this.ctx)) ?? binaryName;
+    const ref = `${descriptor.pluginName}@${descriptor.marketplaceName}`;
+    return { descriptor, bin, ref };
+  }
+
+  private async run(bin: string, args: string[]): Promise<RunResult> {
+    try {
+      const { stdout, stderr } = await this.ctx.exec(bin, args, { timeout: EXEC_TIMEOUT_MS });
+      return { code: 0, stdout, stderr };
+    } catch (err: unknown) {
+      const e = err as { stdout?: string; stderr?: string; code?: number; message?: string };
+      const result = {
+        code: e.code ?? 1,
+        stdout: e.stdout ?? '',
+        stderr: e.stderr ?? e.message ?? '',
+      };
+      log.warn('[remote-switch-setup] command failed', {
+        cmd: `${bin} ${args.join(' ')}`,
+        code: result.code,
+        stderr: result.stderr.slice(0, 1000),
+      });
+      return result;
+    }
+  }
+
+  private async findInstalled(bin: string, ref: string) {
+    const { stdout } = await this.run(bin, ['plugin', 'list', '--json']);
+    const parsed = parseJsonLoose(stdout);
+    if (parsed === null) return null;
+    const list: Array<{ id?: string; version?: string }> = Array.isArray(parsed)
+      ? parsed
+      : (((parsed as { installed?: unknown[] })?.installed ?? []) as never[]);
+    return list.find((p) => p.id === ref) ?? null;
+  }
+
+  private async advertisedVersion(
+    bin: string,
+    marketplaceName: string,
+    pluginName: string
+  ): Promise<string | null> {
+    const { stdout } = await this.run(bin, ['plugin', 'marketplace', 'list', '--json']);
+    const parsed = parseJsonLoose(stdout);
+    if (!Array.isArray(parsed)) return null;
+    const markets = parsed as Array<{
+      name?: string;
+      plugins?: Array<{ name?: string; version?: string }>;
+    }>;
+    const market = markets.find((m) => m.name === marketplaceName);
+    return market?.plugins?.find((p) => p.name === pluginName)?.version ?? null;
+  }
+
+  private async ensureMarketplace(
+    bin: string,
+    marketplaceName: string,
+    marketplaceSource: string
+  ): Promise<void> {
+    const { stdout } = await this.run(bin, ['plugin', 'marketplace', 'list', '--json']);
+    const parsed = parseJsonLoose(stdout);
+    if (
+      Array.isArray(parsed) &&
+      (parsed as Array<{ name?: string }>).some((m) => m.name === marketplaceName)
+    ) {
+      return;
+    }
+    const res = await this.run(bin, ['plugin', 'marketplace', 'add', marketplaceSource]);
+    if (res.code !== 0 && !/already|exists/i.test(res.stderr)) {
+      throw new Error(res.stderr.trim() || `Failed to add marketplace ${marketplaceName}`);
+    }
+  }
+
+  async getStatus(agentId: string): Promise<SwitchSetupStatus> {
+    const resolved = await this.resolve(agentId);
+    if (!resolved) return unsupported(agentId);
+    const { descriptor, bin, ref } = resolved;
+
+    const entry = await this.findInstalled(bin, ref);
+    const installedVersion = entry?.version ?? null;
+    const latestVersion = await this.advertisedVersion(
+      bin,
+      descriptor.marketplaceName,
+      descriptor.pluginName
+    );
+    const installed = entry !== null;
+    const updateAvailable =
+      installed && installedVersion !== null && latestVersion !== null
+        ? isNewerVersion(installedVersion, latestVersion)
+        : false;
+
+    return {
+      agentId,
+      supported: true,
+      installed,
+      installedVersion,
+      latestVersion,
+      updateAvailable,
+    };
+  }
+
+  async checkForUpdates(agentId: string): Promise<SwitchSetupStatus> {
+    const resolved = await this.resolve(agentId);
+    if (!resolved) return unsupported(agentId);
+    const { descriptor, bin } = resolved;
+    try {
+      await this.ensureMarketplace(bin, descriptor.marketplaceName, descriptor.marketplaceSource);
+      await this.run(bin, ['plugin', 'marketplace', 'update', descriptor.marketplaceName]);
+    } catch (err) {
+      log.warn('remote-switch-setup: marketplace refresh failed', { agentId, err });
+    }
+    return this.getStatus(agentId);
+  }
+
+  async install(agentId: string): Promise<SwitchSetupResult> {
+    const resolved = await this.resolve(agentId);
+    if (!resolved)
+      return { success: false, message: 'Switch setup is not supported for this agent.' };
+    const { descriptor, bin, ref } = resolved;
+    try {
+      await this.ensureMarketplace(bin, descriptor.marketplaceName, descriptor.marketplaceSource);
+    } catch (err) {
+      return { success: false, message: `Could not add marketplace: ${String(err)}` };
+    }
+    const res = await this.run(bin, ['plugin', 'install', ref, '-s', descriptor.scope]);
+    return res.code === 0
+      ? { success: true }
+      : { success: false, message: res.stderr.trim() || 'Install failed.' };
+  }
+
+  async update(agentId: string): Promise<SwitchSetupResult> {
+    const resolved = await this.resolve(agentId);
+    if (!resolved)
+      return { success: false, message: 'Switch setup is not supported for this agent.' };
+    const { descriptor, bin, ref } = resolved;
+    const res = await this.run(bin, ['plugin', 'update', ref, '-s', descriptor.scope]);
+    return res.code === 0
+      ? { success: true }
+      : { success: false, message: res.stderr.trim() || 'Update failed.' };
+  }
+
+  /** Status of every Switch-supported agent type's connector plugin on this host. */
+  async listAgentTypeStatuses(): Promise<SwitchSetupStatus[]> {
+    const statuses: SwitchSetupStatus[] = [];
+    for (const plugin of listPlugins()) {
+      if (plugin.capabilities.switchSetup.kind !== 'cli') continue;
+      statuses.push(await this.getStatus(plugin.metadata.id));
+    }
+    return statuses;
+  }
+}
+
+const serviceCache = new Map<string, Promise<RemoteSwitchSetupService>>();
+
+async function build(sshHost: string): Promise<RemoteSwitchSetupService> {
+  const proxy = await ensureSshConnected(agentSshConnectionId(sshHost), sshHost);
+  return new RemoteSwitchSetupService(new SshExecutionContext(proxy));
+}
+
+/** Returns the remote Switch-setup service for a host, cached per SSH alias. */
+export function getRemoteSwitchSetupService(sshHost: string): Promise<RemoteSwitchSetupService> {
+  const existing = serviceCache.get(sshHost);
+  if (existing) return existing;
+  const created = build(sshHost).catch((error) => {
+    serviceCache.delete(sshHost);
+    throw error;
+  });
+  serviceCache.set(sshHost, created);
+  return created;
+}

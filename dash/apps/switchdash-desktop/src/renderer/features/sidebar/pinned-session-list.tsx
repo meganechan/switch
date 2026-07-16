@@ -1,0 +1,28 @@
+import { observer } from 'mobx-react-lite';
+import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { MicroLabel } from '@renderer/lib/ui/label';
+import { SidebarSessionItem } from './session-item';
+import { SidebarGroup, SidebarMenu } from './sidebar-primitives';
+
+export const SidebarPinnedSessionList = observer(function SidebarPinnedSessionList() {
+  const entries = sidebarStore.pinnedSidebarEntries;
+  if (entries.length === 0) return null;
+
+  return (
+    <SidebarGroup className="flex shrink-0 flex-col">
+      <div className="flex h-[40px] items-center justify-between pr-2.5 pl-5">
+        <MicroLabel className="text-foreground-tertiary-passive">Pinned</MicroLabel>
+      </div>
+      <SidebarMenu className="px-3 pb-2">
+        {entries.map(({ projectId, sessionId }) => (
+          <SidebarSessionItem
+            key={`${projectId}:${sessionId}`}
+            projectId={projectId}
+            sessionId={sessionId}
+            rowVariant="pinned"
+          />
+        ))}
+      </SidebarMenu>
+    </SidebarGroup>
+  );
+});

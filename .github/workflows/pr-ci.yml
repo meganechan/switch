@@ -1,0 +1,194 @@
+name: PR CI
+
+# Pull-request checks for the three code trees (core/, dash/, gateway/) plus a
+# repo-wide secret scan. Complements the tag-driven release workflows
+# (switch-release.yml, switchdash-release.yml) — this file is the ongoing
+# per-PR gate, they publish on tags.
+#
+# Fork safety: this uses `pull_request` (NOT `pull_request_target`), so runs
+# triggered by fork PRs get a read-only GITHUB_TOKEN and NO access to repo
+# secrets. Every job here only needs to read code, so that is exactly right —
+# never switch this to pull_request_target.
+#
+# Path filtering: a `changes` job (dorny/paths-filter) detects which trees a PR
+# touched; each tree's job is gated on its filter, so a backend-only PR skips
+# the dash/gateway jobs entirely. Shared files (workflows, root config) fan out
+# to everything, since a change there can affect any tree.
+
+on:
+  pull_request:
+
+# Cancel a PR's in-flight CI when a new commit is pushed to the same ref.
+concurrency:
+  group: pr-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect changed trees
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      dash: ${{ steps.filter.outputs.dash }}
+      gateway: ${{ steps.filter.outputs.gateway }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        with:
+          filters: |
+            shared: &shared
+              - '.github/workflows/pr-ci.yml'
+              - 'ruff.toml'
+              - 'justfile'
+            backend:
+              - *shared
+              - 'core/**'
+              - 'connectors/**'
+            dash:
+              - *shared
+              - 'dash/**'
+            gateway:
+              - *shared
+              - 'gateway/**'
+
+  backend:
+    name: Backend (core)
+    needs: changes
+    if: ${{ needs.changes.outputs.backend == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --project core
+
+      - name: Ruff format check
+        run: uv run --project core ruff format --check .
+
+      - name: Ruff lint
+        run: uv run --project core ruff check .
+
+      - name: mypy
+        run: uv run --project core mypy --config-file core/pyproject.toml core/switch_core/ connectors/
+
+      # Store tests boot real Postgres via testcontainers; ubuntu-latest ships
+      # Docker so the containers come up without extra setup. The slow
+      # integration suite (Postgres + Tuwunel) is excluded from the default run
+      # and is not part of PR CI.
+      - name: pytest
+        run: uv run --project core pytest -c core/pyproject.toml core/tests/
+
+  dash:
+    name: Switchdash (dash)
+    needs: changes
+    if: ${{ needs.changes.outputs.dash == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: 10.28.2
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: dash/.nvmrc
+          cache: pnpm
+          cache-dependency-path: dash/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The desktop app's `browser` vitest project drives a real Chromium via
+      # @vitest/browser-playwright, so the browser binary must be present.
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build workspace packages
+        run: pnpm -r --filter './packages/**' run build
+
+      - name: Lint (oxlint)
+        run: pnpm -r run lint
+
+      - name: Format check (oxfmt)
+        run: pnpm -r run format:check
+
+      - name: Typecheck (tsgo)
+        run: pnpm -r run typecheck
+
+      - name: Test (vitest)
+        run: pnpm -r run test
+
+  gateway:
+    name: Gateway UI
+    needs: changes
+    if: ${{ needs.changes.outputs.gateway == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `build` runs `tsc -b && vite build`, so it doubles as the typecheck gate.
+      - name: Build (tsc + vite)
+        run: npm run build
+
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Full history so the PR commit range can be scanned.
+          fetch-depth: 0
+
+      # Invoke the gitleaks CLI directly via its Docker image. We deliberately
+      # do NOT use gitleaks/gitleaks-action, which requires a paid license for
+      # organization repos — the CLI itself is free under the same MIT license.
+      - name: Scan PR commit range
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            zricethezav/gitleaks:v8.30.1 detect \
+            --source=/repo \
+            --redact \
+            --log-opts="${BASE_SHA}..${HEAD_SHA}" \
+            --verbose

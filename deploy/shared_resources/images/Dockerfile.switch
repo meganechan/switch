@@ -1,0 +1,31 @@
+FROM python:3.12-slim
+
+# Pin uv and install exactly what uv.lock resolves, so the image matches what
+# `uv sync` produces locally. Installing from pyproject.toml alone lets
+# transitive deps (e.g. mcp/fastmcp) float on rebuild and silently change
+# behaviour.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+
+WORKDIR /app
+
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/usr/local
+
+# The Python project lives in core/; flatten it to /app in the image so
+# the package installs as `switch_core` and alembic.ini resolves against /app.
+COPY core/pyproject.toml core/uv.lock ./
+
+# Install locked dependencies first (cached across source changes), without the
+# project itself so this layer only busts when the lockfile changes.
+RUN uv sync --frozen --no-install-project --no-dev
+
+COPY core/switch_core/ switch_core/
+COPY core/alembic.ini .
+# pyproject's readme field makes hatchling read README.md when it builds the
+# project below, so it must be in the image context.
+COPY core/README.md ./
+
+RUN uv sync --frozen --no-dev
+
+CMD ["python", "-m", "switch_core.main"]

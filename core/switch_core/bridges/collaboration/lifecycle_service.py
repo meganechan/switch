@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import re
+from typing import TYPE_CHECKING
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from switch_core.bridges.collaboration.adapter import CollaborationAdapter
+from switch_core.bridges.collaboration.bridge_core import BridgeCore
+from switch_core.bridges.collaboration.models import BridgeConnectionConfig
+from switch_core.clients.bridge_client import BridgeClient, BridgeClientConfig
+from switch_core.config import SwitchConfig
+from switch_core.db.models import CollaborationBridge
+from switch_core.db.stores.agent_store import AgentStore
+from switch_core.db.stores.bridge_message_map_store import BridgeMessageMapStore
+from switch_core.db.stores.client_store import ClientStore
+from switch_core.db.stores.collaboration_bridge_store import CollaborationBridgeStore
+from switch_core.db.stores.external_user_store import ExternalUserStore
+from switch_core.db.stores.room_store import RoomStore
+from switch_core.matrix_admin import MatrixAdmin
+
+if TYPE_CHECKING:
+    from switch_core.clients.client_lifecycle_service import ClientLifecycleService
+    from switch_core.room_service import RoomService
+
+logger = logging.getLogger(__name__)
+
+
+class CollaborationBridgeLifecycleService:
+    def __init__(
+        self,
+        *,
+        bridge_store: CollaborationBridgeStore,
+        external_user_store: ExternalUserStore,
+        bridge_message_map_store: BridgeMessageMapStore,
+        room_store: RoomStore,
+        agent_store: AgentStore,
+        client_store: ClientStore,
+        client_lifecycle: ClientLifecycleService,
+        room_service: RoomService,
+        matrix_admin: MatrixAdmin,
+        session_factory: async_sessionmaker[AsyncSession],
+        config: SwitchConfig,
+    ) -> None:
+        self._bridge_store = bridge_store
+        self._external_user_store = external_user_store
+        self._bridge_message_map_store = bridge_message_map_store
+        self._room_store = room_store
+        self._agent_store = agent_store
+        self._client_store = client_store
+        self._client_lifecycle = client_lifecycle
+        self._room_service = room_service
+        self._matrix_admin = matrix_admin
+        self._session_factory = session_factory
+        self._config = config
+
+        self._adapter_registry: dict[str, type[CollaborationAdapter]] = {}
+        self._config_registry: dict[str, type[BridgeConnectionConfig]] = {}
+        self._bridges: dict[str, BridgeCore] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
+
+    def register_adapter(
+        self,
+        bridge_type: str,
+        adapter_cls: type[CollaborationAdapter],
+        config_cls: type[BridgeConnectionConfig],
+    ) -> None:
+        self._adapter_registry[bridge_type] = adapter_cls
+        self._config_registry[bridge_type] = config_cls
+
+    def get_registered_types(self) -> list[str]:
+        return list(self._adapter_registry.keys())
+
+    def get_adapter(self, bridge_id: str) -> CollaborationAdapter | None:
+        """The live adapter for a running bridge, or None if it isn't running.
+
+        Used to ask a platform for a channel deeplink without the caller having
+        to know the platform specifics."""
+        bridge = self._bridges.get(bridge_id)
+        return bridge.adapter if bridge is not None else None
+
+    def get_config_schema(self, bridge_type: str) -> dict[str, object]:
+        config_cls = self._config_registry.get(bridge_type)
+        if config_cls is None:
+            raise ValueError(f"Unknown bridge type: {bridge_type}")
+        return config_cls.model_json_schema()
+
+    async def start_all(self) -> None:
+        async with self._session_factory() as session:
+            bridges = await self._bridge_store.get_active(session)
+
+        logger.info("Starting %d collaboration bridges", len(bridges))
+        for bridge in bridges:
+            try:
+                await self.start(bridge.id)
+            except Exception:
+                logger.exception("Failed to start bridge %s", bridge.id)
+
+    async def register(
+        self,
+        *,
+        bridge_type: str,
+        display_name: str,
+        connection_config: dict[str, object],
+    ) -> CollaborationBridge:
+        adapter_cls = self._adapter_registry.get(bridge_type)
+        config_cls = self._config_registry.get(bridge_type)
+        if adapter_cls is None or config_cls is None:
+            raise ValueError(f"Unknown bridge type: {bridge_type}")
+
+        config_cls.model_validate(connection_config)
+
+        safe_name = re.sub(r"[^a-z0-9._=-]", "-", display_name.lower())[:16]
+        bridge_client_record = await self._client_lifecycle.create_client(
+            client_type="bridge",
+            display_name=f"bridge-{bridge_type}-{display_name}",
+            localpart=f"switch-bridge-{bridge_type}-{safe_name}",
+        )
+
+        bridge = CollaborationBridge(
+            type=bridge_type,
+            display_name=display_name,
+            connection_config=connection_config,  # type: ignore[arg-type]
+            client_id=bridge_client_record.id,
+            status="active",
+        )
+        async with self._session_factory() as session:
+            await self._bridge_store.create(session, bridge)
+            await session.commit()
+
+        await self.start(bridge.id)
+
+        logger.info(
+            "Registered collaboration bridge %s (%s): %s",
+            bridge.id,
+            bridge_type,
+            display_name,
+        )
+        return bridge
+
+    async def start(self, bridge_id: str) -> None:
+        async with self._session_factory() as session:
+            bridge = await self._bridge_store.get(session, bridge_id)
+        if bridge is None:
+            raise ValueError(f"Bridge not found: {bridge_id}")
+
+        adapter_cls = self._adapter_registry.get(bridge.type)
+        config_cls = self._config_registry.get(bridge.type)
+        if adapter_cls is None or config_cls is None:
+            raise ValueError(f"Unknown bridge type: {bridge.type}")
+
+        typed_config = config_cls.model_validate(bridge.connection_config or {})
+        adapter = adapter_cls(config=typed_config)  # type: ignore[call-arg]
+
+        async with self._session_factory() as session:
+            bridge_client_record = await self._client_store.get(
+                session, bridge.client_id
+            )
+        if bridge_client_record is None:
+            raise ValueError(f"Bridge client not found: {bridge.client_id}")
+
+        bridge_core = BridgeCore(
+            bridge_id=bridge_id,
+            bridge_type=bridge.type,
+            bridge_display_name=bridge.display_name,
+            adapter=adapter,
+            room_store=self._room_store,
+            external_user_store=self._external_user_store,
+            bridge_message_map_store=self._bridge_message_map_store,
+            agent_store=self._agent_store,
+            client_store=self._client_store,
+            room_service=self._room_service,
+            client_lifecycle=self._client_lifecycle,
+            matrix_admin=self._matrix_admin,
+            session_factory=self._session_factory,
+            matrix_server_name=self._config.matrix_server_name,
+            bridge_client_matrix_user_id=bridge_client_record.matrix_user_id,
+        )
+
+        bridge_client = BridgeClient(
+            bridge_core=bridge_core,
+            client_id=bridge_client_record.id,
+            matrix_user_id=bridge_client_record.matrix_user_id,
+            display_name=bridge_client_record.display_name,
+            password=bridge_client_record.password,
+            server_url=self._config.matrix_server,
+            session_factory=self._session_factory,
+            client_store=self._client_store,
+            config=BridgeClientConfig(bridge_id=bridge_id),
+            device_id=bridge_client_record.device_id,
+            access_token=bridge_client_record.access_token,
+            next_batch_token=bridge_client_record.next_batch_token,
+        )
+
+        task = asyncio.create_task(
+            self._run_bridge(bridge_id, bridge_core, bridge_client)
+        )
+        self._bridges[bridge_id] = bridge_core
+        self._tasks[bridge_id] = task
+
+        logger.info("Started collaboration bridge %s (%s)", bridge_id, bridge.type)
+
+    async def _run_bridge(
+        self,
+        bridge_id: str,
+        bridge_core: BridgeCore,
+        bridge_client: BridgeClient,
+    ) -> None:
+        try:
+            await bridge_core.start()
+            await bridge_client.start()
+        except Exception:
+            logger.exception("Bridge %s crashed", bridge_id)
+            self._bridges.pop(bridge_id, None)
+            self._tasks.pop(bridge_id, None)
+
+    async def stop(self, bridge_id: str) -> None:
+        bridge_core = self._bridges.get(bridge_id)
+        if bridge_core:
+            await bridge_core.stop()
+
+        task = self._tasks.pop(bridge_id, None)
+        if task and not task.done():
+            task.cancel()
+
+        self._bridges.pop(bridge_id, None)
+        logger.info("Stopped collaboration bridge %s", bridge_id)
+
+    async def stop_all(self) -> None:
+        logger.info("Stopping all %d collaboration bridges", len(self._bridges))
+        for bridge_id in list(self._bridges):
+            await self.stop(bridge_id)
+
+    async def remove(self, bridge_id: str) -> None:
+        await self.stop(bridge_id)
+        async with self._session_factory() as session:
+            await self._external_user_store.delete_by_bridge(session, bridge_id)
+            await self._bridge_store.delete(session, bridge_id)
+            await session.commit()
+        logger.info("Removed collaboration bridge %s", bridge_id)
+
+    def get(self, bridge_id: str) -> BridgeCore | None:
+        return self._bridges.get(bridge_id)
+
+    def all_bridges(self) -> list[BridgeCore]:
+        return list(self._bridges.values())

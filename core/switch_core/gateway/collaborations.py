@@ -1,0 +1,190 @@
+from __future__ import annotations
+
+import logging
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from switch_core.bridges.collaboration.lifecycle_service import (
+    CollaborationBridgeLifecycleService,
+)
+from switch_core.db.models import User
+from switch_core.db.stores.collaboration_bridge_store import CollaborationBridgeStore
+from switch_core.db.stores.external_user_store import ExternalUserStore
+from switch_core.db.stores.room_store import RoomStore
+from switch_core.gateway.auth import get_current_user, require_admin
+from switch_core.gateway.dependencies import (
+    get_bridge_store,
+    get_collab_lifecycle,
+    get_external_user_store,
+    get_room_service,
+    get_room_store,
+    get_session,
+)
+from switch_core.gateway.schemas import (
+    BridgeCreateRequest,
+    BridgeDetail,
+    BridgeTypeInfo,
+    BridgeUpdateRequest,
+    ExternalUserSummary,
+)
+from switch_core.room_service import RoomService
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+@router.get("/types")
+async def list_bridge_types(
+    collab_lifecycle: Annotated[
+        CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
+    ],
+    _user: Annotated[User, Depends(get_current_user)],
+) -> list[BridgeTypeInfo]:
+    return [
+        BridgeTypeInfo(
+            key=t,
+            config_schema=collab_lifecycle.get_config_schema(t),
+        )
+        for t in collab_lifecycle.get_registered_types()
+    ]
+
+
+@router.post("")
+async def create_bridge(
+    req: BridgeCreateRequest,
+    collab_lifecycle: Annotated[
+        CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
+    ],
+    # Admin-only: a bridge is an unowned, workspace-wide integration holding
+    # platform secrets, so there is no owner to scope to (unlike connectors,
+    # whose authz is owner-or-admin) — registering one is an admin action.
+    _user: Annotated[User, Depends(require_admin)],
+) -> BridgeDetail:
+    try:
+        bridge = await collab_lifecycle.register(
+            bridge_type=req.bridge_type,
+            display_name=req.display_name,
+            connection_config=dict(req.connection_config),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return BridgeDetail(
+        bridge_id=bridge.id,
+        bridge_type=bridge.type,
+        display_name=bridge.display_name,
+        status=bridge.status,
+        agent_greetings_enabled=bridge.agent_greetings_enabled,
+        room_count=0,
+        created_at=str(bridge.created_at),
+    )
+
+
+@router.get("")
+async def list_bridges(
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
+    room_store: Annotated[RoomStore, Depends(get_room_store)],
+    _user: Annotated[User, Depends(get_current_user)],
+) -> list[BridgeDetail]:
+    bridges = await bridge_store.get_all(session)
+
+    details = []
+    for bridge in bridges:
+        rooms = await room_store.get_by_bridge(session, bridge.id)
+        details.append(
+            BridgeDetail(
+                bridge_id=bridge.id,
+                bridge_type=bridge.type,
+                display_name=bridge.display_name,
+                status=bridge.status,
+                agent_greetings_enabled=bridge.agent_greetings_enabled,
+                room_count=len(rooms),
+                created_at=str(bridge.created_at),
+            )
+        )
+
+    return details
+
+
+@router.patch("/{bridge_id}")
+async def update_bridge(
+    bridge_id: str,
+    payload: BridgeUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
+    room_store: Annotated[RoomStore, Depends(get_room_store)],
+    _user: Annotated[User, Depends(get_current_user)],
+) -> BridgeDetail:
+    bridge = await bridge_store.get(session, bridge_id)
+    if bridge is None:
+        raise HTTPException(status_code=404, detail="Bridge not found")
+
+    bridge = await bridge_store.set_agent_greetings_enabled(
+        session, bridge_id, payload.agent_greetings_enabled
+    )
+    await session.commit()
+    rooms = await room_store.get_by_bridge(session, bridge_id)
+    return BridgeDetail(
+        bridge_id=bridge.id,
+        bridge_type=bridge.type,
+        display_name=bridge.display_name,
+        status=bridge.status,
+        agent_greetings_enabled=bridge.agent_greetings_enabled,
+        room_count=len(rooms),
+        created_at=str(bridge.created_at),
+    )
+
+
+@router.get("/{bridge_id}/users")
+async def list_bridge_users(
+    bridge_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
+    external_user_store: Annotated[ExternalUserStore, Depends(get_external_user_store)],
+    _user: Annotated[User, Depends(get_current_user)],
+) -> list[ExternalUserSummary]:
+    bridge = await bridge_store.get(session, bridge_id)
+    if bridge is None:
+        raise HTTPException(status_code=404, detail="Bridge not found")
+
+    users = await external_user_store.get_by_bridge(session, bridge_id)
+    return [
+        ExternalUserSummary(
+            id=u.id,
+            bridge_id=u.bridge_id,
+            external_user_id=u.external_user_id,
+            external_username=u.external_username,
+        )
+        for u in users
+    ]
+
+
+@router.delete("/{bridge_id}")
+async def delete_bridge(
+    bridge_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
+    room_store: Annotated[RoomStore, Depends(get_room_store)],
+    room_service: Annotated[RoomService, Depends(get_room_service)],
+    collab_lifecycle: Annotated[
+        CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
+    ],
+    _user: Annotated[User, Depends(get_current_user)],
+) -> dict[str, bool]:
+    bridge = await bridge_store.get(session, bridge_id)
+    if bridge is None:
+        raise HTTPException(status_code=404, detail="Bridge not found")
+
+    rooms = await room_store.get_by_bridge(session, bridge_id)
+    for room in rooms:
+        await room_service.delete_room(room.id)
+
+    await collab_lifecycle.remove(bridge_id)
+    return {"ok": True}

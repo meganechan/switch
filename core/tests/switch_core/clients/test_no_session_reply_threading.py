@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+import pytest
+
+from switch_core.clients.agent_client import AUTO_REPLY_FLAG, AgentClient
+
+
+class _Recorder:
+    """Captures the send_message call so we can assert on thread_root_id."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def __call__(self, room_id: str, body: str, **kwargs: object) -> str:
+        self.calls.append({"room_id": room_id, "body": body, **kwargs})
+        return "$sent"
+
+
+def _meta() -> SimpleNamespace:
+    return SimpleNamespace(
+        room_id="room-uuid",
+        name="Some Room",
+        bridge_id="bridge-1",
+        channel_type="channel_private",
+    )
+
+
+def _fake_self(
+    send_message: _Recorder,
+    unavailable_reply: str = "I don't have a session connected to this room.",
+) -> SimpleNamespace:
+    """A minimal AgentClient stand-in: addressed, offline, non-moderator."""
+
+    async def _resolve_room_meta(_matrix_room_id: str) -> SimpleNamespace:
+        return _meta()
+
+    async def _compute_addressed(_event: object, _meta: object) -> bool:
+        return True  # addressed → the offline auto-reply path runs
+
+    async def _is_available(_room_id: str) -> bool:
+        return False  # no live session → triggers the auto-reply
+
+    async def _reply_when_unavailable_here(_meta: object) -> str:
+        return unavailable_reply
+
+    ns = SimpleNamespace(
+        agent=SimpleNamespace(id="agent-1", name="cc-bug-fixing"),
+        _resolve_room_meta=_resolve_room_meta,
+        _compute_addressed=_compute_addressed,
+        _is_available=_is_available,
+        _reply_when_unavailable_here=_reply_when_unavailable_here,
+        send_message=send_message,
+        _event_queue=SimpleNamespace(enqueue=lambda *a, **k: None),
+    )
+    # Exercise the real sender-tagging helper.
+    ns._sender_handle = AgentClient._sender_handle.__get__(ns)
+    return ns
+
+
+def _event(thread_id: str | None, *, is_auto_reply: bool = False) -> SimpleNamespace:
+    content: dict[str, object] = {"sender_name": "louisa"}
+    if thread_id is not None:
+        content["m.relates_to"] = {"rel_type": "m.thread", "event_id": thread_id}
+    if is_auto_reply:
+        content[AUTO_REPLY_FLAG] = True
+    return SimpleNamespace(
+        body="@cc-bug-fixing can you help",
+        sender="@switch-mattermost-louisa:switch.local",
+        event_id="$trigger",
+        server_timestamp=0,
+        source={"content": content},
+    )
+
+
+@pytest.mark.asyncio
+async def test_no_session_reply_threads_under_triggering_mention() -> None:
+    send_message = _Recorder()
+    room = SimpleNamespace(room_id="!matrix:server")
+    await AgentClient.on_message(
+        _fake_self(send_message), room, _event(thread_id="$thread-root")
+    )
+
+    assert len(send_message.calls) == 1
+    assert send_message.calls[0]["thread_root_id"] == "$thread-root"
+    # The reply tags the sender so they get notified.
+    assert send_message.calls[0]["body"].startswith("@louisa ")
+    assert send_message.calls[0]["mentions"] == [
+        "@switch-mattermost-louisa:switch.local"
+    ]
+    # The reply is stamped as an auto-reply so it can't re-trigger another one.
+    assert send_message.calls[0]["extra_content"] == {AUTO_REPLY_FLAG: True}
+
+
+@pytest.mark.asyncio
+async def test_no_session_reply_not_triggered_by_another_auto_reply() -> None:
+    # CHOO-548: two session-less agents addressed via each other's auto-replies
+    # must not ping-pong. A message already flagged as an auto-reply gets no
+    # reply, so the loop can never form.
+    send_message = _Recorder()
+    room = SimpleNamespace(room_id="!matrix:server")
+    await AgentClient.on_message(
+        _fake_self(send_message),
+        room,
+        _event(thread_id="$thread-root", is_auto_reply=True),
+    )
+
+    assert send_message.calls == []
+
+
+@pytest.mark.asyncio
+async def test_no_session_reply_does_not_double_tag_the_asker() -> None:
+    # The known-agent reply may already lead with its own @mention (pinging the
+    # configured operator). When that's the same person as the asker, we must
+    # tag them once, not "@louisa @louisa".
+    send_message = _Recorder()
+    room = SimpleNamespace(room_id="!matrix:server")
+    await AgentClient.on_message(
+        _fake_self(
+            send_message, unavailable_reply="@louisa\n\nmy operator should run …"
+        ),
+        room,
+        _event(thread_id=None),
+    )
+
+    assert len(send_message.calls) == 1
+    body = send_message.calls[0]["body"]
+    assert body.count("@louisa") == 1
+    assert body.startswith("@louisa")
+
+
+@pytest.mark.asyncio
+async def test_no_session_reply_tags_distinct_asker_and_operator() -> None:
+    # When the reply's embedded mention is a DIFFERENT person (the operator),
+    # both the asker and that operator are tagged.
+    send_message = _Recorder()
+    room = SimpleNamespace(room_id="!matrix:server")
+    await AgentClient.on_message(
+        _fake_self(
+            send_message, unavailable_reply="@operator\n\nmy operator should run …"
+        ),
+        room,
+        _event(thread_id=None),
+    )
+
+    assert len(send_message.calls) == 1
+    body = send_message.calls[0]["body"]
+    assert body.startswith("@louisa ")
+    assert "@operator" in body
+
+
+@pytest.mark.asyncio
+async def test_no_session_reply_threads_under_root_level_mention() -> None:
+    # CHOO-586: a root-level mention (no existing thread) must still get a
+    # threaded reply — the reply starts a NEW thread rooted at the triggering
+    # message itself, rather than posting at the channel root. PR #115 only
+    # handled the already-in-a-thread case; this is the remaining edge case.
+    send_message = _Recorder()
+    room = SimpleNamespace(room_id="!matrix:server")
+    await AgentClient.on_message(_fake_self(send_message), room, _event(thread_id=None))
+
+    assert len(send_message.calls) == 1
+    # Falls back to the triggering event's own id, starting a thread under it.
+    assert send_message.calls[0]["thread_root_id"] == "$trigger"

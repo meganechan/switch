@@ -1,0 +1,215 @@
+name: switchdash release
+
+# Builds the switchdash desktop app and publishes it to a GitHub Release on this
+# (private) repo, so anyone with repo-read access can install it without building
+# from source. Release assets inherit the repo's read access — no separate ACL.
+#
+# macOS (arm64) is signed + notarized. Linux (x64) is temporarily disabled
+# (CHOO-1339): the .deb target fails without an author email in the app
+# package.json; re-enabling with proper maintainer metadata is a follow-up.
+# Windows is not built yet (needs an Authenticode / Azure Trusted Signing
+# identity — tracked as a follow-up).
+#
+# Trigger by pushing a tag like `switchdash-v1.1.34` (the version after
+# `switchdash-v` MUST match apps/switchdash-desktop/package.json `version`).
+# `workflow_dispatch` builds the artifacts for testing without creating a Release.
+#
+# Builds are signed + notarized with the org's Developer ID when the Apple secrets
+# (APPLE_CSC_LINK / APPLE_CSC_KEY_PASSWORD / APPLE_API_KEY_P8 / APPLE_API_KEY_ID /
+# APPLE_API_ISSUER) are present; without them they fall back to an unsigned ad-hoc
+# build. Auto-update is disabled in the shipped app (VITE_SWITCHDASH_AUTOUPDATE=off)
+# so it never pulls from the upstream release feed.
+
+on:
+  push:
+    tags:
+      - 'switchdash-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: dash
+
+jobs:
+  build-macos:
+    name: Build & release (macOS arm64)
+    runs-on: macos-14
+    # Surface the cert/key secrets through env so step-level `if:` can gate on
+    # them — the `secrets` context is not allowed in `if:` expressions.
+    env:
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: dash/.nvmrc
+          cache: pnpm
+          cache-dependency-path: dash/pnpm-lock.yaml
+
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#switchdash-v}"
+          pkg_version="$(node -p "require('./apps/switchdash-desktop/package.json').version")"
+          echo "tag=$tag_version package.json=$pkg_version"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match apps/switchdash-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild native modules for Electron
+        # postinstall skips electron-rebuild under CI; do it explicitly so
+        # better-sqlite3 / node-pty match the packaged Electron ABI.
+        run: pnpm --filter @switchdash/switchdash-desktop run rebuild
+
+      - name: Build workspace packages + app
+        # Root recursive build (topological): packages/** then the desktop app.
+        run: pnpm run build
+
+      - name: Write App Store Connect API key
+        # electron-builder's notarizer wants the .p8 as a file path. Only write it
+        # when the secret is present; absence leaves APPLE_API_KEY empty so the
+        # package step falls back to an unsigned/ad-hoc build.
+        if: ${{ env.APPLE_API_KEY_P8 != '' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/appstore"
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/appstore/AuthKey.p8"
+          echo "APPLE_API_KEY=$RUNNER_TEMP/appstore/AuthKey.p8" >> "$GITHUB_ENV"
+
+      - name: Package (mac arm64, no publish)
+        working-directory: dash/apps/switchdash-desktop
+        env:
+          # Developer ID signing: when the cert secret is set, electron-builder
+          # signs with it and the config enables notarization. When it's empty,
+          # disable identity discovery so the build falls back to ad-hoc signing
+          # instead of failing on a missing identity.
+          CSC_LINK: ${{ secrets.APPLE_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.APPLE_CSC_LINK != '' && 'true' || 'false' }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: pnpm exec electron-builder --mac --publish never --config electron-builder.config.ts
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: dash/apps/switchdash-desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${GITHUB_REF_NAME#switchdash-v}"
+          # Upload the installable artifacts (.dmg, .zip) AND the channel manifest
+          # (latest-mac.yml) + blockmaps — electron-updater needs the manifest to
+          # detect/download updates, so a dmg-only release would silently break
+          # auto-update.
+          shopt -s nullglob
+          assets=(release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml)
+          notes="switchdash desktop app $version (macOS arm64). Install: download the .dmg, open it, drag Switchdash to Applications. This build is signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass. In-app updates require a GitHub login via the gh CLI (gh auth login)."
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "switchdash $version" \
+            --latest=false \
+            --notes "$notes"
+
+      - name: Upload build artifacts (dispatch runs, no Release)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: switchdash-macos-arm64
+          path: |
+            dash/apps/switchdash-desktop/release/*.dmg
+            dash/apps/switchdash-desktop/release/*.zip
+          if-no-files-found: error
+
+  build-linux:
+    name: Build & release (Linux x64)
+    runs-on: ubuntu-latest
+    # Disabled (CHOO-1339): the .deb target fails without an author email in the
+    # app package.json. Re-enable once maintainer metadata is added (follow-up).
+    if: false
+    # On tag runs, upload into the Release the macOS job creates — depend on it so
+    # the Release exists before we upload. Linux is unsigned, so no cert secrets.
+    needs: build-macos
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: dash/.nvmrc
+          cache: pnpm
+          cache-dependency-path: dash/pnpm-lock.yaml
+
+      - name: Install rpm tooling
+        # electron-builder's rpm target needs the `rpm` binary; deb + AppImage
+        # tooling is already present on ubuntu-latest.
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
+      - name: Verify tag matches package.json version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag_version="${GITHUB_REF_NAME#switchdash-v}"
+          pkg_version="$(node -p "require('./apps/switchdash-desktop/package.json').version")"
+          echo "tag=$tag_version package.json=$pkg_version"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::Tag version ($tag_version) does not match apps/switchdash-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rebuild native modules for Electron
+        run: pnpm --filter @switchdash/switchdash-desktop run rebuild
+
+      - name: Build workspace packages + app
+        run: pnpm run build
+
+      - name: Package (linux x64, no publish)
+        working-directory: dash/apps/switchdash-desktop
+        run: pnpm exec electron-builder --linux --publish never --config electron-builder.config.ts
+
+      - name: Upload to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: dash/apps/switchdash-desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The Release is created by the macOS job (needs: build-macos). Attach the
+          # Linux installers + the electron-updater channel manifest (latest-linux.yml)
+          # so auto-update works on Linux too.
+          shopt -s nullglob
+          assets=(release/*.AppImage release/*.deb release/*.rpm release/*.blockmap release/latest-linux.yml)
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Upload build artifacts (dispatch runs, no Release)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: switchdash-linux-x64
+          path: |
+            dash/apps/switchdash-desktop/release/*.AppImage
+            dash/apps/switchdash-desktop/release/*.deb
+            dash/apps/switchdash-desktop/release/*.rpm
+          if-no-files-found: error

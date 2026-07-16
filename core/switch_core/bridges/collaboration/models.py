@@ -1,0 +1,86 @@
+from typing import Literal
+
+from pydantic import BaseModel
+
+ChannelType = Literal["lobby", "channel_public", "channel_private", "group", "direct"]
+
+
+class Attachment(BaseModel):
+    """An inbound file attachment (image only, for now) with its raw bytes.
+
+    `data` holds the downloaded file content; the bridge uploads it to the
+    Matrix media repository and discards the bytes afterwards.
+    """
+
+    filename: str
+    mimetype: str
+    data: bytes
+
+
+class InboundMessage(BaseModel):
+    channel_id: str
+    channel_type: ChannelType
+    sender_id: str
+    sender_name: str
+    content: str
+    message_ref: str
+    # External platform's thread root id (Mattermost root_id), set when this
+    # message is a reply inside a thread. None for top-level messages.
+    root_id: str | None = None
+    agent_name: str | None = None
+    channel_name: str | None = None
+    attachments: list[Attachment] = []
+    # The bridge's own bot handle when this message @-mentions the bridge bot
+    # itself (e.g. Slack's "Agent Switch" app). None when the bot was not
+    # tagged. Lets the bridge guide users who tag the app instead of an agent.
+    self_mention_token: str | None = None
+
+
+class InboundCommand(BaseModel):
+    channel_id: str
+    channel_type: ChannelType
+    sender_id: str
+    sender_name: str
+    command: str
+    args: str
+    # External platform's id for the command post (Mattermost post_id), so the
+    # command's bridged Matrix event can be mapped back to it and the result
+    # can be threaded under the originating command message. None when the
+    # platform gives us no post id.
+    message_ref: str | None = None
+    # External platform's thread root id (Mattermost root_id), set when the
+    # command was typed as a reply inside an existing thread. None for a
+    # top-level command. Used to thread the result under the thread's ROOT
+    # post rather than the command post (a mid-thread reply cannot be a root).
+    root_id: str | None = None
+    agent_name: str | None = None
+    channel_name: str | None = None
+
+
+class InboundAgentJoin(BaseModel):
+    channel_id: str
+    channel_type: ChannelType
+    agent_name: str
+    channel_name: str | None = None
+
+
+class InboundUserJoin(BaseModel):
+    channel_id: str
+    channel_type: ChannelType
+    external_user_id: str
+    external_username: str
+    channel_name: str | None = None
+
+
+class InboundAppJoin(BaseModel):
+    """The bridge app/bot itself was added to a channel. Unlike an agent join
+    there is no agent behind it (Slack is a single-app bridge), so this triggers
+    auto-creation of the channel's room even when no agent can be associated."""
+
+    channel_id: str
+    channel_type: ChannelType
+    channel_name: str | None = None
+
+
+class BridgeConnectionConfig(BaseModel):
+    pass

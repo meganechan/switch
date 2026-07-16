@@ -1,0 +1,296 @@
+from __future__ import annotations
+
+from types import SimpleNamespace
+
+from switch_core.gateway.known_agents import (
+    ClaudeCodeKnownAgent,
+    ClaudeCodeOptions,
+    known_agent_for,
+)
+
+
+def _agent(metadata: dict | None) -> SimpleNamespace:
+    return SimpleNamespace(name="claude-code.test", metadata_=metadata)
+
+
+class TestBuildProfileConnectionModel:
+    def test_channels_enabled_defaults_to_session_addressable(self) -> None:
+        profile = ClaudeCodeKnownAgent.build_profile(
+            ClaudeCodeOptions(channels_enabled=True)
+        )
+        assert profile.connection_model == "session_addressable"
+
+    def test_auto_session_option_sets_auto_session_model(self) -> None:
+        profile = ClaudeCodeKnownAgent.build_profile(
+            ClaudeCodeOptions(channels_enabled=True, auto_session=True)
+        )
+        assert profile.connection_model == "auto_session"
+
+    def test_auto_session_takes_precedence_without_channels(self) -> None:
+        # Auto-spawn is driven by the connector's HTTP notification watch and a
+        # pull-on-connect, not a live channel push, so auto_session applies even
+        # when channels are disabled.
+        profile = ClaudeCodeKnownAgent.build_profile(
+            ClaudeCodeOptions(channels_enabled=False, auto_session=True)
+        )
+        assert profile.connection_model == "auto_session"
+
+    def test_channels_disabled_without_auto_session_is_session_passive(self) -> None:
+        profile = ClaudeCodeKnownAgent.build_profile(
+            ClaudeCodeOptions(channels_enabled=False)
+        )
+        assert profile.connection_model == "session_passive"
+
+    def test_auto_session_defaults_off(self) -> None:
+        assert ClaudeCodeOptions(channels_enabled=True).auto_session is False
+
+
+class TestBuildProfileCommandCapabilities:
+    def test_claude_code_commands_are_session_dependent(self) -> None:
+        # Claude Code can be reset/compacted/interrupted only when a session is
+        # driving it from switchdash — so all three depend on the live session.
+        caps = ClaudeCodeKnownAgent.build_profile(
+            ClaudeCodeOptions(channels_enabled=True)
+        ).command_capabilities
+        assert caps.reset == "session_dependent"
+        assert caps.compact == "session_dependent"
+        assert caps.interrupt == "session_dependent"
+
+
+class TestStartSessionInstructions:
+    def test_channels_enabled_appends_dev_flag_after_prompt(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir="/Users/x/aq-switch")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        # The flag must come AFTER the prompt argument so claude treats the
+        # quoted text as the initial prompt, not as a value for the flag.
+        assert (
+            'claude "connect to switch room hub" '
+            "--dangerously-load-development-channels "
+            "plugin:switch-connector@switch-plugins"
+        ) in msg
+        assert "cd /Users/x/aq-switch" in msg
+
+    def test_channels_disabled_passive_message_shape(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=False, repo_dir="/srv/agent")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "ops")
+        assert msg is not None
+        assert "--dangerously-load-development-channels" not in msg
+        # The connect prompt itself instructs a pull (passive sessions get no
+        # pushed events), and the message frames reading as asynchronous.
+        assert (
+            'cd /srv/agent && claude "connect to switch room ops '
+            'and pull the latest messages"'
+        ) in msg
+        assert "asynchronously" in msg
+        # Real-time delivery requires an API-key / subscription Claude Code.
+        assert "Anthropic API key or subscription" in msg
+
+    def test_channels_enabled_is_not_passive_shaped(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir="/srv/agent")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "ops")
+        assert msg is not None
+        assert "pull the latest messages" not in msg
+        assert "Anthropic API key or subscription" not in msg
+
+    def test_channels_disabled_auto_session_keeps_pull_based_message(self) -> None:
+        # A channels-off auto_session agent falls back to the pull-based
+        # onboarding message when no connector is watching — the onboarding
+        # command depends only on channels_enabled, not the connection model.
+        opts = ClaudeCodeOptions(
+            channels_enabled=False, auto_session=True, repo_dir="/srv/agent"
+        )
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "ops")
+        assert msg is not None
+        assert "--dangerously-load-development-channels" not in msg
+        assert (
+            'cd /srv/agent && claude "connect to switch room ops '
+            'and pull the latest messages"'
+        ) in msg
+
+    def test_connected_not_live_opening(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir="/srv/agent")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(
+            opts, _agent({}), "ops", connected_not_live=True
+        )
+        assert msg is not None
+        # Acknowledges a connected-but-not-live session and steers to relaunch
+        # with live channels (the flag is in the command), rather than implying
+        # there is no session.
+        assert "isn't reporting as live" in msg
+        assert "I don't have a session connected to this room." not in msg
+        assert "--dangerously-load-development-channels" in msg
+
+    def test_no_repo_dir_uses_placeholder(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir=None)
+        msg = ClaudeCodeKnownAgent.start_session_instructions(
+            opts, _agent({}), "triage"
+        )
+        assert msg is not None
+        assert "cd <claude-dir>" in msg
+        # Still the channels flag because channels_enabled is True.
+        assert "--dangerously-load-development-channels" in msg
+        # No user-facing mention of the option name.
+        assert "repo_dir" not in msg
+
+    def test_empty_string_repo_dir_normalised_to_none(self) -> None:
+        # The gateway edit form submits "" when the field is cleared.
+        opts = ClaudeCodeOptions(channels_enabled=False, repo_dir="")
+        assert opts.repo_dir is None
+        msg = ClaudeCodeKnownAgent.start_session_instructions(
+            opts, _agent({}), "triage"
+        )
+        assert msg is not None
+        assert "cd <claude-dir>" in msg
+
+    def test_notify_user_is_prepended_as_at_mention(self) -> None:
+        opts = ClaudeCodeOptions(
+            channels_enabled=True, repo_dir="/x", notify_user="louisa"
+        )
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert msg.startswith("@louisa\n\n")
+
+    def test_empty_string_notify_user_normalised_to_none(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, notify_user="")
+        assert opts.notify_user is None
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert not msg.startswith("@")
+
+    def test_passive_mentions_operator_inline(self) -> None:
+        # Passive message names the operator inline ("my operator @louisa")
+        # rather than as a leading prefix, so they still get pinged to pull.
+        opts = ClaudeCodeOptions(
+            channels_enabled=False, repo_dir="/x", notify_user="louisa"
+        )
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert "my operator @louisa" in msg
+
+    def test_passive_without_notify_user_says_my_operator(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=False, repo_dir="/x")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert "my operator has to trigger me" in msg
+        assert "@" not in msg
+
+    def test_subagent_name_appends_agent_and_settings_flags(self) -> None:
+        opts = ClaudeCodeOptions(
+            channels_enabled=True,
+            repo_dir="/Users/x/repo",
+            subagent_name="seo-writer",
+        )
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        # --agent / --settings come after the quoted prompt and before the
+        # dev-channels flag; the settings path matches what the configure skill
+        # writes the subagent credentials to.
+        assert (
+            'claude "connect to switch room hub" '
+            "--agent seo-writer "
+            "--settings .claude/switch-subagents/seo-writer.settings.json "
+            "--dangerously-load-development-channels "
+            "plugin:switch-connector@switch-plugins"
+        ) in msg
+
+    def test_subagent_flags_present_without_channels(self) -> None:
+        opts = ClaudeCodeOptions(
+            channels_enabled=False, repo_dir="/r", subagent_name="reviewer"
+        )
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "ops")
+        assert msg is not None
+        assert "--agent reviewer" in msg
+        assert "--settings .claude/switch-subagents/reviewer.settings.json" in msg
+        assert "--dangerously-load-development-channels" not in msg
+
+    def test_no_subagent_name_omits_agent_flag(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir="/r")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert "--agent" not in msg
+        assert "switch-subagents" not in msg
+
+    def test_empty_string_subagent_name_normalised_to_none(self) -> None:
+        opts = ClaudeCodeOptions(channels_enabled=True, subagent_name="")
+        assert opts.subagent_name is None
+        msg = ClaudeCodeKnownAgent.start_session_instructions(opts, _agent({}), "hub")
+        assert msg is not None
+        assert "--agent" not in msg
+
+    def test_message_does_not_interpolate_room_name(self) -> None:
+        # We refer to "this room" in the lead-in rather than naming it, so the
+        # message reads the same regardless of where it's posted.
+        opts = ClaudeCodeOptions(channels_enabled=True, repo_dir="/x")
+        msg = ClaudeCodeKnownAgent.start_session_instructions(
+            opts, _agent({}), "Some Long Room Name"
+        )
+        assert msg is not None
+        # The room name still appears once inside the quoted `connect to switch
+        # room ...` command — that's where the operator actually needs it.
+        assert msg.count("Some Long Room Name") == 1
+        assert "I don't have a session connected to this room." in msg
+
+
+class TestKnownAgentFor:
+    def test_round_trips_claude_code_options(self) -> None:
+        agent = _agent(
+            {
+                "known_agent_type": "claude-code",
+                "known_agent_options": {
+                    "channels_enabled": False,
+                    "repo_dir": "/tmp/r",
+                },
+            }
+        )
+        result = known_agent_for(agent)
+        assert result is not None
+        spec, options = result
+        assert spec is ClaudeCodeKnownAgent
+        assert isinstance(options, ClaudeCodeOptions)
+        assert options.channels_enabled is False
+        assert options.repo_dir == "/tmp/r"
+
+    def test_round_trips_subagent_name(self) -> None:
+        agent = _agent(
+            {
+                "known_agent_type": "claude-code",
+                "known_agent_options": {
+                    "channels_enabled": True,
+                    "repo_dir": "/tmp/r",
+                    "subagent_name": "seo-writer",
+                },
+            }
+        )
+        result = known_agent_for(agent)
+        assert result is not None
+        _, options = result
+        assert isinstance(options, ClaudeCodeOptions)
+        assert options.subagent_name == "seo-writer"
+
+    def test_returns_none_when_metadata_missing(self) -> None:
+        assert known_agent_for(_agent(None)) is None
+        assert known_agent_for(_agent({})) is None
+
+    def test_returns_none_for_unknown_agent_type(self) -> None:
+        agent = _agent({"known_agent_type": "made-up"})
+        assert known_agent_for(agent) is None
+
+    def test_returns_none_when_agent_type_is_not_a_string(self) -> None:
+        agent = _agent({"known_agent_type": 42})
+        assert known_agent_for(agent) is None
+
+    def test_returns_none_for_non_dict_metadata(self) -> None:
+        # JSONB columns can hold any JSON value; some pre-existing rows
+        # stored a list. Tolerate non-dict metadata.
+        agent = _agent([])  # type: ignore[arg-type]
+        assert known_agent_for(agent) is None
+
+    def test_uses_option_defaults_when_options_missing(self) -> None:
+        agent = _agent({"known_agent_type": "claude-code"})
+        result = known_agent_for(agent)
+        assert result is not None
+        _, options = result
+        assert isinstance(options, ClaudeCodeOptions)
+        assert options.channels_enabled is True
+        assert options.repo_dir is None

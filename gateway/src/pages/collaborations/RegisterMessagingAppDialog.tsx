@@ -1,0 +1,158 @@
+import {
+  Alert,
+  Button,
+  CircularProgress,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  MenuItem,
+  Stack,
+  TextField,
+} from "@mui/material";
+import { useCallback, useMemo, useState } from "react";
+import { type BridgeDetail, createBridge } from "../../data/api";
+import { useBridgeTypes } from "../../data/hooks";
+import { isSecretField } from "../agents/optionFields";
+
+interface Props {
+  open: boolean;
+  onClose: () => void;
+  onSuccess: (bridge: BridgeDetail) => void;
+}
+
+function humanize(key: string): string {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export default function RegisterMessagingAppDialog({
+  open,
+  onClose,
+  onSuccess,
+}: Props) {
+  const { data: bridgeTypes } = useBridgeTypes();
+  const [selectedType, setSelectedType] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [config, setConfig] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const selectedTypeInfo = useMemo(
+    () => bridgeTypes?.find((t) => t.key === selectedType),
+    [bridgeTypes, selectedType],
+  );
+  const configSchema = selectedTypeInfo?.config_schema;
+
+  const handleTypeChange = useCallback((key: string) => {
+    // Switching type clears any fields entered for the previous one.
+    setSelectedType(key);
+    setConfig({});
+    setError(null);
+  }, []);
+
+  const reset = useCallback(() => {
+    setSelectedType("");
+    setDisplayName("");
+    setConfig({});
+    setError(null);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    if (submitting) return;
+    reset();
+    onClose();
+  }, [submitting, reset, onClose]);
+
+  const requiredFields = configSchema?.required ?? [];
+  const canSubmit =
+    !!selectedType &&
+    displayName.trim().length > 0 &&
+    requiredFields.every((f) => (config[f] ?? "").trim().length > 0);
+
+  const handleSubmit = useCallback(async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const bridge = await createBridge(selectedType, displayName.trim(), config);
+      onSuccess(bridge);
+      reset();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Registration failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }, [canSubmit, selectedType, displayName, config, onSuccess, reset, onClose]);
+
+  return (
+    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+      <DialogTitle>Register messaging app</DialogTitle>
+      <DialogContent>
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          {error && <Alert severity="error">{error}</Alert>}
+
+          <TextField
+            select
+            label="Type"
+            value={selectedType}
+            onChange={(e) => handleTypeChange(e.target.value)}
+            fullWidth
+            required
+            helperText="The messaging platform to bridge."
+          >
+            {(bridgeTypes ?? []).map((t) => (
+              <MenuItem
+                key={t.key}
+                value={t.key}
+                sx={{ textTransform: "capitalize" }}
+              >
+                {t.key}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {selectedType && (
+            <>
+              <TextField
+                label="Display Name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                fullWidth
+                required
+              />
+              {configSchema &&
+                Object.entries(configSchema.properties).map(([field, prop]) => (
+                  <TextField
+                    key={field}
+                    label={prop.title ?? humanize(field)}
+                    type={isSecretField(field, prop) ? "password" : "text"}
+                    value={config[field] ?? ""}
+                    onChange={(e) =>
+                      setConfig((prev) => ({ ...prev, [field]: e.target.value }))
+                    }
+                    fullWidth
+                    required={requiredFields.includes(field)}
+                    helperText={prop.description}
+                  />
+                ))}
+            </>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={handleClose} disabled={submitting}>
+          Cancel
+        </Button>
+        <Button
+          variant="contained"
+          onClick={handleSubmit}
+          disabled={!canSubmit || submitting}
+          startIcon={submitting ? <CircularProgress size={16} /> : undefined}
+        >
+          Register
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}

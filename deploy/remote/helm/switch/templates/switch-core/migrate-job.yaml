@@ -1,0 +1,39 @@
+{{- if .Values.switchCore.migrations.preUpgradeJob }}
+# Runs `alembic upgrade head` before an upgrade rolls the new switch-core pods,
+# so a failed migration blocks the release instead of crash-looping the new
+# pods. pre-upgrade only: on a fresh install the managed Postgres does not exist
+# yet when pre-install hooks run, and switch-core self-migrates on startup
+# anyway (the same idempotent upgrade), so install is covered without a hook.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "switch.fullname" . }}-migrate
+  labels:
+    {{- include "switch.labels" . | nindent 4 }}
+    {{- include "switch.selectorLabels" (dict "Release" .Release "component" "migrate") | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "switch.labels" . | nindent 8 }}
+        {{- include "switch.selectorLabels" (dict "Release" .Release "component" "migrate") | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      {{- include "switch.imagePullSecrets" . | nindent 6 }}
+      {{- end }}
+      restartPolicy: OnFailure
+      initContainers:
+        {{- include "switch.waitFor" (dict "name" "postgres" "host" (include "switch.postgresHost" .) "port" (include "switch.postgresPort" .)) | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "switch.image" (dict "global" .Values.global "image" .Values.switchCore.image) }}
+          imagePullPolicy: {{ .Values.switchCore.imagePullPolicy }}
+          command: ["alembic", "upgrade", "head"]
+          env:
+            {{- include "switch.coreEnv" . | nindent 12 }}
+{{- end }}

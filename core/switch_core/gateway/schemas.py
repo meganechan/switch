@@ -1,0 +1,725 @@
+from __future__ import annotations
+
+from typing import Any
+
+from pydantic import BaseModel
+
+# ── Rooms ─────────────────────────────────────────────────────────────────────
+
+
+class RoomRoleSpec(BaseModel):
+    """A room-role definition (assumable instruction bundle)."""
+
+    name: str
+    instructions: str
+    exclusive: bool = False
+
+
+class RoomRoleDetail(RoomRoleSpec):
+    """A room-role with its current live holders (agent names; empty if free).
+
+    A shared (non-exclusive) role may have several concurrent holders; an
+    exclusive role has at most one.
+    """
+
+    held_by: list[str] = []
+
+
+class RoomRoleCreateRequest(RoomRoleSpec):
+    pass
+
+
+class RoomRoleUpdateRequest(BaseModel):
+    instructions: str | None = None
+    exclusive: bool | None = None
+
+
+class RoomSummary(BaseModel):
+    id: str
+    name: str
+    description: str
+    channel_type: str | None
+    admin_mode: bool
+    agent_count: int
+    connected_user_count: int
+    connected_user_names: list[str]
+    bridge_id: str | None
+    bridge_display_name: str | None
+    # Bridge platform type (e.g. "slack", "mattermost") when bridged, else null.
+    # Stable identifier, unlike the user-chosen display name.
+    bridge_type: str | None = None
+    # Native deeplink that opens this room's external channel in the messaging
+    # app's desktop client (e.g. slack://channel?…, mattermost://…). Null when
+    # the room isn't bridged, the bridge isn't running, or the platform has no
+    # such scheme. Built by the live collaboration adapter.
+    external_channel_url: str | None = None
+    # The group this room belongs to, or null if standalone.
+    group_id: str | None = None
+    group_name: str | None = None
+    owner_id: str | None = None
+    owner_name: str | None = None
+    read_visibility: str = "public"
+    write_visibility: str = "public"
+    created_at: str
+    # True when the room is archived (hidden from the default active list).
+    archived: bool = False
+
+
+class RoomDetail(RoomSummary):
+    matrix_room_id: str
+    external_channel_id: str | None
+    instructions: str | None
+    protection_config: dict[str, Any] | None
+    observe_config: dict[str, Any] | None
+    agent_ids: list[str]
+    agent_statuses: dict[str, str]
+    roles: list[RoomRoleDetail] = []
+    # Agent ids configured to receive `room_join` events in this room.
+    join_event_listeners: list[str] = []
+    # ISO timestamp of when the room was archived, or null if active.
+    archived_at: str | None = None
+
+
+class RoomCreateRequest(BaseModel):
+    name: str
+    description: str
+    instructions: str | None = None
+    channel_type: str | None = None
+    agent_ids: list[str] | None = None
+    agent_names: list[str] | None = None
+    # Per-agent opt-in: ids (subset of agent_ids) whose subagents to also add.
+    include_subagents_for: list[str] | None = None
+    # Per-agent opt-in: ids (subset of agent_ids) that should receive
+    # `room_join` events in this room. Others default to off.
+    join_event_listeners: list[str] | None = None
+    user_names: list[str] | None = None
+    bridge_id: str | None = None
+    external_channel_id: str | None = None
+    group_id: str | None = None
+    read_visibility: str = "public"
+    write_visibility: str = "public"
+    roles: list[RoomRoleSpec] | None = None
+
+
+class RoomUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+    admin_mode: bool | None = None
+    read_visibility: str | None = None
+    write_visibility: str | None = None
+
+
+class RoomSetGroupRequest(BaseModel):
+    # The group to move the room into. `null` makes the room standalone.
+    group_id: str | None = None
+
+
+class RoomAgentsRequest(BaseModel):
+    agent_ids: list[str]
+    # Per-agent opt-in: ids (subset of agent_ids) whose subagents to also add.
+    include_subagents_for: list[str] | None = None
+    # Per-agent opt-in: ids (subset of agent_ids) that should receive
+    # `room_join` events in this room. Others default to off.
+    join_event_listeners: list[str] | None = None
+
+
+class RoomAgentUpdateRequest(BaseModel):
+    # Whether this agent receives `room_join` events in the room.
+    receives_join_events: bool
+
+
+class RoomUsersRequest(BaseModel):
+    user_names: list[str]
+
+
+class RoomProtectionRequest(BaseModel):
+    protection_config: dict[str, Any]
+
+
+class RoomObserveRequest(BaseModel):
+    observe_config: dict[str, Any]
+
+
+class BulkDeleteRequest(BaseModel):
+    room_ids: list[str]
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted: int
+
+
+class BulkArchiveRequest(BaseModel):
+    room_ids: list[str]
+    # True archives the rooms, False unarchives them.
+    archived: bool
+
+
+class BulkArchiveResponse(BaseModel):
+    updated: int
+
+
+# ── Room groups ───────────────────────────────────────────────────────────────
+
+
+class RoomGroupDetail(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    color: str | None
+    parent_group_id: str | None
+    # Number of rooms directly assigned to this group (not counting subgroups).
+    room_count: int
+    created_at: str
+
+
+class RoomGroupCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    color: str | None = None
+    parent_group_id: str | None = None
+
+
+class RoomGroupAssignRequest(BaseModel):
+    # Rooms to (re)assign into the group. Rooms already in another group are
+    # moved; rooms already in this group are a no-op.
+    room_ids: list[str]
+
+
+class RoomGroupAssignResponse(BaseModel):
+    assigned: int
+
+
+class RoomGroupUpdateRequest(BaseModel):
+    # All optional. `parent_group_id` is only applied when the key is present in
+    # the request body, so callers can reparent to a group, reparent to top-level
+    # (`null`), or leave the parent unchanged (omit the key entirely). The
+    # endpoint distinguishes these via `model_fields_set`.
+    name: str | None = None
+    description: str | None = None
+    color: str | None = None
+    parent_group_id: str | None = None
+
+
+# ── Agents ────────────────────────────────────────────────────────────────────
+
+
+class AgentSummary(BaseModel):
+    id: str
+    name: str
+    description: str
+    connector_type: str
+    connection_model: str | None
+    tool_count: int
+    model_count: int
+    owner_id: str | None = None
+    owner_name: str | None
+    oauth_client_id: str | None
+    created_at: str
+    # Set when this agent is a child of another (e.g. a Claude Code subagent
+    # under the user's main agent). The UI nests children under their parent.
+    parent_agent_id: str | None = None
+    # `known_agent_type` is set when this agent was registered via
+    # `/agents/register` with one of the KNOWN_AGENTS specs (e.g. "claude-code").
+    # `known_agent_options` is the last validated options payload. Together
+    # they let the UI render an "edit options" form against the spec's schema.
+    known_agent_type: str | None = None
+    known_agent_options: dict[str, Any] | None = None
+
+
+class AgentToolSummary(BaseModel):
+    name: str
+    description: str
+
+
+class AgentModelSummary(BaseModel):
+    name: str
+    description: str
+
+
+class AgentRoomMembership(BaseModel):
+    """A room the agent belongs to, with the agent's presence status there.
+
+    `status` is the same value the room detail page shows for this agent
+    (live / no_session / disconnected / awaiting_manual_poll). `room_role` is
+    the room-scoped role the agent currently (live-lease) holds there, or null
+    if it holds none.
+    """
+
+    room_id: str
+    room_name: str
+    archived: bool
+    status: str
+    room_role: str | None
+
+
+class AgentSessionDetail(BaseModel):
+    """One row of the agent's session table.
+
+    `state` is derived from `lifecycle` + heartbeat freshness:
+    - `live`  — heartbeat row within its connection model's TTL
+    - `stale` — heartbeat row whose last beat is older than the TTL
+    - `open`  — explicit (session_passive) row; liveness is not heartbeat-driven
+
+    A session_addressable agent is only meaningfully attending a room while its
+    session is `live`; a `stale` row is a left-over binding, not a live presence.
+    `room_id`/`room_name` are null for an always_on agent's room-agnostic row.
+    """
+
+    room_id: str | None
+    room_name: str | None
+    lifecycle: str
+    state: str
+    last_seen_at: str
+
+
+class AgentDetail(AgentSummary):
+    agent_type: str
+    integration_profile: dict[str, Any]
+    tools: list[AgentToolSummary]
+    models: list[AgentModelSummary]
+    rooms: list[AgentRoomMembership]
+    sessions: list[AgentSessionDetail]
+    children: list[AgentSummary]
+
+
+class KnownAgentType(BaseModel):
+    key: str
+    connector_type: str
+    tool_count: int
+    options_schema: dict[str, Any]
+
+
+class RegisterKnownAgentRequest(BaseModel):
+    agent_type: str
+    name: str
+    description: str
+    options: dict[str, Any] = {}
+    overwrite: bool = False
+
+
+class BulkSubagentSpec(BaseModel):
+    """One Claude Code subagent to register under a parent agent.
+
+    `subagent_name` is the bare Claude Code subagent identifier (the `name`
+    frontmatter field, used for the `--agent <name>` launch flag); the Switch
+    agent name is derived server-side as `<parent-name>.<subagent_name>`.
+    """
+
+    subagent_name: str
+    description: str
+
+
+class RegisterKnownSubagentsRequest(BaseModel):
+    """Register many Claude Code subagents under one parent agent.
+
+    Session-authed counterpart of the agent-bridge `register-known-bulk`
+    endpoint: the caller must own the parent. `options` is the shared base
+    applied to every subagent (the per-subagent `subagent_name` is merged on
+    top); when omitted, each subagent inherits the parent's `channels_enabled`,
+    `repo_dir`, and `notify_user`.
+    """
+
+    agent_type: str
+    parent_agent_id: str
+    options: dict[str, Any] = {}
+    subagents: list[BulkSubagentSpec]
+    overwrite: bool = False
+
+
+class BulkRegisterResult(BaseModel):
+    subagent_name: str
+    name: str
+    id: str
+    api_key: str
+
+
+class RegisterKnownSubagentsResponse(BaseModel):
+    results: list[BulkRegisterResult]
+
+
+class UpdateAgentOptionsRequest(BaseModel):
+    """Full-replacement update of a known-agent's options.
+
+    The body must contain every option the spec defines (no partial merge).
+    The new options are validated against the spec's `options_schema`, and
+    the agent's `integration_profile` is rebuilt from them — keeping the
+    two consistent the same way `register-known` does at registration.
+    """
+
+    options: dict[str, Any]
+
+
+class RegisterOtherAgentRequest(BaseModel):
+    name: str
+    description: str
+    overwrite: bool = False
+
+
+class RegisterAgentResponse(BaseModel):
+    id: str
+    api_key: str
+    oauth_client_id: str | None = None
+
+
+# ── API Keys ────────────────────────────────────────────────────────────────
+
+
+class CreateApiKeyRequest(BaseModel):
+    label: str
+
+
+class ApiKeyDetail(BaseModel):
+    id: str
+    label: str
+    type: str
+    key_prefix: str
+    created_at: str
+
+
+class CreateApiKeyResponse(BaseModel):
+    id: str
+    label: str
+    key: str
+    created_at: str
+
+
+class RevealKeyResponse(BaseModel):
+    key: str
+
+
+# ── Collaborations ───────────────────────────────────────────────────────────
+
+
+class BridgeDetail(BaseModel):
+    bridge_id: str
+    bridge_type: str
+    display_name: str
+    status: str
+    agent_greetings_enabled: bool
+    room_count: int
+    created_at: str
+
+
+class BridgeUpdateRequest(BaseModel):
+    agent_greetings_enabled: bool
+
+
+class BridgeTypeInfo(BaseModel):
+    key: str
+    config_schema: dict[str, Any]
+
+
+class BridgeCreateRequest(BaseModel):
+    bridge_type: str
+    display_name: str
+    connection_config: dict[str, object]
+
+
+class ExternalUserSummary(BaseModel):
+    id: str
+    bridge_id: str
+    external_user_id: str
+    external_username: str
+
+
+# ── Server-Side Connectors ──────────────────────────────────────────────────
+
+
+class ConnectorTypeInfo(BaseModel):
+    key: str
+    config_schema: dict[str, Any]
+
+
+class CreateConnectorRequest(BaseModel):
+    type: str
+    display_name: str
+    connection_config: dict[str, object]
+
+
+class ConnectorDetail(BaseModel):
+    connector_id: str
+    connector_type: str
+    display_name: str
+    status: str
+    agent_names: list[str]
+    created_at: str
+
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    id: str
+    name: str
+    email: str
+    role: str
+    created_at: str
+
+
+class CreateUserRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: str = "user"
+
+
+class AuthConfigResponse(BaseModel):
+    # Read unauthenticated by the login page to decide which login methods to
+    # show. `oidc_provider_label` is the button text (e.g. "Okta").
+    password_login_enabled: bool
+    oidc_enabled: bool
+    oidc_provider_label: str | None
+
+
+# ── References ──────────────────────────────────────────────────────────────
+
+
+class ReferenceDetail(BaseModel):
+    id: str
+    owner_id: str
+    owner_name: str | None = None
+    read_visibility: str
+    write_visibility: str
+    type: str
+    name: str
+    description: str
+    instructions: str
+    value: dict[str, Any]
+    attached_rooms_count: int = 0
+    packages: list[str] = []
+    created_at: str
+
+
+class ReferenceCreateRequest(BaseModel):
+    read_visibility: str = "private"
+    write_visibility: str = "private"
+    type: str
+    name: str
+    description: str
+    instructions: str
+    value: dict[str, Any]
+
+
+class ReferenceUpdateRequest(BaseModel):
+    read_visibility: str | None = None
+    write_visibility: str | None = None
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+    value: dict[str, Any] | None = None
+
+
+class ReferenceDeleteResponse(BaseModel):
+    deleted_id: str
+    detached_room_ids: list[str]
+    affected_package_ids: list[str] = []
+
+
+class ReferenceTypeInfo(BaseModel):
+    type: str
+    display_name: str
+    instructions: str
+    value_schema: dict[str, Any]
+
+
+class ResourceRoom(BaseModel):
+    room_id: str
+    room_name: str
+
+
+# ── Linked rooms ───────────────────────────────────────────────────────────
+
+
+class LinkedRoomDetail(BaseModel):
+    target_room_id: str
+    target_room_name: str
+    target_room_description: str
+    label: str
+
+
+class InboundLinkedRoomDetail(BaseModel):
+    source_room_id: str
+    source_room_name: str
+    source_room_description: str
+    label: str
+
+
+class LinkedRoomCreateRequest(BaseModel):
+    target_room_id: str
+    label: str
+
+
+class RoomGraphNode(BaseModel):
+    id: str
+    name: str
+    description: str
+    # The group this room is directly assigned to, or null if standalone.
+    # The frontend resolves the top-level ancestor (via `groups`) for colouring.
+    group_id: str | None = None
+
+
+class RoomGraphLink(BaseModel):
+    source_room_id: str
+    target_room_id: str
+    label: str
+
+
+class RoomGraphGroup(BaseModel):
+    # The group tree, flattened. The frontend walks `parent_group_id` up to the
+    # root to colour each room by its top-level ancestor group.
+    id: str
+    name: str
+    color: str | None
+    parent_group_id: str | None
+
+
+class RoomGraphResponse(BaseModel):
+    rooms: list[RoomGraphNode]
+    links: list[RoomGraphLink]
+    groups: list[RoomGraphGroup] = []
+
+
+# ── Ecosystem graph ──────────────────────────────────────────────────────────
+
+
+class EcosystemNode(BaseModel):
+    # `id` is unique within the graph; `kind` discriminates the node type so
+    # the frontend can colour/size/route accordingly. Keep this generic — new
+    # entity kinds (rooms, users, …) can be added without a new shape.
+    id: str
+    kind: str  # "switch" | "agent_type" | "agent" | "bridge"
+    label: str
+    sublabel: str = ""
+    # Set on agent nodes only when the `ecosystem.show_owners` feature flag is
+    # ON; otherwise omitted so the frontend "Show owners" toggle has nothing to
+    # reveal.
+    owner_name: str | None = None
+
+
+class EcosystemEdge(BaseModel):
+    source: str
+    target: str
+
+
+class EcosystemGraphResponse(BaseModel):
+    nodes: list[EcosystemNode]
+    edges: list[EcosystemEdge]
+    # Reflects the `ecosystem.show_owners` server flag. False → owner data is
+    # withheld and the frontend toggle is inert.
+    show_owners: bool = False
+
+
+# ── Documents ──────────────────────────────────────────────────────────────
+
+
+class DocumentDetail(BaseModel):
+    id: str
+    owner_id: str | None = None
+    owner_name: str | None = None
+    read_visibility: str
+    write_visibility: str
+    name: str
+    description: str
+    instructions: str
+    content: str
+    attached_rooms_count: int = 0
+    packages: list[str] = []
+    scope: str = "global"  # "global" | "room"
+    room_id: str | None = None
+    created_by_agent_id: str | None = None
+    created_by_agent_name: str | None = None
+    created_at: str
+
+
+class DocumentSummary(BaseModel):
+    id: str
+    owner_id: str | None = None
+    owner_name: str | None = None
+    read_visibility: str
+    write_visibility: str
+    name: str
+    description: str
+    instructions: str
+    attached_rooms_count: int = 0
+    packages: list[str] = []
+    scope: str = "global"
+    room_id: str | None = None
+    created_by_agent_id: str | None = None
+    created_by_agent_name: str | None = None
+    created_at: str
+
+
+class DocumentCreateRequest(BaseModel):
+    read_visibility: str = "private"
+    write_visibility: str = "private"
+    name: str
+    description: str
+    instructions: str
+    content: str
+
+
+class DocumentUpdateRequest(BaseModel):
+    read_visibility: str | None = None
+    write_visibility: str | None = None
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+    content: str | None = None
+
+
+class DocumentDeleteResponse(BaseModel):
+    deleted_id: str
+    detached_room_ids: list[str]
+    affected_package_ids: list[str] = []
+
+
+# ── Packages ───────────────────────────────────────────────────────────────
+
+
+class PackageDetail(BaseModel):
+    id: str
+    owner_id: str
+    owner_name: str | None = None
+    read_visibility: str
+    write_visibility: str
+    name: str
+    description: str
+    instructions: str
+    references_count: int = 0
+    documents_count: int = 0
+    attached_rooms_count: int = 0
+    created_at: str
+
+
+class PackageCreateRequest(BaseModel):
+    read_visibility: str = "private"
+    write_visibility: str = "private"
+    name: str
+    description: str
+    instructions: str
+
+
+class PackageUpdateRequest(BaseModel):
+    read_visibility: str | None = None
+    write_visibility: str | None = None
+    name: str | None = None
+    description: str | None = None
+    instructions: str | None = None
+
+
+class PackageDeleteResponse(BaseModel):
+    deleted_id: str
+    detached_room_ids: list[str]
+
+
+class PackageMemberRemoveResponse(BaseModel):
+    package_id: str
+    member_id: str
+    affected_room_ids: list[str]
+    affected_room_names: list[str]

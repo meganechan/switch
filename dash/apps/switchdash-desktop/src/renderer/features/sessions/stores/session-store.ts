@@ -1,0 +1,290 @@
+import { err, type Result } from '@switchdash/shared';
+import { makeAutoObservable, observable, runInAction } from 'mobx';
+import { rpc } from '@renderer/lib/ipc';
+import { log } from '@renderer/utils/logger';
+import type {
+  RenameSessionError,
+  RenameSessionSuccess,
+  Session,
+  SessionLifecycleStatus,
+} from '@shared/core/sessions/sessions';
+import { conversationRegistry } from './conversation-registry';
+import { workspaceRegistry } from './workspace-registry';
+import { WorkspaceViewModel } from './workspace-view-model';
+
+export type UnregisteredSessionPhase = 'creating' | 'create-error';
+
+export type UnprovisionedSessionPhase =
+  | 'provision'
+  | 'provision-error'
+  | 'teardown'
+  | 'teardown-error'
+  | 'idle';
+
+export type UnregisteredSessionData = {
+  id: string;
+  title: string;
+  status: SessionLifecycleStatus;
+  lastInteractedAt: string;
+  createdAt: string;
+  statusChangedAt: string;
+  isPinned: boolean;
+  /** Set when this session runs as a Claude Code subagent of its agent. */
+  subagentName?: string;
+};
+
+export class SessionStore {
+  /** The project this session belongs to (session → agent → project). */
+  readonly projectId: string;
+  state: 'unregistered' | 'unprovisioned' | 'provisioned';
+  data: UnregisteredSessionData | Session;
+  phase: UnregisteredSessionPhase | UnprovisionedSessionPhase | null;
+  errorMessage: string | undefined = undefined;
+  provisionProgressMessage: string | null = null;
+
+  /** The workspace ID for this session session — null when unprovisioned. */
+  workspaceId: string | null = null;
+  /**
+   * Stable view model — created when session first becomes registered, persists
+   * across provision/unprovision cycles. Null only while session is unregistered.
+   */
+  viewModel: WorkspaceViewModel | null = null;
+
+  get displayName(): string {
+    return this.data.title;
+  }
+
+  /** True only while creation/provisioning is actively running — error phases are settled, not busy. */
+  get isBootstrapping(): boolean {
+    return (
+      (this.state === 'unregistered' && this.phase === 'creating') ||
+      (this.state === 'unprovisioned' && this.phase === 'provision')
+    );
+  }
+
+  constructor(
+    projectId: string,
+    data: UnregisteredSessionData | Session,
+    state: SessionStore['state'],
+    phase: UnregisteredSessionPhase | UnprovisionedSessionPhase | null = null
+  ) {
+    this.projectId = projectId;
+    this.state = state;
+    this.data = data;
+    this.phase = phase;
+    makeAutoObservable(this, {
+      workspaceId: observable,
+      viewModel: observable.ref,
+      /** Deep observable so nested fields (e.g. `status`) notify observers (e.g. sidebar). */
+      data: observable,
+    });
+
+    // Create stable session-lifetime stores immediately for registered sessions.
+    if (state !== 'unregistered') {
+      this.ensureRegisteredStores();
+    }
+  }
+
+  ensureRegisteredStores(): void {
+    if (this.state === 'unregistered') return;
+    if (!this.viewModel) {
+      this.viewModel = new WorkspaceViewModel(this);
+    }
+  }
+
+  transitionToProvisioned(data: Session, path: string, workspaceId: string): void {
+    this.data = data;
+    this.ensureRegisteredStores();
+    workspaceRegistry.acquire(this.projectId, workspaceId, path);
+    this.workspaceId = workspaceId;
+    this.state = 'provisioned';
+    this.phase = null;
+    this.errorMessage = undefined;
+    this.provisionProgressMessage = null;
+    this.viewModel?.initialize();
+  }
+
+  transitionToUnprovisioned(data: Session, phase: UnprovisionedSessionPhase = 'idle'): void {
+    this.viewModel?.suspend();
+    if (this.workspaceId) {
+      workspaceRegistry.release(this.projectId, this.workspaceId);
+      this.workspaceId = null;
+    }
+    this.data = data;
+    this.state = 'unprovisioned';
+    this.phase = phase;
+    this.errorMessage = undefined;
+    this.provisionProgressMessage = null;
+
+    // Create stable stores on first registration (when transitioning from unregistered).
+    if (!this.viewModel) this.ensureRegisteredStores();
+  }
+
+  transitionToDryUnprovisioned(data: Session, phase: UnprovisionedSessionPhase = 'idle'): void {
+    this.dispose();
+    this.data = data;
+    this.state = 'unprovisioned';
+    this.phase = phase;
+    this.errorMessage = undefined;
+    this.provisionProgressMessage = null;
+  }
+
+  transitionToUnregistered(data: UnregisteredSessionData): void {
+    this.viewModel?.suspend();
+    if (this.workspaceId) {
+      workspaceRegistry.release(this.projectId, this.workspaceId);
+      this.workspaceId = null;
+    }
+    this.data = data;
+    this.state = 'unregistered';
+    this.phase = 'creating';
+    this.errorMessage = undefined;
+  }
+
+  activate(): void {
+    if (this.workspaceId) {
+      workspaceRegistry.activate(this.projectId, this.workspaceId);
+    }
+  }
+
+  dispose(): void {
+    this.viewModel?.dispose();
+    this.viewModel = null;
+    if (this.workspaceId) {
+      workspaceRegistry.release(this.projectId, this.workspaceId);
+      this.workspaceId = null;
+    }
+  }
+
+  get conversationStats(): Record<string, number> {
+    if (this.state === 'unregistered') {
+      return {};
+    }
+    if (this.state === 'provisioned') {
+      const mgr = conversationRegistry.get(this.data.id);
+      if (mgr) {
+        const counts: Record<string, number> = {};
+        for (const conv of mgr.conversations.values()) {
+          const id = conv.data.providerId;
+          counts[id] = (counts[id] ?? 0) + 1;
+        }
+        return counts;
+      }
+    }
+    return {};
+  }
+
+  async rename(name: string): Promise<Result<RenameSessionSuccess, RenameSessionError>> {
+    const session = registeredSessionData(this);
+    if (!session) return err({ type: 'session-not-found', sessionId: this.data.id });
+    try {
+      const result = await rpc.sessions.renameSession(this.projectId, session.id, name);
+      if (!result.success) {
+        return result;
+      }
+      runInAction(() => {
+        const current = registeredSessionData(this);
+        if (current) {
+          current.title = name;
+        }
+      });
+      return result;
+    } catch (e) {
+      log.error(e);
+      throw e;
+    }
+  }
+
+  async updateStatus(status: SessionLifecycleStatus): Promise<void> {
+    const previousStatus = this.data.status;
+    const previousStatusChangedAt = this.data.statusChangedAt;
+    const nextChangedAt = new Date().toISOString();
+    runInAction(() => {
+      this.data.status = status;
+      this.data.statusChangedAt = nextChangedAt;
+    });
+    try {
+      await rpc.sessions.updateSessionStatus(this.data.id, status);
+    } catch (e) {
+      runInAction(() => {
+        this.data.status = previousStatus;
+        this.data.statusChangedAt = previousStatusChangedAt;
+      });
+      log.error(e);
+      throw e;
+    }
+  }
+
+  async setPinned(isPinned: boolean): Promise<void> {
+    if (this.state === 'unregistered') return;
+    const session = registeredSessionData(this);
+    if (!session) return;
+    const previous = session.isPinned;
+    runInAction(() => {
+      session.isPinned = isPinned;
+    });
+    try {
+      await rpc.sessions.setSessionPinned(session.id, isPinned);
+    } catch (e) {
+      runInAction(() => {
+        session.isPinned = previous;
+      });
+      log.error(e);
+      throw e;
+    }
+  }
+}
+
+export type UnregisteredSession = SessionStore & {
+  state: 'unregistered';
+  data: UnregisteredSessionData;
+  phase: UnregisteredSessionPhase;
+  errorMessage: string | undefined;
+};
+
+export type UnprovisionedSession = SessionStore & {
+  state: 'unprovisioned';
+  data: Session;
+  phase: UnprovisionedSessionPhase;
+  errorMessage: string | undefined;
+};
+
+export function isUnregistered(t: SessionStore): t is UnregisteredSession {
+  return t.state === 'unregistered';
+}
+
+export function isRegistered(
+  t: SessionStore
+): t is SessionStore & { state: 'unprovisioned' | 'provisioned'; data: Session } {
+  return t.state !== 'unregistered';
+}
+
+export function isUnprovisioned(t: SessionStore): t is UnprovisionedSession {
+  return t.state === 'unprovisioned';
+}
+
+export function isProvisioned(
+  t: SessionStore
+): t is SessionStore & { state: 'provisioned'; data: Session; workspaceId: string } {
+  return t.state === 'provisioned';
+}
+
+/** Full `Session` payload when registered (unprovisioned or provisioned); `undefined` when unregistered. */
+export function registeredSessionData(store: SessionStore): Session | undefined {
+  return isRegistered(store) ? store.data : undefined;
+}
+
+export function unregisteredSessionData(store: SessionStore): UnregisteredSessionData | undefined {
+  return isUnregistered(store) ? store.data : undefined;
+}
+
+export function createUnregisteredSession(
+  projectId: string,
+  data: UnregisteredSessionData
+): SessionStore {
+  return new SessionStore(projectId, data, 'unregistered', 'creating');
+}
+
+export function createUnprovisionedSession(projectId: string, data: Session): SessionStore {
+  return new SessionStore(projectId, data, 'unprovisioned', 'idle');
+}

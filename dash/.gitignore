@@ -1,0 +1,115 @@
+# Dependencies
+node_modules/
+dist/
+out/
+/release/
+
+# App-specific outputs
+apps/*/out/
+apps/*/release/
+apps/*/dist/
+apps/*/dist-sidecar/
+
+# Re-include Electron packaging/signing assets. The monorepo root .gitignore
+# globally ignores build/, which would otherwise drop these tracked files.
+!apps/*/build/
+
+# Re-include the app's TypeScript `lib/` source trees. The monorepo root
+# .gitignore is Python-oriented and globally ignores `lib/` (Python packaging),
+# which would otherwise silently drop these tracked source directories.
+!apps/*/src/main/lib/
+!apps/*/src/main/lib/**
+!apps/*/src/renderer/lib/
+!apps/*/src/renderer/lib/**
+!apps/*/src/shared/lib/
+!apps/*/src/shared/lib/**
+!packages/*/src/lib/
+!packages/*/src/lib/**
+
+# Temporary electron-builder deploy directories (created by scripts/release/build.ts)
+.switchdash-deploy-*/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI assistant instructions
+.notes/
+.notes
+.claude/
+
+# Checkouts directory
+.checkouts/
+
+/container.md
+
+.env
+.cursor
+.codex/config.toml
+
+apps/*/src/main/appConfig.json
+
+# Per-developer dev database (use pnpm run db:dev)
+apps/*/tooling/db/dev.db
+apps/*/tooling/db/dev.db-wal
+apps/*/tooling/db/dev.db-shm
+tooling/db/dev.db
+tooling/db/dev.db-wal
+tooling/db/dev.db-shm
+
+# Isolated better-sqlite3 for system Node (installed by pnpm run db:setup / postinstall)
+apps/*/tooling/node-deps/node_modules/
+.pi/extensions/switchdash-hook.ts
+.opencode/plugins/switchdash-notifications.js
+
+# Vitest / Browser testing
+.vitest-attachments/
+**/__screenshots__/

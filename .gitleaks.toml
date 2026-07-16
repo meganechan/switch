@@ -1,0 +1,19 @@
+# Gitleaks configuration: default ruleset plus allowlisted known false
+# positives. Picked up automatically by `gitleaks detect` (CI, pre-commit,
+# and the public-tree scrub gate).
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known false positives"
+regexTarget = "line"
+regexes = [
+  # Collaboration-adapter type registration; the mattermost-access-token
+  # rule mistakes the identifier sequence for a token. No secret here.
+  '''"mattermost", MattermostAdapter, MattermostConnectionConfig''',
+]
+paths = [
+  # Log-redaction tests exercise deliberately fake vendor tokens.
+  '''dash/apps/switchdash-desktop/src/main/lib/file-logger\.test\.ts$''',
+]

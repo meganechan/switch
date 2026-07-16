@@ -1,0 +1,145 @@
+name: switch release
+
+# Builds and publishes the Switch core stack — the switch-core, gateway, and
+# setup container images plus the Helm chart — so adopters can deploy without
+# building from source. See RELEASING.md for the full procedure.
+#
+# Trigger by pushing a tag like `switch-v0.2.0` (the version after `switch-v`
+# MUST match pyproject.toml `[project].version`; the prep job verifies this).
+# `workflow_dispatch` builds everything WITHOUT pushing, for verification.
+#
+# Artifacts go to GHCR by default. While this repo is private the packages are
+# private too and flip to public with the repo at the public-repo move
+# (CHOO-1260). REGISTRY / IMAGE_NAMESPACE are the only things to change to
+# retarget another registry (e.g. ECR) — a config flip, not a rewrite.
+
+on:
+  push:
+    tags:
+      - 'switch-v*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  # GHCR namespace = the repo owner (lowercase). Images land at
+  # ghcr.io/<owner>/<image>; the Helm chart at ghcr.io/<owner>/charts/switch.
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+
+jobs:
+  prep:
+    name: Resolve + verify version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      push: ${{ steps.version.outputs.push }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        # On a tag: version is the tag minus `switch-v`, and we push. On a
+        # dispatch run: use pyproject's version and DON'T push (build-only).
+        run: |
+          pkg_version="$(python3 -c "import tomllib; print(tomllib.load(open('core/pyproject.toml','rb'))['project']['version'])")"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag_version="${GITHUB_REF_NAME#switch-v}"
+            if [ "$tag_version" != "$pkg_version" ]; then
+              echo "::error::Tag version ($tag_version) does not match core/pyproject.toml version ($pkg_version). Bump pyproject and re-tag."
+              exit 1
+            fi
+            echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$pkg_version" >> "$GITHUB_OUTPUT"
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Resolved version=$pkg_version (push on tag only)"
+
+  images:
+    name: Build & publish image (${{ matrix.image }})
+    needs: prep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: switch-core
+            dockerfile: deploy/shared_resources/images/Dockerfile.switch
+          - image: gateway
+            dockerfile: deploy/shared_resources/images/Dockerfile.gateway
+          - image: setup
+            dockerfile: deploy/shared_resources/images/Dockerfile.setup
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        # Enables arm64 emulation so buildx can produce a multi-arch manifest
+        # from an amd64 runner.
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          # All three Dockerfiles build with the repo root as context.
+          context: .
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ needs.prep.outputs.push == 'true' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:${{ needs.prep.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  chart:
+    name: Package & publish Helm chart
+    needs: prep
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Lint chart
+        run: helm lint deploy/remote/helm/switch
+
+      - name: Package chart
+        # Stamp both the chart version and appVersion with the release version so
+        # a single tag pins the whole stack.
+        run: |
+          helm package deploy/remote/helm/switch \
+            --version "${{ needs.prep.outputs.version }}" \
+            --app-version "${{ needs.prep.outputs.version }}" \
+            --destination "$RUNNER_TEMP/chart"
+
+      - name: Log in to GHCR (Helm OCI)
+        if: ${{ needs.prep.outputs.push == 'true' }}
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | \
+            helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        if: ${{ needs.prep.outputs.push == 'true' }}
+        run: |
+          helm push "$RUNNER_TEMP/chart/switch-${{ needs.prep.outputs.version }}.tgz" \
+            "oci://$REGISTRY/$IMAGE_NAMESPACE/charts"

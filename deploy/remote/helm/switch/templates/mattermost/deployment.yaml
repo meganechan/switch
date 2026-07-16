@@ -1,0 +1,84 @@
+{{- if .Values.mattermost.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "switch.fullname" . }}-mattermost
+  labels:
+    {{- include "switch.labels" . | nindent 4 }}
+    {{- include "switch.selectorLabels" (dict "Release" .Release "component" "mattermost") | nindent 4 }}
+spec:
+  replicas: {{ .Values.mattermost.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "switch.selectorLabels" (dict "Release" .Release "component" "mattermost") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "switch.labels" . | nindent 8 }}
+        {{- include "switch.selectorLabels" (dict "Release" .Release "component" "mattermost") | nindent 8 }}
+    spec:
+      {{- if .Values.global.imagePullSecrets }}
+      {{- include "switch.imagePullSecrets" . | nindent 6 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 2000
+      initContainers:
+        {{- include "switch.waitFor" (dict "name" "postgres" "host" (include "switch.postgresHost" .) "port" (include "switch.postgresPort" .)) | nindent 8 }}
+      containers:
+        - name: mattermost
+          image: {{ .Values.mattermost.image }}
+          imagePullPolicy: {{ .Values.mattermost.imagePullPolicy }}
+          ports:
+            - containerPort: 8065
+              protocol: TCP
+          env:
+            - name: MM_SQLSETTINGS_DRIVERNAME
+              value: postgres
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "switch.postgresSecretName" . }}
+                  key: {{ include "switch.postgresSecretKey" . }}
+            - name: MM_SQLSETTINGS_DATASOURCE
+              value: "postgres://{{ include "switch.postgresUser" . }}:$(POSTGRES_PASSWORD)@{{ include "switch.postgresHost" . }}:{{ include "switch.postgresPort" . }}/mattermost?sslmode={{ .Values.postgresql.sslMode }}"
+            - name: MM_SERVICESETTINGS_SITEURL
+              value: {{ .Values.mattermost.siteUrl | default "" | quote }}
+            - name: MM_SERVICESETTINGS_ENABLELOCALMODE
+              value: "true"
+            - name: MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION
+              value: "true"
+            - name: MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS
+              value: "true"
+            # Lets the bridge hard-delete (permanent=true) an agent's transient
+            # "working on it…" status post instead of soft-deleting it, which
+            # would leave a "(message deleted)" tombstone. Requires MM >= v10.2.
+            - name: MM_SERVICESETTINGS_ENABLEAPIPOSTDELETION
+              value: "true"
+            - name: MM_TEAMSETTINGS_ENABLEOPENSERVER
+              value: "true"
+            - name: MM_TEAMSETTINGS_MAXUSERSPERTEAM
+              value: {{ .Values.mattermost.maxUsersPerTeam | default 1000 | quote }}
+          readinessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: 8065
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/v4/system/ping
+              port: 8065
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /mattermost/data
+          resources:
+            {{- toYaml .Values.mattermost.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "switch.fullname" . }}-mattermost-data
+{{- end }}

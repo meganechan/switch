@@ -1,0 +1,109 @@
+import { Alert, Box, CircularProgress } from "@mui/material";
+import type { GridColDef } from "@mui/x-data-grid-pro";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import DataTable from "../../components/DataTable";
+import { AccessChip } from "../../components/AccessControls";
+import type { PackageDetail } from "../../data/api";
+import { usePackages } from "../../data/hooks";
+import ResourceFiltersBar from "./ResourceFiltersBar";
+
+interface Props {
+  refreshKey: number;
+}
+
+export default function PackagesTab({ refreshKey }: Props) {
+  const navigate = useNavigate();
+  const { data: pkgs, loading, error, refetch } = usePackages();
+  const [search, setSearch] = useState("");
+  const [ownerId, setOwnerId] = useState<string>("");
+
+  useEffect(() => {
+    refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
+
+  const owners = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of pkgs ?? []) m.set(p.owner_id, p.owner_name ?? p.owner_id);
+    return [...m.entries()].map(([id, name]) => ({ id, name }));
+  }, [pkgs]);
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return (pkgs ?? []).filter((p) => {
+      if (ownerId && p.owner_id !== ownerId) return false;
+      if (q && !p.name.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [pkgs, search, ownerId]);
+
+  const columns = useMemo<GridColDef<PackageDetail>[]>(
+    () => [
+      { field: "name", headerName: "Name", flex: 1, minWidth: 180 },
+      { field: "description", headerName: "Description", flex: 2, minWidth: 280 },
+      {
+        field: "read_visibility",
+        headerName: "Access",
+        width: 110,
+        renderCell: ({ row }) => <AccessChip pair={row} />,
+      },
+      {
+        field: "owner_name",
+        headerName: "Owner",
+        width: 150,
+        renderCell: ({ value, row }) => value ?? row.owner_id,
+      },
+      {
+        field: "references_count",
+        headerName: "References",
+        width: 110,
+        type: "number",
+      },
+      {
+        field: "documents_count",
+        headerName: "Documents",
+        width: 110,
+        type: "number",
+      },
+      {
+        field: "attached_rooms_count",
+        headerName: "Rooms",
+        width: 90,
+        type: "number",
+      },
+      { field: "created_at", headerName: "Created", width: 180 },
+    ],
+    [],
+  );
+
+  return (
+    <Box sx={{ display: "flex", flexDirection: "column", flexGrow: 1, minHeight: 0 }}>
+      <ResourceFiltersBar
+        search={search}
+        onSearchChange={setSearch}
+        ownerId={ownerId}
+        onOwnerChange={setOwnerId}
+        owners={owners}
+      />
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
+
+      {loading ? (
+        <CircularProgress />
+      ) : (
+        <DataTable
+          rows={filtered}
+          columns={columns}
+          fillHeight
+          onRowClick={(params) => navigate(`/resources/packages/${params.id}`)}
+          sx={{ "& .MuiDataGrid-row": { cursor: "pointer" } }}
+        />
+      )}
+    </Box>
+  );
+}

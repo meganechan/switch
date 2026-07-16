@@ -1,0 +1,36 @@
+Switch has been deployed to namespace {{ .Release.Namespace }}.
+
+To check pod status:
+  kubectl get pods -n {{ .Release.Namespace }}
+
+To access services via port-forward:
+
+  # Gateway (dashboard)
+  kubectl port-forward svc/{{ include "switch.fullname" . }}-gateway 3000:3000 -n {{ .Release.Namespace }}
+
+  # Switch Core (API)
+  kubectl port-forward svc/{{ include "switch.fullname" . }}-switch-core 8000:8000 -n {{ .Release.Namespace }}
+
+  # Mattermost
+  kubectl port-forward svc/{{ include "switch.fullname" . }}-mattermost 8065:8065 -n {{ .Release.Namespace }}
+
+  # Tuwunel (Matrix homeserver)
+  kubectl port-forward svc/{{ include "switch.fullname" . }}-tuwunel 8008:8008 -n {{ .Release.Namespace }}
+
+Or use `just pf-all` to forward all services at once.
+{{ if eq .Values.ingress.mode "managed" }}
+This release renders a managed Ingress ({{ include "switch.fullname" . }}-web){{ if .Values.ingress.host }} for host {{ .Values.ingress.host }}{{ end }}.
+Point DNS at your ingress controller to reach the gateway and agent API.
+{{- else }}
+Ingress is in "existing" mode: no Ingress was rendered. Expose the gateway and
+agent API with your own controller (see the chart's samples/ingress.example.yaml)
+or set ingress.mode=managed.
+{{- end }}
+
+⚠  BACK UP YOUR DATA — this chart ships no backup jobs.
+The Tuwunel volume ({{ include "switch.fullname" . }}-tuwunel-data) holds the
+Matrix signing key: your homeserver's identity. Lose it and every account is
+orphaned and this server can never be restored — so back it up. Also back up
+Postgres (all app + Mattermost state). See BACKUP.md and
+samples/volumesnapshot.example.yaml for the recommended approaches
+(CSI VolumeSnapshots, pg_dump / managed-DB backups, Velero).

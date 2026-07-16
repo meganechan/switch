@@ -1,0 +1,14 @@
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+
+class RoomMeta(BaseModel):
+    room_id: str
+    name: str
+    bridge_id: str | None = None
+    # Whether agents should post their self-join greeting in this room. Driven by
+    # the room's collaboration bridge toggle; True for non-bridged
+    # rooms and when no bridge resolves.
+    agent_greetings_enabled: bool = True
+    channel_type: str | None = None

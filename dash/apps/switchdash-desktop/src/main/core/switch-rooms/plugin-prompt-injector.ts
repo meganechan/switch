@@ -1,0 +1,33 @@
+import { getPlugin } from '@main/core/providers/plugin-registry';
+import { buildPromptInjectionPayload } from '@shared/prompt-injection';
+import type { PromptInjector } from './room-connection';
+
+// Delay between writing the prompt text and the submit keystroke. Writing both
+// in one PTY chunk makes TUIs (Claude) treat the trailing Enter as part of the
+// pasted input, so the text lands in the box but is never sent. A provider that
+// declares its own submitDelayMs overrides this.
+const DEFAULT_SUBMIT_DELAY_MS = 150;
+
+/**
+ * Resolves a provider's keystroke-injection behavior from the plugin registry.
+ * Used by the local main process; the remote sidecar supplies its own
+ * `PromptInjector` since the plugin registry is not available there.
+ */
+export class PluginPromptInjector implements PromptInjector {
+  constructor(private readonly providerId: string) {}
+
+  build(text: string): { payload: string; submitSequence: string; submitDelayMs: number } {
+    const prompt = getPlugin(this.providerId).capabilities.prompt;
+    const submitSequence = prompt.kind === 'keystroke' ? (prompt.submitSequence ?? '\r') : '\r';
+    const submitDelayMs =
+      (prompt.kind === 'keystroke' ? prompt.submitDelayMs : undefined) ?? DEFAULT_SUBMIT_DELAY_MS;
+    // Bracket multiline bodies as a paste so an embedded newline can't submit
+    // the prompt early — the trailing submitSequence is what submits it.
+    const payload = buildPromptInjectionPayload({
+      providerId: this.providerId,
+      text,
+      forceBracketedPaste: text.includes('\n'),
+    });
+    return { payload, submitSequence, submitDelayMs };
+  }
+}
