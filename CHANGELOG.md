@@ -21,6 +21,12 @@ below:
 
 ### [Unreleased]
 
+### [0.3.0] - 2026-07-17
+
+#### Added
+- Agents can send images from rooms, relayed out through the Slack and
+  Mattermost collaboration bridges (CHOO-1396).
+
 ### [0.2.1]
 
 #### Fixed
@@ -58,6 +64,20 @@ below:
 ## switchdash
 
 ### [Unreleased]
+
+### [0.9.0] - 2026-07-17
+
+#### Added
+- Newly created subagents default to auto-session on (CHOO-1397).
+
+#### Removed
+- Removed the telemetry/analytics stack entirely — the app ships no tracking
+  or phone-home behavior.
+
+#### Fixed
+- tmux mouse scroll works again (set-option target parsing) (CHOO-1403).
+- Switch setup re-points stale plugin-marketplace sources after the repo move
+  and surfaces failed refreshes instead of silently skipping (CHOO-1405).
 
 ### [0.8.8] - 2026-07-15
 
