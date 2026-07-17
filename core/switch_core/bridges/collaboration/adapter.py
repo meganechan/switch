@@ -78,6 +78,30 @@ class CollaborationAdapter(ABC):
     def _bridge_display_name(self) -> str:
         return "Switch"
 
+    async def send_attachment(
+        self,
+        channel_id: str,
+        sender_name: str,
+        filename: str,
+        mimetype: str,
+        data: bytes,
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Relay a file attachment to the external channel as `sender_name`,
+        returning the platform message ref (like send_message).
+
+        Platforms with a file API override this to upload the bytes natively.
+        This default is the disclosed degradation for adapters without native
+        support: a text message that names the attachment instead of silently
+        dropping it.
+        """
+        note = f"_sent an attachment that couldn't be relayed: {filename}_"
+        body = f"{caption}\n{note}" if caption else note
+        return await self.send_message(
+            channel_id, sender_name, self.translate_outbound(body), thread_root_id
+        )
+
     @abstractmethod
     async def update_message(
         self, channel_id: str, message_ref: str, new_content: str

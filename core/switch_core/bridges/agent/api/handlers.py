@@ -5,7 +5,15 @@ import logging
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    UploadFile,
+)
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import Response
@@ -414,6 +422,42 @@ async def download_media(
         media_type=content_type or "application/octet-stream",
         headers=headers,
     )
+
+
+@router.post("/{agent_id}/rooms/{room_id}/media")
+async def upload_media(
+    agent_id: str,
+    room_id: str,
+    file: UploadFile,
+    agent: Annotated[Agent, Depends(get_agent_from_scope)],
+    protocol: Annotated[ProtocolService, Depends(get_protocol)],
+    caption: Annotated[str | None, Form()] = None,
+    thread_id: Annotated[str | None, Form()] = None,
+) -> dict[str, object]:
+    """Post an attachment to a room as the agent (multipart upload).
+
+    The inverse of the GET media endpoint: the local channel (or any connector
+    holding the bridge API token) sends the file's bytes here; they are
+    uploaded to the Matrix media repo and posted to the room as an
+    m.image / m.file event, with optional caption and threading.
+    """
+    data = await file.read()
+    try:
+        result = await protocol.send_media(
+            agent.id,
+            room_id,
+            data,
+            filename=file.filename or "attachment",
+            mimetype=file.content_type or "application/octet-stream",
+            caption=caption,
+            thread_id=thread_id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except PermissionError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
+
+    return {"ok": True, **result}
 
 
 @router.post("/{agent_id}/typing")

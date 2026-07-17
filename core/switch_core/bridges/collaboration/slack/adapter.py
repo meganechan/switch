@@ -216,6 +216,91 @@ class SlackAdapter(CollaborationAdapter):
             )
             return None
 
+    async def send_attachment(
+        self,
+        channel_id: str,
+        sender_name: str,
+        filename: str,
+        mimetype: str,
+        data: bytes,
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Upload a file natively via files_upload_v2.
+
+        Slack's file upload cannot carry the per-message username/icon
+        override that send_message uses, so the file post renders as the
+        Switch app itself; the sender's identity is preserved by bolding
+        their name in the comment. The upload's shared-message ts is pulled
+        from the response when Slack provides it (v2 completes the share
+        asynchronously, so it may be absent — then no ref is returned and
+        replies to the file won't thread back to Matrix).
+        """
+        if not self._web_client:
+            logger.error("Cannot send attachment: Slack client not connected")
+            return None
+
+        thread_ts: str | None = None
+        if thread_root_id:
+            thread_ts = (
+                self._parse_message_ref(thread_root_id)[1]
+                if ":" in thread_root_id
+                else thread_root_id
+            )
+
+        comment = (
+            f"*{sender_name}*: {self.translate_outbound(caption)}"
+            if caption
+            else f"*{sender_name}* sent `{filename}`"
+        )
+
+        try:
+            result = await self._web_client.files_upload_v2(
+                channel=channel_id,
+                file=data,
+                filename=filename,
+                initial_comment=comment,
+                thread_ts=thread_ts,
+            )
+        except SlackApiError as e:
+            logger.error(
+                "Failed to upload attachment '%s' to Slack channel %s: %s",
+                filename,
+                channel_id,
+                e,
+            )
+            return await super().send_attachment(
+                channel_id,
+                sender_name,
+                filename,
+                mimetype,
+                data,
+                caption,
+                thread_root_id,
+            )
+
+        ts = self._extract_share_ts(result.get("files") or [], channel_id)
+        return f"{channel_id}:{ts}" if ts else None
+
+    @staticmethod
+    def _extract_share_ts(
+        files: list[dict[str, object]], channel_id: str
+    ) -> str | None:
+        """The ts of the message that shared an uploaded file into the channel,
+        when the upload response already carries it."""
+        for file in files:
+            shares = file.get("shares")
+            if not isinstance(shares, dict):
+                continue
+            for scope in ("public", "private"):
+                entries = shares.get(scope)
+                if isinstance(entries, dict):
+                    for entry in entries.get(channel_id, []):
+                        ts = entry.get("ts")
+                        if ts:
+                            return str(ts)
+        return None
+
     async def update_message(
         self, channel_id: str, message_ref: str, new_content: str
     ) -> None:

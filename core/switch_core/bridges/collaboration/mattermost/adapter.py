@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import re
@@ -193,6 +194,77 @@ class MattermostAdapter(CollaborationAdapter):
         if driver is None:
             return None
         return await self._create_post(driver, channel_id, content, thread_root_id)
+
+    async def send_attachment(
+        self,
+        channel_id: str,
+        sender_name: str,
+        filename: str,
+        mimetype: str,
+        data: bytes,
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Upload the file with the agent's own bot and attach it to a post —
+        full identity and threading parity with text messages."""
+        loop = self._main_loop
+        if loop is None:
+            logger.error("Cannot send attachment: event loop not initialized")
+            return None
+        driver = self._bot_drivers.get(sender_name)
+        if not driver:
+            logger.error("No Mattermost driver found for sender '%s'", sender_name)
+            if not self._admin_driver:
+                return None
+            driver = self._admin_driver
+
+        def _upload() -> list[str]:
+            result = driver.files.upload_file(
+                channel_id,
+                files={"files": (filename, io.BytesIO(data), mimetype)},
+            )
+            return [info["id"] for info in result.get("file_infos", [])]
+
+        try:
+            file_ids = await loop.run_in_executor(None, _upload)
+        except Exception as e:
+            logger.error(
+                "Failed to upload attachment '%s' to Mattermost channel %s: %s",
+                filename,
+                channel_id,
+                e,
+            )
+            file_ids = []
+        if not file_ids:
+            return await super().send_attachment(
+                channel_id,
+                sender_name,
+                filename,
+                mimetype,
+                data,
+                caption,
+                thread_root_id,
+            )
+
+        post: dict[str, object] = {
+            "channel_id": channel_id,
+            "message": self.translate_outbound(caption) if caption else "",
+            "file_ids": file_ids,
+        }
+        if thread_root_id is not None:
+            post["root_id"] = thread_root_id
+        try:
+            result = await loop.run_in_executor(None, driver.posts.create_post, post)
+            post_id: str = result.get("id", "")
+            return post_id or None
+        except Exception as e:
+            logger.error(
+                "Failed to post attachment '%s' to Mattermost channel %s: %s",
+                filename,
+                channel_id,
+                e,
+            )
+            return None
 
     async def _create_post(
         self,

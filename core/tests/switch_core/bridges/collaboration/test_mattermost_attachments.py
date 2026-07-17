@@ -96,3 +96,130 @@ def test_failed_download_skips_only_that_file() -> None:
 def test_no_file_ids_returns_empty() -> None:
     adapter = _adapter_with_files(_FakeFiles(meta={}, data={}))
     assert _fetch(adapter, []) == []
+
+
+# ── Outbound attachments ─────────────────────────────────────────────────────
+
+
+class _FakeUploadFiles:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.uploads: list[tuple[str, dict[str, object]]] = []
+        self._fail = fail
+
+    def upload_file(self, channel_id: str, files: dict[str, object]):  # noqa: ANN201
+        if self._fail:
+            raise RuntimeError("upload boom")
+        self.uploads.append((channel_id, files))
+        return {"file_infos": [{"id": "fid-1"}]}
+
+
+class _FakePosts:
+    def __init__(self) -> None:
+        self.posts: list[dict[str, object]] = []
+
+    def create_post(self, post: dict[str, object]) -> dict[str, str]:
+        self.posts.append(post)
+        return {"id": "post-1"}
+
+
+def _egress_adapter(
+    *, upload_fail: bool = False
+) -> tuple[MattermostAdapter, _FakeUploadFiles, _FakePosts]:
+    adapter = MattermostAdapter(
+        config=MattermostConnectionConfig(
+            url="http://mm",
+            admin_user="admin",
+            admin_password="pw",
+            team_name="team",
+        )
+    )
+    files = _FakeUploadFiles(fail=upload_fail)
+    posts = _FakePosts()
+    driver = type("_Driver", (), {"files": files, "posts": posts})()
+    adapter._bot_drivers["agent-a"] = driver  # type: ignore[assignment]
+    return adapter, files, posts
+
+
+def _send(adapter: MattermostAdapter, **kwargs: object):
+    loop = asyncio.new_event_loop()
+    try:
+
+        async def go():
+            adapter._main_loop = asyncio.get_event_loop()
+            return await adapter.send_attachment(**kwargs)  # type: ignore[arg-type]
+
+        return loop.run_until_complete(go())
+    finally:
+        loop.close()
+
+
+def test_send_attachment_uploads_and_posts_as_agent_bot() -> None:
+    adapter, files, posts = _egress_adapter()
+
+    ref = _send(
+        adapter,
+        channel_id="chan-1",
+        sender_name="agent-a",
+        filename="plot.png",
+        mimetype="image/png",
+        data=b"bytes",
+        caption="the plot",
+        thread_root_id="root-post",
+    )
+
+    assert ref == "post-1"
+    assert len(files.uploads) == 1
+    channel_id, upload_files = files.uploads[0]
+    assert channel_id == "chan-1"
+    filename, blob, mimetype = upload_files["files"]  # type: ignore[misc]
+    assert filename == "plot.png"
+    assert blob.read() == b"bytes"
+    assert mimetype == "image/png"
+    assert posts.posts == [
+        {
+            "channel_id": "chan-1",
+            "message": "the plot",
+            "file_ids": ["fid-1"],
+            "root_id": "root-post",
+        }
+    ]
+
+
+def test_send_attachment_without_caption_or_thread() -> None:
+    adapter, _files, posts = _egress_adapter()
+
+    ref = _send(
+        adapter,
+        channel_id="chan-1",
+        sender_name="agent-a",
+        filename="cat.png",
+        mimetype="image/png",
+        data=b"x",
+    )
+
+    assert ref == "post-1"
+    assert posts.posts[0]["message"] == ""
+    assert "root_id" not in posts.posts[0]
+
+
+def test_send_attachment_upload_failure_falls_back_to_disclosed_text() -> None:
+    adapter, files, posts = _egress_adapter(upload_fail=True)
+
+    ref = _send(
+        adapter,
+        channel_id="chan-1",
+        sender_name="agent-a",
+        filename="cat.png",
+        mimetype="image/png",
+        data=b"x",
+        caption="look",
+    )
+
+    # The failure surfaces as a visible text post, never a silent drop.
+    assert ref == "post-1"
+    assert files.uploads == []
+    assert len(posts.posts) == 1
+    message = str(posts.posts[0]["message"])
+    assert "couldn't be relayed" in message
+    assert "cat.png" in message
+    assert "file_ids" not in posts.posts[0]

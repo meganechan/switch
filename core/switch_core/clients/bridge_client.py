@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from nio import MatrixRoom, RoomMessageText
+from nio import MatrixRoom, RoomMessageMedia, RoomMessageText
 
 from switch_core.clients.client_base import ClientBase, ClientConfig
 from switch_core.events import AgentRuntimeStateEvent
@@ -32,6 +32,14 @@ class BridgeClient(ClientBase[BridgeClientConfig]):
             event.sender,
         )
         await self._bridge_core.handle_outbound_message(room, event)
+
+    async def on_media(self, room: MatrixRoom, event: RoomMessageMedia) -> None:
+        logger.debug(
+            "[BRIDGE-CLIENT] on_media room=%s sender=%s",
+            room.room_id,
+            event.sender,
+        )
+        await self._bridge_core.handle_outbound_media(room, event, self)
 
     async def on_agent_runtime_state(
         self, room: MatrixRoom, event: AgentRuntimeStateEvent

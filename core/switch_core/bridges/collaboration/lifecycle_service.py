@@ -177,6 +177,7 @@ class CollaborationBridgeLifecycleService:
             session_factory=self._session_factory,
             matrix_server_name=self._config.matrix_server_name,
             bridge_client_matrix_user_id=bridge_client_record.matrix_user_id,
+            max_attachment_bytes=self._config.agent_media_max_bytes,
         )
 
         bridge_client = BridgeClient(
