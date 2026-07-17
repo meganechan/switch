@@ -9,6 +9,10 @@ const openRemoteSubagentFs = vi.hoisted(() => vi.fn());
 const writeSettings = vi.hoisted(() => vi.fn(async () => {}));
 const remoteClose = vi.hoisted(() => vi.fn());
 const remoteRead = vi.hoisted(() => vi.fn());
+const getAgents = vi.hoisted(() => vi.fn());
+const getLocalProjectByPath = vi.hoisted(() => vi.fn());
+const applyLocalSubagentAutoSessionState = vi.hoisted(() => vi.fn(async () => {}));
+const logWarn = vi.hoisted(() => vi.fn());
 
 vi.mock('@main/core/providers/plugin-registry', () => ({ getPlugin }));
 vi.mock('@main/core/providers/plugin-fs', () => ({ createPluginFs: vi.fn() }));
@@ -19,9 +23,12 @@ vi.mock('@main/core/switch-rooms/switch-credentials', () => ({
   readSwitchAgentCredentials,
 }));
 vi.mock('./resolve-workspace', () => ({ openRemoteSubagentFs }));
-vi.mock('@main/lib/logger', () => ({ log: { warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@main/core/agents/getAgents', () => ({ getAgents }));
+vi.mock('@main/core/projects/operations/getProjects', () => ({ getLocalProjectByPath }));
+vi.mock('./setSubagentAutoSession', () => ({ applyLocalSubagentAutoSessionState }));
+vi.mock('@main/lib/logger', () => ({ log: { warn: logWarn, error: vi.fn() } }));
 
-const { registerSubagentsRemote } = await import('./register-subagents');
+const { registerSubagents, registerSubagentsRemote } = await import('./register-subagents');
 
 const REMOTE = {
   providerId: 'claude',
@@ -69,8 +76,10 @@ describe('registerSubagentsRemote', () => {
       {
         parentAgentId: 'sw-parent',
         subagents: [{ subagentName: 'code-reviewer', description: 'reviews' }],
+        autoSession: false,
       }
     );
+    expect(applyLocalSubagentAutoSessionState).not.toHaveBeenCalled();
     expect(writeSettings).toHaveBeenCalledWith(
       { read: remoteRead },
       expect.objectContaining({
@@ -96,5 +105,101 @@ describe('registerSubagentsRemote', () => {
 
     expect(registerSubagentsBulk).not.toHaveBeenCalled();
     expect(remoteClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+const LOCAL = {
+  providerId: 'claude',
+  serverId: 'srv-1',
+  dir: '/home/dev/r',
+};
+
+describe('registerSubagents', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPlugin.mockReturnValue({ behavior: { subagents: { writeSettings } } });
+    getServer.mockResolvedValue({ id: 'srv-1', apiUrl: 'https://switch.example.com' });
+    readSwitchAgentCredentials.mockResolvedValue({
+      agentId: 'sw-parent',
+      apiEndpoint: 'https://switch.example.com',
+      token: 'tok',
+    });
+  });
+
+  it('registers with auto_session on and starts a watcher per new subagent', async () => {
+    registerSubagentsBulk.mockResolvedValueOnce([
+      { subagentName: 'code-reviewer', id: 'child-1', apiKey: 'key-1' },
+      { subagentName: 'doc-writer', id: 'child-2', apiKey: 'key-2' },
+    ]);
+    getLocalProjectByPath.mockResolvedValueOnce({ id: 'proj-1' });
+    getAgents.mockResolvedValueOnce([
+      { id: 'local-other', switchAgentId: 'sw-other' },
+      { id: 'local-parent', switchAgentId: 'sw-parent' },
+    ]);
+
+    const result = await registerSubagents({
+      ...LOCAL,
+      subagents: [
+        { name: 'code-reviewer', description: 'reviews' },
+        { name: 'doc-writer', description: 'writes docs' },
+      ],
+    });
+
+    expect(registerSubagentsBulk).toHaveBeenCalledWith(
+      expect.objectContaining({ apiUrl: 'https://switch.example.com' }),
+      expect.objectContaining({ parentAgentId: 'sw-parent', autoSession: true })
+    );
+    expect(getLocalProjectByPath).toHaveBeenCalledWith('/home/dev/r');
+    expect(applyLocalSubagentAutoSessionState).toHaveBeenCalledTimes(2);
+    expect(applyLocalSubagentAutoSessionState).toHaveBeenCalledWith(
+      'local-parent',
+      'code-reviewer',
+      true
+    );
+    expect(applyLocalSubagentAutoSessionState).toHaveBeenCalledWith(
+      'local-parent',
+      'doc-writer',
+      true
+    );
+    expect(result).toEqual({ registered: ['code-reviewer', 'doc-writer'] });
+  });
+
+  it('warns instead of failing when no local agent matches the dir', async () => {
+    registerSubagentsBulk.mockResolvedValueOnce([
+      { subagentName: 'code-reviewer', id: 'child-1', apiKey: 'key-1' },
+    ]);
+    getLocalProjectByPath.mockResolvedValueOnce(undefined);
+
+    const result = await registerSubagents({
+      ...LOCAL,
+      subagents: [{ name: 'code-reviewer', description: 'reviews' }],
+    });
+
+    expect(result).toEqual({ registered: ['code-reviewer'] });
+    expect(applyLocalSubagentAutoSessionState).not.toHaveBeenCalled();
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.stringContaining('no local agent for dir'),
+      expect.objectContaining({ dir: '/home/dev/r' })
+    );
+  });
+
+  it('does not fail registration when starting a watcher fails', async () => {
+    registerSubagentsBulk.mockResolvedValueOnce([
+      { subagentName: 'code-reviewer', id: 'child-1', apiKey: 'key-1' },
+    ]);
+    getLocalProjectByPath.mockResolvedValueOnce({ id: 'proj-1' });
+    getAgents.mockResolvedValueOnce([{ id: 'local-parent', switchAgentId: 'sw-parent' }]);
+    applyLocalSubagentAutoSessionState.mockRejectedValueOnce(new Error('watcher boom'));
+
+    const result = await registerSubagents({
+      ...LOCAL,
+      subagents: [{ name: 'code-reviewer', description: 'reviews' }],
+    });
+
+    expect(result).toEqual({ registered: ['code-reviewer'] });
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.stringContaining('failed to start auto_session watcher'),
+      expect.objectContaining({ name: 'code-reviewer' })
+    );
   });
 });

@@ -19,6 +19,20 @@ export type SubagentAutoSessionParams = {
   enabled: boolean;
 };
 
+/**
+ * Apply a subagent's auto_session state to the LOCAL side only: mirror the flag
+ * and start/stop its watcher. Does NOT touch the gateway profile — callers that
+ * also mutate the gateway must do so separately.
+ */
+export async function applyLocalSubagentAutoSessionState(
+  parentAgentId: string,
+  name: string,
+  enabled: boolean
+): Promise<void> {
+  await setAutoSessionSubagent(parentAgentId, name, enabled);
+  await autoSessionWatcher.reconcileSubagent(parentAgentId, name, enabled);
+}
+
 /** Resolve a subagent's own Switch agent id (needed to flip its gateway profile). */
 async function resolveSubagentSwitchId(
   parentAgentId: string,
@@ -50,8 +64,7 @@ export async function setSubagentAutoSession(params: SubagentAutoSessionParams):
   }
 
   await setAutoSession(server, switchAgentId, params.enabled);
-  await setAutoSessionSubagent(params.parentAgentId, params.name, params.enabled);
-  await autoSessionWatcher.reconcileSubagent(params.parentAgentId, params.name, params.enabled);
+  await applyLocalSubagentAutoSessionState(params.parentAgentId, params.name, params.enabled);
 }
 
 /**
@@ -74,8 +87,7 @@ export async function getSubagentAutoSession(params: {
   try {
     const { connectionModel } = await fetchAgentOptions(server, switchAgentId);
     const enabled = connectionModel === 'auto_session';
-    await setAutoSessionSubagent(params.parentAgentId, params.name, enabled);
-    await autoSessionWatcher.reconcileSubagent(params.parentAgentId, params.name, enabled);
+    await applyLocalSubagentAutoSessionState(params.parentAgentId, params.name, enabled);
     return enabled;
   } catch (error) {
     if (error instanceof GatewayError) {
