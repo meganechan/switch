@@ -1,4 +1,6 @@
 import type { ISubagentsBehavior, PluginFs } from '@switchdash/core/agents/plugins';
+import { getAgents } from '@main/core/agents/getAgents';
+import { getLocalProjectByPath } from '@main/core/projects/operations/getProjects';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import {
@@ -10,6 +12,7 @@ import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
 import { openRemoteSubagentFs } from './resolve-workspace';
+import { applyLocalSubagentAutoSessionState } from './setSubagentAutoSession';
 
 // Remote hosts are POSIX; use a forward-slash literal rather than path.join
 // (which emits backslashes on Windows). SshFileSystem normalises separators, but
@@ -43,6 +46,10 @@ export async function registerSubagentsCore(params: {
   parentSwitchAgentId: string;
   fs: PluginFs;
   subagents: { name: string; description: string }[];
+  /** Register the subagents with `auto_session` on, so a watcher auto-spawns a
+   * session when one is addressed. Only pass true for local parents — subagents
+   * of remote parents have no watcher (neither here nor in the VM sidecar). */
+  autoSession: boolean;
 }): Promise<{ registered: string[] }> {
   if (params.subagents.length === 0) return { registered: [] };
 
@@ -52,6 +59,7 @@ export async function registerSubagentsCore(params: {
       subagentName: s.name,
       description: s.description,
     })),
+    autoSession: params.autoSession,
   });
 
   for (const result of results) {
@@ -65,6 +73,44 @@ export async function registerSubagentsCore(params: {
   }
 
   return { registered: results.map((r) => r.subagentName) };
+}
+
+/**
+ * Seed the local auto_session mirror + start the watcher for freshly-registered
+ * subagents, so they begin watching now without an off→on toggle (CHOO-1397).
+ * The mirror and watcher are keyed by the parent's LOCAL agent id, resolved from
+ * the parent's directory — present in the onboarding flow because the project is
+ * created before its subagents are registered. Best-effort: a failure here must
+ * not fail the registration (the settings panel reconciles from the gateway).
+ */
+async function startAutoSessionWatchers(
+  dir: string,
+  parentSwitchAgentId: string,
+  names: string[]
+): Promise<void> {
+  const project = await getLocalProjectByPath(dir);
+  const localParent = project
+    ? (await getAgents(project.id)).find((a) => a.switchAgentId === parentSwitchAgentId)
+    : undefined;
+  if (!localParent) {
+    log.warn(
+      'registerSubagents: no local agent for dir; auto_session watchers start on reconcile',
+      {
+        dir,
+        parentSwitchAgentId,
+      }
+    );
+    return;
+  }
+  for (const name of names) {
+    await applyLocalSubagentAutoSessionState(localParent.id, name, true).catch((error) => {
+      log.warn('registerSubagents: failed to start auto_session watcher for new subagent', {
+        parentAgentId: localParent.id,
+        name,
+        error: String(error),
+      });
+    });
+  }
 }
 
 /**
@@ -94,13 +140,16 @@ export async function registerSubagents(
     );
   }
 
-  return registerSubagentsCore({
+  const result = await registerSubagentsCore({
     behavior,
     server,
     parentSwitchAgentId: parent.agentId,
     fs: createPluginFs(params.dir),
     subagents: params.subagents,
+    autoSession: true,
   });
+  await startAutoSessionWatchers(params.dir, parent.agentId, result.registered);
+  return result;
 }
 
 export type RegisterSubagentsRemoteParams = {
@@ -142,12 +191,16 @@ export async function registerSubagentsRemote(
         `No Switch agent configured at ${params.sshHost}:${params.remoteRepoDir} — cannot register subagents under it.`
       );
     }
+    // Subagents of remote parents register with auto_session off: neither the
+    // local watcher (no project path) nor the on-VM sidecar watches subagents,
+    // so an auto_session profile would advertise a capability nothing serves.
     return await registerSubagentsCore({
       behavior,
       server,
       parentSwitchAgentId: parent.agentId,
       fs: remote.fs,
       subagents: params.subagents,
+      autoSession: false,
     });
   } finally {
     remote.close();

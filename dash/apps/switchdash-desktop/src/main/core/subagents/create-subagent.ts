@@ -1,8 +1,10 @@
 import type { SubagentAttributes } from '@switchdash/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { getServer } from '@main/core/switch-servers/servers-store';
+import { log } from '@main/lib/logger';
 import { registerSubagentsCore } from './register-subagents';
 import { resolveSubagentWorkspace } from './resolve-workspace';
+import { applyLocalSubagentAutoSessionState } from './setSubagentAutoSession';
 
 export type CreateSubagentParams = {
   /** The parent agent to create the subagent under. Its provider, Switch server,
@@ -52,6 +54,9 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
 
     await behavior.writeDefinition(workspace.fs, params.attributes);
 
+    // Subagents of remote parents register with auto_session off: neither the
+    // local watcher (no project path) nor the on-VM sidecar watches subagents.
+    const autoSession = agent.connection !== 'remote';
     try {
       const server = await getServer(agent.serverId);
       if (!server) throw new Error(`No Switch server with id ${agent.serverId}`);
@@ -61,10 +66,24 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
         parentSwitchAgentId: agent.switchAgentId,
         fs: workspace.fs,
         subagents: [{ name, description }],
+        autoSession,
       });
     } catch (error) {
       await behavior.removeLocal(workspace.fs, name);
       throw error;
+    }
+
+    // Seed the local auto_session mirror + start the watcher so the new
+    // subagent begins watching now, without an off→on toggle. Best-effort: a
+    // failure must not fail creation (the settings panel reconciles later).
+    if (autoSession) {
+      await applyLocalSubagentAutoSessionState(params.parentAgentId, name, true).catch((error) => {
+        log.warn('createSubagent: failed to start auto_session watcher for new subagent', {
+          parentAgentId: params.parentAgentId,
+          name,
+          error: String(error),
+        });
+      });
     }
 
     return { name };

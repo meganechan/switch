@@ -332,6 +332,9 @@ export async function registerSubagentsBulk(
   params: {
     parentAgentId: string;
     subagents: { subagentName: string; description: string }[];
+    /** Register every subagent with the `auto_session` connection model, so a
+     * watcher auto-spawns a session when the subagent is addressed. */
+    autoSession: boolean;
     overwrite?: boolean;
   }
 ): Promise<BulkRegisteredSubagent[]> {
@@ -341,7 +344,7 @@ export async function registerSubagentsBulk(
     body: {
       agent_type: 'claude-code',
       parent_agent_id: params.parentAgentId,
-      options: {},
+      options: params.autoSession ? { auto_session: true } : {},
       subagents: params.subagents.map((s) => ({
         subagent_name: s.subagentName,
         description: s.description,
