@@ -196,6 +196,7 @@ const mcp = new Server(
       'If a message event has an image_path attribute, the sender attached one or more images. Each path is a local file already downloaded for you (comma-separated if several) — Read it to see the image before responding.',
       '',
       'To view an image that appears in read_context history but did NOT arrive with an image_path (e.g. an unaddressed image posted earlier), call the download_attachment tool with the attachment\'s mxc (from the read_context attachments field). It writes the file locally and returns the path — then Read that path.',
+      'To send an image (or other file) into the room, call the send_attachment tool with the local file path and an optional caption/thread_id. It posts as a native room attachment and bridged platforms (Slack, Mattermost) receive it as a real file upload.',
       '',
       'When you receive a task_delegate event (only delivered if your integration profile has can_accept=true):',
       '1. Call accept_task with the task_id to move it to ongoing.',
@@ -245,15 +246,61 @@ const DOWNLOAD_ATTACHMENT_TOOL = {
   },
 }
 
+// The outbound counterpart of download_attachment: the agent names a local
+// file (e.g. a screenshot it produced) and the channel uploads the bytes to
+// the agent bridge, which posts them into the room as an m.image / m.file
+// event — from there the collaboration bridges relay it out to Slack /
+// Mattermost like any other room message.
+const SEND_ATTACHMENT_TOOL = {
+  name: 'send_attachment',
+  description:
+    'Send a local file (e.g. an image) into the connected Switch room as an ' +
+    'attachment. It enters the room as a native image/file event and bridged ' +
+    'platforms (Slack, Mattermost) receive it as a real file upload. ' +
+    'Operates on the currently connected room unless room_id is given.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'Absolute path of the local file to send.',
+      },
+      caption: {
+        type: 'string',
+        description: 'Optional text to accompany the attachment.',
+      },
+      thread_id: {
+        type: 'string',
+        description:
+          'Optional message id to reply into, making this a threaded reply ' +
+          '(normalised to the thread root).',
+      },
+      room_id: {
+        type: 'string',
+        description:
+          'Optional Switch room id. Defaults to the currently polling room.',
+      },
+    },
+    required: ['path'],
+  },
+}
+
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [DOWNLOAD_ATTACHMENT_TOOL],
+  tools: [DOWNLOAD_ATTACHMENT_TOOL, SEND_ATTACHMENT_TOOL],
 }))
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
-  if (req.params.name !== 'download_attachment') {
-    throw new Error(`Unknown tool: ${req.params.name}`)
+  if (req.params.name === 'download_attachment') {
+    return handleDownloadAttachment(req.params.arguments ?? {})
   }
-  const args = (req.params.arguments ?? {}) as {
+  if (req.params.name === 'send_attachment') {
+    return handleSendAttachment(req.params.arguments ?? {})
+  }
+  throw new Error(`Unknown tool: ${req.params.name}`)
+})
+
+async function handleDownloadAttachment(rawArgs: Record<string, unknown>) {
+  const args = rawArgs as {
     mxc?: string
     filename?: string
     room_id?: string
@@ -285,7 +332,88 @@ mcp.setRequestHandler(CallToolRequestSchema, async req => {
       content: [{ type: 'text', text: `Download failed: ${err}` }],
     }
   }
-})
+}
+
+// Minimal extension → mimetype map for common attachment types; anything else
+// goes up as application/octet-stream and enters the room as an m.file.
+const MIME_BY_EXT: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.bmp': 'image/bmp',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain',
+}
+
+async function handleSendAttachment(rawArgs: Record<string, unknown>) {
+  const args = rawArgs as {
+    path?: string
+    caption?: string
+    thread_id?: string
+    room_id?: string
+  }
+  const filePath = typeof args.path === 'string' ? args.path : ''
+  if (!filePath) {
+    return { isError: true, content: [{ type: 'text', text: 'path is required' }] }
+  }
+  const roomId = args.room_id ?? pollingRoomId
+  if (!roomId) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text',
+          text: 'Not connected to a room — call connect_to_room first or pass room_id.',
+        },
+      ],
+    }
+  }
+
+  let bytes: Buffer
+  try {
+    bytes = fs.readFileSync(filePath)
+  } catch (err) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Cannot read ${filePath}: ${err}` }],
+    }
+  }
+
+  const filename = path.basename(filePath)
+  const mimetype = MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream'
+  const form = new FormData()
+  form.append('file', new Blob([bytes], { type: mimetype }), filename)
+  if (typeof args.caption === 'string' && args.caption) form.append('caption', args.caption)
+  if (typeof args.thread_id === 'string' && args.thread_id) form.append('thread_id', args.thread_id)
+
+  try {
+    const resp = await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/rooms/${roomId}/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${API_TOKEN}` },
+      body: form,
+    })
+    if (!resp.ok) {
+      throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
+    }
+    const data = (await resp.json()) as { event_id?: string }
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Sent ${filename} to the room (event_id: ${data.event_id ?? 'unknown'}).`,
+        },
+      ],
+    }
+  } catch (err) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: `Send failed: ${err}` }],
+    }
+  }
+}
 
 // -- Polling loop ------------------------------------------------------------
 

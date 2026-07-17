@@ -958,3 +958,91 @@ def test_user_join_does_not_fire_on_app_joined() -> None:
     assert app_joins == []
     assert len(user_joins) == 1
     assert user_joins[0].external_user_id == "U1"
+
+
+# ── Outbound attachments ─────────────────────────────────────────────────────
+
+
+class _FakeUploadWebClient(_FakeWebClient):
+    """Adds files_upload_v2 capture on top of the postMessage fake."""
+
+    def __init__(
+        self,
+        *,
+        upload_response: dict[str, Any] | None = None,
+        upload_error: str | None = None,
+    ) -> None:
+        super().__init__()
+        self.uploads: list[dict[str, Any]] = []
+        self._upload_response = upload_response or {"files": []}
+        self._upload_error = upload_error
+
+    async def files_upload_v2(self, **kwargs: Any) -> dict[str, Any]:
+        self.uploads.append(kwargs)
+        if self._upload_error:
+            raise SlackApiError(self._upload_error, {"error": self._upload_error})
+        return self._upload_response
+
+
+def test_send_attachment_uploads_file_with_sender_and_caption() -> None:
+    adapter = _adapter()
+    fake = _FakeUploadWebClient(
+        upload_response={"files": [{"shares": {"public": {"C123": [{"ts": "42.1"}]}}}]}
+    )
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    ref = _run(
+        adapter.send_attachment(
+            "C123",
+            "agent-a",
+            "plot.png",
+            "image/png",
+            b"bytes",
+            caption="the **plot**",
+            thread_root_id="C123:11.0",
+        )
+    )
+
+    assert len(fake.uploads) == 1
+    up = fake.uploads[0]
+    assert up["channel"] == "C123"
+    assert up["file"] == b"bytes"
+    assert up["filename"] == "plot.png"
+    # Sender identity is preserved in the comment (bolded), caption translated
+    # to mrkdwn (** → *).
+    assert up["initial_comment"] == "*agent-a*: the *plot*"
+    assert up["thread_ts"] == "11.0"
+    # The share ts from the upload response becomes the message ref.
+    assert ref == "C123:42.1"
+
+
+def test_send_attachment_without_caption_names_sender_and_file() -> None:
+    adapter = _adapter()
+    fake = _FakeUploadWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    ref = _run(adapter.send_attachment("C123", "agent-a", "cat.png", "image/png", b"x"))
+
+    assert fake.uploads[0]["initial_comment"] == "*agent-a* sent `cat.png`"
+    assert fake.uploads[0]["thread_ts"] is None
+    # No share info in the response → no ref (threading correlation degraded).
+    assert ref is None
+
+
+def test_send_attachment_upload_failure_falls_back_to_disclosed_text() -> None:
+    adapter = _adapter()
+    fake = _FakeUploadWebClient(upload_error="upload_failed")
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    ref = _run(
+        adapter.send_attachment(
+            "C123", "agent-a", "cat.png", "image/png", b"x", caption="look"
+        )
+    )
+
+    # The failure surfaces as a visible text message, never a silent drop.
+    assert len(fake.calls) == 1
+    assert "couldn't be relayed" in fake.calls[0]["text"]
+    assert "cat.png" in fake.calls[0]["text"]
+    assert fake.calls[0]["username"] == "agent-a"
+    assert ref == "C123:999.9"

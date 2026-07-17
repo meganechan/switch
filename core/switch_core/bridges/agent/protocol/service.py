@@ -753,6 +753,65 @@ class ProtocolService:
             )
         return event_id
 
+    async def send_media(
+        self,
+        agent_id: str,
+        room_id: str,
+        data: bytes,
+        filename: str,
+        mimetype: str,
+        caption: str | None = None,
+        thread_id: str | None = None,
+    ) -> dict[str, str]:
+        """Upload bytes to the Matrix media repository and post them to a room
+        as an m.image / m.file event. Returns {"event_id": ..., "mxc": ...}.
+
+        Membership in `room_id` is required, mirroring download_media. The
+        payload is capped by config.agent_media_max_bytes — an oversize upload
+        raises rather than being truncated. When `caption` is set it becomes
+        the event body (the filename rides in the `filename` field, per the
+        caption convention the bridges already use inbound). When `thread_id`
+        is set the event is posted into that thread (normalised to its root).
+        """
+        if not data:
+            raise ValueError("attachment is empty")
+        max_bytes = self.config.agent_media_max_bytes
+        if len(data) > max_bytes:
+            raise ValueError(
+                f"attachment '{filename}' is {len(data)} bytes, over the "
+                f"{max_bytes}-byte limit (AGENT_MEDIA_MAX_BYTES)"
+            )
+        room = await self.require_room_member(agent_id, room_id)
+        client = self.client_lifecycle.get_by_agent_id(agent_id)
+        if client is None:
+            raise ValueError("Agent client not running")
+        thread_root_id: str | None = None
+        if thread_id is not None:
+            thread_root_id = await self._resolve_thread_root(
+                client, room.matrix_room_id, thread_id
+            )
+        mxc = await client.upload_media(data, mimetype, filename)
+        msgtype = "m.image" if mimetype.startswith("image/") else "m.file"
+        event_id = await client.send_media(
+            room.matrix_room_id,
+            mxc,
+            filename,
+            mimetype,
+            len(data),
+            msgtype=msgtype,
+            caption=caption if caption and caption.strip() else None,
+            thread_root_id=thread_root_id,
+        )
+        if event_id is None:
+            raise ValueError("Failed to send media message")
+        try:
+            await self.set_typing(agent_id, room_id, False)
+        except Exception:
+            logger.warning(
+                "Failed to clear typing indicator for room %s", room_id, exc_info=True
+            )
+        return {"event_id": event_id, "mxc": mxc}
+
     async def send_targeted_message(
         self,
         agent_id: str,

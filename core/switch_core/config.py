@@ -56,6 +56,11 @@ class SwitchConfig(BaseSettings):
 
     frontend_base_url: str | None = None
 
+    # Upper bound on a single attachment an agent may post to a room (and that
+    # a collaboration bridge will relay out). Uploads over this raise instead
+    # of being truncated or silently dropped.
+    agent_media_max_bytes: int = 20 * 1024 * 1024
+
     db_pool_size: int = 20
     db_max_overflow: int = 10
     db_pool_recycle: int = 1800

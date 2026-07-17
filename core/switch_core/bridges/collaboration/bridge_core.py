@@ -3,9 +3,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from nio import MatrixRoom, RoomMessageText, RoomSendError
+from nio import (
+    DownloadError,
+    MatrixRoom,
+    RoomMessageMedia,
+    RoomMessageText,
+    RoomSendError,
+)
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from switch_core.bridges.collaboration.adapter import CollaborationAdapter
@@ -71,6 +77,7 @@ class BridgeCore:
         session_factory: async_sessionmaker[AsyncSession],
         matrix_server_name: str,
         bridge_client_matrix_user_id: str,
+        max_attachment_bytes: int,
     ) -> None:
         self._bridge_id = bridge_id
         self._bridge_type = bridge_type
@@ -87,6 +94,7 @@ class BridgeCore:
         self._session_factory = session_factory
         self._matrix_server_name = matrix_server_name
         self._bridge_client_matrix_user_id = bridge_client_matrix_user_id
+        self._max_attachment_bytes = max_attachment_bytes
 
         self._channel_to_room: dict[str, tuple[str, str]] = {}
         self._room_to_channel: dict[tuple[str, str], str] = {}
@@ -786,23 +794,9 @@ class BridgeCore:
             admin_marker is not None,
         )
 
-        # Bridge threads outbound: if this Matrix message is a threaded reply,
-        # resolve its thread root to the external post that anchors the thread.
-        thread_root_ref: str | None = None
-        relates = event_content.get("m.relates_to") or {}
-        if relates.get("rel_type") == "m.thread":
-            root_event_id = relates.get("event_id")
-            if root_event_id:
-                thread_root_ref = await self._external_post_for_matrix_event(
-                    root_event_id
-                )
-                if thread_root_ref is None:
-                    logger.warning(
-                        "[BRIDGE-OUT] no external post mapped for thread root %s; "
-                        "posting top-level in channel %s",
-                        root_event_id,
-                        channel_id,
-                    )
+        thread_root_ref = await self._outbound_thread_root_ref(
+            event_content, channel_id
+        )
 
         content = self._adapter.translate_outbound(event.body)
         if admin_marker is not None:
@@ -827,6 +821,155 @@ class BridgeCore:
                 matrix_event_id=event.event_id,
                 external_post_id=message_ref,
             )
+
+    async def _outbound_thread_root_ref(
+        self, event_content: dict[str, object], channel_id: str
+    ) -> str | None:
+        """Bridge threads outbound: if this Matrix message is a threaded reply,
+        resolve its thread root to the external post that anchors the thread."""
+        relates = event_content.get("m.relates_to") or {}
+        if not isinstance(relates, dict) or relates.get("rel_type") != "m.thread":
+            return None
+        root_event_id = relates.get("event_id")
+        if not root_event_id:
+            return None
+        thread_root_ref = await self._external_post_for_matrix_event(str(root_event_id))
+        if thread_root_ref is None:
+            logger.warning(
+                "[BRIDGE-OUT] no external post mapped for thread root %s; "
+                "posting top-level in channel %s",
+                root_event_id,
+                channel_id,
+            )
+        return thread_root_ref
+
+    async def handle_outbound_media(
+        self,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        client: ClientBase[Any],
+    ) -> None:
+        """Relay a Matrix media event (an agent-sent image/file) out to the
+        external channel.
+
+        Mirrors handle_outbound_message: puppet media is skipped (it originated
+        on the platform), the caption convention is unpacked (a `filename` key
+        means the body is a caption), and the relayed post is recorded in the
+        message map so replies thread both ways. Images relay natively via the
+        adapter's send_attachment; other file types get a disclosed text notice
+        (matching the images-only inbound path) rather than a silent drop.
+        `client` is the bridge's Matrix client, used to fetch the media bytes.
+        """
+        logger.debug(
+            "[BRIDGE-OUT] matrix media event from=%s room=%s body=%s",
+            event.sender,
+            room.room_id,
+            event.body[:80] if event.body else "",
+        )
+        if event.sender in self._puppet_matrix_ids:
+            return
+        if event.sender == self._bridge_client_matrix_user_id:
+            return
+
+        channel_id = self._find_channel(matrix_room_id=room.room_id)
+        if channel_id is None:
+            logger.debug("[BRIDGE-OUT] no channel mapping for room %s", room.room_id)
+            return
+
+        event_content = event.source.get("content", {}) or {}
+        sender_name = event_content.get("sender_name")
+        if sender_name is None:
+            logger.error(
+                "No sender_name in media event from %s — skipping outbound",
+                event.sender,
+            )
+            return
+        sender_name = str(sender_name)
+
+        thread_root_ref = await self._outbound_thread_root_ref(
+            event_content, channel_id
+        )
+
+        # Caption convention (mirrors the inbound path): when a `filename` key
+        # is present the event body is a caption; otherwise the body IS the
+        # filename and there is no caption.
+        explicit_filename = event_content.get("filename")
+        filename = str(explicit_filename or event.body or "attachment")
+        caption = event.body if explicit_filename else None
+
+        info = event_content.get("info") or {}
+        mimetype = str(
+            (info.get("mimetype") if isinstance(info, dict) else None)
+            or "application/octet-stream"
+        )
+
+        message_ref: str | None
+        if event_content.get("msgtype") != "m.image":
+            note = f"_sent a file that isn't relayed yet: {filename}_"
+            body = f"{caption}\n{note}" if caption else note
+            message_ref = await self._adapter.send_message(
+                channel_id,
+                sender_name,
+                self._adapter.translate_outbound(body),
+                thread_root_id=thread_root_ref,
+            )
+        else:
+            data = await self._download_matrix_media(client, event.url, filename)
+            if data is None or len(data) > self._max_attachment_bytes:
+                if data is not None:
+                    logger.warning(
+                        "[BRIDGE-OUT] attachment %s is %d bytes, over the "
+                        "%d-byte relay cap",
+                        filename,
+                        len(data),
+                        self._max_attachment_bytes,
+                    )
+                note = f"_sent an attachment that couldn't be relayed: {filename}_"
+                body = f"{caption}\n{note}" if caption else note
+                message_ref = await self._adapter.send_message(
+                    channel_id,
+                    sender_name,
+                    self._adapter.translate_outbound(body),
+                    thread_root_id=thread_root_ref,
+                )
+            else:
+                message_ref = await self._adapter.send_attachment(
+                    channel_id,
+                    sender_name,
+                    filename,
+                    mimetype,
+                    data,
+                    caption=caption,
+                    thread_root_id=thread_root_ref,
+                )
+
+        if message_ref is not None:
+            await self._record_message_map(
+                external_channel_id=channel_id,
+                matrix_event_id=event.event_id,
+                external_post_id=message_ref,
+            )
+
+    async def _download_matrix_media(
+        self, client: ClientBase[Any], mxc: str | None, filename: str
+    ) -> bytes | None:
+        """Fetch an mxc URI's bytes via the bridge client, or None on failure
+        (logged — the caller posts a disclosed fallback, never a silent drop)."""
+        if not mxc:
+            logger.error("[BRIDGE-OUT] media event for %s has no mxc URI", filename)
+            return None
+        if client.nio_client is None:
+            logger.error(
+                "[BRIDGE-OUT] bridge client not connected; cannot fetch %s", mxc
+            )
+            return None
+        resp = await client.nio_client.download(mxc=mxc)
+        if isinstance(resp, DownloadError):
+            logger.error(
+                "[BRIDGE-OUT] failed to download media %s: %s", mxc, resp.message
+            )
+            return None
+        return resp.body  # type: ignore[no-any-return]
 
     async def handle_outbound_typing(
         self, room_id: str, agent_name: str, is_typing: bool
