@@ -65,6 +65,11 @@ below:
 
 ### [Unreleased]
 
+### [0.9.2] - 2026-07-19
+
+#### Added
+- Sidebar agents are labelled by their registered Switch name (CHOO-1082).
+
 ### [0.9.1] - 2026-07-19
 
 #### Changed
