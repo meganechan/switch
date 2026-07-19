@@ -12,6 +12,8 @@ import { Button } from '@renderer/lib/ui/button';
 import { Input } from '@renderer/lib/ui/input';
 import { Label } from '@renderer/lib/ui/label';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { localServerStore } from './local-server-store';
+import { LocalServerControls } from './LocalServerControls';
 import { switchServersStore } from './switch-servers-store';
 
 const card = 'rounded-lg border border-border bg-card p-4';
@@ -40,10 +42,16 @@ const ServerMainPanel = observer(function ServerMainPanel() {
   const server = store.servers.find((s) => s.id === serverId);
   const showEditServerModal = useShowModal('addServerModal');
 
+  // A managed server that isn't running has no gateway to reach — its
+  // connection status, sign-in, and web-app links are meaningless until it's up,
+  // so we neither fetch nor render them (only the Start/Reset controls show).
+  const detailsVisible = !server?.managed || localServerStore.isRunning;
+
   useEffect(() => {
+    if (!detailsVisible) return;
     void store.refreshStatus(serverId);
     void store.ensureAuthConfig(serverId);
-  }, [serverId, store]);
+  }, [serverId, store, detailsVisible]);
 
   if (!server) {
     return (
@@ -62,28 +70,33 @@ const ServerMainPanel = observer(function ServerMainPanel() {
       <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
         <header className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
-            <h2 className="text-xl text-foreground">{server.name}</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl text-foreground">{server.name}</h2>
+              {server.managed && <Badge variant="secondary">Local</Badge>}
+            </div>
             <p className="truncate text-sm text-foreground-muted">{server.gatewayUrl}</p>
             <p className="truncate text-xs text-foreground-tertiary-passive">
               API: {server.apiUrl}
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() =>
-              showEditServerModal({
-                serverId,
-                initialName: server.name,
-                initialGatewayUrl: server.gatewayUrl,
-                initialApiUrl: server.apiUrl,
-              })
-            }
-          >
-            <Pencil className="size-3.5" />
-            Edit
-          </Button>
+          {!server.managed && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0"
+              onClick={() =>
+                showEditServerModal({
+                  serverId,
+                  initialName: server.name,
+                  initialGatewayUrl: server.gatewayUrl,
+                  initialApiUrl: server.apiUrl,
+                })
+              }
+            >
+              <Pencil className="size-3.5" />
+              Edit
+            </Button>
+          )}
         </header>
 
         {store.error && (
@@ -93,52 +106,58 @@ const ServerMainPanel = observer(function ServerMainPanel() {
           </Alert>
         )}
 
-        <div className={`${card} flex items-center justify-between gap-3`}>
-          <div className="flex items-center gap-2 text-sm">
-            <StatusDot connected={connected} />
-            {connected ? (
-              <span className="text-foreground">
-                Connected{status?.user ? ` as ${status.user.name || status.user.email}` : ''}
-              </span>
-            ) : (
-              <span className="text-foreground-muted">Not signed in</span>
-            )}
-            {status?.user?.role && <Badge variant="secondary">{status.user.role}</Badge>}
-            {refreshing && <Spinner className="size-3.5" />}
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={refreshing}
-              onClick={() => void store.refreshStatus(serverId)}
-            >
-              <RefreshCw className="size-4" />
-              Refresh
-            </Button>
-            {connected && (
-              <Button variant="ghost" size="sm" onClick={() => void store.logout(serverId)}>
-                Sign out
+        {server.managed && <LocalServerControls />}
+
+        {detailsVisible && (
+          <>
+            <div className={`${card} flex items-center justify-between gap-3`}>
+              <div className="flex items-center gap-2 text-sm">
+                <StatusDot connected={connected} />
+                {connected ? (
+                  <span className="text-foreground">
+                    Connected{status?.user ? ` as ${status.user.name || status.user.email}` : ''}
+                  </span>
+                ) : (
+                  <span className="text-foreground-muted">Not signed in</span>
+                )}
+                {status?.user?.role && <Badge variant="secondary">{status.user.role}</Badge>}
+                {refreshing && <Spinner className="size-3.5" />}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={refreshing}
+                  onClick={() => void store.refreshStatus(serverId)}
+                >
+                  <RefreshCw className="size-4" />
+                  Refresh
+                </Button>
+                {connected && (
+                  <Button variant="ghost" size="sm" onClick={() => void store.logout(serverId)}>
+                    Sign out
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {!connected && <LoginPanel serverId={serverId} />}
+
+            <div className={`${card} space-y-3`}>
+              <p className="text-sm text-foreground-muted">
+                Managing this server's agents and rooms is done in the web app for now.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void rpc.app.openExternal(server.gatewayUrl)}
+              >
+                <ExternalLink className="size-4" />
+                Open web app
               </Button>
-            )}
-          </div>
-        </div>
-
-        {!connected && <LoginPanel serverId={serverId} />}
-
-        <div className={`${card} space-y-3`}>
-          <p className="text-sm text-foreground-muted">
-            Managing this server's agents and rooms is done in the web app for now.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void rpc.app.openExternal(server.gatewayUrl)}
-          >
-            <ExternalLink className="size-4" />
-            Open web app
-          </Button>
-        </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

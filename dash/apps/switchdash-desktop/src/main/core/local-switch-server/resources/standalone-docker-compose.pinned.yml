@@ -1,3 +1,10 @@
+# BUNDLED COPY — do not hand-edit. This is the standalone compose published to
+# GHCR as `standalone-compose:<version>` by the switch-release workflow, pinned
+# to COMPATIBLE_SWITCH_VERSION (src/shared/app-identity.ts) and bundled into the
+# app so local-server mode needs no runtime OCI puller. Re-sync it from the
+# repo's deploy/local/standalone-docker-compose.yml when bumping the pin
+# (scripts/sync-standalone-compose.mjs).
+#
 # Standalone all-in-one Switch stack, running published GHCR images.
 #
 # This file is a VERSIONED CONTRACT: service names, profiles, and the env vars

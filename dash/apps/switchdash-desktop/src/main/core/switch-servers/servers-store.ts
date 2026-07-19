@@ -21,6 +21,7 @@ function mapRow(row: SwitchServerRow): SwitchServer {
     name: row.name,
     gatewayUrl: row.gatewayUrl,
     apiUrl: row.apiUrl,
+    managed: row.managed,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -64,6 +65,65 @@ export async function listServers(): Promise<SwitchServer[]> {
 
 export async function getServer(id: string): Promise<SwitchServer | null> {
   const [row] = await db.select().from(switchServers).where(eq(switchServers.id, id)).limit(1);
+  return row ? mapRow(row) : null;
+}
+
+/** The single server switchdash runs itself (local-server mode), or null. */
+export async function getManagedServer(): Promise<SwitchServer | null> {
+  const [row] = await db
+    .select()
+    .from(switchServers)
+    .where(eq(switchServers.managed, true))
+    .limit(1);
+  return row ? mapRow(row) : null;
+}
+
+/**
+ * Upsert the single managed local server record. Reuses the existing managed row
+ * if there is one (updating its URLs, which can change across app versions),
+ * else adopts a row already at this gateway URL (e.g. added by hand), else
+ * inserts. Keeps exactly one managed row rather than duplicating on URL changes.
+ */
+export async function ensureManagedServer(params: AddServerParams): Promise<SwitchServer> {
+  const gatewayUrl = normaliseUrl(params.gatewayUrl);
+  const apiUrl = normaliseUrl(params.apiUrl);
+  // Prefer the single existing managed row (its URLs may have changed across app
+  // versions), then any row already at this gateway URL; otherwise insert.
+  const existing = (await getManagedServer()) ?? (await getServerByGatewayUrl(gatewayUrl));
+  if (existing) {
+    const [row] = await db
+      .update(switchServers)
+      .set({
+        name: params.name.trim(),
+        gatewayUrl,
+        apiUrl,
+        managed: true,
+        updatedAt: sql`CURRENT_TIMESTAMP`,
+      })
+      .where(eq(switchServers.id, existing.id))
+      .returning();
+    return mapRow(row);
+  }
+  const [row] = await db
+    .insert(switchServers)
+    .values({
+      id: randomUUID(),
+      name: params.name.trim(),
+      gatewayUrl,
+      apiUrl,
+      managed: true,
+      updatedAt: sql`CURRENT_TIMESTAMP`,
+    })
+    .returning();
+  return mapRow(row);
+}
+
+async function getServerByGatewayUrl(gatewayUrl: string): Promise<SwitchServer | null> {
+  const [row] = await db
+    .select()
+    .from(switchServers)
+    .where(eq(switchServers.gatewayUrl, gatewayUrl))
+    .limit(1);
   return row ? mapRow(row) : null;
 }
 
