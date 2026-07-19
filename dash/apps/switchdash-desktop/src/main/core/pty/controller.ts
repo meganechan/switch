@@ -1,12 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { err, ok } from '@switchdash/shared';
+import { locationRuntimeRegistry } from '@main/core/locations/location-runtime-registry';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { log } from '@main/lib/logger';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { sessionRuntimeManager } from '../sessions/session-runtime-manager';
-import { workspaceRegistry } from '../workspaces/workspace-registry';
 import { recordHumanInput } from './human-activity';
 import {
   cleanupExpiredDroppedBlobs,
@@ -34,7 +34,6 @@ export const ptyController = createRPCController({
         const parsed = parsePtySessionId(sessionId);
         if (parsed) {
           sessionHooks._emit('session:input-submitted', {
-            projectId: parsed.projectId,
             sessionId: parsed.scopeId,
             providerId: meta.providerId,
           });
@@ -100,6 +99,8 @@ export const ptyController = createRPCController({
       return err({ type: 'invalid_session' as const });
     }
 
+    // Lifecycle scripts are the only PTYs stopped here (no session match) and
+    // never respawn, so a raw kill is sufficient and safe.
     const pty = ptySessionRegistry.get(sessionId);
     if (pty) {
       try {
@@ -117,7 +118,7 @@ export const ptyController = createRPCController({
    * and return their remote paths.  Uses the SFTP subsystem of the already-
    * connected ssh2 client — no local ssh/scp binaries are involved.
    *
-   * The session ID encodes the project and scope (`projectId:scopeId:leafId`),
+   * The session ID encodes the location and scope (`locationId:scopeId:leafId`),
    * where `scopeId` is a session ID for agent-session uploads.
    */
   uploadFiles: async (args: { sessionId: string; localPaths: string[] }) => {
@@ -130,15 +131,15 @@ export const ptyController = createRPCController({
 
       if (!sessionRuntimeManager.getAgent(scopeId)) return err({ type: 'not_ssh' as const });
 
-      const workspaceId = sessionRuntimeManager.getWorkspaceId(scopeId) ?? '';
-      const workspace = workspaceRegistry.get(workspaceId);
-      if (!workspace?.fs.copyLocalFile) return err({ type: 'not_ssh' as const });
+      const locationId = sessionRuntimeManager.getLocationId(scopeId) ?? '';
+      const runtime = locationRuntimeRegistry.get(locationId);
+      if (!runtime?.fs.copyLocalFile) return err({ type: 'not_ssh' as const });
 
       const remotePaths = await Promise.all(
         args.localPaths.map(async (localPath) => {
           const remoteName = `${randomUUID()}-${basename(localPath)}`;
-          await workspace.fs.copyLocalFile!(localPath, remoteName);
-          return `${workspace.path}/${remoteName}`;
+          await runtime.fs.copyLocalFile!(localPath, remoteName);
+          return `${runtime.path}/${remoteName}`;
         })
       );
       return ok({ remotePaths });

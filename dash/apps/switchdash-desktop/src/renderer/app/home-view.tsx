@@ -6,7 +6,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { SwitchdashShimmerLogo } from '@renderer/lib/switchdash-shimmer-logo';
 import { ActionListItem } from '@renderer/lib/ui/action-list-item';
 
-const PROJECT_ACTIONS = [
+const LOCATION_ACTIONS = [
   {
     label: 'Add Switch agent',
     description: 'Onboard a local directory as a Switch agent — configuring one if needed',
@@ -16,10 +16,10 @@ const PROJECT_ACTIONS = [
 ] as const;
 
 export function HomeMainPanel() {
-  const showAddProjectModal = useShowModal('addProjectModal');
+  const showAddLocationModal = useShowModal('addAgentModal');
   const { selectedIndex, setSelectedIndex } = useArrowKeyNavigation(
-    PROJECT_ACTIONS.length,
-    (index) => showAddProjectModal(PROJECT_ACTIONS[index].modalArgs)
+    LOCATION_ACTIONS.length,
+    (index) => showAddLocationModal(LOCATION_ACTIONS[index].modalArgs)
   );
   const { effectiveTheme } = useTheme();
   const isDark = effectiveTheme === 'emdark';
@@ -42,15 +42,15 @@ export function HomeMainPanel() {
           </div>
         </div>
         <div className="mx-auto mt-8 flex w-full max-w-md flex-col gap-1">
-          {PROJECT_ACTIONS.map((action, i) => (
-            <HomeProjectAction
+          {LOCATION_ACTIONS.map((action, i) => (
+            <HomeLocationAction
               key={action.label}
               label={action.label}
               description={action.description}
               icon={action.icon}
               isSelected={i === selectedIndex}
               onMouseEnter={() => setSelectedIndex(i)}
-              onClick={() => showAddProjectModal(action.modalArgs)}
+              onClick={() => showAddLocationModal(action.modalArgs)}
             />
           ))}
         </div>
@@ -59,7 +59,7 @@ export function HomeMainPanel() {
   );
 }
 
-function HomeProjectAction({
+function HomeLocationAction({
   label,
   description,
   icon,

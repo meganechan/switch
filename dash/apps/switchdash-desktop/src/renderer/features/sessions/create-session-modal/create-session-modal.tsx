@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { useAgentAutoApproveDefaults } from '@renderer/features/sessions/hooks/useAgentAutoApproveDefaults';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
@@ -43,26 +43,26 @@ import { buildConnectPrompt } from './build-connect-prompt';
 
 // In switchdash a "session" is a *session*: a `claude` process spawned in the agent's
 // own directory. The directory is fixed (the agent), the provider is fixed (claude),
-// and there is no git worktree — sessions run in the agent's project root. So the
+// and there is no git worktree — sessions run in the agent's location root. So the
 // spawn dialog only asks for an optional name, an optional initial prompt, and an
 // optional Switch room (and role in it) to connect to on start.
 const SESSION_PROVIDER = 'claude' as const;
 
 const NO_ROLE = '__none__';
 
-function useDefaultProjectId(propProjectId?: string): string | undefined {
+function useDefaultLocationId(propLocationId?: string): string | undefined {
   return useMemo(() => {
-    if (propProjectId) return propProjectId;
+    if (propLocationId) return propLocationId;
     const nav = appState.navigation;
-    const navProjectId =
+    const navLocationId =
       nav.currentViewId === 'session'
-        ? (nav.viewParamsStore['session'] as { projectId?: string } | undefined)?.projectId
-        : nav.currentViewId === 'project'
-          ? (nav.viewParamsStore['project'] as { projectId?: string } | undefined)?.projectId
+        ? (nav.viewParamsStore['session'] as { locationId?: string } | undefined)?.locationId
+        : nav.currentViewId === 'location'
+          ? (nav.viewParamsStore['location'] as { locationId?: string } | undefined)?.locationId
           : undefined;
     return (
-      navProjectId ??
-      Array.from(getProjectManagerStore().projects.values())
+      navLocationId ??
+      Array.from(getLocationManagerStore().locations.values())
         .reverse()
         .find((p) => p.state === 'mounted')?.data?.id
     );
@@ -71,18 +71,18 @@ function useDefaultProjectId(propProjectId?: string): string | undefined {
 }
 
 export const CreateSessionModal = observer(function CreateSessionModal({
-  projectId,
+  locationId,
   subagentName,
   onClose,
 }: BaseModalProps & {
-  projectId?: string;
+  locationId?: string;
   /** When set, start the session as this Claude Code subagent of the agent. */
   subagentName?: string;
   // Accepted for source compatibility with switchdash callers; ignored in switchdash v0.
   strategy?: string;
   initialPR?: unknown;
 }) {
-  const selectedProjectId = useDefaultProjectId(projectId);
+  const selectedLocationId = useDefaultLocationId(locationId);
   const autoApproveDefaults = useAgentAutoApproveDefaults();
   const { navigate } = useNavigate();
 
@@ -91,15 +91,15 @@ export const CreateSessionModal = observer(function CreateSessionModal({
   const [room, setRoom] = useState<RemoteAgentRoom | null>(null);
   const [roleName, setRoleName] = useState<string>(NO_ROLE);
 
-  // A session belongs to an agent; resolve the project's agent up front so we
+  // A session belongs to an agent; resolve the location's agent up front so we
   // can offer the rooms it belongs to.
   const agentQuery = useQuery({
-    queryKey: ['projectAgent', selectedProjectId],
+    queryKey: ['locationAgent', selectedLocationId],
     queryFn: async () => {
-      const agents = await rpc.agents.getAgents(selectedProjectId);
+      const agents = await rpc.agents.getAgents(selectedLocationId);
       return agents[0] ?? null;
     },
-    enabled: !!selectedProjectId,
+    enabled: !!selectedLocationId,
   });
   const agent = agentQuery.data ?? null;
 
@@ -144,11 +144,11 @@ export const CreateSessionModal = observer(function CreateSessionModal({
   });
   const roles = rolesQuery.data ?? [];
 
-  const canCreate = !!selectedProjectId;
+  const canCreate = !!selectedLocationId;
 
   const handleSpawn = () => {
-    if (!selectedProjectId) return;
-    const sessionManager = getSessionManagerStore(selectedProjectId);
+    if (!selectedLocationId) return;
+    const sessionManager = getSessionManagerStore(selectedLocationId);
     if (!sessionManager) return;
 
     const id = crypto.randomUUID();
@@ -157,9 +157,9 @@ export const CreateSessionModal = observer(function CreateSessionModal({
     const initialPrompt = buildConnectPrompt(room?.roomName ?? null, chosenRole, prompt);
 
     void (async () => {
-      const resolvedAgent = agent ?? (await rpc.agents.getAgents(selectedProjectId))[0];
+      const resolvedAgent = agent ?? (await rpc.agents.getAgents(selectedLocationId))[0];
       if (!resolvedAgent) {
-        log.error('spawn session failed: project has no agents', selectedProjectId);
+        log.error('spawn session failed: location has no agents', selectedLocationId);
         return;
       }
       // createSession registers the session synchronously (before its first
@@ -173,7 +173,7 @@ export const CreateSessionModal = observer(function CreateSessionModal({
         initialPrompt,
         subagentName: subagentName || undefined,
       });
-      navigate('session', { projectId: selectedProjectId, sessionId: id });
+      navigate('session', { locationId: selectedLocationId, sessionId: id });
       onClose();
       await created;
     })().catch((e) => log.error('spawn session failed', e));

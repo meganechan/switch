@@ -40,7 +40,7 @@ vi.mock('@main/core/pty/terminal-color-scheme', () => ({
 
 const terminal: Terminal = {
   id: 'terminal-1',
-  projectId: 'project-1',
+  locationId: 'location-1',
   sessionId: 'session-1',
   shellId: 'system',
   name: 'Terminal 1',
@@ -85,7 +85,7 @@ describe('SshTerminalProvider', () => {
       command: 'echo ready',
     });
 
-    const sessionId = makePtySessionId(terminal.projectId, terminal.sessionId, terminal.id);
+    const sessionId = makePtySessionId(terminal.locationId, terminal.sessionId, terminal.id);
     expect(
       (provider as unknown as { shellProfiles: Map<string, unknown> }).shellProfiles.has(sessionId)
     ).toBe(true);
@@ -110,7 +110,7 @@ describe('SshTerminalProvider', () => {
       command: 'echo ready',
     });
 
-    const sessionId = makePtySessionId(terminal.projectId, terminal.sessionId, terminal.id);
+    const sessionId = makePtySessionId(terminal.locationId, terminal.sessionId, terminal.id);
     expect(ptySessionRegistry.register).toHaveBeenCalledWith(
       sessionId,
       expect.anything(),

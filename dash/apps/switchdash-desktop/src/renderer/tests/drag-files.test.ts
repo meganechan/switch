@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  clearDraggedWorkspaceFile,
-  getDraggedWorkspaceFile,
-  hasDraggedWorkspaceFile,
-  resolveWorkspaceFileTargetPath,
-  setDraggedWorkspaceFile,
+  clearDraggedLocationFile,
+  getDraggedLocationFile,
+  hasDraggedLocationFile,
+  resolveLocationFileTargetPath,
+  setDraggedLocationFile,
 } from '@renderer/lib/drag-files';
 
 function makeDataTransfer(): DataTransfer {
@@ -25,28 +25,28 @@ function makeDataTransfer(): DataTransfer {
 }
 
 describe('drag-files', () => {
-  it('resolves workspace-relative paths into the workspace target path', () => {
-    expect(resolveWorkspaceFileTargetPath('/tmp/repo/', 'src/file name.ts')).toBe(
+  it('resolves location-relative paths into the location target path', () => {
+    expect(resolveLocationFileTargetPath('/tmp/repo/', 'src/file name.ts')).toBe(
       '/tmp/repo/src/file name.ts'
     );
-    expect(resolveWorkspaceFileTargetPath('C:\\repo\\', 'src/file name.ts')).toBe(
+    expect(resolveLocationFileTargetPath('C:\\repo\\', 'src/file name.ts')).toBe(
       'C:\\repo\\src\\file name.ts'
     );
   });
 
-  it('carries workspace file payloads for same-window drops', () => {
+  it('carries location file payloads for same-window drops', () => {
     const dataTransfer = makeDataTransfer();
 
-    setDraggedWorkspaceFile(dataTransfer, {
-      workspaceId: 'workspace-1',
-      workspaceRootPath: '/remote/repo',
+    setDraggedLocationFile(dataTransfer, {
+      locationId: 'location-1',
+      locationRootPath: '/remote/repo',
       relPath: 'src/index.ts',
       targetPlatform: 'linux',
     });
 
-    expect(hasDraggedWorkspaceFile(dataTransfer)).toBe(true);
-    expect(getDraggedWorkspaceFile(dataTransfer)).toEqual({
-      workspaceId: 'workspace-1',
+    expect(hasDraggedLocationFile(dataTransfer)).toBe(true);
+    expect(getDraggedLocationFile(dataTransfer)).toEqual({
+      locationId: 'location-1',
       relPath: 'src/index.ts',
       targetPath: '/remote/repo/src/index.ts',
       targetPlatform: 'linux',
@@ -54,32 +54,32 @@ describe('drag-files', () => {
     expect(dataTransfer.getData('text/plain')).toBe('/remote/repo/src/index.ts');
   });
 
-  it('does not accept stale workspace state without a matching transfer marker', () => {
+  it('does not accept stale location state without a matching transfer marker', () => {
     const sourceTransfer = makeDataTransfer();
-    setDraggedWorkspaceFile(sourceTransfer, {
-      workspaceId: 'workspace-1',
-      workspaceRootPath: '/repo',
+    setDraggedLocationFile(sourceTransfer, {
+      locationId: 'location-1',
+      locationRootPath: '/repo',
       relPath: 'src/index.ts',
     });
 
     const unrelatedTransfer = makeDataTransfer();
 
-    expect(hasDraggedWorkspaceFile(unrelatedTransfer)).toBe(false);
-    expect(getDraggedWorkspaceFile(unrelatedTransfer)).toBeNull();
-    clearDraggedWorkspaceFile();
+    expect(hasDraggedLocationFile(unrelatedTransfer)).toBe(false);
+    expect(getDraggedLocationFile(unrelatedTransfer)).toBeNull();
+    clearDraggedLocationFile();
   });
 
   it('falls back to the serialized transfer payload after dragend clears same-window state', () => {
     const dataTransfer = makeDataTransfer();
-    setDraggedWorkspaceFile(dataTransfer, {
-      workspaceId: 'workspace-1',
-      workspaceRootPath: '/repo',
+    setDraggedLocationFile(dataTransfer, {
+      locationId: 'location-1',
+      locationRootPath: '/repo',
       relPath: 'src/index.ts',
     });
-    clearDraggedWorkspaceFile();
+    clearDraggedLocationFile();
 
-    expect(getDraggedWorkspaceFile(dataTransfer)).toEqual({
-      workspaceId: 'workspace-1',
+    expect(getDraggedLocationFile(dataTransfer)).toEqual({
+      locationId: 'location-1',
       relPath: 'src/index.ts',
       targetPath: '/repo/src/index.ts',
     });

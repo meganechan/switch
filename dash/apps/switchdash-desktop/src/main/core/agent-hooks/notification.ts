@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { app, BrowserWindow, Notification } from 'electron';
 import { getMainWindow } from '@main/app/window';
+import { loadSessionWithAgent } from '@main/core/sessions/session-join';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
@@ -75,9 +76,12 @@ export async function maybeShowNotification(event: AgentEvent, appFocused: boole
 
       releaseNotification();
       if (event.sessionId) {
-        events.emit(notificationFocusSessionChannel, {
-          projectId: event.projectId,
-          sessionId: event.sessionId,
+        void loadSessionWithAgent(event.sessionId).then((loaded) => {
+          if (!loaded) return;
+          events.emit(notificationFocusSessionChannel, {
+            agentId: loaded.row.agentId,
+            sessionId: event.sessionId,
+          });
         });
       }
     });

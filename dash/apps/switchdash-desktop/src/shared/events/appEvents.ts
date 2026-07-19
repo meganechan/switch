@@ -25,23 +25,13 @@ export const tabNavigationShortcutChannel = defineEvent<{
 }>('tab-navigation:shortcut');
 
 export const notificationFocusSessionChannel = defineEvent<{
-  projectId: string;
+  agentId: string;
   sessionId: string;
 }>('notification:focus-session');
 
 export const ptyStartedChannel = defineEvent<{
   id: string;
 }>('pty:started');
-
-export type PlanEvent = {
-  type: 'write_blocked' | 'remove_blocked';
-  root: string;
-  relPath: string;
-  code?: string;
-  message?: string;
-};
-
-export const planEventChannel = defineEvent<PlanEvent>('plan:event');
 
 export const ptyDataChannel = defineEvent<string>('pty:data');
 

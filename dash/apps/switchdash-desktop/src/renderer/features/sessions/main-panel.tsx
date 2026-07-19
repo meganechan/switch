@@ -9,9 +9,9 @@ import {
 import { SessionTerminal } from './session-terminal';
 
 export const SessionMainPanel = observer(function SessionMainPanel() {
-  const { projectId, sessionId } = useSessionViewContext();
-  const sessionStore = getSessionStore(projectId, sessionId);
-  const kind = sessionViewKind(sessionStore, projectId);
+  const { locationId, sessionId } = useSessionViewContext();
+  const sessionStore = getSessionStore(locationId, sessionId);
+  const kind = sessionViewKind(sessionStore, locationId);
 
   if (kind === 'creating') {
     return (
@@ -37,8 +37,8 @@ export const SessionMainPanel = observer(function SessionMainPanel() {
     );
   }
 
-  if (kind === 'project-mounting' || kind === 'provisioning') {
-    const progressMessage = sessionStore?.provisionProgressMessage ?? 'Setting up workspace…';
+  if (kind === 'location-mounting' || kind === 'provisioning') {
+    const progressMessage = sessionStore?.provisionProgressMessage ?? 'Setting up session…';
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3">
         <Loader2 className="h-5 w-5 animate-spin text-foreground-muted" />
@@ -47,12 +47,12 @@ export const SessionMainPanel = observer(function SessionMainPanel() {
     );
   }
 
-  if (kind === 'provision-error' || kind === 'project-error') {
+  if (kind === 'provision-error' || kind === 'location-error') {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center p-8">
         <div className="flex max-w-xs flex-col items-center gap-2 text-center">
           <p className="font-mono text-sm font-medium text-foreground-destructive">
-            Failed to set up workspace
+            Failed to set up session
           </p>
           <p className="font-mono text-xs text-foreground-muted">
             {sessionErrorMessage(sessionStore)}
@@ -63,7 +63,7 @@ export const SessionMainPanel = observer(function SessionMainPanel() {
   }
 
   if (kind === 'idle' || kind === 'teardown') {
-    const progressMessage = sessionStore?.provisionProgressMessage ?? 'Setting up workspace…';
+    const progressMessage = sessionStore?.provisionProgressMessage ?? 'Setting up session…';
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-3">
         <Loader2 className="h-5 w-5 animate-spin text-foreground-muted" />
@@ -77,7 +77,7 @@ export const SessionMainPanel = observer(function SessionMainPanel() {
       <div className="flex h-full w-full flex-col items-center justify-center p-8">
         <div className="flex max-w-xs flex-col items-center gap-2 text-center">
           <p className="font-mono text-sm font-medium text-foreground-destructive">
-            Failed to tear down workspace
+            Failed to tear down session
           </p>
           <p className="font-mono text-xs text-foreground-muted">
             {sessionErrorMessage(sessionStore)}

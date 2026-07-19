@@ -1,7 +1,7 @@
 import { computed, makeAutoObservable, observable, reaction, runInAction } from 'mobx';
-import { agentsStore } from '@renderer/features/projects/stores/agents-store';
-import { type ProjectStore } from '@renderer/features/projects/stores/project';
-import type { ProjectManagerStore } from '@renderer/features/projects/stores/project-manager';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
+import { type LocationStore } from '@renderer/features/locations/stores/location';
+import type { LocationManagerStore } from '@renderer/features/locations/stores/location-manager';
 import {
   isProvisioned,
   registeredSessionData,
@@ -41,8 +41,8 @@ export function depthIndent(depth: number): { paddingLeft: number } {
 }
 
 /** `collapsedGroupKeys` key for a room nested under an agent (agent-focused view). */
-export function agentRoomGroupKey(projectId: string, roomKey: string): string {
-  return `ar:${projectId}|${roomKey}`;
+export function agentRoomGroupKey(locationId: string, roomKey: string): string {
+  return `ar:${locationId}|${roomKey}`;
 }
 
 /** `collapsedGroupKeys` key for a room header in the room-focused view. */
@@ -79,8 +79,8 @@ export function getSortInstant(session: SessionStore, kind: SessionSortKind): st
 }
 
 export type SidebarRow =
-  | { kind: 'project'; projectId: string }
-  | { kind: 'session'; projectId: string; sessionId: string };
+  | { kind: 'location'; locationId: string }
+  | { kind: 'session'; locationId: string; sessionId: string };
 
 /**
  * Reorder `items` to honour a saved manual order. Items present in `stored`
@@ -110,13 +110,13 @@ export function applyManualOrder<T>(
 }
 
 export class SidebarStore implements Snapshottable<SidebarSnapshot> {
-  projectOrder: string[] = [];
-  sessionOrderByProject: Record<string, string[]> = {};
+  locationOrder: string[] = [];
+  sessionOrderByLocation: Record<string, string[]> = {};
   /** Manual order of top-level rooms (room-focused grouping). */
   roomOrder: string[] = [];
   /** Manual order of items within a grouped-view sub-group, keyed by container id. */
   groupOrder: Record<string, string[]> = {};
-  expandedProjectIds = observable.set<string>();
+  expandedLocationIds = observable.set<string>();
   sessionSortBy: SidebarSessionSortBy = 'created-at';
   grouping: SidebarGrouping = 'agent';
   expandedRoomKeys = observable.set<string>();
@@ -132,26 +132,26 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   filterProviderIds = observable.set<AgentProviderId>();
   filterHasLiveSession = false;
 
-  constructor(private readonly projectManager: ProjectManagerStore) {
+  constructor(private readonly locationManager: LocationManagerStore) {
     makeAutoObservable(this, {
-      expandedProjectIds: false,
+      expandedLocationIds: false,
       expandedRoomKeys: false,
       collapsedGroupKeys: false,
       filterConnections: false,
       filterProviderIds: false,
       sidebarRows: computed,
       pinnedSidebarEntries: computed,
-      filteredProjects: computed,
+      filteredLocations: computed,
     });
 
-    // Auto-expand a project when its session count goes from 0 to >0.
+    // Auto-expand a location when its session count goes from 0 to >0.
     const prevSessionCounts = new Map<string, number>();
     reaction(
       () => {
         const counts: [string, number][] = [];
-        for (const [id, project] of this.projectManager.projects) {
-          if (project.mountedProject) {
-            counts.push([id, project.mountedProject.sessionManager.sessions.size]);
+        for (const [id, location] of this.locationManager.locations) {
+          if (location.mountedLocation) {
+            counts.push([id, location.mountedLocation.sessionManager.sessions.size]);
           }
         }
         return counts;
@@ -161,7 +161,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
           for (const [id, count] of counts) {
             const prev = prevSessionCounts.get(id) ?? 0;
             if (prev === 0 && count > 0) {
-              this.ensureProjectExpanded(id);
+              this.ensureLocationExpanded(id);
             }
             prevSessionCounts.set(id, count);
           }
@@ -171,55 +171,57 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * Whether a project belongs to the active server. The whole sidebar tree is
-   * scoped to one server at a time: a project shows only when its agents are
-   * linked to {@link switchServersStore.activeServerId}. Unregistered projects
+   * Whether a location belongs to the active server. The whole sidebar tree is
+   * scoped to one server at a time: a location shows only when its agents are
+   * linked to {@link switchServersStore.activeServerId}. Unregistered locations
    * (mid-onboarding, no agent row yet) always show so the user sees progress.
    * When no server is active, nothing is hidden.
    */
-  isProjectInActiveScope(projectId: string): boolean {
+  isLocationInActiveScope(locationId: string): boolean {
     const activeServerId = switchServersStore.activeServerId;
     if (!activeServerId) return true;
-    const project = this.projectManager.projects.get(projectId);
-    if (project && project.state === 'unregistered') return true;
-    return agentsStore.serverIdForProject(projectId) === activeServerId;
+    const location = this.locationManager.locations.get(locationId);
+    if (location && location.state === 'unregistered') return true;
+    return agentsStore.serverIdForLocation(locationId) === activeServerId;
   }
 
-  get orderedProjects(): ProjectStore[] {
-    const all = Array.from(this.projectManager.projects.values()).filter((project) =>
-      this.isProjectInActiveScope(project.id)
+  get orderedLocations(): LocationStore[] {
+    const all = Array.from(this.locationManager.locations.values()).filter((location) =>
+      this.isLocationInActiveScope(location.id)
     );
 
     return [...all].sort((a, b) => {
-      const ai = this.projectOrder.indexOf(a.id);
-      const bi = this.projectOrder.indexOf(b.id);
-      if (ai === -1 && bi === -1) return this.compareSidebarProjects(a, b);
+      const ai = this.locationOrder.indexOf(a.id);
+      const bi = this.locationOrder.indexOf(b.id);
+      if (ai === -1 && bi === -1) return this.compareSidebarLocations(a, b);
       if (ai === -1) return -1;
       if (bi === -1) return 1;
       return ai - bi;
     });
   }
 
-  /** The parent agent of a project (the agent shown on its sidebar row). */
-  private parentAgent(projectId: string) {
-    return agentsStore.byProject.get(projectId)?.[0];
+  /** The parent agent of a location (the agent shown on its sidebar row). */
+  private parentAgent(locationId: string) {
+    return agentsStore.byLocation.get(locationId)?.[0];
   }
 
-  /** Where a project's agent runs, or null when its agent is not yet known. */
-  projectConnection(projectId: string): AgentConnectionKind | null {
-    return this.parentAgent(projectId)?.connection ?? null;
+  /** Where a location runs — `remote` when it has an SSH host, else `local`. */
+  locationConnection(locationId: string): AgentConnectionKind | null {
+    const location = this.locationManager.locations.get(locationId)?.data;
+    if (!location) return null;
+    return location.sshHost !== null ? 'remote' : 'local';
   }
 
-  /** A project's agent-type provider, or null when its agent is not yet known. */
-  projectProviderId(projectId: string): AgentProviderId | null {
-    return this.parentAgent(projectId)?.providerId ?? null;
+  /** A location's agent-type provider, or null when its agent is not yet known. */
+  locationProviderId(locationId: string): AgentProviderId | null {
+    return this.parentAgent(locationId)?.providerId ?? null;
   }
 
-  /** Whether a project has at least one running (provisioned) session. */
-  projectHasLiveSession(projectId: string): boolean {
-    const project = this.projectManager.projects.get(projectId);
-    if (!project?.mountedProject) return false;
-    for (const session of project.mountedProject.sessionManager.sessions.values()) {
+  /** Whether a location has at least one running (provisioned) session. */
+  locationHasLiveSession(locationId: string): boolean {
+    const location = this.locationManager.locations.get(locationId);
+    if (!location?.mountedLocation) return false;
+    for (const session of location.mountedLocation.sessionManager.sessions.values()) {
       if (isProvisioned(session)) return true;
     }
     return false;
@@ -234,48 +236,48 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     );
   }
 
-  /** A project passes when it satisfies every active filter dimension. */
-  private projectMatchesFilters(projectId: string): boolean {
+  /** A location passes when it satisfies every active filter dimension. */
+  private locationMatchesFilters(locationId: string): boolean {
     if (this.filterConnections.size > 0) {
-      const connection = this.projectConnection(projectId);
+      const connection = this.locationConnection(locationId);
       if (!connection || !this.filterConnections.has(connection)) return false;
     }
     if (this.filterProviderIds.size > 0) {
-      const providerId = this.projectProviderId(projectId);
+      const providerId = this.locationProviderId(locationId);
       if (!providerId || !this.filterProviderIds.has(providerId)) return false;
     }
-    if (this.filterHasLiveSession && !this.projectHasLiveSession(projectId)) return false;
+    if (this.filterHasLiveSession && !this.locationHasLiveSession(locationId)) return false;
     return true;
   }
 
   /**
-   * Server-scoped, ordered projects with the active sidebar filters applied. The
+   * Server-scoped, ordered locations with the active sidebar filters applied. The
    * grouped sidebar trees render from this; when no filter is active it equals
-   * {@link orderedProjects}.
+   * {@link orderedLocations}.
    */
-  get filteredProjects(): ProjectStore[] {
-    if (!this.hasActiveFilters) return this.orderedProjects;
-    return this.orderedProjects.filter((project) => this.projectMatchesFilters(project.id));
+  get filteredLocations(): LocationStore[] {
+    if (!this.hasActiveFilters) return this.orderedLocations;
+    return this.orderedLocations.filter((location) => this.locationMatchesFilters(location.id));
   }
 
   /**
-   * Run-location values present among the in-scope projects' agents, so the
+   * Run-location values present among the in-scope locations' agents, so the
    * filter menu only offers dimensions that actually match something.
    */
   get availableFilterConnections(): AgentConnectionKind[] {
     const present = new Set<AgentConnectionKind>();
-    for (const project of this.orderedProjects) {
-      const connection = this.projectConnection(project.id);
+    for (const location of this.orderedLocations) {
+      const connection = this.locationConnection(location.id);
       if (connection) present.add(connection);
     }
     return AGENT_CONNECTION_KINDS.filter((kind) => present.has(kind));
   }
 
-  /** Agent-type providers present among the in-scope projects' agents. */
+  /** Agent-type providers present among the in-scope locations' agents. */
   get availableFilterProviderIds(): AgentProviderId[] {
     const present = new Set<AgentProviderId>();
-    for (const project of this.orderedProjects) {
-      const providerId = this.projectProviderId(project.id);
+    for (const location of this.orderedLocations) {
+      const providerId = this.locationProviderId(location.id);
       if (providerId) present.add(providerId);
     }
     return AGENT_PROVIDER_IDS.filter((id) => present.has(id));
@@ -283,81 +285,83 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
 
   get sidebarRows(): SidebarRow[] {
     const rows: SidebarRow[] = [];
-    for (const project of this.orderedProjects) {
-      const projectId = project.id;
-      rows.push({ kind: 'project', projectId });
-      if (this.expandedProjectIds.has(projectId) && project.mountedProject) {
-        const sessions = Array.from(project.mountedProject.sessionManager.sessions.values()).filter(
+    for (const location of this.orderedLocations) {
+      const locationId = location.id;
+      rows.push({ kind: 'location', locationId });
+      if (this.expandedLocationIds.has(locationId) && location.mountedLocation) {
+        const sessions = Array.from(
+          location.mountedLocation.sessionManager.sessions.values()
+        ).filter(
           (t) => t.state === 'unregistered' || !('archivedAt' in t.data && t.data.archivedAt)
         );
-        const manualOrder = this.sessionOrderByProject[projectId];
+        const manualOrder = this.sessionOrderByLocation[locationId];
         const ordered = manualOrder?.length
-          ? this.mergeSessionOrder(projectId, sessions)
+          ? this.mergeSessionOrder(locationId, sessions)
           : this.sortSessionsForSidebar(sessions);
         for (const session of ordered) {
           if (session.data.isPinned) continue;
-          rows.push({ kind: 'session', projectId, sessionId: session.data.id });
+          rows.push({ kind: 'session', locationId, sessionId: session.data.id });
         }
       }
     }
     return rows;
   }
 
-  /** Visible unpinned sessions in the same order they are rendered in the project tree. */
-  get visibleSessionEntries(): { projectId: string; sessionId: string }[] {
+  /** Visible unpinned sessions in the same order they are rendered in the location tree. */
+  get visibleSessionEntries(): { locationId: string; sessionId: string }[] {
     return this.sidebarRows
       .filter((row): row is Extract<SidebarRow, { kind: 'session' }> => row.kind === 'session')
-      .map(({ projectId, sessionId }) => ({ projectId, sessionId }));
+      .map(({ locationId, sessionId }) => ({ locationId, sessionId }));
   }
 
-  /** Flat list of pinned sessions (all mounted projects), same sort rules as project tree sessions. */
-  get pinnedSidebarEntries(): { projectId: string; sessionId: string }[] {
-    const pairs: { projectId: string; session: SessionStore }[] = [];
-    for (const project of this.projectManager.projects.values()) {
-      if (!project.mountedProject) continue;
-      if (!this.isProjectInActiveScope(project.id)) continue;
-      const projectId = project.id;
-      for (const session of project.mountedProject.sessionManager.sessions.values()) {
+  /** Flat list of pinned sessions (all mounted locations), same sort rules as location tree sessions. */
+  get pinnedSidebarEntries(): { locationId: string; sessionId: string }[] {
+    const pairs: { locationId: string; session: SessionStore }[] = [];
+    for (const location of this.locationManager.locations.values()) {
+      if (!location.mountedLocation) continue;
+      if (!this.isLocationInActiveScope(location.id)) continue;
+      const locationId = location.id;
+      for (const session of location.mountedLocation.sessionManager.sessions.values()) {
         const visible =
           session.state === 'unregistered' ||
           !('archivedAt' in session.data && session.data.archivedAt);
         if (!visible || !session.data.isPinned) continue;
-        pairs.push({ projectId, session });
+        pairs.push({ locationId, session });
       }
     }
     pairs.sort((a, b) => this.compareSidebarSessions(a.session, b.session));
-    return pairs.map(({ projectId, session }) => ({ projectId, sessionId: session.data.id }));
+    return pairs.map(({ locationId, session }) => ({ locationId, sessionId: session.data.id }));
   }
 
   /**
-   * Visible unpinned session IDs for a project in sidebar order. Archived sessions are
+   * Visible unpinned session IDs for a location in sidebar order. Archived sessions are
    * and automation sessions are excluded. Independent of expand state so Next/Previous
-   * Session navigation works even when the project is collapsed.
+   * Session navigation works even when the location is collapsed.
    */
-  visibleSessionIdsForProject(projectId: string): string[] {
-    const project = this.projectManager.projects.get(projectId);
-    if (!project?.mountedProject) return [];
-    const sessions = Array.from(project.mountedProject.sessionManager.sessions.values()).filter(
+  visibleSessionIdsForLocation(locationId: string): string[] {
+    const location = this.locationManager.locations.get(locationId);
+    if (!location?.mountedLocation) return [];
+    const sessions = Array.from(location.mountedLocation.sessionManager.sessions.values()).filter(
       (t) =>
         !t.data.isPinned &&
         (t.state === 'unregistered' || !('archivedAt' in t.data && t.data.archivedAt))
     );
-    const manualOrder = this.sessionOrderByProject[projectId];
+    const manualOrder = this.sessionOrderByLocation[locationId];
     const ordered = manualOrder?.length
-      ? this.mergeSessionOrder(projectId, sessions)
+      ? this.mergeSessionOrder(locationId, sessions)
       : this.sortSessionsForSidebar(sessions);
     return ordered.map((t) => t.data.id);
   }
 
   /**
-   * Visible (non-archived, non-pinned) sessions for a project, sorted by the
+   * Visible (non-archived, non-pinned) sessions for a location, sorted by the
    * current sidebar sort. Used by the grouped (agent/room) sidebar views, which
    * sort by recency rather than honouring manual drag order.
    */
-  visibleSessionsForProject(projectId: string): SessionStore[] {
-    const project = this.projectManager.projects.get(projectId);
-    if (!project?.mountedProject) return [];
-    const sessions = Array.from(project.mountedProject.sessionManager.sessions.values()).filter(
+  visibleSessionsForLocation(locationId: string): SessionStore[] {
+    const location = this.locationManager.locations.get(locationId);
+    if (!location?.mountedLocation) return [];
+    const sessions = Array.from(location.mountedLocation.sessionManager.sessions.values()).filter(
       (t) =>
         !t.data.isPinned &&
         (t.state === 'unregistered' || !('archivedAt' in t.data && t.data.archivedAt))
@@ -366,14 +370,14 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   get isEmpty(): boolean {
-    return this.orderedProjects.length === 0;
+    return this.orderedLocations.length === 0;
   }
 
   get snapshot(): SidebarSnapshot {
     return {
-      expandedProjectIds: [...this.expandedProjectIds],
-      projectOrder: [...this.projectOrder],
-      sessionOrderByProject: { ...this.sessionOrderByProject },
+      expandedLocationIds: [...this.expandedLocationIds],
+      locationOrder: [...this.locationOrder],
+      sessionOrderByLocation: { ...this.sessionOrderByLocation },
       sessionSortBy: this.sessionSortBy,
       grouping: this.grouping,
       expandedRoomKeys: [...this.expandedRoomKeys],
@@ -387,14 +391,14 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   restoreSnapshot(snapshot: Partial<SidebarSnapshot>): void {
-    if (snapshot.expandedProjectIds !== undefined) {
-      this.expandedProjectIds.replace(snapshot.expandedProjectIds);
+    if (snapshot.expandedLocationIds !== undefined) {
+      this.expandedLocationIds.replace(snapshot.expandedLocationIds);
     }
-    if (snapshot.projectOrder !== undefined) {
-      this.projectOrder = [...snapshot.projectOrder];
+    if (snapshot.locationOrder !== undefined) {
+      this.locationOrder = [...snapshot.locationOrder];
     }
-    if (snapshot.sessionOrderByProject !== undefined) {
-      this.sessionOrderByProject = { ...snapshot.sessionOrderByProject };
+    if (snapshot.sessionOrderByLocation !== undefined) {
+      this.sessionOrderByLocation = { ...snapshot.sessionOrderByLocation };
     }
     if (snapshot.sessionSortBy !== undefined) {
       const v = parseSidebarSessionSortBy(snapshot.sessionSortBy);
@@ -425,23 +429,23 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     }
   }
 
-  /** Called on first load when no snapshot exists — expand all known projects. */
-  expandAllProjects(): void {
-    for (const project of this.orderedProjects) {
-      this.expandedProjectIds.add(project.id);
+  /** Called on first load when no snapshot exists — expand all known locations. */
+  expandAllLocations(): void {
+    for (const location of this.orderedLocations) {
+      this.expandedLocationIds.add(location.id);
     }
   }
 
-  toggleProjectExpanded(projectId: string): void {
-    if (this.expandedProjectIds.has(projectId)) {
-      this.expandedProjectIds.delete(projectId);
+  toggleLocationExpanded(locationId: string): void {
+    if (this.expandedLocationIds.has(locationId)) {
+      this.expandedLocationIds.delete(locationId);
     } else {
-      this.expandedProjectIds.add(projectId);
+      this.expandedLocationIds.add(locationId);
     }
   }
 
-  ensureProjectExpanded(projectId: string): void {
-    this.expandedProjectIds.add(projectId);
+  ensureLocationExpanded(locationId: string): void {
+    this.expandedLocationIds.add(locationId);
   }
 
   setSessionSortBy(sortBy: SidebarSessionSortBy): void {
@@ -507,20 +511,20 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
    * agent-focused and room-focused layouts. Used by the deeplink handler so the
    * targeted session is visible (and thus highlighted) wherever it lives.
    */
-  revealSessionInRoom(projectId: string, roomId: string): void {
-    this.ensureProjectExpanded(projectId);
-    this.ensureGroupExpanded(agentRoomGroupKey(projectId, roomId));
+  revealSessionInRoom(locationId: string, roomId: string): void {
+    this.ensureLocationExpanded(locationId);
+    this.ensureGroupExpanded(agentRoomGroupKey(locationId, roomId));
     this.ensureGroupExpanded(roomViewGroupKey(roomId));
   }
 
   /** Set the sort key and clear all manual session orders so the list fully re-sorts. */
   applySort(sortBy: SidebarSessionSortBy): void {
     this.sessionSortBy = sortBy;
-    this.sessionOrderByProject = {};
+    this.sessionOrderByLocation = {};
   }
 
-  setProjectOrder(ids: string[]): void {
-    this.projectOrder = ids;
+  setLocationOrder(ids: string[]): void {
+    this.locationOrder = ids;
   }
 
   setRoomOrder(ids: string[]): void {
@@ -549,8 +553,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return applyManualOrder(items, getId, this.groupOrder[containerId], newFirst);
   }
 
-  mergeSessionOrder(projectId: string, sessions: SessionStore[]): SessionStore[] {
-    const stored = this.sessionOrderByProject[projectId] ?? [];
+  mergeSessionOrder(locationId: string, sessions: SessionStore[]): SessionStore[] {
+    const stored = this.sessionOrderByLocation[locationId] ?? [];
     const byId = new Map(sessions.map((t) => [t.data.id, t] as const));
     const seen = new Set<string>();
     const result: SessionStore[] = [];
@@ -569,8 +573,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return [...newSessions, ...result];
   }
 
-  setSessionOrder(projectId: string, orderedIds: string[]): void {
-    this.sessionOrderByProject = { ...this.sessionOrderByProject, [projectId]: orderedIds };
+  setSessionOrder(locationId: string, orderedIds: string[]): void {
+    this.sessionOrderByLocation = { ...this.sessionOrderByLocation, [locationId]: orderedIds };
   }
 
   private compareSidebarSessions(a: SessionStore, b: SessionStore): number {
@@ -582,7 +586,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return a.data.id.localeCompare(b.data.id);
   }
 
-  private compareSidebarProjects(a: ProjectStore, b: ProjectStore): number {
+  private compareSidebarLocations(a: LocationStore, b: LocationStore): number {
     const d = b.createdAt.localeCompare(a.createdAt);
     if (d !== 0) return d;
     return a.id.localeCompare(b.id);

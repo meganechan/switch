@@ -32,35 +32,35 @@ function subagentNameOf(session: SessionStore): string | undefined {
 }
 
 /** Expand-state key for a subagent row (its sessions live underneath). */
-function subagentKey(projectId: string, name: string): string {
-  return `sa:${projectId}|${name}`;
+function subagentKey(locationId: string, name: string): string {
+  return `sa:${locationId}|${name}`;
 }
 
 /** Expand-state key for a room nested under a subagent. */
-function subagentRoomKey(projectId: string, name: string, roomKey: string): string {
-  return `sar:${projectId}|${name}|${roomKey}`;
+function subagentRoomKey(locationId: string, name: string, roomKey: string): string {
+  return `sar:${locationId}|${name}|${roomKey}`;
 }
 
 /**
- * The Claude Code subagents of a project's agent, rendered as first-class agent
+ * The Claude Code subagents of a location's agent, rendered as first-class agent
  * rows (same size/icon/affordances as the parent) nested under it. Each row
  * starts a session that runs as that subagent and, when expanded, lists the
  * sessions launched as it — grouped by room exactly like the parent agent. A
  * subagent discovered locally but not registered on the gateway is flagged
  * "local" so the drift is visible.
  *
- * `sessions` is the project's subagent-launched sessions; pass them in the
+ * `sessions` is the location's subagent-launched sessions; pass them in the
  * agent-focused view so they nest here. Omit them (room-focused view) to render
  * only the launcher rows.
  */
 export const SidebarSubagentList = observer(function SidebarSubagentList({
-  projectId,
+  locationId,
   sessions = [],
   depth = 1,
   onlyWithSessions = false,
   groupSessionsByRoom = true,
 }: {
-  projectId: string;
+  locationId: string;
   sessions?: SessionStore[];
   /** Tree depth of the subagent rows; their rooms/sessions nest below it. */
   depth?: number;
@@ -75,16 +75,16 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
   const showCreateSessionModal = useShowModal('sessionModal');
   const { navigate } = useNavigate();
   const { currentView } = useWorkspaceSlots();
-  const { params: projectParams } = useParams('project');
+  const { params: locationParams } = useParams('location');
   const activeSubagent =
-    currentView === 'project' && projectParams.projectId === projectId
-      ? projectParams.subagentName
+    currentView === 'location' && locationParams.locationId === locationId
+      ? locationParams.subagentName
       : undefined;
 
   const agentQuery = useQuery({
-    queryKey: ['projectAgent', projectId],
-    queryFn: async () => (await rpc.agents.getAgents(projectId))[0] ?? null,
-    enabled: !!projectId,
+    queryKey: ['locationAgent', locationId],
+    queryFn: async () => (await rpc.agents.getAgents(locationId))[0] ?? null,
+    enabled: !!locationId,
   });
   const agent = agentQuery.data ?? null;
 
@@ -99,7 +99,7 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
   });
   const discovered = subagentsQuery.data?.subagents ?? [];
 
-  // Group the project's subagent sessions by the subagent they ran as.
+  // Group the location's subagent sessions by the subagent they ran as.
   const sessionsByName = new Map<string, SessionStore[]>();
   for (const session of sessions) {
     const name = subagentNameOf(session);
@@ -128,10 +128,10 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
       {names.map((name) => {
         const subagent = discoveredByName.get(name) ?? null;
         const subSessions = sessionsByName.get(name) ?? [];
-        const expanded = sidebarStore.isGroupExpanded(subagentKey(projectId, name));
-        const toggle = () => sidebarStore.toggleGroupExpanded(subagentKey(projectId, name));
+        const expanded = sidebarStore.isGroupExpanded(subagentKey(locationId, name));
+        const toggle = () => sidebarStore.toggleGroupExpanded(subagentKey(locationId, name));
         const isActive = activeSubagent === name;
-        const open = () => navigate('project', { projectId, subagentName: name });
+        const open = () => navigate('location', { locationId, subagentName: name });
         return (
           <div key={name}>
             <SidebarMenuRow
@@ -201,7 +201,7 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
                       className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100"
                       onClick={(e) => {
                         e.stopPropagation();
-                        showCreateSessionModal({ projectId, subagentName: name });
+                        showCreateSessionModal({ locationId, subagentName: name });
                       }}
                     >
                       <Plus className="h-4 w-4" />
@@ -216,7 +216,7 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
               subSessions.map((session) => (
                 <SidebarSessionItem
                   key={session.data.id}
-                  projectId={projectId}
+                  locationId={locationId}
                   sessionId={session.data.id}
                   depth={depth + 1}
                 />
@@ -231,13 +231,13 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
                   return roomSessions.map((session) => (
                     <SidebarSessionItem
                       key={session.data.id}
-                      projectId={projectId}
+                      locationId={locationId}
                       sessionId={session.data.id}
                       depth={depth + 1}
                     />
                   ));
                 }
-                const groupKey = subagentRoomKey(projectId, name, roomKey);
+                const groupKey = subagentRoomKey(locationId, name, roomKey);
                 const roomExpanded = sidebarStore.isGroupExpanded(groupKey);
                 return (
                   <div key={roomKey}>
@@ -259,7 +259,7 @@ export const SidebarSubagentList = observer(function SidebarSubagentList({
                       roomSessions.map((session) => (
                         <SidebarSessionItem
                           key={session.data.id}
-                          projectId={projectId}
+                          locationId={locationId}
                           sessionId={session.data.id}
                           depth={depth + 2}
                         />

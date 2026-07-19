@@ -96,7 +96,7 @@ export class LocalTerminalProvider implements TerminalProvider {
     metadata: PtySessionMetadata | undefined,
     policy: SpawnPolicy
   ): Promise<void> {
-    const sessionId = makePtySessionId(terminal.projectId, terminal.sessionId, terminal.id);
+    const sessionId = makePtySessionId(terminal.locationId, terminal.sessionId, terminal.id);
     this.knownSessionIds.add(sessionId);
     if (this.sessions.has(sessionId)) return;
     const shellProfile = await this.getSessionShellProfile(sessionId, shellIntent);

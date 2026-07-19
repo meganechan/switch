@@ -1,6 +1,6 @@
-import { resolveSessionAgent } from '../../projects/utils';
+import { resolveSessionAgent } from '../../locations/utils';
 
-export async function dehydrateSession(projectId: string, sessionId: string): Promise<void> {
-  const agent = resolveSessionAgent(projectId, sessionId);
+export async function dehydrateSession(sessionId: string): Promise<void> {
+  const agent = resolveSessionAgent(sessionId);
   await agent?.dehydrate();
 }

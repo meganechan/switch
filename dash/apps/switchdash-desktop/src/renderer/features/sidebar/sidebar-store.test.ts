@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agentsStore } from '@renderer/features/projects/stores/agents-store';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
 import type { Agent } from '@shared/core/agents/agents';
 import {
   agentRoomGroupKey,
@@ -9,7 +10,7 @@ import {
   SidebarStore,
 } from './sidebar-store';
 
-type SidebarProjectManager = ConstructorParameters<typeof SidebarStore>[0];
+type SidebarLocationManager = ConstructorParameters<typeof SidebarStore>[0];
 
 vi.mock('@renderer/lib/ipc', () => ({
   events: {
@@ -22,10 +23,10 @@ vi.mock('@renderer/lib/stores/app-state', () => ({
   appState: {},
 }));
 
-function projectManager(projects: { id: string; createdAt: string }[]): SidebarProjectManager {
+function locationManager(locations: { id: string; createdAt: string }[]): SidebarLocationManager {
   return {
-    projects: new Map(projects.map((p) => [p.id, { ...p, mountedProject: null }])),
-  } as unknown as SidebarProjectManager;
+    locations: new Map(locations.map((p) => [p.id, { ...p, mountedLocation: null }])),
+  } as unknown as SidebarLocationManager;
 }
 
 function session(id: string, createdAt: string) {
@@ -41,20 +42,20 @@ function session(id: string, createdAt: string) {
   };
 }
 
-function projectManagerWithSessions(
-  projects: { id: string; createdAt: string; sessionIds: string[] }[]
-): SidebarProjectManager {
+function locationManagerWithSessions(
+  locations: { id: string; createdAt: string; sessionIds: string[] }[]
+): SidebarLocationManager {
   return {
-    projects: new Map(
-      projects.map((project) => [
-        project.id,
+    locations: new Map(
+      locations.map((location) => [
+        location.id,
         {
-          id: project.id,
-          createdAt: project.createdAt,
-          mountedProject: {
+          id: location.id,
+          createdAt: location.createdAt,
+          mountedLocation: {
             sessionManager: {
               sessions: new Map(
-                project.sessionIds.map((sessionId, index) => [
+                location.sessionIds.map((sessionId, index) => [
                   sessionId,
                   session(sessionId, `2026-01-01T00:00:0${index}.000Z`),
                 ])
@@ -64,72 +65,72 @@ function projectManagerWithSessions(
         },
       ])
     ),
-  } as unknown as SidebarProjectManager;
+  } as unknown as SidebarLocationManager;
 }
 
-describe('SidebarStore project ordering', () => {
-  it('sorts projects newest first by default', () => {
+describe('SidebarStore location ordering', () => {
+  it('sorts locations newest first by default', () => {
     const store = new SidebarStore(
-      projectManager([
+      locationManager([
         { id: 'old', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'new', createdAt: '2026-01-02T00:00:00.000Z' },
       ])
     );
 
-    expect(store.orderedProjects.map((project) => project.id)).toEqual(['new', 'old']);
+    expect(store.orderedLocations.map((location) => location.id)).toEqual(['new', 'old']);
   });
 
-  it('places projects missing from a saved manual order first', () => {
+  it('places locations missing from a saved manual order first', () => {
     const store = new SidebarStore(
-      projectManager([
+      locationManager([
         { id: 'old', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'manual', createdAt: '2026-01-02T00:00:00.000Z' },
         { id: 'new', createdAt: '2026-01-03T00:00:00.000Z' },
       ])
     );
 
-    store.setProjectOrder(['manual', 'old']);
+    store.setLocationOrder(['manual', 'old']);
 
-    expect(store.orderedProjects.map((project) => project.id)).toEqual(['new', 'manual', 'old']);
+    expect(store.orderedLocations.map((location) => location.id)).toEqual(['new', 'manual', 'old']);
   });
 
-  it('returns visible session entries in rendered project-tree order', () => {
+  it('returns visible session entries in rendered location-tree order', () => {
     const store = new SidebarStore(
-      projectManagerWithSessions([
+      locationManagerWithSessions([
         {
-          id: 'project-1',
+          id: 'location-1',
           createdAt: '2026-01-01T00:00:00.000Z',
           sessionIds: ['session-1a', 'session-1b'],
         },
         {
-          id: 'project-2',
+          id: 'location-2',
           createdAt: '2026-01-02T00:00:00.000Z',
           sessionIds: ['session-2a'],
         },
       ])
     );
 
-    store.setProjectOrder(['project-1', 'project-2']);
-    store.ensureProjectExpanded('project-1');
-    store.ensureProjectExpanded('project-2');
-    store.setSessionOrder('project-1', ['session-1a', 'session-1b']);
+    store.setLocationOrder(['location-1', 'location-2']);
+    store.ensureLocationExpanded('location-1');
+    store.ensureLocationExpanded('location-2');
+    store.setSessionOrder('location-1', ['session-1a', 'session-1b']);
 
     expect(store.visibleSessionEntries).toEqual([
-      { projectId: 'project-1', sessionId: 'session-1a' },
-      { projectId: 'project-1', sessionId: 'session-1b' },
-      { projectId: 'project-2', sessionId: 'session-2a' },
+      { locationId: 'location-1', sessionId: 'session-1a' },
+      { locationId: 'location-1', sessionId: 'session-1b' },
+      { locationId: 'location-2', sessionId: 'session-2a' },
     ]);
   });
 });
 
 describe('SidebarStore grouping', () => {
   it('defaults to agent grouping', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     expect(store.grouping).toBe('agent');
   });
 
   it('round-trips grouping and expanded room keys through the snapshot', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     store.setGrouping('room');
     store.ensureRoomExpanded('room-1');
     store.toggleRoomExpanded('room-2');
@@ -138,7 +139,7 @@ describe('SidebarStore grouping', () => {
     expect(snapshot.grouping).toBe('room');
     expect(snapshot.expandedRoomKeys?.sort()).toEqual(['room-1', 'room-2']);
 
-    const restored = new SidebarStore(projectManager([]));
+    const restored = new SidebarStore(locationManager([]));
     restored.restoreSnapshot(snapshot);
     expect(restored.grouping).toBe('room');
     expect(restored.expandedRoomKeys.has('room-1')).toBe(true);
@@ -146,25 +147,25 @@ describe('SidebarStore grouping', () => {
   });
 
   it('reveals a session in its room across both layouts', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     // Simulate the user having collapsed the room group in each layout.
-    store.toggleGroupExpanded(agentRoomGroupKey('project-1', 'room-1'));
+    store.toggleGroupExpanded(agentRoomGroupKey('location-1', 'room-1'));
     store.toggleGroupExpanded(roomViewGroupKey('room-1'));
-    expect(store.isGroupExpanded(agentRoomGroupKey('project-1', 'room-1'))).toBe(false);
+    expect(store.isGroupExpanded(agentRoomGroupKey('location-1', 'room-1'))).toBe(false);
     expect(store.isGroupExpanded(roomViewGroupKey('room-1'))).toBe(false);
 
-    store.revealSessionInRoom('project-1', 'room-1');
+    store.revealSessionInRoom('location-1', 'room-1');
 
-    expect(store.expandedProjectIds.has('project-1')).toBe(true);
-    expect(store.isGroupExpanded(agentRoomGroupKey('project-1', 'room-1'))).toBe(true);
+    expect(store.expandedLocationIds.has('location-1')).toBe(true);
+    expect(store.isGroupExpanded(agentRoomGroupKey('location-1', 'room-1'))).toBe(true);
     expect(store.isGroupExpanded(roomViewGroupKey('room-1'))).toBe(true);
   });
 
-  it("returns a project's visible sessions for grouped views", () => {
+  it("returns a location's visible sessions for grouped views", () => {
     const store = new SidebarStore(
-      projectManagerWithSessions([
+      locationManagerWithSessions([
         {
-          id: 'project-1',
+          id: 'location-1',
           createdAt: '2026-01-01T00:00:00.000Z',
           sessionIds: ['session-1a', 'session-1b'],
         },
@@ -173,27 +174,27 @@ describe('SidebarStore grouping', () => {
 
     expect(
       store
-        .visibleSessionsForProject('project-1')
+        .visibleSessionsForLocation('location-1')
         .map((s) => s.data.id)
         .sort()
     ).toEqual(['session-1a', 'session-1b']);
-    expect(store.visibleSessionsForProject('missing')).toEqual([]);
+    expect(store.visibleSessionsForLocation('missing')).toEqual([]);
   });
 });
 
 describe('SidebarStore active-server scoping', () => {
-  function linkAgent(projectId: string, serverId: string | null) {
-    agentsStore.byProject.set(projectId, [{ projectId, serverId } as Agent]);
+  function linkAgent(locationId: string, serverId: string | null) {
+    agentsStore.byLocation.set(locationId, [{ locationId, serverId } as Agent]);
   }
 
   afterEach(() => {
     switchServersStore.activeServerId = null;
-    agentsStore.byProject.clear();
+    agentsStore.byLocation.clear();
   });
 
-  it("shows only the active server's projects", () => {
+  it("shows only the active server's locations", () => {
     const store = new SidebarStore(
-      projectManager([
+      locationManager([
         { id: 'a', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'b', createdAt: '2026-01-02T00:00:00.000Z' },
       ])
@@ -202,13 +203,13 @@ describe('SidebarStore active-server scoping', () => {
     linkAgent('b', 'server-2');
     switchServersStore.activeServerId = 'server-1';
 
-    expect(store.orderedProjects.map((p) => p.id)).toEqual(['a']);
+    expect(store.orderedLocations.map((p) => p.id)).toEqual(['a']);
     expect(store.isEmpty).toBe(false);
   });
 
-  it('shows all projects when no server is active', () => {
+  it('shows all locations when no server is active', () => {
     const store = new SidebarStore(
-      projectManager([
+      locationManager([
         { id: 'a', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'b', createdAt: '2026-01-02T00:00:00.000Z' },
       ])
@@ -216,17 +217,17 @@ describe('SidebarStore active-server scoping', () => {
     linkAgent('a', 'server-1');
     linkAgent('b', 'server-2');
 
-    expect(store.orderedProjects.map((p) => p.id).sort()).toEqual(['a', 'b']);
+    expect(store.orderedLocations.map((p) => p.id).sort()).toEqual(['a', 'b']);
   });
 
-  it('hides unlinked projects when a server is active', () => {
+  it('hides unlinked locations when a server is active', () => {
     const store = new SidebarStore(
-      projectManager([{ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }])
+      locationManager([{ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }])
     );
     linkAgent('a', null);
     switchServersStore.activeServerId = 'server-1';
 
-    expect(store.orderedProjects).toEqual([]);
+    expect(store.orderedLocations).toEqual([]);
     expect(store.isEmpty).toBe(true);
   });
 });
@@ -234,22 +235,35 @@ describe('SidebarStore active-server scoping', () => {
 describe('SidebarStore filters', () => {
   type SessionState = 'provisioned' | 'unprovisioned' | 'unregistered';
 
-  function filterProjectManager(
-    projects: { id: string; createdAt: string; sessionStates?: SessionState[] }[]
-  ): SidebarProjectManager {
+  function filterLocationManager(
+    locations: {
+      id: string;
+      createdAt: string;
+      sessionStates?: SessionState[];
+      sshHost?: string | null;
+    }[]
+  ): SidebarLocationManager {
     return {
-      projects: new Map(
-        projects.map((project) => [
-          project.id,
+      locations: new Map(
+        locations.map((location) => [
+          location.id,
           {
-            id: project.id,
-            createdAt: project.createdAt,
-            mountedProject: project.sessionStates
+            id: location.id,
+            createdAt: location.createdAt,
+            data: {
+              id: location.id,
+              name: location.id,
+              sshHost: location.sshHost ?? null,
+              dir: `/repo/${location.id}`,
+              createdAt: location.createdAt,
+              updatedAt: location.createdAt,
+            },
+            mountedLocation: location.sessionStates
               ? {
                   sessionManager: {
                     sessions: new Map(
-                      project.sessionStates.map((state, index) => {
-                        const id = `${project.id}-s${index}`;
+                      location.sessionStates.map((state, index) => {
+                        const id = `${location.id}-s${index}`;
                         return [
                           id,
                           {
@@ -257,8 +271,8 @@ describe('SidebarStore filters', () => {
                             data: {
                               id,
                               isPinned: false,
-                              createdAt: project.createdAt,
-                              updatedAt: project.createdAt,
+                              createdAt: location.createdAt,
+                              updatedAt: location.createdAt,
                             },
                           },
                         ];
@@ -270,49 +284,44 @@ describe('SidebarStore filters', () => {
           },
         ])
       ),
-    } as unknown as SidebarProjectManager;
+    } as unknown as SidebarLocationManager;
   }
 
-  function linkAgent(
-    projectId: string,
-    fields: { connection?: Agent['connection']; providerId?: Agent['providerId'] }
-  ) {
-    agentsStore.byProject.set(projectId, [{ projectId, serverId: null, ...fields } as Agent]);
+  function linkAgent(locationId: string, fields: { providerId?: Agent['providerId'] }) {
+    agentsStore.byLocation.set(locationId, [{ locationId, serverId: null, ...fields } as Agent]);
   }
 
   afterEach(() => {
-    agentsStore.byProject.clear();
+    agentsStore.byLocation.clear();
     switchServersStore.activeServerId = null;
   });
 
-  it('returns all projects unfiltered when no filter is active', () => {
+  it('returns all locations unfiltered when no filter is active', () => {
     const store = new SidebarStore(
-      filterProjectManager([
+      filterLocationManager([
         { id: 'a', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'b', createdAt: '2026-01-02T00:00:00.000Z' },
       ])
     );
     expect(store.hasActiveFilters).toBe(false);
-    expect(store.filteredProjects).toEqual(store.orderedProjects);
+    expect(store.filteredLocations).toEqual(store.orderedLocations);
   });
 
   it('filters by run location', () => {
     const store = new SidebarStore(
-      filterProjectManager([
-        { id: 'local-agent', createdAt: '2026-01-01T00:00:00.000Z' },
-        { id: 'remote-agent', createdAt: '2026-01-02T00:00:00.000Z' },
+      filterLocationManager([
+        { id: 'local-agent', createdAt: '2026-01-01T00:00:00.000Z', sshHost: null },
+        { id: 'remote-agent', createdAt: '2026-01-02T00:00:00.000Z', sshHost: 'vm' },
       ])
     );
-    linkAgent('local-agent', { connection: 'local' });
-    linkAgent('remote-agent', { connection: 'remote' });
 
     store.toggleFilterConnection('remote');
-    expect(store.filteredProjects.map((p) => p.id)).toEqual(['remote-agent']);
+    expect(store.filteredLocations.map((p) => p.id)).toEqual(['remote-agent']);
   });
 
   it('filters by agent type, OR-ing selections within the dimension', () => {
     const store = new SidebarStore(
-      filterProjectManager([
+      filterLocationManager([
         { id: 'claude-agent', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'opencode-agent', createdAt: '2026-01-02T00:00:00.000Z' },
         { id: 'codex-agent', createdAt: '2026-01-03T00:00:00.000Z' },
@@ -324,7 +333,7 @@ describe('SidebarStore filters', () => {
 
     store.toggleFilterProviderId('claude');
     store.toggleFilterProviderId('opencode');
-    expect(store.filteredProjects.map((p) => p.id).sort()).toEqual([
+    expect(store.filteredLocations.map((p) => p.id).sort()).toEqual([
       'claude-agent',
       'opencode-agent',
     ]);
@@ -332,7 +341,7 @@ describe('SidebarStore filters', () => {
 
   it('filters by presence of a running (provisioned) session', () => {
     const store = new SidebarStore(
-      filterProjectManager([
+      filterLocationManager([
         { id: 'running', createdAt: '2026-01-01T00:00:00.000Z', sessionStates: ['provisioned'] },
         { id: 'idle', createdAt: '2026-01-02T00:00:00.000Z', sessionStates: ['unprovisioned'] },
         { id: 'none', createdAt: '2026-01-03T00:00:00.000Z' },
@@ -340,54 +349,54 @@ describe('SidebarStore filters', () => {
     );
 
     store.setFilterHasLiveSession(true);
-    expect(store.filteredProjects.map((p) => p.id)).toEqual(['running']);
+    expect(store.filteredLocations.map((p) => p.id)).toEqual(['running']);
   });
 
-  it('composes dimensions with AND across, keeping only projects that match all', () => {
+  it('composes dimensions with AND across, keeping only locations that match all', () => {
     const store = new SidebarStore(
-      filterProjectManager([
+      filterLocationManager([
         {
           id: 'remote-running',
           createdAt: '2026-01-01T00:00:00.000Z',
           sessionStates: ['provisioned'],
+          sshHost: 'vm',
         },
         {
           id: 'remote-idle',
           createdAt: '2026-01-02T00:00:00.000Z',
           sessionStates: ['unprovisioned'],
+          sshHost: 'vm',
         },
         {
           id: 'local-running',
           createdAt: '2026-01-03T00:00:00.000Z',
           sessionStates: ['provisioned'],
+          sshHost: null,
         },
       ])
     );
-    linkAgent('remote-running', { connection: 'remote' });
-    linkAgent('remote-idle', { connection: 'remote' });
-    linkAgent('local-running', { connection: 'local' });
 
     store.toggleFilterConnection('remote');
     store.setFilterHasLiveSession(true);
-    expect(store.filteredProjects.map((p) => p.id)).toEqual(['remote-running']);
+    expect(store.filteredLocations.map((p) => p.id)).toEqual(['remote-running']);
   });
 
   it('offers only filter values present among in-scope agents', () => {
     const store = new SidebarStore(
-      filterProjectManager([
+      filterLocationManager([
         { id: 'a', createdAt: '2026-01-01T00:00:00.000Z' },
         { id: 'b', createdAt: '2026-01-02T00:00:00.000Z' },
       ])
     );
-    linkAgent('a', { connection: 'local', providerId: 'claude' });
-    linkAgent('b', { connection: 'local', providerId: 'opencode' });
+    linkAgent('a', { providerId: 'claude' });
+    linkAgent('b', { providerId: 'opencode' });
 
     expect(store.availableFilterConnections).toEqual(['local']);
     expect(store.availableFilterProviderIds).toEqual(['claude', 'opencode']);
   });
 
   it('clears every filter dimension', () => {
-    const store = new SidebarStore(filterProjectManager([]));
+    const store = new SidebarStore(filterLocationManager([]));
     store.toggleFilterConnection('remote');
     store.toggleFilterProviderId('claude');
     store.setFilterHasLiveSession(true);
@@ -401,7 +410,7 @@ describe('SidebarStore filters', () => {
   });
 
   it('round-trips filters through the snapshot, dropping invalid values', () => {
-    const store = new SidebarStore(filterProjectManager([]));
+    const store = new SidebarStore(filterLocationManager([]));
     store.toggleFilterConnection('remote');
     store.toggleFilterProviderId('claude');
     store.setFilterHasLiveSession(true);
@@ -411,10 +420,10 @@ describe('SidebarStore filters', () => {
     expect(snapshot.filterProviderIds).toEqual(['claude']);
     expect(snapshot.filterHasLiveSession).toBe(true);
 
-    const restored = new SidebarStore(filterProjectManager([]));
+    const restored = new SidebarStore(filterLocationManager([]));
     restored.restoreSnapshot({
       ...snapshot,
-      filterConnections: [...(snapshot.filterConnections ?? []), 'bogus' as Agent['connection']],
+      filterConnections: [...(snapshot.filterConnections ?? []), 'bogus' as AgentConnectionKind],
       filterProviderIds: [...(snapshot.filterProviderIds ?? []), 'nope' as Agent['providerId']],
     });
     expect([...restored.filterConnections]).toEqual(['remote']);
@@ -450,7 +459,7 @@ describe('applyManualOrder', () => {
 
 describe('SidebarStore grouped-view ordering', () => {
   it('orders top-level room keys by the saved manual room order', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     store.setRoomOrder(['room-c', 'room-a']);
     // Saved rooms come first in saved order; unknown rooms append.
     expect(store.orderRoomKeys(['room-a', 'room-b', 'room-c'])).toEqual([
@@ -461,7 +470,7 @@ describe('SidebarStore grouped-view ordering', () => {
   });
 
   it('orders a sub-group by its saved order, surfacing new sessions first', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     const sessions = [{ id: 's1' }, { id: 's2' }, { id: 's3' }];
     store.setGroupOrder('as:p1|room-1', ['s2', 's1']);
     expect(store.orderGroupItems('as:p1|room-1', sessions, (s) => s.id, true)).toEqual([
@@ -472,7 +481,7 @@ describe('SidebarStore grouped-view ordering', () => {
   });
 
   it('round-trips room and group order through the snapshot', () => {
-    const store = new SidebarStore(projectManager([]));
+    const store = new SidebarStore(locationManager([]));
     store.setRoomOrder(['room-2', 'room-1']);
     store.setGroupOrder('as:p1|room-1', ['s2', 's1']);
 
@@ -480,7 +489,7 @@ describe('SidebarStore grouped-view ordering', () => {
     expect(snapshot.roomOrder).toEqual(['room-2', 'room-1']);
     expect(snapshot.groupOrder).toEqual({ 'as:p1|room-1': ['s2', 's1'] });
 
-    const restored = new SidebarStore(projectManager([]));
+    const restored = new SidebarStore(locationManager([]));
     restored.restoreSnapshot(snapshot);
     expect(restored.roomOrder).toEqual(['room-2', 'room-1']);
     expect(restored.groupOrder).toEqual({ 'as:p1|room-1': ['s2', 's1'] });

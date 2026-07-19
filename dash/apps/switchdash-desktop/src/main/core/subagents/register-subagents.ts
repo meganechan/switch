@@ -1,6 +1,6 @@
 import type { ISubagentsBehavior, PluginFs } from '@switchdash/core/agents/plugins';
 import { getAgents } from '@main/core/agents/getAgents';
-import { getLocalProjectByPath } from '@main/core/projects/operations/getProjects';
+import { getLocationByHostDir } from '@main/core/locations/store';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import {
@@ -11,7 +11,7 @@ import { registerSubagentsBulk } from '@main/core/switch-servers/gateway-client'
 import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
-import { openRemoteSubagentFs } from './resolve-workspace';
+import { openRemoteSubagentFs } from './resolve-subagent-fs';
 import { applyLocalSubagentAutoSessionState } from './setSubagentAutoSession';
 
 // Remote hosts are POSIX; use a forward-slash literal rather than path.join
@@ -79,7 +79,7 @@ export async function registerSubagentsCore(params: {
  * Seed the local auto_session mirror + start the watcher for freshly-registered
  * subagents, so they begin watching now without an off→on toggle (CHOO-1397).
  * The mirror and watcher are keyed by the parent's LOCAL agent id, resolved from
- * the parent's directory — present in the onboarding flow because the project is
+ * the parent's directory — present in the onboarding flow because the location is
  * created before its subagents are registered. Best-effort: a failure here must
  * not fail the registration (the settings panel reconciles from the gateway).
  */
@@ -88,9 +88,9 @@ async function startAutoSessionWatchers(
   parentSwitchAgentId: string,
   names: string[]
 ): Promise<void> {
-  const project = await getLocalProjectByPath(dir);
-  const localParent = project
-    ? (await getAgents(project.id)).find((a) => a.switchAgentId === parentSwitchAgentId)
+  const location = await getLocationByHostDir(null, dir);
+  const localParent = location
+    ? (await getAgents(location.id)).find((a) => a.switchAgentId === parentSwitchAgentId)
     : undefined;
   if (!localParent) {
     log.warn(
@@ -192,7 +192,7 @@ export async function registerSubagentsRemote(
       );
     }
     // Subagents of remote parents register with auto_session off: neither the
-    // local watcher (no project path) nor the on-VM sidecar watches subagents,
+    // local watcher (no location path) nor the on-VM sidecar watches subagents,
     // so an auto_session profile would advertise a capability nothing serves.
     return await registerSubagentsCore({
       behavior,
