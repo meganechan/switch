@@ -11,8 +11,8 @@ export type LifecycleScriptSpawnRequest = {
 };
 
 /**
- * Spawns lifecycle-script PTYs (setup/run/teardown) for a workspace. One
- * instance per workspace, owned by its LifecycleScriptService.
+ * Spawns lifecycle-script PTYs (setup/run/teardown) for a location. One
+ * instance per location, owned by its LifecycleScriptService.
  */
 export interface TerminalProvider {
   readonly kind: 'local' | 'ssh';

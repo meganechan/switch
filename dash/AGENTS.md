@@ -225,12 +225,12 @@ views, modals, command providers, project state, terminals, and session workflow
 Shared IPC primitives, provider metadata, events, MCP types, skills types, and
 domain types live under `src/shared/`.
 
-Major main-process domains live under `src/main/core/`: agent hooks, agents, app,
-agent runtime, dependencies, execution context, fs, projects, prompt library, PTY,
-resource monitor, runtime, search, secrets, sessions, settings, switch agents,
-terminal shell, terminals, updates, view state, and workspaces. Stateful
-main-process concerns use singleton services; expected failures should use the
-`Result<T, E>` pattern from `src/main/lib/result.ts`.
+agent runtime, dependencies, execution context, fs, locations (an agent's working
+dir on a host — formerly the project/workspace split), prompt library, PTY,
+resource monitor, search, secrets, sessions, settings, switch agents, terminal
+shell, terminals, updates, and view state. Stateful main-process concerns use
+singleton services; expected failures should use the `Result<T, E>` pattern from
+`src/main/lib/result.ts`.
 
 ## Testing Strategy
 
@@ -296,17 +296,16 @@ pnpm run lint
 - Keep renderer-main calls on typed RPC and typed events. The preload bridge in
   `src/preload/index.ts` should stay small; add direct `window.electronAPI` surface
   only when a browser/Electron primitive cannot fit the RPC/event path.
-- Access session and project MobX stores through selectors and session view hooks:
+- Access session and location MobX stores through selectors and session view hooks:
   `getSessionStore`, `asProvisioned`, `sessionViewKind`, `getSessionManagerStore`,
-  `getProjectStore`, `asMounted`, `useSessionViewKind`, `useWorkspace`,
-  `useWorkspaceId`, `useDevServers`, `useWorkspaceViewModel`, and
-  `useSessionAgent`.
+  `getLocationStore`, `asMounted`, `useSessionViewKind`, `useSessionRuntime`,
+  `useSessionLocationId`, `useSessionViewModel`, and `useSessionAgent`.
 - Never use `asProvisioned(...)!` or `asMounted(...)!`; use explicit null checks.
 - State guards must check `kind !== 'ready'` rather than enumerating non-ready states.
-- Access session managers through `getSessionManagerStore(projectId)`, not `project.sessionManager`.
-- Access mounted projects through `asMounted(getProjectStore(id))`, not inline guards.
+- Access session managers through `getSessionManagerStore(locationId)`, not `location.sessionManager`.
+- Access mounted locations through `asMounted(getLocationStore(id))`, not inline guards.
 - Session selectors live in `src/renderer/features/sessions/stores/session-selectors.ts`.
-- Project selectors live in `src/renderer/features/projects/stores/project-selectors.ts`.
+- Location selectors live in `src/renderer/features/locations/stores/location-selectors.ts`.
 - For provider changes, update shared provider metadata, PTY env passthrough if needed,
   hook/plugin integrations, renderer assumptions, and tests for non-standard behavior.
 - For MCP changes, keep canonical data in shared types and adapt provider formats at edges.
@@ -329,10 +328,10 @@ pnpm run test
 - View definitions and navigation guards are centralized in `src/renderer/app/view-registry.ts`.
 - MCP types live under `src/shared/core/mcp/`.
 - Skills types and validation live under `src/shared/core/skills/`.
-- Per-project runtime settings can be supplied through `.switchdash.json`:
+- Per-location runtime settings can be supplied through `.switchdash.json`:
   `preservePatterns`, `scripts.setup`, `scripts.run`, `scripts.teardown`, and
   `shellSetup`.
-- Project settings such as `tmux` and `workspaceProvider` are DB-backed, not
+- Location settings such as `tmux` and `locationProvider` are DB-backed, not
   `.switchdash.json`.
 - Optional environment variables:
   `SWITCHDASH_DB_FILE`, `SWITCHDASH_DISABLE_NATIVE_DB`,

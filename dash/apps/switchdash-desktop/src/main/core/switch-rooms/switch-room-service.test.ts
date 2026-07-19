@@ -27,7 +27,7 @@ const { switchRoomService } = await import('./switch-room-service');
 
 const ctx = {
   sessionId: 'session-1',
-  projectId: 'proj-1',
+  locationId: 'proj-1',
   providerId: 'claude',
   ptyId: 'claude-session-session-1',
 };

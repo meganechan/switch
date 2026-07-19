@@ -1,9 +1,10 @@
-import { isUnmountedProject } from '@renderer/features/projects/stores/project';
-import { getProjectManagerStore } from '@renderer/features/projects/stores/project-selectors';
+import { isUnmountedLocation } from '@renderer/features/locations/stores/location';
+import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import type { AgentStatus } from '@shared/core/providers/agentEvents';
 import type { Session } from '@shared/core/sessions/sessions';
 import { sessionAgentRegistry } from './session-agent-registry';
 import type { SessionManagerStore } from './session-manager';
+import { sessionRuntimeRegistry } from './session-runtime-registry';
 import {
   isProvisioned,
   isUnprovisioned,
@@ -11,36 +12,35 @@ import {
   registeredSessionData,
   type SessionStore,
 } from './session-store';
-import { workspaceRegistry } from './workspace-registry';
-import type { WorkspaceViewModel } from './workspace-view-model';
+import type { SessionViewModel } from './session-view-model';
 
 /** Call only inside `observer` components (or other MobX reactions). */
-export function getSessionManagerStore(projectId: string): SessionManagerStore | undefined {
-  const p = getProjectManagerStore().projects.get(projectId);
-  return p?.mountedProject?.sessionManager;
+export function getSessionManagerStore(locationId: string): SessionManagerStore | undefined {
+  const p = getLocationManagerStore().locations.get(locationId);
+  return p?.mountedLocation?.sessionManager;
 }
 
 /** Call only inside `observer` components (or other MobX reactions). */
-export function getSessionStore(projectId: string, sessionId: string): SessionStore | undefined {
-  return getSessionManagerStore(projectId)?.sessions.get(sessionId);
+export function getSessionStore(locationId: string, sessionId: string): SessionStore | undefined {
+  return getSessionManagerStore(locationId)?.sessions.get(sessionId);
 }
 
 /** Registered session payload (`Session`) when the row exists and is not unregistered; otherwise undefined. */
 export function getRegisteredSessionData(
-  projectId: string,
+  locationId: string,
   sessionId: string
 ): Session | undefined {
-  const store = getSessionStore(projectId, sessionId);
+  const store = getSessionStore(locationId, sessionId);
   if (!store) return undefined;
   return registeredSessionData(store);
 }
 
 /** Call only inside `observer` components (or other MobX reactions). */
 export function getSessionView(
-  projectId: string,
+  locationId: string,
   sessionId: string
-): WorkspaceViewModel | undefined {
-  return getSessionStore(projectId, sessionId)?.viewModel ?? undefined;
+): SessionViewModel | undefined {
+  return getSessionStore(locationId, sessionId)?.viewModel ?? undefined;
 }
 
 export function sessionAgentStatus(store: SessionStore): AgentStatus | null {
@@ -50,8 +50,8 @@ export function sessionAgentStatus(store: SessionStore): AgentStatus | null {
 
 export type SessionViewKind =
   | 'missing'
-  | 'project-mounting' // project is still opening — session data not yet available
-  | 'project-error' // project failed to open
+  | 'location-mounting' // location is still opening — session data not yet available
+  | 'location-error' // location failed to open
   | 'creating'
   | 'create-error'
   | 'provisioning'
@@ -62,26 +62,26 @@ export type SessionViewKind =
   | 'ready';
 
 /**
- * Derives the session view kind from the project + session store state.
+ * Derives the session view kind from the location + session store state.
  *
- * Pass `projectId` so that "project still opening" can be distinguished from
+ * Pass `locationId` so that "location still opening" can be distinguished from
  * "session genuinely missing". Call only inside `observer` components.
  */
 export function sessionViewKind(
   store: SessionStore | undefined,
-  projectId: string
+  locationId: string
 ): SessionViewKind {
-  const projectStore = getProjectManagerStore().projects.get(projectId);
+  const locationStore = getLocationManagerStore().locations.get(locationId);
 
-  if (!projectStore) return 'missing';
+  if (!locationStore) return 'missing';
 
-  if (isUnmountedProject(projectStore)) {
-    if (projectStore.phase === 'opening') return 'project-mounting';
-    if (projectStore.phase === 'error') return 'project-error';
-    return 'project-mounting';
+  if (isUnmountedLocation(locationStore)) {
+    if (locationStore.phase === 'opening') return 'location-mounting';
+    if (locationStore.phase === 'error') return 'location-error';
+    return 'location-mounting';
   }
 
-  if (projectStore.state === 'unregistered') return 'missing';
+  if (locationStore.state === 'unregistered') return 'missing';
 
   if (!store) return 'missing';
 
@@ -104,7 +104,7 @@ export function sessionViewKind(
 /** Returns the narrowed provisioned session store if the session is provisioned, otherwise undefined. */
 export function asProvisioned(
   store: SessionStore | undefined
-): (SessionStore & { state: 'provisioned'; workspaceId: string }) | undefined {
+): (SessionStore & { state: 'provisioned'; locationId: string }) | undefined {
   return store && isProvisioned(store) ? store : undefined;
 }
 
@@ -112,16 +112,16 @@ export function asProvisioned(
 // New focused selectors (Phase 4)
 // ---------------------------------------------------------------------------
 
-export function getWorkspaceForSession(projectId: string, sessionId: string) {
-  const wsId = getSessionStore(projectId, sessionId)?.workspaceId;
-  return wsId ? (workspaceRegistry.get(projectId, wsId) ?? undefined) : undefined;
+export function getSessionRuntime(locationId: string, sessionId: string) {
+  const store = getSessionStore(locationId, sessionId);
+  return store ? (sessionRuntimeRegistry.get(locationId) ?? undefined) : undefined;
 }
 
-export function getWorkspaceViewModel(
-  projectId: string,
+export function getSessionViewModel(
+  locationId: string,
   sessionId: string
-): WorkspaceViewModel | undefined {
-  return getSessionStore(projectId, sessionId)?.viewModel ?? undefined;
+): SessionViewModel | undefined {
+  return getSessionStore(locationId, sessionId)?.viewModel ?? undefined;
 }
 
 export function getSessionAgent(sessionId: string) {
@@ -142,7 +142,7 @@ export function sessionErrorMessage(store: SessionStore | undefined): string | u
   }
   if (isUnprovisioned(store)) {
     if (store.phase === 'provision-error') {
-      return store.errorMessage ?? 'Failed to set up workspace';
+      return store.errorMessage ?? 'Failed to set up session';
     }
     if (store.phase === 'teardown-error') {
       return store.errorMessage ?? 'Failed to tear down session';
@@ -151,11 +151,11 @@ export function sessionErrorMessage(store: SessionStore | undefined): string | u
   return undefined;
 }
 
-/** Returns the mount error message for the project. */
-export function projectMountErrorMessage(projectId: string): string {
-  const store = getProjectManagerStore().projects.get(projectId);
-  if (store && isUnmountedProject(store) && store.phase === 'error') {
-    return store.error ?? 'Failed to open project';
+/** Returns the mount error message for the location. */
+export function locationMountErrorMessage(locationId: string): string {
+  const store = getLocationManagerStore().locations.get(locationId);
+  if (store && isUnmountedLocation(store) && store.phase === 'error') {
+    return store.error ?? 'Failed to open location';
   }
-  return 'Failed to open project';
+  return 'Failed to open location';
 }

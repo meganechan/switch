@@ -3,9 +3,11 @@ import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
 import { subagentSettingsPath } from '@main/core/agents/switch-settings-paths';
+import { getLocationById } from '@main/core/locations/store';
 import { isHumanInputRecent } from '@main/core/pty/human-activity';
+import { loadSessionWithAgent } from '@main/core/sessions/session-join';
 import { db } from '@main/db/client';
-import { projects, sessions } from '@main/db/schema';
+import { sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
@@ -28,7 +30,7 @@ import type { SessionRoomContext } from './switch-room-service';
  * channel's own poll loop).
  *
  * This is a thin manager over per-room `RoomConnection`s: it resolves the
- * session's Switch credentials from the project's settings file, wires a
+ * session's Switch credentials from the location's settings file, wires a
  * PTY-backed injection sink, and routes agent status changes to the matching
  * connection. The transport-agnostic poll/queue/runtime-state logic lives in
  * `RoomConnection`, which the on-VM sidecar reuses over a tmux-backed sink.
@@ -72,28 +74,24 @@ class SwitchNotificationPoller {
     roomId: string,
     roomName: string | null
   ): Promise<void> {
-    const [project] = await db
-      .select({ path: projects.path })
-      .from(projects)
-      .where(eq(projects.id, ctx.projectId))
-      .limit(1);
-    if (!project) {
-      log.warn('SwitchNotificationPoller: no project dir for session; cannot read credentials', {
+    const loaded = await loadSessionWithAgent(ctx.sessionId);
+    const location = loaded ? await getLocationById(loaded.locationId) : undefined;
+    if (!location) {
+      log.warn('SwitchNotificationPoller: no location for session; cannot read credentials', {
         sessionId: ctx.sessionId,
-        projectId: ctx.projectId,
       });
       return;
     }
-    if (project.path === null) {
+    if (location.sshHost !== null) {
       // Remote agents poll from their on-host sidecar (CHOO-1059); the local
-      // poller reads local credential files, which a remote-only agent has none of.
-      log.debug('SwitchNotificationPoller: remote-only project; local poller does not apply', {
+      // poller reads local credential files, which a remote agent has none of.
+      log.debug('SwitchNotificationPoller: remote location; local poller does not apply', {
         sessionId: ctx.sessionId,
-        projectId: ctx.projectId,
+        locationId: location.id,
       });
       return;
     }
-    const projectPath = project.path;
+    const rootPath = location.dir;
 
     // A subagent session must poll as the subagent (its own credentials file),
     // not the parent's `.claude/settings.local.json` — otherwise it receives the
@@ -107,19 +105,19 @@ class SwitchNotificationPoller {
 
     const creds = subagentName
       ? await readSwitchAgentCredentialsFromSettings(
-          subagentSettingsPath(projectPath, subagentName),
+          subagentSettingsPath(rootPath, subagentName),
           log
         )
-      : await readSwitchAgentCredentials(projectPath, log);
+      : await readSwitchAgentCredentials(rootPath, log);
     if (!creds) {
       log.warn(
         'SwitchNotificationPoller: missing Switch credentials (SWITCH_API_TOKEN/ENDPOINT/AGENT_ID) — cannot poll room',
-        { sessionId: ctx.sessionId, dir: project.path, roomId, subagentName }
+        { sessionId: ctx.sessionId, dir: rootPath, roomId, subagentName }
       );
       return;
     }
 
-    const ptySessionId = makeAgentPtySessionId(ctx.projectId, ctx.sessionId);
+    const ptySessionId = makeAgentPtySessionId(location.id, ctx.sessionId);
     const connection = new RoomConnection({
       creds,
       roomId,

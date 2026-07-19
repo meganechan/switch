@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
-import { resolveSessionAgent } from '../../projects/utils';
+import { resolveSessionAgent } from '../../locations/utils';
 import { loadSessionWithAgent } from '../session-join';
 import { mapSessionRowToSession } from '../utils/utils';
 
-export async function hydrateSession(projectId: string, sessionId: string): Promise<void> {
-  const agent = resolveSessionAgent(projectId, sessionId);
+export async function hydrateSession(sessionId: string): Promise<void> {
+  const agent = resolveSessionAgent(sessionId);
   if (!agent) throw new Error('Session not found');
 
   const loaded = await loadSessionWithAgent(sessionId);

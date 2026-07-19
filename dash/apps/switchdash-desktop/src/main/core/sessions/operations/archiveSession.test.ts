@@ -36,17 +36,17 @@ describe('archiveSession', () => {
     mocks.updateWhere.mockResolvedValue(undefined);
   });
 
-  it('archives by detaching runtime without deleting workspace assets', async () => {
+  it('archives by detaching runtime without deleting location assets', async () => {
     mocks.selectLimit.mockResolvedValueOnce([
       {
         id: 'session-1',
-        workspaceId: 'workspace-1',
+        locationId: 'location-1',
         status: 'done',
       },
     ]);
     mocks.teardownSession.mockResolvedValue({ success: true });
 
-    await archiveSession('project-1', 'session-1');
+    await archiveSession('session-1');
 
     expect(mocks.updateSet).toHaveBeenCalledWith(
       expect.objectContaining({

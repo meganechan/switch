@@ -1,9 +1,10 @@
 import type { SubagentAttributes } from '@switchdash/core/agents/plugins';
+import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import { registerSubagentsCore } from './register-subagents';
-import { resolveSubagentWorkspace } from './resolve-workspace';
+import { resolveSubagentFs } from './resolve-subagent-fs';
 import { applyLocalSubagentAutoSessionState } from './setSubagentAutoSession';
 
 export type CreateSubagentParams = {
@@ -34,9 +35,9 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
   if (!name) throw new Error('A subagent name is required.');
   if (!description) throw new Error('A subagent description is required.');
 
-  const workspace = await resolveSubagentWorkspace(params.parentAgentId);
+  const ctx = await resolveSubagentFs(params.parentAgentId);
   try {
-    const { agent } = workspace;
+    const { agent } = ctx;
     const behavior = getPlugin(agent.providerId).behavior.subagents;
     if (!behavior) {
       throw new Error(`Provider ${agent.providerId} does not support subagents.`);
@@ -48,15 +49,15 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
       throw new Error(`Agent ${params.parentAgentId} has no Switch identity.`);
     }
 
-    if (await behavior.readDefinition(workspace.fs, name)) {
+    if (await behavior.readDefinition(ctx.fs, name)) {
       throw new Error(`A subagent named "${name}" already exists.`);
     }
 
-    await behavior.writeDefinition(workspace.fs, params.attributes);
+    await behavior.writeDefinition(ctx.fs, params.attributes);
 
     // Subagents of remote parents register with auto_session off: neither the
-    // local watcher (no project path) nor the on-VM sidecar watches subagents.
-    const autoSession = agent.connection !== 'remote';
+    // local watcher (no local dir) nor the on-VM sidecar watches subagents.
+    const autoSession = (await getRemoteAgentLocation(agent)) === null;
     try {
       const server = await getServer(agent.serverId);
       if (!server) throw new Error(`No Switch server with id ${agent.serverId}`);
@@ -64,12 +65,12 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
         behavior,
         server,
         parentSwitchAgentId: agent.switchAgentId,
-        fs: workspace.fs,
+        fs: ctx.fs,
         subagents: [{ name, description }],
         autoSession,
       });
     } catch (error) {
-      await behavior.removeLocal(workspace.fs, name);
+      await behavior.removeLocal(ctx.fs, name);
       throw error;
     }
 
@@ -88,6 +89,6 @@ export async function createSubagent(params: CreateSubagentParams): Promise<{ na
 
     return { name };
   } finally {
-    workspace.close();
+    ctx.close();
   }
 }

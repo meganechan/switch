@@ -33,7 +33,7 @@ export class CursorTrustService {
     const workspacePath = path.resolve(cwd);
     const dataDir = path.join(homedir, CURSOR_DATA_DIR_NAME);
     const markerPath = path.join(
-      cursorProjectDir(workspacePath, dataDir, path),
+      cursorLocationDir(workspacePath, dataDir, path),
       CURSOR_TRUST_MARKER_NAME
     );
 
@@ -84,7 +84,7 @@ function createTrustMarker(workspacePath: string): Record<string, string> {
   };
 }
 
-function cursorProjectDir(
+function cursorLocationDir(
   workspacePath: string,
   dataDir: string,
   pathImpl: Pick<typeof path, 'join'>

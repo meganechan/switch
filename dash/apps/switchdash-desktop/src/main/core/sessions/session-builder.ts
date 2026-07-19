@@ -1,7 +1,7 @@
-import { getAgentById } from '@main/core/agents/getAgentById';
-import { resolveAgentWorkspace } from '@main/core/workspaces/resolve-agent-workspace';
-import type { Workspace } from '@main/core/workspaces/workspace';
-import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
+import type { LocationProvider } from '@main/core/locations/location-provider';
+import type { LocationRuntime } from '@main/core/locations/location-runtime';
+import { locationRuntimeRegistry } from '@main/core/locations/location-runtime-registry';
+import type { LocationTransport } from '@main/core/locations/location-transport';
 import { events } from '@main/lib/events';
 import {
   sessionProvisionProgressChannel,
@@ -9,104 +9,78 @@ import {
 } from '@shared/core/sessions/sessionEvents';
 import type { Session } from '@shared/core/sessions/sessions';
 import type { AgentRuntimeProvider } from '../agent-runtime/types';
-import type { ProjectProvider } from '../projects/project-provider';
-import type { ProjectSettingsProvider } from '../projects/settings/provider';
 import {
   buildAgentRuntime,
-  createWorkspaceFactory,
+  createLocationRuntimeFactory,
   resolveSessionEnv,
-  type WorkspaceType,
-} from '../workspaces/workspace-factory';
+} from '../locations/location-runtime-factory';
+import type { LocationSettingsProvider } from '../locations/settings/provider';
 import { sessionProvisionEvents } from './session-provision-events';
 
 /**
- * The runtime artefacts of a provisioned session. In switchdash every session
- * runs in the project root directory; the "workspace" is keyed per project dir
- * (decision B) and shared by all of that project's sessions.
+ * The runtime artefacts of a provisioned session. Every session runs in its
+ * agent's location dir; the location runtime is keyed per location and shared
+ * by all sessions there.
  */
 export type SessionRuntimeResult = {
   path: string;
-  workspaceId: string;
-  worktreeGitDir?: string;
+  locationId: string;
   agent: AgentRuntimeProvider;
 };
 
 /**
- * Provisions the runtime for a session: acquires the project-dir workspace
- * (running lifecycle scripts once per project dir) and builds the session's
- * agent runtime in the project root.
+ * Provisions the runtime for a session: acquires the location runtime (running
+ * lifecycle scripts once per location) and builds the session's agent runtime
+ * in the location dir.
  */
 export async function provisionSessionRuntime(
   session: Session,
-  project: ProjectProvider
+  location: LocationProvider
 ): Promise<SessionRuntimeResult> {
-  // The transport is the agent's, not the project's: a remote agent runs its
-  // sessions on its SSH host even though the project lives locally.
-  const agent = await getAgentById(session.agentId);
-  if (!agent) {
-    throw new Error(
-      `provisionSessionRuntime: agent ${session.agentId} not found for session ${session.id}`
-    );
-  }
-  const { type, workspaceId, workDir } = resolveAgentWorkspace(agent, {
-    projectId: project.projectId,
-    repoPath: project.repoPath,
-  });
+  const locationId = location.locationId;
+  const transport = location.transport;
+  const workDir = location.dir;
 
   emitSessionProvisionProgress({
     sessionId: session.id,
-    projectId: project.projectId,
-    step: 'initialising-workspace',
-    message: 'Initialising workspace…',
+    step: 'initialising-location',
+    message: 'Initialising location…',
   });
 
-  const workspace = await workspaceRegistry.acquire(
-    workspaceId,
-    project.projectId,
-    createWorkspaceFactory(workspaceId, type, {
+  const runtime = await locationRuntimeRegistry.acquire(
+    locationId,
+    createLocationRuntimeFactory(locationId, transport, {
       session,
       workDir,
-      projectId: project.projectId,
-      projectPath: project.repoPath,
-      settings: project.settings,
+      settings: location.settings,
       logPrefix: 'provisionSessionRuntime',
     })
   );
 
   emitSessionProvisionProgress({
     sessionId: session.id,
-    projectId: project.projectId,
     step: 'starting-sessions',
     message: 'Preparing session…',
   });
 
   let buildSucceeded = false;
   try {
-    const runtime = await buildSessionFromWorkspace(
-      session,
-      workspace,
-      type,
-      project.projectId,
-      project.repoPath,
-      project.settings
-    );
+    const agent = await buildSessionFromRuntime(session, runtime, transport, location.settings);
     buildSucceeded = true;
     return {
       path: workDir,
-      workspaceId,
-      worktreeGitDir: undefined,
-      agent: runtime,
+      locationId,
+      agent,
     };
   } finally {
     if (!buildSucceeded) {
-      await workspaceRegistry.release(workspaceId, 'terminate').catch(() => {});
+      await locationRuntimeRegistry.release(locationId, 'terminate').catch(() => {});
     }
   }
 }
 
 export function emitSessionProvisionProgress(data: {
   sessionId: string;
-  projectId: string;
   step: ProvisionStep;
   message: string;
 }): void {
@@ -116,27 +90,24 @@ export function emitSessionProvisionProgress(data: {
 
 /**
  * Shared tail of the provision flow — builds the session's agent runtime from
- * an already-acquired workspace. Works for both local and SSH transports.
+ * an already-acquired location runtime. Works for both local and SSH transports.
  */
-export async function buildSessionFromWorkspace(
+export async function buildSessionFromRuntime(
   session: Session,
-  workspace: Workspace,
-  type: WorkspaceType,
-  projectId: string,
-  projectPath: string,
-  settings: ProjectSettingsProvider
+  runtime: LocationRuntime,
+  transport: LocationTransport,
+  settings: LocationSettingsProvider
 ): Promise<AgentRuntimeProvider> {
   const { sessionEnvVars, tmuxEnabled, shellSetup } = await resolveSessionEnv(
     session,
-    workspace,
-    projectPath,
+    runtime,
     settings
   );
 
-  return buildAgentRuntime(type, {
-    projectId,
+  return buildAgentRuntime(transport, {
+    locationId: runtime.id,
     sessionId: session.id,
-    sessionPath: workspace.path,
+    sessionPath: runtime.path,
     tmuxEnabled,
     shellSetup,
     sessionEnvVars,

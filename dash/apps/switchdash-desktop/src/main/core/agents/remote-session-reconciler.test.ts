@@ -5,7 +5,7 @@ const REMOTE_AGENT = {
   connection: 'remote',
   remoteConfig: { sshHost: 'vm', remoteRepoDir: '/home/dev/repo' },
   providerId: 'claude',
-  projectId: 'proj-1',
+  locationId: 'proj-1',
   switchAgentId: 'switch-1',
 };
 
@@ -14,7 +14,7 @@ const createSession = vi.fn(async (_p: unknown) => ({
   success: true,
   data: { session: { id: 'x' } },
 }));
-const provisionWorkspace = vi.fn(async (_id: string) => ({ success: true }));
+const provisionSession = vi.fn(async (_id: string) => ({ success: true }));
 const probeAgentSidecar = vi.fn(
   async () => ({ port: 4321, token: 'tok' }) as { port: number; token: string } | null
 );
@@ -23,6 +23,16 @@ let knownRows: Array<{ id: string; agentId?: string }> = [];
 const deleteWhere = vi.fn(async (_arg?: unknown) => ({ changes: 1 }));
 
 vi.mock('./getAgentById', () => ({ getAgentById: () => getAgentById() }));
+vi.mock('./agent-location', () => ({
+  getRemoteAgentLocation: async () => ({
+    id: 'loc-1',
+    name: 'loc',
+    sshHost: 'vm',
+    dir: '/home/dev/repo',
+    createdAt: '',
+    updatedAt: '',
+  }),
+}));
 vi.mock('./connect-remote-agent', () => ({
   connectRemoteAgent: async () => ({
     proxy: { forwardOut: async () => ({ destroy: vi.fn() }) },
@@ -41,7 +51,7 @@ vi.mock('@main/core/agent-runtime/impl/sidecar-http', () => ({
 vi.mock('@main/core/sessions/session-service', () => ({
   sessionService: {
     createSession: (p: unknown) => createSession(p as never),
-    provisionWorkspace: (id: string) => provisionWorkspace(id as never),
+    provisionSession: (id: string) => provisionSession(id as never),
   },
 }));
 vi.mock('@main/app/deeplinks', () => ({ DEEPLINK_SCHEME: 'switchdash' }));
@@ -95,7 +105,7 @@ describe('RemoteSessionReconciler', () => {
     expect(createSession).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'session-new', agentId: 'agent-1', autoApprove: true })
     );
-    expect(provisionWorkspace).toHaveBeenCalledWith('session-new');
+    expect(provisionSession).toHaveBeenCalledWith('session-new');
   });
 
   it('skips a VM session that already has a switchdash row', async () => {
@@ -149,7 +159,7 @@ describe('RemoteSessionReconciler', () => {
     emitSpy.mockRestore();
   });
 
-  it('notifies the renderer (session:deleted) with the resolved projectId when a row is removed', async () => {
+  it('notifies the renderer (session:deleted) when a row is removed', async () => {
     // The removal originates in the main process, so the renderer needs an IPC
     // event to drop the sidebar row (a user-initiated delete removes it itself).
     knownRows = [{ id: 'session-term', agentId: 'agent-1' }];
@@ -157,7 +167,6 @@ describe('RemoteSessionReconciler', () => {
 
     expect(eventsEmit).toHaveBeenCalledWith(sessionDeletedChannel, {
       sessionId: 'session-term',
-      projectId: 'proj-1',
     });
   });
 
@@ -251,7 +260,7 @@ describe('RemoteSessionReconciler', () => {
     await reconcile('agent-1');
 
     expect(createSession).toHaveBeenCalledTimes(1);
-    expect(provisionWorkspace).not.toHaveBeenCalled();
+    expect(provisionSession).not.toHaveBeenCalled();
   });
 
   it('stops a duplicate reconciler whose agent shares an already-claimed sidecar', async () => {
