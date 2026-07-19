@@ -65,6 +65,17 @@ below:
 
 ### [Unreleased]
 
+### [0.9.1] - 2026-07-19
+
+#### Changed
+- Replaced the workspace/project abstraction with first-class Locations —
+  agents attach directly to a location (working directory) (CHOO-1426).
+- Collapsed sessions to a single conversation each and simplified
+  session/conversation management throughout (CHOO-1424).
+
+Existing databases migrate forward automatically on first launch (schema
+migrations 0031–0036, including a locations backfill).
+
 ### [0.9.0] - 2026-07-17
 
 #### Added
