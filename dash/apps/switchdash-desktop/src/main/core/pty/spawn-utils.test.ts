@@ -8,10 +8,9 @@ import { resolveSshCommand } from './spawn-utils';
 function makeAgentConfig(overrides: Partial<AgentSessionConfig> = {}): AgentSessionConfig {
   return {
     sessionId: 'session-1',
-    conversationId: 'conv-1',
     providerId: 'claude',
     command: 'claude',
-    args: ['--resume', 'conv-1'],
+    args: ['--resume', 'session-1'],
     cwd: '/workspace',
     autoApprove: false,
     resume: false,
@@ -93,7 +92,7 @@ describe('resolveSshCommand', () => {
     const result = resolveSshCommand('agent', makeAgentConfig(), undefined, zshProfile);
 
     expect(result).toBe(
-      `'/bin/zsh' -lc 'export PATH='\\''/Users/jona/.local/bin:/opt/homebrew/bin:/usr/bin'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''conv-1'\\'''`
+      `'/bin/zsh' -lc 'export PATH='\\''/Users/jona/.local/bin:/opt/homebrew/bin:/usr/bin'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''session-1'\\'''`
     );
   });
 
@@ -108,7 +107,7 @@ describe('resolveSshCommand', () => {
     );
 
     expect(result).toBe(
-      `'/bin/zsh' -lc 'export PATH='\\''/Users/jona/.local/bin:/opt/homebrew/bin:/usr/bin'\\''; export FOO='\\''bar'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''conv-1'\\'''`
+      `'/bin/zsh' -lc 'export PATH='\\''/Users/jona/.local/bin:/opt/homebrew/bin:/usr/bin'\\''; export FOO='\\''bar'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''session-1'\\'''`
     );
   });
 
@@ -118,7 +117,7 @@ describe('resolveSshCommand', () => {
     });
 
     expect(result).toBe(
-      `'/bin/sh' -c 'export FOO='\\''bar'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''conv-1'\\'''`
+      `'/bin/sh' -c 'export FOO='\\''bar'\\''; cd "/workspace" && '\\''claude'\\'' '\\''--resume'\\'' '\\''session-1'\\'''`
     );
   });
 
@@ -133,7 +132,7 @@ describe('resolveSshCommand', () => {
     );
 
     expect(result).toBe(
-      `'/bin/sh' -c 'export PATH='\\''/usr/bin'\\''; cd "/workspace" && export FOO=bar && '\\''claude'\\'' '\\''--resume'\\'' '\\''conv-1'\\'''`
+      `'/bin/sh' -c 'export PATH='\\''/usr/bin'\\''; cd "/workspace" && export FOO=bar && '\\''claude'\\'' '\\''--resume'\\'' '\\''session-1'\\'''`
     );
   });
 
@@ -167,7 +166,7 @@ describe('resolveSshCommand', () => {
     expect(result).toContain('tmux -u new-session -d -s \\"agent-session\\"');
     expect(result).toContain('tmux -u attach-session -t \\"=agent-session\\"');
     expect(result).toContain('/bin/sh -c');
-    expect(result).toContain("'\\''claude'\\'' '\\''--resume'\\'' '\\''conv-1'\\''");
+    expect(result).toContain("'\\''claude'\\'' '\\''--resume'\\'' '\\''session-1'\\''");
   });
 
   it('launches remote general terminals with the captured remote shell', () => {

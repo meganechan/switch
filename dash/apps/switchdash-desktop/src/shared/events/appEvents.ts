@@ -12,7 +12,6 @@ export const menuOpenSettingsChannel = defineEvent<void>('menu:open-settings');
 export const menuCheckForUpdatesChannel = defineEvent<void>('menu:check-for-updates');
 export const menuUndoChannel = defineEvent<void>('menu:undo');
 export const menuRedoChannel = defineEvent<void>('menu:redo');
-export const menuCloseTabChannel = defineEvent<void>('menu:close-tab');
 export const menuQuitRequestedChannel = defineEvent<void>('menu:quit-requested');
 export const menuGiveFeedbackChannel = defineEvent<void>('menu:give-feedback');
 
@@ -28,7 +27,6 @@ export const tabNavigationShortcutChannel = defineEvent<{
 export const notificationFocusSessionChannel = defineEvent<{
   projectId: string;
   sessionId: string;
-  conversationId?: string;
 }>('notification:focus-session');
 
 export const ptyStartedChannel = defineEvent<{
@@ -52,16 +50,16 @@ export const ptyExitChannel = defineEvent<{
   signal?: number;
 }>('pty:exit');
 
-/** Emitted by main process when a PTY is definitively killed (e.g. on deleteSession/deleteConversation). */
+/** Emitted by main process when a PTY is definitively killed (e.g. on deleteSession). */
 export const ptyKilledChannel = defineEvent<{ id: string }>('pty:killed');
 
 /** Emitted by main process when a lifecycle/dev-server shell session is created.
- *  These sessions are standalone PTYs — they are NOT backed by a DB conversation record.
- *  The renderer uses sessionId (not conversationId) to connect to the PTY terminal.
+ *  These sessions are standalone PTYs — they are NOT backed by a sessions-table row.
+ *  The renderer uses sessionId to connect to the PTY terminal.
  */
 export const shellSessionStartedChannel = defineEvent<{
   sessionId: string;
-  /** Opaque UUID identifying this PTY session — not a DB conversationId. */
+  /** Opaque UUID identifying this PTY session — not a sessions-table id. */
   ptySessionId: string;
   ptyId: string;
   title: string;

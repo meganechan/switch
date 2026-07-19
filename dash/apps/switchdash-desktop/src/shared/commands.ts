@@ -94,24 +94,6 @@ export const APP_COMMAND_DEFS = defineCommandDefs([
 
 export const SESSION_COMMAND_DEFS = defineCommandDefs([
   {
-    id: 'session.newConversation',
-    label: 'New Conversation',
-    description: 'Create a new conversation in the current session',
-    scope: 'session',
-    shortcutKey: 'newConversation',
-    group: 'Conversations',
-    iconKey: 'message-square-plus',
-  },
-  {
-    id: 'session.newConversationSplitRight',
-    label: 'New Conversation in Right Split',
-    description: 'Create a new conversation in a split pane to the right',
-    scope: 'session',
-    shortcutKey: 'newConversationSplitRight',
-    group: 'Conversations',
-    iconKey: 'columns-2',
-  },
-  {
     id: 'session.sidebarChanges',
     label: 'View Changes',
     description: 'Open the Changes panel in the right sidebar',
@@ -119,15 +101,6 @@ export const SESSION_COMMAND_DEFS = defineCommandDefs([
     shortcutKey: 'sidebarChanges',
     group: 'View',
     iconKey: 'file-diff',
-  },
-  {
-    id: 'session.sidebarConversations',
-    label: 'View Conversations',
-    description: 'Open the Conversations panel in the right sidebar',
-    scope: 'session',
-    shortcutKey: 'sidebarConversations',
-    group: 'View',
-    iconKey: 'message-square',
   },
   {
     id: 'session.sidebarFiles',

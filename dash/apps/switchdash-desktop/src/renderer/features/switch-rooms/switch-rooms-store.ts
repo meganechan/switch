@@ -9,17 +9,17 @@ import { sessionRoomChangedChannel } from '@shared/core/switch-rooms/switchRoomE
  * disappears here when it switches rooms or its session exits.
  */
 class SwitchRoomsStore {
-  /** conversationId → connected room id. */
-  private roomByConversation = new Map<string, string>();
+  /** sessionId → connected room id. */
+  private roomBySession = new Map<string, string>();
   private loaded = false;
 
   constructor() {
     makeAutoObservable(this, {}, { autoBind: true });
 
-    events.on(sessionRoomChangedChannel, ({ conversationId, roomId }) => {
+    events.on(sessionRoomChangedChannel, ({ sessionId, roomId }) => {
       runInAction(() => {
-        if (roomId) this.roomByConversation.set(conversationId, roomId);
-        else this.roomByConversation.delete(conversationId);
+        if (roomId) this.roomBySession.set(sessionId, roomId);
+        else this.roomBySession.delete(sessionId);
       });
     });
   }
@@ -30,16 +30,16 @@ class SwitchRoomsStore {
     this.loaded = true;
     void rpc.switchRooms.getConnections().then((connections) => {
       runInAction(() => {
-        for (const { conversationId, roomId } of connections) {
-          this.roomByConversation.set(conversationId, roomId);
+        for (const { sessionId, roomId } of connections) {
+          this.roomBySession.set(sessionId, roomId);
         }
       });
     });
   }
 
   /** The room a session is currently connected to, or null. */
-  roomForSession(conversationId: string): string | null {
-    return this.roomByConversation.get(conversationId) ?? null;
+  roomForSession(sessionId: string): string | null {
+    return this.roomBySession.get(sessionId) ?? null;
   }
 }
 

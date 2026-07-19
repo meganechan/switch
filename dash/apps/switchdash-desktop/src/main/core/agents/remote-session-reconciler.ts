@@ -1,9 +1,9 @@
 import { eq, inArray } from 'drizzle-orm';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
-import { conversationEvents } from '@main/core/conversations/conversation-events';
-import { probeAgentSidecar } from '@main/core/conversations/impl/ensure-agent-sidecar';
-import type { SidecarEndpoint } from '@main/core/conversations/impl/remote-sidecar-launcher';
-import { httpGetJsonOverChannel } from '@main/core/conversations/impl/sidecar-http';
+import { probeAgentSidecar } from '@main/core/agent-runtime/impl/ensure-agent-sidecar';
+import type { SidecarEndpoint } from '@main/core/agent-runtime/impl/remote-sidecar-launcher';
+import { httpGetJsonOverChannel } from '@main/core/agent-runtime/impl/sidecar-http';
+import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
 import { agentSshConnectionId } from '@main/core/workspaces/resolve-agent-workspace';
@@ -23,7 +23,7 @@ const SESSIONS_REQUEST_TIMEOUT_MS = 10_000;
 // should never fire — it is the backstop that guarantees the `inFlight` guard
 // can never wedge permanently and silently stop reconciliation for good.
 const TICK_DEADLINE_MS = 45_000;
-// How long a just-deleted conversation id is refused re-adoption. The delete
+// How long a just-deleted session id is refused re-adoption. The delete
 // path sends the sidecar a /disconnect, but a reconcile tick can race it (both
 // run on a ~2s cadence) and re-adopt the id from a stale /sessions snapshot
 // before the disconnect lands — recreating the ghost row we just deleted. The
@@ -39,7 +39,7 @@ const TOMBSTONE_TTL_MS = 10_000;
 const PRUNE_MISSING_THRESHOLD = 3;
 
 interface SidecarSessionsResponse {
-  sessions: Array<{ conversationId: string; roomId: string | null }>;
+  sessions: Array<{ sessionId: string; roomId: string | null }>;
 }
 
 /**
@@ -47,17 +47,17 @@ interface SidecarSessionsResponse {
  * notification watcher auto-starting a session when the agent is addressed while
  * switchdash was closed) in the switchdash UI.
  *
- * The VM is the source of truth: it mints the conversation id and runs the agent
+ * The VM is the source of truth: it mints the session id and runs the agent
  * in a tmux pane with no switchdash DB row. This reconciler polls the sidecar's
- * `GET /sessions` snapshot and, for each conversation id switchdash has never
- * seen, creates a session row with `id = the VM's conversation id`. Because the
+ * `GET /sessions` snapshot and, for each session id switchdash has never
+ * seen, creates a session row with `id = the VM's session id`. Because the
  * tmux session name is derived deterministically from that id, the normal
  * session-start path then *attaches* to the already-running pane (same as the
  * post-reconnect rehydrate) rather than spawning a second agent — so the session
  * appears live in the UI, with its real terminal and its hook-event relay.
  *
  * One periodic poll per watched remote agent. Idempotent: an already-known
- * conversation id is skipped, so re-polling only ever adds newly-spawned
+ * session id is skipped, so re-polling only ever adds newly-spawned
  * sessions. The sidecar endpoint (port + token) is resolved fresh each cycle, so
  * a sidecar that restarted — or a VM that rebooted — is re-ensured and its new
  * token picked up automatically.
@@ -69,16 +69,16 @@ class RemoteSessionReconciler {
   /** Cached sidecar endpoint per agent, so a steady-state tick doesn't re-ensure
    * (rewrite the spec, reattach) every tick — only when the cached poll fails. */
   private readonly endpoints = new Map<string, SidecarEndpoint>();
-  /** conversationId → expiry ts for just-deleted sessions we must not re-adopt. */
+  /** sessionId → expiry ts for just-deleted sessions we must not re-adopt. */
   private readonly tombstones = new Map<string, number>();
-  /** agentId → conversation ids this reconciler adopted (candidates for pruning). */
+  /** agentId → session ids this reconciler adopted (candidates for pruning). */
   private readonly adopted = new Map<string, Set<string>>();
-  /** conversationId → consecutive reconcile passes it has been absent from `/sessions`. */
+  /** sessionId → consecutive reconcile passes it has been absent from `/sessions`. */
   private readonly missingStreak = new Map<string, number>();
   /** sidecar key (host::repoDir) → agentId currently reconciling that sidecar.
    * The sidecar — and its /sessions snapshot — is scoped to host+dir, so two
    * agents sharing a dir would double-poll it and race to adopt the same
-   * conversation ids. One reconciler per sidecar; duplicates stop themselves. */
+   * session ids. One reconciler per sidecar; duplicates stop themselves. */
   private readonly sidecarKeys = new Map<string, string>();
 
   constructor() {
@@ -86,40 +86,40 @@ class RemoteSessionReconciler {
     // sidecar and surfaced here (the owning provider has already torn down its
     // PTY). Delete the local row + tombstone it so this client stops showing a
     // ghost and the next reconcile tick cannot re-adopt it from a stale snapshot.
-    conversationEvents.on('conversation:remote-terminated', ({ conversationId }) => {
-      void this.handleRemoteTerminated(conversationId);
+    sessionHooks.on('session:remote-terminated', ({ terminatedSessionId }) => {
+      void this.handleRemoteTerminated(terminatedSessionId);
     });
   }
 
-  private async handleRemoteTerminated(conversationId: string): Promise<void> {
-    if (await this.removeLocalSession(conversationId)) {
-      log.info('RemoteSessionReconciler: removed remotely-terminated session', { conversationId });
+  private async handleRemoteTerminated(sessionId: string): Promise<void> {
+    if (await this.removeLocalSession(sessionId)) {
+      log.info('RemoteSessionReconciler: removed remotely-terminated session', { sessionId });
     }
   }
 
   /**
    * Delete a session's local row, tombstone it (so the next reconcile tick cannot
    * re-adopt it from a stale snapshot), drop it from the adopted/missing tracking,
-   * and emit `conversation:deleted` so the UI updates. Returns false (and does not
+   * and emit `session:deleted` so the UI updates. Returns false (and does not
    * emit) if the DB delete fails. Idempotent — deleting an already-gone row is a
    * no-op. Shared by the `session-terminated` push and the vanished-session prune.
    */
-  private async removeLocalSession(conversationId: string): Promise<boolean> {
-    this.tombstone(conversationId);
-    for (const ids of this.adopted.values()) ids.delete(conversationId);
-    this.missingStreak.delete(conversationId);
+  private async removeLocalSession(sessionId: string): Promise<boolean> {
+    this.tombstone(sessionId);
+    for (const ids of this.adopted.values()) ids.delete(sessionId);
+    this.missingStreak.delete(sessionId);
     let deleted: { changes: number };
     let agentId: string | undefined;
     try {
       const [row] = await db
         .select({ agentId: sessions.agentId })
         .from(sessions)
-        .where(eq(sessions.id, conversationId));
+        .where(eq(sessions.id, sessionId));
       agentId = row?.agentId;
-      deleted = await db.delete(sessions).where(eq(sessions.id, conversationId));
+      deleted = await db.delete(sessions).where(eq(sessions.id, sessionId));
     } catch (error) {
       log.warn('RemoteSessionReconciler: failed to delete session row', {
-        conversationId,
+        sessionId,
         error: String(error),
       });
       return false;
@@ -128,7 +128,7 @@ class RemoteSessionReconciler {
     // `session-terminated`) still "succeeds", so gate the event + log on an
     // actual row removal to avoid redundant deleted-events and log spam.
     if (deleted.changes === 0) return false;
-    conversationEvents._emit('conversation:deleted', conversationId);
+    sessionHooks._emit('session:deleted', sessionId);
     // Tell the renderer to drop the row too. Unlike a user-initiated delete
     // (the renderer removes it itself), this removal originates in the main
     // process, so without an IPC event every attached window shows a ghost row
@@ -137,33 +137,33 @@ class RemoteSessionReconciler {
     const projectId = agentId ? (await getAgentById(agentId))?.projectId : undefined;
     if (projectId) {
       log.info('RemoteSessionReconciler: notifying UI to remove session (remote-driven delete)', {
-        conversationId,
+        sessionId,
         projectId,
       });
-      events.emit(sessionDeletedChannel, { sessionId: conversationId, projectId });
+      events.emit(sessionDeletedChannel, { sessionId: sessionId, projectId });
     } else {
       log.warn(
         'RemoteSessionReconciler: could not resolve projectId for removed session — sidebar row may linger until restart',
-        { conversationId, agentId }
+        { sessionId, agentId }
       );
     }
     return true;
   }
 
   /**
-   * Refuse re-adoption of a conversation id for a short window after switchdash
+   * Refuse re-adoption of a session id for a short window after switchdash
    * deletes it, closing the race where a reconcile tick re-adopts it from a stale
    * sidecar `/sessions` snapshot before the delete's `/disconnect` lands.
    */
-  tombstone(conversationId: string): void {
-    this.tombstones.set(conversationId, Date.now() + TOMBSTONE_TTL_MS);
+  tombstone(sessionId: string): void {
+    this.tombstones.set(sessionId, Date.now() + TOMBSTONE_TTL_MS);
   }
 
-  private isTombstoned(conversationId: string): boolean {
-    const expiry = this.tombstones.get(conversationId);
+  private isTombstoned(sessionId: string): boolean {
+    const expiry = this.tombstones.get(sessionId);
     if (expiry === undefined) return false;
     if (expiry <= Date.now()) {
-      this.tombstones.delete(conversationId);
+      this.tombstones.delete(sessionId);
       return false;
     }
     return true;
@@ -250,10 +250,10 @@ class RemoteSessionReconciler {
     const conn = await connectRemoteAgent(agent);
     const response = await this.fetchSessions(agent, conn);
     const vmSessions = response.sessions ?? [];
-    const vmIds = new Set(vmSessions.map((s) => s.conversationId));
+    const vmIds = new Set(vmSessions.map((s) => s.sessionId));
 
     // Check adoption candidates against ALL local sessions, not just this
-    // agent's: a conversation id is globally unique (it is the sessions PK),
+    // agent's: a session id is globally unique (it is the sessions PK),
     // and the sidecar snapshot carries no agent attribution — another agent
     // may legitimately own the row already.
     const known = vmIds.size
@@ -267,9 +267,9 @@ class RemoteSessionReconciler {
         )
       : new Set<string>();
     for (const vm of vmSessions) {
-      if (known.has(vm.conversationId)) continue;
-      if (this.isTombstoned(vm.conversationId)) continue;
-      await this.adoptSession(agent, vm.conversationId, vm.roomId);
+      if (known.has(vm.sessionId)) continue;
+      if (this.isTombstoned(vm.sessionId)) continue;
+      await this.adoptSession(agent, vm.sessionId, vm.roomId);
     }
 
     await this.pruneVanished(agentId, vmIds);
@@ -321,7 +321,7 @@ class RemoteSessionReconciler {
       if (await this.removeLocalSession(id)) {
         log.info('RemoteSessionReconciler: pruned VM session no longer reported', {
           agentId,
-          conversationId: id,
+          sessionId: id,
         });
       }
     }
@@ -384,18 +384,18 @@ class RemoteSessionReconciler {
   }
 
   /**
-   * Create a switchdash session row whose id equals the VM's conversation id, so
+   * Create a switchdash session row whose id equals the VM's session id, so
    * the session-start path attaches to the running tmux pane rather than spawning
    * a fresh agent. No initial prompt — the agent is already connected to the room
    * and processing the waiting message.
    */
   private async adoptSession(
     agent: Agent,
-    conversationId: string,
+    sessionId: string,
     roomId: string | null
   ): Promise<void> {
     const result = await sessionService.createSession({
-      id: conversationId,
+      id: sessionId,
       agentId: agent.id,
       title: roomId ? `Switch room ${roomId}` : 'Remote session',
       autoApprove: true,
@@ -406,13 +406,13 @@ class RemoteSessionReconciler {
         // between our snapshot and the insert — it is adopted, just not by us.
         log.info('RemoteSessionReconciler: session row already exists — skipping adoption', {
           agentId: agent.id,
-          conversationId,
+          sessionId,
         });
         return;
       }
       log.warn('RemoteSessionReconciler: failed to adopt VM session', {
         agentId: agent.id,
-        conversationId,
+        sessionId,
         roomId,
         error: JSON.stringify(result.error),
       });
@@ -422,10 +422,10 @@ class RemoteSessionReconciler {
     // not session:provisioned — without the latter an open renderer leaves the
     // session stuck "Setting up workspace…". provisionWorkspace is idempotent and
     // emits the provisioned event the renderer needs.
-    await sessionService.provisionWorkspace(conversationId).catch((error) => {
+    await sessionService.provisionWorkspace(sessionId).catch((error) => {
       log.warn('RemoteSessionReconciler: post-adopt provision-reconcile failed', {
         agentId: agent.id,
-        conversationId,
+        sessionId,
         error: String(error),
       });
     });
@@ -434,11 +434,11 @@ class RemoteSessionReconciler {
       adoptedIds = new Set();
       this.adopted.set(agent.id, adoptedIds);
     }
-    adoptedIds.add(conversationId);
-    this.missingStreak.delete(conversationId);
+    adoptedIds.add(sessionId);
+    this.missingStreak.delete(sessionId);
     log.info('RemoteSessionReconciler: adopted VM-spawned session', {
       agentId: agent.id,
-      conversationId,
+      sessionId,
       roomId,
     });
   }

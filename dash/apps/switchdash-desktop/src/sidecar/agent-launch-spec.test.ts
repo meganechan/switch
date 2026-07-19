@@ -26,14 +26,14 @@ function spec(overrides: Partial<AgentLaunchSpec> = {}): AgentLaunchSpec {
 describe('materializeAgentCommand', () => {
   it('substitutes the session id and initial prompt tokens', () => {
     const cmd = materializeAgentCommand(spec(), {
-      conversationId: 'conv-9',
+      sessionId: 'session-9',
       initialPrompt: 'connect to switch room room-x',
       extraEnv: {},
     });
     expect(cmd.command).toBe('/usr/bin/claude');
     expect(cmd.args).toEqual([
       '--session-id',
-      'conv-9',
+      'session-9',
       '--dangerously-skip-permissions',
       'connect to switch room room-x',
     ]);
@@ -41,7 +41,7 @@ describe('materializeAgentCommand', () => {
 
   it('merges per-spawn env over the base env', () => {
     const cmd = materializeAgentCommand(spec({ env: { BASE: '1', SHARED: 'base' } }), {
-      conversationId: 'c',
+      sessionId: 'c',
       initialPrompt: 'p',
       extraEnv: { SHARED: 'override', HOOK: 'x' },
     });
@@ -51,7 +51,7 @@ describe('materializeAgentCommand', () => {
   it('throws when the session-id token is missing', () => {
     expect(() =>
       materializeAgentCommand(spec({ args: [INITIAL_PROMPT_PLACEHOLDER] }), {
-        conversationId: 'c',
+        sessionId: 'c',
         initialPrompt: 'p',
         extraEnv: {},
       })
@@ -61,7 +61,7 @@ describe('materializeAgentCommand', () => {
   it('throws when the initial-prompt token is missing', () => {
     expect(() =>
       materializeAgentCommand(spec({ args: ['--session-id', SESSION_ID_PLACEHOLDER] }), {
-        conversationId: 'c',
+        sessionId: 'c',
         initialPrompt: 'p',
         extraEnv: {},
       })

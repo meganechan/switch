@@ -1,11 +1,10 @@
 import { err, ok, type Result } from '@switchdash/shared';
 import { eq, sql } from 'drizzle-orm';
 import { getAgentById } from '@main/core/agents/getAgentById';
-import { mapSessionRowToConversation } from '@main/core/conversations/utils';
 import { projectManager } from '@main/core/projects/project-manager';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
-import type { ConversationConfig } from '@shared/core/conversations/conversation-config';
+import type { SessionConfig } from '@shared/core/sessions/session-config';
 import type {
   CreateSessionError,
   CreateSessionSuccess,
@@ -30,7 +29,7 @@ export async function createSession(
   const project = projectManager.getProject(agent.projectId);
   if (!project) return err({ type: 'agent-not-found' });
 
-  const configObj: ConversationConfig = {};
+  const configObj: SessionConfig = {};
   if (params.autoApprove !== undefined) configObj.autoApprove = params.autoApprove;
   if (params.initialPrompt?.trim()) configObj.initialPrompt = params.initialPrompt.trim();
   if (params.subagentName?.trim()) configObj.subagentName = params.subagentName.trim();
@@ -55,7 +54,7 @@ export async function createSession(
     .returning();
 
   // Callers with externally-minted ids (the remote session reconciler adopting
-  // a VM conversation) can race another creator for the same id — surface that
+  // a VM session) can race another creator for the same id — surface that
   // as a Result instead of a raw UNIQUE-constraint throw.
   if (!row) return err({ type: 'already-exists' });
 
@@ -65,13 +64,7 @@ export async function createSession(
     const built = await provisionSessionRuntime(session, project);
     await sessionRuntimeManager.registerSession(session.id, built, project.projectId, project.ctx);
 
-    const conversation = mapSessionRowToConversation(row, project.projectId, agent.providerId);
-    await built.sessionProvider.conversations.startSession(
-      conversation,
-      params.initialSize,
-      false,
-      params.initialPrompt
-    );
+    await built.agent.start(session, params.initialSize, false, params.initialPrompt);
   } catch (e) {
     await db.delete(sessions).where(eq(sessions.id, params.id));
     return err({ type: 'spawn-failed', message: e instanceof Error ? e.message : String(e) });

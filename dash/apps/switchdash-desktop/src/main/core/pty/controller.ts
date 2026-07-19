@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { err, ok } from '@switchdash/shared';
-import { conversationEvents } from '@main/core/conversations/conversation-events';
+import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { log } from '@main/lib/logger';
 import { parsePtySessionId } from '@shared/core/pty/ptySessionId';
 import { createRPCController } from '@shared/lib/ipc/rpc';
@@ -33,10 +33,9 @@ export const ptyController = createRPCController({
       if (meta?.providerId && !meta.isRemote) {
         const parsed = parsePtySessionId(sessionId);
         if (parsed) {
-          conversationEvents._emit('conversation:input-submitted', {
+          sessionHooks._emit('session:input-submitted', {
             projectId: parsed.projectId,
             sessionId: parsed.scopeId,
-            conversationId: parsed.leafId,
             providerId: meta.providerId,
           });
         }
@@ -85,45 +84,22 @@ export const ptyController = createRPCController({
   },
 
   /**
-   * Stop a session for good without deleting its conversation/terminal record.
+   * Stop a lifecycle-script PTY for good. Lifecycle scripts never respawn, so
+   * a raw kill is sufficient and safe.
    *
-   * Unlike `kill`, which only terminates the OS process, this routes through
-   * the owning provider so the session is removed from its respawn tracking
-   * (`knownSessionIds`/`sessions`). A bare `kill` leaves those intact, so the
-   * provider's `onExit` handler respawns the PTY ~500ms later — which is what
-   * made killing from the resource monitor appear to do nothing. The tab and
-   * its history are preserved; the session simply stays stopped until the session
-   * is remounted or the user starts a new one.
+   * Agent PTYs are session lifecycle, not raw PTY I/O — stop those through
+   * `rpc.sessions.stopAgent` instead; this rejects them.
    */
   stopSession: async (sessionId: string) => {
     const parsed = parsePtySessionId(sessionId);
     if (!parsed) return err({ type: 'invalid_session' as const });
-    const { scopeId, leafId } = parsed;
 
-    // Agents and terminals are scoped by session id, so the session lookup resolves
-    // the owning provider. Conversation PTYs carry a providerId in their
-    // registry metadata; plain terminals do not — that distinguishes the two.
-    const session = sessionRuntimeManager.getSession(scopeId);
-    if (session) {
-      const isConversation = ptySessionRegistry.getMetadata(sessionId)?.providerId !== undefined;
-      try {
-        if (isConversation) {
-          await session.conversations.stopSession(leafId);
-        } else {
-          await session.terminals.killTerminal(leafId);
-        }
-      } catch (e) {
-        log.warn('ptyController.stopSession: error stopping session PTY', {
-          sessionId,
-          error: String(e),
-        });
-        return err({ type: 'stop_failed' as const, message: String((e as Error)?.message || e) });
-      }
-      return ok();
+    // Agent PTYs carry a providerId in their registry metadata; lifecycle
+    // scripts do not — that distinguishes the two.
+    if (ptySessionRegistry.getMetadata(sessionId)?.providerId !== undefined) {
+      return err({ type: 'invalid_session' as const });
     }
 
-    // Lifecycle scripts are scoped by workspace id (no session match) and never
-    // respawn, so a raw kill is sufficient and safe.
     const pty = ptySessionRegistry.get(sessionId);
     if (pty) {
       try {
@@ -142,7 +118,7 @@ export const ptyController = createRPCController({
    * connected ssh2 client — no local ssh/scp binaries are involved.
    *
    * The session ID encodes the project and scope (`projectId:scopeId:leafId`),
-   * where `scopeId` is a session ID for conversation uploads.
+   * where `scopeId` is a session ID for agent-session uploads.
    */
   uploadFiles: async (args: { sessionId: string; localPaths: string[] }) => {
     try {
@@ -152,8 +128,7 @@ export const ptyController = createRPCController({
       }
       const { scopeId } = parsed;
 
-      const sessionProvider = sessionRuntimeManager.getSession(scopeId);
-      if (!sessionProvider) return err({ type: 'not_ssh' as const });
+      if (!sessionRuntimeManager.getAgent(scopeId)) return err({ type: 'not_ssh' as const });
 
       const workspaceId = sessionRuntimeManager.getWorkspaceId(scopeId) ?? '';
       const workspace = workspaceRegistry.get(workspaceId);

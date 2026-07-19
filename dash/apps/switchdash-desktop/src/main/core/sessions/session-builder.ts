@@ -1,6 +1,4 @@
 import { getAgentById } from '@main/core/agents/getAgentById';
-import type { ConversationProvider } from '@main/core/conversations/types';
-import type { TerminalProvider } from '@main/core/terminals/terminal-provider';
 import { resolveAgentWorkspace } from '@main/core/workspaces/resolve-agent-workspace';
 import type { Workspace } from '@main/core/workspaces/workspace';
 import { workspaceRegistry } from '@main/core/workspaces/workspace-registry';
@@ -10,10 +8,11 @@ import {
   type ProvisionStep,
 } from '@shared/core/sessions/sessionEvents';
 import type { Session } from '@shared/core/sessions/sessions';
-import type { ProjectProvider, SessionProvider } from '../projects/project-provider';
+import type { AgentRuntimeProvider } from '../agent-runtime/types';
+import type { ProjectProvider } from '../projects/project-provider';
 import type { ProjectSettingsProvider } from '../projects/settings/provider';
 import {
-  buildSessionProviders,
+  buildAgentRuntime,
   createWorkspaceFactory,
   resolveSessionEnv,
   type WorkspaceType,
@@ -29,13 +28,13 @@ export type SessionRuntimeResult = {
   path: string;
   workspaceId: string;
   worktreeGitDir?: string;
-  sessionProvider: SessionProvider;
+  agent: AgentRuntimeProvider;
 };
 
 /**
  * Provisions the runtime for a session: acquires the project-dir workspace
  * (running lifecycle scripts once per project dir) and builds the session's
- * conversation + terminal providers in the project root.
+ * agent runtime in the project root.
  */
 export async function provisionSessionRuntime(
   session: Session,
@@ -83,7 +82,7 @@ export async function provisionSessionRuntime(
 
   let buildSucceeded = false;
   try {
-    const buildResult = await buildSessionFromWorkspace(
+    const runtime = await buildSessionFromWorkspace(
       session,
       workspace,
       type,
@@ -96,7 +95,7 @@ export async function provisionSessionRuntime(
       path: workDir,
       workspaceId,
       worktreeGitDir: undefined,
-      sessionProvider: buildResult.sessionProvider,
+      agent: runtime,
     };
   } finally {
     if (!buildSucceeded) {
@@ -115,18 +114,9 @@ export function emitSessionProvisionProgress(data: {
   sessionProvisionEvents.emitProgress(data);
 }
 
-export type BuildSessionResult = {
-  sessionProvider: SessionProvider;
-  conversationProvider: ConversationProvider;
-  terminalProvider: TerminalProvider;
-};
-
 /**
- * Shared tail of the provision flow — builds a SessionProvider from an already-acquired
- * workspace. Works for both local and SSH transports.
- *
- * Returns all three provider objects so callers can keep references for
- * reconnect rehydration.
+ * Shared tail of the provision flow — builds the session's agent runtime from
+ * an already-acquired workspace. Works for both local and SSH transports.
  */
 export async function buildSessionFromWorkspace(
   session: Session,
@@ -135,7 +125,7 @@ export async function buildSessionFromWorkspace(
   projectId: string,
   projectPath: string,
   settings: ProjectSettingsProvider
-): Promise<BuildSessionResult> {
+): Promise<AgentRuntimeProvider> {
   const { sessionEnvVars, tmuxEnabled, shellSetup } = await resolveSessionEnv(
     session,
     workspace,
@@ -143,24 +133,12 @@ export async function buildSessionFromWorkspace(
     settings
   );
 
-  const { conversations: conversationProvider, terminals: terminalProvider } =
-    await buildSessionProviders(type, {
-      projectId,
-      sessionId: session.id,
-      workspaceId: workspace.id,
-      sessionPath: workspace.path,
-      tmuxEnabled,
-      shellSetup,
-      sessionEnvVars,
-    });
-
-  const sessionProvider: SessionProvider = {
+  return buildAgentRuntime(type, {
+    projectId,
     sessionId: session.id,
-    sessionBranch: undefined,
+    sessionPath: workspace.path,
+    tmuxEnabled,
+    shellSetup,
     sessionEnvVars,
-    conversations: conversationProvider,
-    terminals: terminalProvider,
-  };
-
-  return { sessionProvider, conversationProvider, terminalProvider };
+  });
 }

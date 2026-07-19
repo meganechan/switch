@@ -1,7 +1,4 @@
-import {
-  getConversationsForSession,
-  getTerminalsForSession,
-} from '@renderer/features/sessions/stores/session-selectors';
+import { getSessionAgent } from '@renderer/features/sessions/stores/session-selectors';
 import { appState } from '@renderer/lib/stores/app-state';
 import { formatBytes } from '@renderer/utils/formatBytes';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
@@ -36,7 +33,7 @@ const UNKNOWN_PROJECT_ID = '__unknown__';
 
 /**
  * Lifecycle-script PTYs are labelled by their terminal id (see
- * `createLifecycleScriptTerminalId`), which has no provider/conversation
+ * `createLifecycleScriptTerminalId`), which has no provider/session
  * metadata. Map those ids to friendly labels so they don't render as the
  * truncated "script-l…" leaf id.
  */
@@ -155,15 +152,14 @@ export function buildGroups(entries: ResourcePtyEntry[]): Group[] {
       if (session) {
         bucketKey = sessionId;
         sessionName = session.displayName;
-        const conv = getConversationsForSession(sessionId)?.conversations.get(entry.leafId);
-        const terminal = getTerminalsForSession(sessionId)?.terminals.get(entry.leafId);
-        providerId = conv?.data.providerId;
-        displayTitle = conv?.data.title ?? terminal?.data.name;
+        const agent = entry.leafId === sessionId ? getSessionAgent(sessionId)?.agent : undefined;
+        providerId = agent?.data.providerId;
+        displayTitle = agent?.data.title;
       }
     }
 
     // Fall back to metadata supplied by the sampler (covers cases where the
-    // owning project isn't mounted, so the conversation/terminal join above misses).
+    // owning project isn't mounted, so the session/terminal join above misses).
     providerId ??= entry.providerId;
     displayTitle ??= entry.title;
 

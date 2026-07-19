@@ -1,20 +1,14 @@
 import { ok, type Result } from '@switchdash/shared';
+import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
 import type { IExecutionContext } from '@main/core/execution-context/types';
-import {
-  killTmuxSession,
-  makeAgentTmuxSessionName,
-  makeTmuxSessionName,
-} from '@main/core/pty/tmux-session-name';
+import { killTmuxSession, makeAgentTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import type { SessionRuntimeResult } from '@main/core/sessions/session-builder';
-import { getSessionSessionLeafIds } from '@main/core/sessions/session-targets';
 import { workspaceRegistry, type TeardownMode } from '@main/core/workspaces/workspace-registry';
-import { HookCore, type Hookable } from '@main/lib/hookable';
 import { LifecycleMap } from '@main/lib/lifecycle-map';
 import { log } from '@main/lib/logger';
-import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import type { SessionBootstrapStatus } from '@shared/core/sessions/sessions';
 import type { WorkspaceType as SharedWorkspaceType } from '@shared/core/workspaces/workspaces';
-import type { ProvisionResult, SessionProvider } from '../projects/project-provider';
+import type { ProvisionResult } from '../projects/project-provider';
 import { withTimeout } from '../projects/utils';
 import {
   formatProvisionSessionError,
@@ -33,58 +27,30 @@ export type WorkspaceHint = {
 
 type StoredSession = ProvisionResult & { projectId: string; ctx: IExecutionContext };
 
-export type SessionManagerHooks = {
-  'session:provisioned': (info: {
-    projectId: string;
-    sessionId: string;
-    branchName: string | undefined;
-    workspaceId: string;
-    worktreeGitDir?: string;
-  }) => void | Promise<void>;
-  'session:torn-down': (info: {
-    projectId: string;
-    sessionId: string;
-    workspaceId: string;
-  }) => void | Promise<void>;
-};
-
 async function executeTeardown(
-  session: SessionProvider,
+  agent: AgentRuntimeProvider,
   workspaceId: string,
   mode: TeardownMode
 ): Promise<void> {
   if (mode === 'detach') {
-    await session.conversations.detachAll();
-    await session.terminals.detachAll();
+    await agent.detach();
   } else {
-    await session.conversations.destroyAll();
-    await session.terminals.destroyAll();
+    await agent.destroy();
   }
   await workspaceRegistry.release(workspaceId, mode);
 }
 
 async function cleanupDetachedSessions(
-  projectId: string,
+  _projectId: string,
   sessionId: string,
   ctx: IExecutionContext
 ): Promise<void> {
-  const { conversationIds, terminalIds } = await getSessionSessionLeafIds(projectId, sessionId);
-  // Agent conversations key their pane on the shared conversationId (so all
-  // clients converge on one tmux session); terminals stay on the instance-local
-  // pty-session-id scheme.
-  const tmuxNames = [
-    ...conversationIds.map((conversationId) => makeAgentTmuxSessionName(conversationId)),
-    ...terminalIds.map((terminalId) =>
-      makeTmuxSessionName(makePtySessionId(projectId, sessionId, terminalId))
-    ),
-  ];
-  await Promise.all(tmuxNames.map((name) => killTmuxSession(ctx, name)));
+  // The agent pane is keyed on the shared session id, so all clients converge
+  // on one tmux session.
+  await killTmuxSession(ctx, makeAgentTmuxSessionName(sessionId));
 }
 
 class SessionRuntimeManager {
-  private readonly _hooks = new HookCore<SessionManagerHooks>((name, e) =>
-    log.error(`SessionManager: ${String(name)} hook error`, e)
-  );
   private readonly _lifecycle = new LifecycleMap<
     StoredSession,
     ProvisionSessionError,
@@ -92,21 +58,13 @@ class SessionRuntimeManager {
   >({
     postTeardown: (sessionId, stored) => {
       this._sessionsByProject.get(stored.projectId)?.delete(sessionId);
-      this._hooks.callHookBackground('session:torn-down', {
-        projectId: stored.projectId,
-        sessionId,
-        workspaceId: stored.persistData.workspaceId,
-      });
     },
   });
   private readonly _sessionsByProject = new Map<string, Set<string>>();
 
-  readonly hooks: Hookable<SessionManagerHooks> = this._hooks;
-
   /**
    * Registers a fully-provisioned session into the lifecycle map.
    * Idempotent — if the session is already registered, returns immediately.
-   * Fires `session:provisioned` hook for git watchers and PR sync.
    */
   async registerSession(
     sessionId: string,
@@ -115,7 +73,7 @@ class SessionRuntimeManager {
     ctx: IExecutionContext
   ): Promise<void> {
     const stored: StoredSession = {
-      sessionProvider: result.sessionProvider,
+      agent: result.agent,
       persistData: {
         workspaceId: result.workspaceId,
         worktreeGitDir: result.worktreeGitDir,
@@ -130,14 +88,6 @@ class SessionRuntimeManager {
     const byProject = this._sessionsByProject.get(projectId) ?? new Set<string>();
     byProject.add(sessionId);
     this._sessionsByProject.set(projectId, byProject);
-
-    this._hooks.callHookBackground('session:provisioned', {
-      projectId,
-      sessionId,
-      branchName: result.sessionProvider.sessionBranch,
-      workspaceId: result.workspaceId,
-      worktreeGitDir: result.worktreeGitDir,
-    });
   }
 
   async teardownSession(
@@ -146,10 +96,10 @@ class SessionRuntimeManager {
   ): Promise<Result<void, TeardownSessionError>> {
     const result = this._lifecycle.teardown(
       sessionId,
-      async ({ sessionProvider, persistData, projectId, ctx }) => {
+      async ({ agent, persistData, projectId, ctx }) => {
         try {
           await withTimeout(
-            executeTeardown(sessionProvider, persistData.workspaceId, mode),
+            executeTeardown(agent, persistData.workspaceId, mode),
             SESSION_TIMEOUT_MS
           );
           return ok();
@@ -178,10 +128,7 @@ class SessionRuntimeManager {
         sessionIds.flatMap((id) => {
           const stored = this._lifecycle.get(id);
           if (!stored) return [];
-          return [
-            stored.sessionProvider.conversations.detachAll(),
-            stored.sessionProvider.terminals.detachAll(),
-          ];
+          return [stored.agent.detach()];
         })
       );
       // Remove entries from lifecycle maps without running workspace teardown.
@@ -197,8 +144,9 @@ class SessionRuntimeManager {
     }
   }
 
-  getSession(sessionId: string): SessionProvider | undefined {
-    return this._lifecycle.get(sessionId)?.sessionProvider;
+  /** The live agent runtime for a provisioned session, if any. */
+  getAgent(sessionId: string): AgentRuntimeProvider | undefined {
+    return this._lifecycle.get(sessionId)?.agent;
   }
 
   getWorkspaceId(sessionId: string): string | undefined {

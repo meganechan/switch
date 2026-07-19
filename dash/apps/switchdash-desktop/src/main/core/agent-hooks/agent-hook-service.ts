@@ -1,11 +1,11 @@
 import type { IDisposable, IInitializable } from '@switchdash/shared';
 import { eq } from 'drizzle-orm';
-import { conversationEvents } from '@main/core/conversations/conversation-events';
-import { saveProviderSessionId } from '@main/core/conversations/save-provider-session-id';
-import { loadSessionWithAgent } from '@main/core/conversations/session-join';
-import { setProviderSessionId } from '@main/core/conversations/set-provider-session-id';
-import { touchConversation } from '@main/core/conversations/touchConversation';
 import { getPlugin } from '@main/core/providers/plugin-registry';
+import { saveProviderSessionId } from '@main/core/sessions/operations/save-provider-session-id';
+import { setProviderSessionId } from '@main/core/sessions/operations/set-provider-session-id';
+import { touchSession } from '@main/core/sessions/operations/touchSession';
+import { sessionHooks } from '@main/core/sessions/session-hooks';
+import { loadSessionWithAgent } from '@main/core/sessions/session-join';
 import { switchNotificationPoller } from '@main/core/switch-rooms/switch-notification-poller';
 import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
 import { db } from '@main/db/client';
@@ -13,12 +13,12 @@ import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';
-import {
-  conversationAgentStatusChangedChannel,
-  conversationChangedChannel,
-} from '@shared/core/conversations/conversationEvents';
 import { isValidProviderSessionId } from '@shared/core/providers/agent-provider-registry';
 import { type AgentEvent, type AgentStatus } from '@shared/core/providers/agentEvents';
+import {
+  sessionAgentStatusChangedChannel,
+  sessionChangedChannel,
+} from '@shared/core/sessions/sessionEvents';
 import { dbContextResolver } from './db-context-resolver';
 import { deriveAgentStatus } from './derive-agent-status';
 import { parseHookEvent } from './event-enricher';
@@ -39,21 +39,20 @@ function determineSoundEvent(
 }
 
 async function handleSessionEvent(
-  ctx: { conversationId: string; sessionId: string; projectId: string; providerId: string },
+  ctx: { sessionId: string; projectId: string; providerId: string },
   providerSessionId: string
 ): Promise<void> {
   if (!isValidProviderSessionId(ctx.providerId, providerSessionId)) return;
 
   if (ctx.providerId === 'droid') {
-    await saveProviderSessionId(ctx.conversationId, providerSessionId);
+    await saveProviderSessionId(ctx.sessionId, providerSessionId);
     return;
   }
 
-  const updated = await setProviderSessionId(ctx.conversationId, providerSessionId);
+  const updated = await setProviderSessionId(ctx.sessionId, providerSessionId);
   if (!updated) return;
 
-  events.emit(conversationChangedChannel, {
-    conversationId: ctx.conversationId,
+  events.emit(sessionChangedChannel, {
     sessionId: ctx.sessionId,
     projectId: ctx.projectId,
     changes: { providerSessionId },
@@ -118,7 +117,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
       // Surface the running turn's activity on the bridged channel by refreshing
       // the "working on it…" message. A no-op unless a room-triggered turn is
       // live. In-process call: the `events` bus is renderer-bound (see below).
-      switchNotificationPoller.onAgentActivity(parsed.ctx.conversationId, parsed.detail);
+      switchNotificationPoller.onAgentActivity(parsed.ctx.sessionId, parsed.detail);
       return;
     }
 
@@ -131,43 +130,38 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
   async initialize(): Promise<void> {
     await this.server.start(async (raw) => this.handleRawHook(raw, { startLocalPoller: true }));
 
-    conversationEvents.on(
-      'conversation:input-submitted',
-      ({ projectId, sessionId, conversationId, providerId }) => {
-        // Only synthesise a 'start' event when the plugin does not supply its own
-        // start hook (e.g. UserPromptSubmit). Providers with start-capable hooks
-        // get 'working' from the real hook event instead.
-        const plugin = getPlugin(providerId);
-        const hooksDesc = plugin?.capabilities.hooks;
-        const supportedEvents =
-          hooksDesc && hooksDesc.kind !== 'none' ? hooksDesc.supportedEvents : [];
-        const hasStartHook = supportedEvents.includes('start');
+    sessionHooks.on('session:input-submitted', ({ projectId, sessionId, providerId }) => {
+      // Only synthesise a 'start' event when the plugin does not supply its own
+      // start hook (e.g. UserPromptSubmit). Providers with start-capable hooks
+      // get 'working' from the real hook event instead.
+      const plugin = getPlugin(providerId);
+      const hooksDesc = plugin?.capabilities.hooks;
+      const supportedEvents =
+        hooksDesc && hooksDesc.kind !== 'none' ? hooksDesc.supportedEvents : [];
+      const hasStartHook = supportedEvents.includes('start');
 
-        if (!hasStartHook) {
-          const agentEvent: AgentEvent = {
-            type: 'start',
-            source: 'input',
-            providerId,
-            projectId,
-            sessionId,
-            conversationId,
-            timestamp: Date.now(),
-            payload: {},
-          };
-          this.emitAgentEvent(agentEvent, isAppFocused());
-        }
-
-        const now = new Date().toISOString();
-        void touchConversation(conversationId, now).then(() => {
-          events.emit(conversationChangedChannel, {
-            conversationId,
-            sessionId,
-            projectId,
-            changes: { lastInteractedAt: now },
-          });
-        });
+      if (!hasStartHook) {
+        const agentEvent: AgentEvent = {
+          type: 'start',
+          source: 'input',
+          providerId,
+          projectId,
+          sessionId,
+          timestamp: Date.now(),
+          payload: {},
+        };
+        this.emitAgentEvent(agentEvent, isAppFocused());
       }
-    );
+
+      const now = new Date().toISOString();
+      void touchSession(sessionId, now).then(() => {
+        events.emit(sessionChangedChannel, {
+          sessionId,
+          projectId,
+          changes: { lastInteractedAt: now },
+        });
+      });
+    });
 
     // Persist agent status to DB and emit simplified IPC for renderer.
     this.on('agent:event', async (event) => {
@@ -179,7 +173,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
         event.type === 'notification' ? event.payload.notificationType : undefined;
 
       log.debug('AgentHookService: agent status change', {
-        conversationId: event.conversationId,
+        sessionId: event.sessionId,
         status,
         eventType: event.type,
         ...(notificationType ? { notificationType } : {}),
@@ -191,15 +185,14 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
       // ipcMain), so an in-process emit never reaches an in-process listener — the
       // poller would otherwise never observe a turn finishing and would release
       // its gate only via the 60s fallback.
-      switchNotificationPoller.onAgentStatusChange(event.conversationId, status, notificationType);
+      switchNotificationPoller.onAgentStatusChange(event.sessionId, status, notificationType);
 
       await db
         .update(sessions)
         .set({ agentStatus: status, agentStatusSeen: seen })
-        .where(eq(sessions.id, event.conversationId));
+        .where(eq(sessions.id, event.sessionId));
 
-      events.emit(conversationAgentStatusChangedChannel, {
-        conversationId: event.conversationId,
+      events.emit(sessionAgentStatusChangedChannel, {
         sessionId: event.sessionId,
         projectId: event.projectId,
         status,
@@ -212,24 +205,23 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
     // Reset a stuck 'working' status to 'idle' when the agent PTY exits
     // unexpectedly (the user interrupts/kills the agent before a 'stop' or
     // 'error' hook fires). Subscribed in-process: the `events` bus only delivers
-    // main→renderer, so this handler must use conversationEvents. Poller/room
+    // main→renderer, so this handler must use sessionHooks. Poller/room
     // teardown is NOT done here — this also fires on respawn, where the poller
     // should survive; that teardown lives at the stop/delete lifecycle points.
-    conversationEvents.on('conversation:session-exited', ({ conversationId, sessionId }) => {
+    sessionHooks.on('session:agent-exited', ({ sessionId }) => {
       void (async () => {
         try {
-          const loaded = await loadSessionWithAgent(conversationId);
+          const loaded = await loadSessionWithAgent(sessionId);
           if (!loaded || loaded.row.agentStatus !== 'working') return;
 
           await db
             .update(sessions)
             .set({ agentStatus: 'idle', agentStatusSeen: 1 })
-            .where(eq(sessions.id, conversationId));
+            .where(eq(sessions.id, sessionId));
 
-          switchNotificationPoller.onAgentStatusChange(conversationId, 'idle');
+          switchNotificationPoller.onAgentStatusChange(sessionId, 'idle');
 
-          events.emit(conversationAgentStatusChangedChannel, {
-            conversationId,
+          events.emit(sessionAgentStatusChangedChannel, {
             sessionId,
             projectId: loaded.projectId,
             status: 'idle',
@@ -238,7 +230,7 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
           });
         } catch (error) {
           log.warn('AgentHookService: failed to reset stuck working status on exit', {
-            conversationId,
+            sessionId,
             error: String(error),
           });
         }

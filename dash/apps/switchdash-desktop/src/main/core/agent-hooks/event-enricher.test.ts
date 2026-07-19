@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type ContextResolver, type ConversationContext, parseHookEvent } from './event-enricher';
+import { type ContextResolver, type AgentHookContext, parseHookEvent } from './event-enricher';
 import type { RawHookRequest } from './hook-server';
 
-const ctx: ConversationContext = {
-  conversationId: 'conv-1',
-  sessionId: 'conv-1',
+const ctx: AgentHookContext = {
+  sessionId: 'session-1',
   projectId: 'proj-1',
   providerId: 'claude-code',
-  ptyId: 'claude-code::conv-1',
+  ptyId: 'claude-code::session-1',
 };
 
 const fixedResolver: ContextResolver = async () => ctx;

@@ -163,12 +163,6 @@ export const APP_SHORTCUTS = defineShortcuts({
     description: 'Open the right sidebar to the Changes panel',
     category: 'Session View',
   },
-  sidebarConversations: {
-    defaultHotkey: 'Mod+Shift+3',
-    label: 'View Conversations',
-    description: 'Open the right sidebar to the Conversations panel',
-    category: 'Session View',
-  },
   sidebarFiles: {
     defaultHotkey: 'Mod+Shift+2',
     label: 'View Files',
@@ -202,25 +196,6 @@ export const APP_SHORTCUTS = defineShortcuts({
     description: 'Switch to the previous session',
     category: 'Session View',
     ignoreWhenMonacoFocused: true,
-  },
-  tabClose: {
-    defaultHotkey: 'Mod+W',
-    label: 'Close Tab',
-    description: 'Close the active tab',
-    category: 'Tab Navigation',
-    conflictBehavior: 'allow',
-  },
-  newConversation: {
-    defaultHotkey: 'Mod+T',
-    label: 'New Conversation',
-    description: 'Create a new conversation in the current session',
-    category: 'Session View',
-  },
-  newConversationSplitRight: {
-    defaultHotkey: 'Mod+D',
-    label: 'New Conversation in Right Split',
-    description: 'Create a new conversation in a split pane to the right',
-    category: 'Session View',
   },
   newTerminal: {
     defaultHotkey: 'Mod+Shift+T',

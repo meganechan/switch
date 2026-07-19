@@ -84,13 +84,13 @@ describe('InProcessSessionSpawner.launch', () => {
 });
 
 describe('InProcessSessionSpawner.spawnedSessions', () => {
-  it('reports a launched session with its minted conversation id while its pane is live', async () => {
+  it('reports a launched session with its minted session id while its pane is live', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
     await spawner.launch('room-x');
     const spawned = spawner.spawnedSessions();
     expect(spawned).toHaveLength(1);
     expect(spawned[0]!.roomId).toBe('room-x');
-    expect(spawned[0]!.conversationId).toMatch(/[0-9a-f-]{36}/);
+    expect(spawned[0]!.sessionId).toMatch(/[0-9a-f-]{36}/);
   });
 
   it('omits a launched session whose pane has died (no ghost row)', async () => {
@@ -101,10 +101,10 @@ describe('InProcessSessionSpawner.spawnedSessions', () => {
 });
 
 describe('InProcessSessionSpawner.drop', () => {
-  it('forgets a launched session by its conversation id', async () => {
+  it('forgets a launched session by its session id', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
     await spawner.launch('room-x');
-    const convId = spawner.spawnedSessions()[0]!.conversationId;
+    const convId = spawner.spawnedSessions()[0]!.sessionId;
 
     spawner.drop(convId);
 
@@ -113,7 +113,7 @@ describe('InProcessSessionSpawner.drop', () => {
     await expect(spawner.isRoomLive('room-x')).resolves.toBe(false);
   });
 
-  it('is a no-op for an unknown conversation id', async () => {
+  it('is a no-op for an unknown session id', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
     await spawner.launch('room-x');
 

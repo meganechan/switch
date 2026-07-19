@@ -27,7 +27,6 @@ export interface AgentEvent {
   providerId?: string;
   projectId: string;
   sessionId: string;
-  conversationId: string;
   timestamp: number;
   payload: {
     notificationType?: NotificationType;
@@ -40,7 +39,6 @@ export interface AgentEvent {
 export type SoundEvent = 'needs_attention' | 'session_complete';
 
 export interface AgentSessionExited {
-  conversationId: string;
   sessionId: string;
 }
 

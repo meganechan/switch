@@ -4,17 +4,13 @@ import {
   asMounted,
   getProjectManagerStore,
 } from '@renderer/features/projects/stores/project-selectors';
-import type { ConversationStore } from '@renderer/features/sessions/conversations/conversation-manager';
-import { conversationRegistry } from '@renderer/features/sessions/stores/conversation-registry';
+import { sessionAgentRegistry } from '@renderer/features/sessions/stores/session-agent-registry';
 import { isRegistered, type SessionStore } from '@renderer/features/sessions/stores/session-store';
 import type { NavigateFnTyped } from '@renderer/lib/layout/navigation-provider';
 import { cn } from '@renderer/utils/utils';
-import { PaletteConversationItem } from './palette-conversation-item';
 import { PaletteSessionItem } from './palette-session-item';
 
-type NotificationItem =
-  | { kind: 'session'; projectId: string; sessionStore: SessionStore }
-  | { kind: 'conversation'; projectId: string; sessionId: string; conv: ConversationStore };
+type NotificationItem = { projectId: string; sessionStore: SessionStore };
 
 const GROUP_CLASS = cn(
   '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5',
@@ -45,23 +41,14 @@ export function PaletteNotificationsGroup({
 
       for (const [tid, sessionStore] of mounted.sessionManager.sessions) {
         if (!isRegistered(sessionStore)) continue;
-        const conversations = conversationRegistry.get(tid);
-        if (!conversations) continue;
+        const agent = sessionAgentRegistry.get(tid);
+        if (!agent) continue;
 
-        const status = conversations.sessionStatus;
+        const status = agent.sessionStatus;
         // Only surface awaiting-input, error, completed — not working or idle.
         if (!status || status === 'idle' || status === 'working') continue;
 
-        if (pid === currentProjectId && tid === currentSessionId) {
-          // We're already in this session — surface individual unseen conversations.
-          for (const conv of conversations.conversations.values()) {
-            if (!conv.seen && conv.indicatorStatus) {
-              result.push({ kind: 'conversation', projectId: pid, sessionId: tid, conv });
-            }
-          }
-        } else {
-          result.push({ kind: 'session', projectId: pid, sessionStore });
-        }
+        result.push({ projectId: pid, sessionStore });
       }
     }
 
@@ -72,37 +59,25 @@ export function PaletteNotificationsGroup({
 
   return (
     <Command.Group heading="Notifications" className={GROUP_CLASS}>
-      {items.map((item) => {
-        if (item.kind === 'conversation') {
-          return (
-            <PaletteConversationItem
-              key={item.conv.data.id}
-              conv={item.conv}
-              value={`notif:conversation:${item.conv.data.id}`}
-              onSelect={() => {
-                if (item.projectId !== currentProjectId || item.sessionId !== currentSessionId) {
-                  navigate('session', { projectId: item.projectId, sessionId: item.sessionId });
-                }
-                onClose();
-              }}
-            />
-          );
-        }
-        return (
-          <PaletteSessionItem
-            key={item.sessionStore.data.id}
-            sessionStore={item.sessionStore}
-            value={`notif:session:${item.sessionStore.data.id}`}
-            onSelect={() => {
+      {items.map((item) => (
+        <PaletteSessionItem
+          key={item.sessionStore.data.id}
+          sessionStore={item.sessionStore}
+          value={`notif:session:${item.sessionStore.data.id}`}
+          onSelect={() => {
+            if (
+              item.projectId !== currentProjectId ||
+              item.sessionStore.data.id !== currentSessionId
+            ) {
               navigate('session', {
                 projectId: item.projectId,
                 sessionId: item.sessionStore.data.id,
               });
-              onClose();
-            }}
-          />
-        );
-      })}
+            }
+            onClose();
+          }}
+        />
+      ))}
     </Command.Group>
   );
 }

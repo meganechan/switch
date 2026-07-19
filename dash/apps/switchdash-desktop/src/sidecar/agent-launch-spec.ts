@@ -5,7 +5,7 @@
  * switchdash's plugin registry, so it cannot build a provider's launch command
  * itself. Instead switchdash precomputes the command once (via the provider
  * plugin's `buildCommand`) with placeholder tokens standing in for the two
- * per-spawn values — the conversation id and the initial prompt — and writes
+ * per-spawn values — the session id and the initial prompt — and writes
  * this spec to the VM. The watcher then substitutes those tokens per spawn, so
  * all provider knowledge stays in switchdash and the watcher is provider
  * agnostic.
@@ -27,7 +27,7 @@ export interface AgentLaunchSpec {
   deeplinkScheme: string;
 }
 
-/** Argv token switchdash emits in place of the fresh session's conversation id. */
+/** Argv token switchdash emits in place of the fresh session's session id. */
 export const SESSION_ID_PLACEHOLDER = '__SWITCHDASH_SESSION_ID__';
 
 /** Argv token switchdash emits in place of the fresh session's initial prompt. */
@@ -45,15 +45,15 @@ export interface MaterializedAgentCommand {
  * merging the per-spawn env (hook env) over the base env.
  *
  * Throws if either placeholder is missing from the spec's argv — a spec that
- * cannot carry the conversation id or prompt would silently spawn a session
+ * cannot carry the session id or prompt would silently spawn a session
  * that never connects to the room, so we fail loud instead.
  */
 export function materializeAgentCommand(
   spec: AgentLaunchSpec,
-  params: { conversationId: string; initialPrompt: string; extraEnv: Record<string, string> }
+  params: { sessionId: string; initialPrompt: string; extraEnv: Record<string, string> }
 ): MaterializedAgentCommand {
   const substitutions: Record<string, string> = {
-    [SESSION_ID_PLACEHOLDER]: params.conversationId,
+    [SESSION_ID_PLACEHOLDER]: params.sessionId,
     [INITIAL_PROMPT_PLACEHOLDER]: params.initialPrompt,
   };
 
