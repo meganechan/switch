@@ -73,6 +73,17 @@ below:
 
 ### [Unreleased]
 
+### [0.10.0] - 2026-07-20
+
+#### Added
+- Local-server mode: run a managed Switch stack via Docker straight from the
+  app — pulls the versioned standalone compose artifact, provisions
+  env/secrets/ports, and monitors health (CHOO-1428).
+
+#### Fixed
+- Injected prompts are always bracketed-pasted, so prompts containing @ no
+  longer swallow the submit (CHOO-1395).
+
 ### [0.9.2] - 2026-07-19
 
 #### Added
