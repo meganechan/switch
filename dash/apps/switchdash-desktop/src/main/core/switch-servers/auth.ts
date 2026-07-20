@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { err, ok, type Result } from '@switchdash/shared';
 import { BrowserWindow, session as electronSession } from 'electron';
+import { LOCAL_SERVER_ADMIN_EMAIL } from '@main/core/local-switch-server/constants';
+import { loadOrCreateSecrets } from '@main/core/local-switch-server/secrets';
+import { log } from '@main/lib/logger';
 import type { SwitchServer, SwitchUser } from '@shared/core/switch-servers/switch-servers';
-import { setSessionCookie } from './servers-store';
+import { getSessionCookie, setSessionCookie } from './servers-store';
 
 const SWITCH_AUTH_COOKIE = 'switch_auth';
 const OIDC_LOGIN_TIMEOUT_MS = 300_000;
@@ -78,6 +81,84 @@ export async function passwordLogin(
   await setSessionCookie(server.id, jwt);
   const user = (await response.json()) as SwitchUser;
   return ok(user);
+}
+
+/**
+ * Silent session renewal: exchange a still-valid `switch_auth` cookie for a
+ * fresh one via `POST /auth/refresh`, persisting the new cookie with the same
+ * encrypted per-server storage login uses. Provider-agnostic — the gateway
+ * re-mints from the session, so it renews password and OIDC sessions alike
+ * without replaying either login flow.
+ *
+ * Returns the new JWT, or `null` when renewal did not happen: a network failure
+ * (transient — keep using the current token, retry next call) or a rejection
+ * (the session is already expired/revoked, so the triggering call will 401 and
+ * the caller falls back to interactive sign-in). Best-effort by design: it
+ * never throws, so proactive renewal cannot break the call that triggered it.
+ */
+export async function refreshSession(
+  server: SwitchServer,
+  currentJwt: string
+): Promise<string | null> {
+  let response: Response;
+  try {
+    response = await fetch(gatewayUrl(server, '/auth/refresh'), {
+      method: 'POST',
+      headers: { Accept: 'application/json', Cookie: `${SWITCH_AUTH_COOKIE}=${currentJwt}` },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch (cause) {
+    log.warn('Switch session renewal could not reach the gateway; keeping current token', {
+      server: server.id,
+      cause: cause instanceof Error ? cause.message : String(cause),
+    });
+    return null;
+  }
+
+  if (!response.ok) {
+    log.warn('Switch session renewal was rejected; will fall back to sign-in once expired', {
+      server: server.id,
+      status: response.status,
+    });
+    return null;
+  }
+
+  const jwt = extractAuthCookie(response.headers.getSetCookie());
+  if (!jwt) {
+    log.warn('Switch session renewal succeeded but returned no cookie', { server: server.id });
+    return null;
+  }
+
+  await setSessionCookie(server.id, jwt);
+  return jwt;
+}
+
+/**
+ * Silent re-login for the managed local server. switchdash generated that
+ * server's admin password, so when its session is missing or expired we can
+ * sign in again with no user interaction — the local server is meant to be
+ * always signed in. Persists the fresh cookie (via `passwordLogin`) and returns
+ * it for immediate reuse, or `null` when re-login failed (the caller then falls
+ * back to the normal sign-in path). No-op for non-managed servers, whose
+ * credentials switchdash does not hold.
+ */
+export async function reauthenticateManagedServer(server: SwitchServer): Promise<string | null> {
+  if (!server.managed) return null;
+  const secrets = await loadOrCreateSecrets();
+  const result = await passwordLogin(
+    server,
+    LOCAL_SERVER_ADMIN_EMAIL,
+    secrets.gatewayAdminPassword
+  );
+  if (!result.success) {
+    log.warn('Managed Switch server silent re-login failed; falling back to sign-in', {
+      server: server.id,
+      error: result.error,
+    });
+    return null;
+  }
+  return getSessionCookie(server.id);
 }
 
 /**

@@ -150,7 +150,12 @@ const ServerMainPanel = observer(function ServerMainPanel() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void rpc.app.openExternal(server.gatewayUrl)}
+                onClick={() =>
+                  void rpc.switchServers.openGatewayPage({
+                    serverId: server.id,
+                    url: server.gatewayUrl,
+                  })
+                }
               >
                 <ExternalLink className="size-4" />
                 Open web app

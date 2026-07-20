@@ -141,7 +141,9 @@ export const SidebarLocationItem = observer(function SidebarLocationItem({
       ? switchRoomsStore.gatewayAgentUrl(agent.serverId, agent.switchAgentId)
       : null;
   const openInGateway = () => {
-    if (gatewayUrl) void rpc.app.openExternal(gatewayUrl);
+    if (gatewayUrl && agent?.serverId) {
+      void rpc.switchServers.openGatewayPage({ serverId: agent.serverId, url: gatewayUrl });
+    }
   };
 
   const renderSpinnerWithTooltip = () => {
