@@ -89,6 +89,43 @@ class SwitchRoomService implements IDisposable {
   }
 
   /**
+   * Mirror the room a remote session is attending, as reported by the on-VM
+   * sidecar's `/sessions` snapshot. Unlike setSessionRoom (the local
+   * connect_to_room hook path) this records the association for DISPLAY only: it
+   * does not persist to the restore blob and does not start switchdash's
+   * notification poller — the sidecar owns polling and injection on the VM, and
+   * the reconciler re-derives the room from the live snapshot every tick, so
+   * there is nothing to restore across restarts. The unchanged-guard keeps the
+   * steady-state 2s reconcile from re-emitting; a genuine room switch emits
+   * `sessionRoomChangedChannel` so the renderer badge updates.
+   */
+  mirrorRemoteSessionRoom(ctx: SessionRoomContext, roomId: string, agentId: string): void {
+    const previous = this.connections.get(ctx.sessionId);
+    if (previous && previous.roomId === roomId && previous.agentId === agentId) return;
+
+    this.connections.set(ctx.sessionId, {
+      sessionId: ctx.sessionId,
+      roomId,
+      agentId,
+      roomName: previous?.roomName ?? null,
+      providerId: ctx.providerId,
+      ptyId: ctx.ptyId,
+    });
+
+    log.info('SwitchRoomService: mirrored remote session room', {
+      sessionId: ctx.sessionId,
+      roomId,
+      agentId,
+    });
+
+    events.emit(sessionRoomChangedChannel, {
+      sessionId: ctx.sessionId,
+      roomId,
+      agentId,
+    });
+  }
+
+  /**
    * Re-establish a session's room connection and poller from persisted state.
    * Called when a session's PTY (re)launches — e.g. after an app restart — so
    * the agent keeps receiving addressed room events without having to call
