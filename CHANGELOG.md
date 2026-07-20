@@ -21,6 +21,16 @@ below:
 
 ### [Unreleased]
 
+### [0.5.0] - 2026-07-20
+
+#### Added
+- New `POST /gateway/auth/refresh` endpoint: re-mints the `switch_auth` cookie
+  from a still-valid session, enabling clients (switchdash) to silently renew
+  sessions before the 24h expiry (CHOO-1435).
+- Standalone compose: bind address and host ports are configurable via env
+  vars (`SWITCH_BIND_ADDR`, `POSTGRES_HOST_PORT`, `API_HOST_PORT`, …) —
+  consumed by switchdash's local-server mode.
+
 ### [0.4.0] - 2026-07-19
 
 #### Added
@@ -72,6 +82,19 @@ below:
 ## switchdash
 
 ### [Unreleased]
+
+### [0.10.1] - 2026-07-20
+
+#### Added
+- Silent session token refresh — sessions renew before the 24h expiry instead
+  of bouncing to sign-in; the managed local server is always-signed-in, and
+  its gateway web page opens pre-authenticated in-app (CHOO-1435).
+- Editing a server's API URL cascades to its member agents' configs
+  (CHOO-1431).
+
+#### Fixed
+- Remote sessions recover their room connection after an app restart or
+  machine sleep (CHOO-1417).
 
 ### [0.10.0] - 2026-07-20
 
