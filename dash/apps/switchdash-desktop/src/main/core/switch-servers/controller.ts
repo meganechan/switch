@@ -3,6 +3,7 @@ import { suggestAgentDefaults } from '@main/core/agents/agent-defaults';
 import { resolveAgentServers } from '@main/core/agents/resolve-servers';
 import { writeRemoteSwitchSettings } from '@main/core/agents/write-remote-switch-settings';
 import { writeSwitchSettings } from '@main/core/agents/write-switch-settings';
+import { appService } from '@main/core/app/service';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
@@ -38,6 +39,7 @@ import {
   GatewayError,
   registerKnownAgent,
 } from './gateway-client';
+import { openAuthenticatedGatewayPage } from './gateway-web';
 import {
   addServer,
   deleteSessionCookie,
@@ -137,6 +139,24 @@ export const switchServersController = createRPCController({
     oidcLogin(await requireServer(serverId)),
 
   logout: (serverId: string): Promise<void> => deleteSessionCookie(serverId),
+
+  /**
+   * Open a gateway web page (operator dashboard). For the managed local server —
+   * whose session switchdash owns — this opens an in-app window with the
+   * `switch_auth` cookie injected, so the dashboard loads already signed in.
+   * Remote servers open in the OS browser as before: we can't inject our
+   * httponly cookie into the system browser, so an authenticated in-app window
+   * is reserved for the local server. `url` must be on the server's gateway
+   * origin.
+   */
+  openGatewayPage: async (params: { serverId: string; url: string }): Promise<void> => {
+    const server = await requireServer(params.serverId);
+    if (server.managed) {
+      await openAuthenticatedGatewayPage(server, params.url);
+    } else {
+      await appService.openExternal(params.url);
+    }
+  },
 
   getConnectionStatus: async (serverId: string): Promise<ServerConnectionStatus> => {
     const server = await requireServer(serverId);

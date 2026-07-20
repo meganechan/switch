@@ -56,6 +56,30 @@ async def login(
     )
 
 
+@router.post("/auth/refresh")
+async def refresh(
+    response: Response,
+    user: Annotated[User, Depends(get_current_user)],
+    config: Annotated[SwitchConfig, Depends(get_config)],
+) -> UserResponse:
+    # Re-mint the switch_auth cookie from the still-valid session so an active
+    # client renews before expiry without re-authenticating — provider-agnostic
+    # (works for password and OIDC users alike, since it re-issues from the User
+    # rather than replaying either login flow). get_current_user rejects a
+    # missing/expired/invalid cookie with 401, so an expired session cannot renew
+    # itself; the client falls back to interactive sign-in in that case.
+    set_session_cookie(
+        response, user, config.jwt_secret_key, config.gateway_cookie_secure
+    )
+    return UserResponse(
+        id=user.id,
+        name=user.name,
+        email=user.email,
+        role=user.role,
+        created_at=str(user.created_at),
+    )
+
+
 @router.post("/auth/logout")
 async def logout(response: Response) -> dict[str, bool]:
     response.delete_cookie("switch_auth", path="/")

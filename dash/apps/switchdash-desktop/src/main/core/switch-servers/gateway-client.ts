@@ -7,11 +7,60 @@ import type {
   SwitchServer,
   SwitchUser,
 } from '@shared/core/switch-servers/switch-servers';
+import { reauthenticateManagedServer, refreshSession } from './auth';
 import { getSessionCookie } from './servers-store';
 
 /** The gateway management API is mounted under `/gateway` on the server. */
 function gatewayUrl(server: SwitchServer, path: string): string {
   return `${server.gatewayUrl}/gateway${path}`;
+}
+
+/** Renew the session once the stored JWT is within this window of its `exp`, so
+ * an active client refreshes before the token dies rather than after a 401. */
+const SESSION_REFRESH_LEEWAY_MS = 60 * 60 * 1000;
+
+/**
+ * Read the `exp` (as ms since epoch) out of a JWT without verifying it — we only
+ * need the expiry to decide when to renew; the gateway still verifies the
+ * signature on every call. Returns null if the token is malformed or carries no
+ * numeric `exp`, in which case we skip proactive renewal and let the call fall
+ * through to the normal 401 path.
+ */
+function decodeJwtExpMs(jwt: string): number | null {
+  const parts = jwt.split('.');
+  if (parts.length !== 3) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+      exp?: unknown;
+    };
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dedupe concurrent renewals per server so a burst of authenticated calls
+ * triggers at most one refresh round-trip (and one cookie write). */
+const inflightRefresh = new Map<string, Promise<string | null>>();
+
+/**
+ * Given the stored JWT, return the token to attach: the same JWT if it is not
+ * near expiry, otherwise a freshly renewed one (falling back to the current
+ * token if renewal did not succeed — the call then 401s and the caller prompts
+ * a sign-in).
+ */
+async function renewIfExpiring(server: SwitchServer, jwt: string): Promise<string> {
+  const expMs = decodeJwtExpMs(jwt);
+  if (expMs === null || expMs - Date.now() > SESSION_REFRESH_LEEWAY_MS) {
+    return jwt;
+  }
+  let pending = inflightRefresh.get(server.id);
+  if (!pending) {
+    pending = refreshSession(server, jwt).finally(() => inflightRefresh.delete(server.id));
+    inflightRefresh.set(server.id, pending);
+  }
+  const renewed = await pending;
+  return renewed ?? jwt;
 }
 
 export type GatewayErrorKind = 'unauthorized' | 'http' | 'network';
@@ -38,38 +87,66 @@ type FetchOptions = {
   body?: unknown;
 };
 
+/**
+ * Resolve the `switch_auth` cookie to attach to an authenticated call, renewing
+ * proactively when near expiry. When no session is stored, the managed local
+ * server mints one silently (switchdash holds its admin creds); any other server
+ * has no way to authenticate silently, so this raises `unauthorized`.
+ */
+async function resolveAuthCookie(server: SwitchServer): Promise<string> {
+  const stored = await getSessionCookie(server.id);
+  if (stored) {
+    return renewIfExpiring(server, stored);
+  }
+  if (server.managed) {
+    const minted = await reauthenticateManagedServer(server);
+    if (minted) return minted;
+  }
+  throw new GatewayError('unauthorized', 'Not signed in to this Switch server.');
+}
+
 async function gatewayFetch(
   server: SwitchServer,
   path: string,
   options: FetchOptions
 ): Promise<Response> {
-  const headers: Record<string, string> = { Accept: 'application/json' };
-  if (options.body !== undefined) {
-    headers['Content-Type'] = 'application/json';
-  }
-  if (options.authenticated) {
-    const jwt = await getSessionCookie(server.id);
-    if (!jwt) {
-      throw new GatewayError('unauthorized', 'Not signed in to this Switch server.');
+  const sendOnce = async (cookie: string | null): Promise<Response> => {
+    const headers: Record<string, string> = { Accept: 'application/json' };
+    if (options.body !== undefined) {
+      headers['Content-Type'] = 'application/json';
     }
-    headers.Cookie = `switch_auth=${jwt}`;
-  }
+    if (cookie) {
+      headers.Cookie = `switch_auth=${cookie}`;
+    }
+    try {
+      return await fetch(gatewayUrl(server, path), {
+        method: options.method ?? 'GET',
+        headers,
+        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+        // We attach the cookie explicitly; don't let the runtime manage a jar.
+        redirect: 'manual',
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (cause) {
+      throw new GatewayError(
+        'network',
+        `Could not reach ${server.gatewayUrl}: ${cause instanceof Error ? cause.message : String(cause)}`
+      );
+    }
+  };
 
-  let response: Response;
-  try {
-    response = await fetch(gatewayUrl(server, path), {
-      method: options.method ?? 'GET',
-      headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      // We attach the cookie explicitly; don't let the runtime manage a jar.
-      redirect: 'manual',
-      signal: AbortSignal.timeout(30_000),
-    });
-  } catch (cause) {
-    throw new GatewayError(
-      'network',
-      `Could not reach ${server.gatewayUrl}: ${cause instanceof Error ? cause.message : String(cause)}`
-    );
+  const cookie = options.authenticated ? await resolveAuthCookie(server) : null;
+  let response = await sendOnce(cookie);
+
+  // Reactive silent re-auth for the managed local server: a 401 means the token
+  // is dead (e.g. the app reopened after the stack outlived it past the TTL).
+  // We hold its admin creds, so re-login and retry the call once rather than
+  // bouncing the user to a sign-in screen for a password they never saw.
+  if (response.status === 401 && options.authenticated && server.managed) {
+    const renewed = await reauthenticateManagedServer(server);
+    if (renewed) {
+      response = await sendOnce(renewed);
+    }
   }
 
   if (response.status === 401) {
