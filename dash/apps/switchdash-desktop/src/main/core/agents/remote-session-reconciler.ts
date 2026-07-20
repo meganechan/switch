@@ -7,11 +7,13 @@ import { sshConnectionIdForHost } from '@main/core/locations/location-transport'
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
+import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
 import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
+import { makePtyId } from '@shared/core/pty/ptyId';
 import { sessionDeletedChannel } from '@shared/core/sessions/sessionEvents';
 import { getRemoteAgentLocation } from './agent-location';
 import { connectRemoteAgent } from './connect-remote-agent';
@@ -109,6 +111,9 @@ class RemoteSessionReconciler {
     this.tombstone(sessionId);
     for (const ids of this.adopted.values()) ids.delete(sessionId);
     this.missingStreak.delete(sessionId);
+    // Drop the room badge for a session that is going away, so the renderer
+    // does not keep showing a stale room for a row it is about to remove.
+    switchRoomService.clearSession(sessionId);
     let deleted: { changes: number };
     try {
       deleted = await db.delete(sessions).where(eq(sessions.id, sessionId));
@@ -253,9 +258,18 @@ class RemoteSessionReconciler {
         )
       : new Set<string>();
     for (const vm of vmSessions) {
-      if (known.has(vm.sessionId)) continue;
       if (this.isTombstoned(vm.sessionId)) continue;
-      await this.adoptSession(agent, vm.sessionId, vm.roomId);
+      if (!known.has(vm.sessionId)) {
+        await this.adoptSession(agent, vm.sessionId, vm.roomId);
+      }
+      // Mirror the room the sidecar reports into switchRoomService every tick —
+      // this is what recovers a session's room after a restart/wake (the row is
+      // re-adopted but the room association is otherwise dropped) and reflects a
+      // later reconnect/room switch, for both freshly-adopted and already-known
+      // sessions. Only sets a room the sidecar actually reports; clearing is left
+      // to the prune/terminate path so a transient null poll cannot flicker the
+      // badge off a still-live session.
+      if (vm.roomId) this.mirrorSessionRoom(agent, vm.sessionId, vm.roomId);
     }
 
     await this.pruneVanished(agentId, vmIds);
@@ -365,6 +379,23 @@ class RemoteSessionReconciler {
     } finally {
       channel.destroy();
     }
+  }
+
+  /**
+   * Record, for display, the room the sidecar reports a session is attending.
+   * Skipped when the agent has no Switch identity (it cannot be in a room), so
+   * the mirrored connection always carries a real Switch agent id. The ptyId is
+   * derived deterministically from provider + session id (the same scheme the
+   * hook/relay path uses), keeping the connection shape identical whether the
+   * room came from a live hook or this snapshot mirror.
+   */
+  private mirrorSessionRoom(agent: Agent, sessionId: string, roomId: string): void {
+    if (!agent.switchAgentId) return;
+    switchRoomService.mirrorRemoteSessionRoom(
+      { sessionId, providerId: agent.providerId, ptyId: makePtyId(agent.providerId, sessionId) },
+      roomId,
+      agent.switchAgentId
+    );
   }
 
   /**

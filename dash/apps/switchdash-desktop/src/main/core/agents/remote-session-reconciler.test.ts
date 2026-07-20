@@ -67,6 +67,14 @@ const eventsEmit = vi.fn();
 vi.mock('@main/lib/events', () => ({
   events: { emit: (...args: unknown[]) => eventsEmit(...args) },
 }));
+const mirrorRemoteSessionRoom = vi.fn();
+const clearSessionRoom = vi.fn();
+vi.mock('@main/core/switch-rooms/switch-room-service', () => ({
+  switchRoomService: {
+    mirrorRemoteSessionRoom: (...args: unknown[]) => mirrorRemoteSessionRoom(...args),
+    clearSession: (...args: unknown[]) => clearSessionRoom(...args),
+  },
+}));
 
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionDeletedChannel } from '@shared/core/sessions/sessionEvents';
@@ -115,6 +123,54 @@ describe('RemoteSessionReconciler', () => {
     });
     await reconcile('agent-1');
     expect(createSession).not.toHaveBeenCalled();
+  });
+
+  it('mirrors the sidecar-reported room into switchRoomService on adoption', async () => {
+    knownRows = [];
+    httpGetJsonOverChannel.mockResolvedValue({
+      sessions: [{ sessionId: 'session-new', roomId: 'room-1' }],
+    });
+    await reconcile('agent-1');
+
+    expect(mirrorRemoteSessionRoom).toHaveBeenCalledWith(
+      { sessionId: 'session-new', providerId: 'claude', ptyId: 'claude-session-session-new' },
+      'room-1',
+      'switch-1'
+    );
+  });
+
+  it('mirrors the room for an already-known session too (reflects a reconnect)', async () => {
+    // The row already exists (not re-adopted), but its room must still be
+    // mirrored every tick — this is how a post-restart reconnect surfaces.
+    knownRows = [{ id: 'session-known' }];
+    httpGetJsonOverChannel.mockResolvedValue({
+      sessions: [{ sessionId: 'session-known', roomId: 'room-9' }],
+    });
+    await reconcile('agent-1');
+
+    expect(createSession).not.toHaveBeenCalled();
+    expect(mirrorRemoteSessionRoom).toHaveBeenCalledWith(
+      { sessionId: 'session-known', providerId: 'claude', ptyId: 'claude-session-session-known' },
+      'room-9',
+      'switch-1'
+    );
+  });
+
+  it('does not mirror a room for a session the sidecar reports as roomless', async () => {
+    knownRows = [{ id: 'session-bare' }];
+    httpGetJsonOverChannel.mockResolvedValue({
+      sessions: [{ sessionId: 'session-bare', roomId: null }],
+    });
+    await reconcile('agent-1');
+
+    expect(mirrorRemoteSessionRoom).not.toHaveBeenCalled();
+  });
+
+  it('clears the room mirror when a session row is removed', async () => {
+    knownRows = [{ id: 'session-term', agentId: 'agent-1' }];
+    await handleRemoteTerminated('session-term');
+
+    expect(clearSessionRoom).toHaveBeenCalledWith('session-term');
   });
 
   it('does nothing when the sidecar reports no sessions', async () => {
