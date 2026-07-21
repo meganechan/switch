@@ -161,6 +161,16 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
   // a server makes it active and opens its page.
   const isScoped = store.activeServerId === serverId;
 
+  // A managed server that isn't running has no gateway to reach, so it can't be
+  // signed into — show it as dormant (grey dot, no sign-in) until it's started.
+  const managedRunning = !server.managed
+    ? true
+    : server.managementKind === 'remote' && server.sshHost
+      ? remoteServerStore.isRunning(server.sshHost)
+      : localServerStore.isRunning;
+  const dormant = server.managed && !managedRunning;
+  const needsSignIn = !dormant && !connected;
+
   return (
     <SidebarMenuButton
       isActive={isViewing}
@@ -184,11 +194,11 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
           aria-hidden
           className={cn(
             'size-1.5 shrink-0 rounded-full',
-            connected ? 'bg-green-500' : 'bg-amber-500'
+            dormant ? 'bg-foreground-muted' : connected ? 'bg-green-500' : 'bg-amber-500'
           )}
         />
       </span>
-      {!connected && (
+      {needsSignIn && (
         <span
           role="button"
           tabIndex={0}
@@ -196,7 +206,7 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
             e.stopPropagation();
             navigate('server', { serverId });
           }}
-          className="shrink-0 rounded px-1.5 py-0.5 text-xs text-foreground-muted hover:bg-background-tertiary-2 hover:text-foreground"
+          className="shrink-0 rounded bg-red-500 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-red-600"
         >
           Sign in
         </span>
