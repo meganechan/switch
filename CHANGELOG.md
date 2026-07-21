@@ -83,6 +83,13 @@ below:
 
 ### [Unreleased]
 
+### [0.11.0] - 2026-07-20
+
+#### Added
+- Managed Switch servers can now run on a remote host over SSH — the app
+  provisions the Docker stack remotely, with port-forwarded access, alongside
+  the existing local mode (CHOO-1432).
+
 ### [0.10.1] - 2026-07-20
 
 #### Added
