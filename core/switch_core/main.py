@@ -7,6 +7,7 @@ import os
 import signal
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import uvicorn
 from alembic import command as alembic_command
@@ -39,6 +40,10 @@ from switch_core.bridges.collaboration.mattermost.adapter import (
 from switch_core.bridges.collaboration.slack.adapter import (
     SlackAdapter,
     SlackConnectionConfig,
+)
+from switch_core.bridges.collaboration.teams.adapter import (
+    TeamsAdapter,
+    TeamsConnectionConfig,
 )
 from switch_core.bridges.resource.service import ResourceService
 from switch_core.bridges.resource.tracker import ResourceRequestTracker
@@ -322,6 +327,7 @@ async def run() -> None:
         "mattermost", MattermostAdapter, MattermostConnectionConfig
     )
     collab_lifecycle.register_adapter("slack", SlackAdapter, SlackConnectionConfig)
+    collab_lifecycle.register_adapter("teams", TeamsAdapter, TeamsConnectionConfig)
     collab_lifecycle.register_adapter(
         "discord", DiscordAdapter, DiscordConnectionConfig
     )
@@ -471,7 +477,8 @@ async def _shutdown(
 
 
 def main() -> None:
-    alembic_cfg = AlembicConfig("alembic.ini")
+    alembic_ini = Path(__file__).resolve().parent.parent / "alembic.ini"
+    alembic_cfg = AlembicConfig(str(alembic_ini))
     alembic_command.upgrade(alembic_cfg, "head")
 
     log_level = os.environ.get("LOG_LEVEL", "INFO").upper()

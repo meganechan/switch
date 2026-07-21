@@ -17,6 +17,10 @@ from switch_core.bridges.collaboration.slack.adapter import (
     SlackAdapter,
     SlackConnectionConfig,
 )
+from switch_core.bridges.collaboration.teams.adapter import (
+    TeamsAdapter,
+    TeamsConnectionConfig,
+)
 
 
 def _service() -> CollaborationBridgeLifecycleService:
@@ -75,3 +79,40 @@ def test_get_config_schema_unknown_type_raises() -> None:
     service = _service()
     with pytest.raises(ValueError, match="Unknown bridge type"):
         service.get_config_schema("does-not-exist")
+
+
+def test_teams_adapter_registers_with_expected_required_fields() -> None:
+    service = _service()
+    service.register_adapter("teams", TeamsAdapter, TeamsConnectionConfig)
+
+    assert "teams" in service.get_registered_types()
+
+    schema = service.get_config_schema("teams")
+    # The credentials + endpoint fields with no default are required; the
+    # subscription/encryption fields are optional. client_state is required —
+    # it is the only control that authenticates a notification's origin.
+    assert set(schema["required"]) == {
+        "app_id",
+        "app_password",
+        "tenant_id",
+        "team_id",
+        "public_base_url",
+        "client_state",
+    }
+    # Switch-internal fields (the listener bind, the runtime-learned serviceUrl)
+    # are hidden from the admin config form — the admin only supplies genuine
+    # Teams/Azure credentials + endpoint.
+    assert set(schema["properties"]) == {
+        "app_id",
+        "app_password",
+        "tenant_id",
+        "team_id",
+        "public_base_url",
+        "client_state",
+        "encryption_certificate_id",
+        "encryption_public_certificate",
+        "encryption_private_key",
+    }
+    assert "listen_host" not in schema["properties"]
+    assert "listen_port" not in schema["properties"]
+    assert "service_url" not in schema["properties"]
