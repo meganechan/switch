@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { err, ok, type Result } from '@switchdash/shared';
 import { BrowserWindow, session as electronSession } from 'electron';
-import { LOCAL_SERVER_ADMIN_EMAIL } from '@main/core/local-switch-server/constants';
-import { managedServerSecretsKey } from '@main/core/local-switch-server/host/host-for-server';
-import { loadOrCreateSecrets } from '@main/core/local-switch-server/secrets';
+import { LOCAL_SERVER_ADMIN_EMAIL } from '@main/core/managed-switch-server/constants';
+import { managedServerSecretsKey } from '@main/core/managed-switch-server/host/host-for-server';
+import { loadOrCreateSecrets } from '@main/core/managed-switch-server/secrets';
 import { log } from '@main/lib/logger';
 import type { SwitchServer, SwitchUser } from '@shared/core/switch-servers/switch-servers';
 import { getSessionCookie, setSessionCookie } from './servers-store';

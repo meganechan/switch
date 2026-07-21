@@ -3,7 +3,7 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import type { IExecutionContext } from '@main/core/execution-context/types';
-import type { DockerAvailability } from '@shared/core/local-switch-server/local-switch-server';
+import type { DockerAvailability } from '@shared/core/managed-switch-server/managed-switch-server';
 import { LOCAL_SERVER_PROJECT_NAME } from '../constants';
 import { DOCKER_EXECUTABLE, detectDocker } from '../docker';
 import { type LocalServerPorts, pickFreePorts } from '../free-port';

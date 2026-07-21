@@ -31,9 +31,9 @@ describe('managedServerSecretsKey', () => {
   });
 
   it('uses a per-host key for a remote-managed server', () => {
-    expect(
-      managedServerSecretsKey(server({ managementKind: 'remote', sshHost: 'prod-box' }))
-    ).toBe('remote-switch-server:prod-box:secrets');
+    expect(managedServerSecretsKey(server({ managementKind: 'remote', sshHost: 'prod-box' }))).toBe(
+      'remote-switch-server:prod-box:secrets'
+    );
   });
 
   it('falls back to the local key if a remote row is missing its host', () => {

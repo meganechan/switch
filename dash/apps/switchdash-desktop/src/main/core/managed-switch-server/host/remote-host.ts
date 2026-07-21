@@ -8,7 +8,7 @@ import { sshConnectionIdForHost } from '@main/core/locations/location-transport'
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';
 import { log } from '@main/lib/logger';
-import type { DockerAvailability } from '@shared/core/local-switch-server/local-switch-server';
+import type { DockerAvailability } from '@shared/core/managed-switch-server/managed-switch-server';
 import { REMOTE_SERVER_PROJECT_NAME } from '../constants';
 import type { LocalServerPorts } from '../free-port';
 import { remoteServerStateDir } from '../paths';

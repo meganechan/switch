@@ -3,7 +3,7 @@ import { passwordLogin } from '@main/core/switch-servers/auth';
 import { ensureManagedServer, setActiveServerId } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import { COMPATIBLE_SWITCH_VERSION, RELEASE_REPO_OWNER } from '@shared/app-identity';
-import type { StartLocalServerResult } from '@shared/core/local-switch-server/local-switch-server';
+import type { StartLocalServerResult } from '@shared/core/managed-switch-server/managed-switch-server';
 import type { ManagedServerRef } from '@shared/core/switch-servers/switch-servers';
 import { bundledComposeYaml } from './bundled-compose';
 import { composeDown, composeUp } from './compose';

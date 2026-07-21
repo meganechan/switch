@@ -1,5 +1,5 @@
 import type { IExecutionContext } from '@main/core/execution-context/types';
-import type { DockerAvailability } from '@shared/core/local-switch-server/local-switch-server';
+import type { DockerAvailability } from '@shared/core/managed-switch-server/managed-switch-server';
 import type { LocalServerPorts } from '../free-port';
 
 /**

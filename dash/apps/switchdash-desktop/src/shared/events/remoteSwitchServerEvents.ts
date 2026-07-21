@@ -1,4 +1,4 @@
-import type { LocalServerStatus } from '@shared/core/local-switch-server/local-switch-server';
+import type { LocalServerStatus } from '@shared/core/managed-switch-server/managed-switch-server';
 import { defineEvent } from '@shared/lib/ipc/events';
 
 /** Status of a remote-managed stack, tagged with the SSH host it runs on (the

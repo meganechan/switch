@@ -2,7 +2,7 @@ import { makeAutoObservable, runInAction } from 'mobx';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { events, rpc } from '@renderer/lib/ipc';
-import type { DockerAvailability } from '@shared/core/local-switch-server/local-switch-server';
+import type { DockerAvailability } from '@shared/core/managed-switch-server/managed-switch-server';
 import {
   type RemoteServerStatus,
   remoteServerLogChannel,

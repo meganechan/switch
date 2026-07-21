@@ -14,10 +14,10 @@ import { initializeRemoteDiscovery, initializeRemoteWatchers } from './core/agen
 import { resolveAgentServers } from './core/agents/resolve-servers';
 import { appService } from './core/app/service';
 import { localDependencyManager } from './core/dependencies/dependency-managers';
-import { localServerService } from './core/local-switch-server/local-server-service';
-import { remoteServerService } from './core/local-switch-server/remote-server-service';
 import { locationManager } from './core/locations/location-manager';
 import { locationSettingsService } from './core/locations/settings/location-settings-service';
+import { localServerService } from './core/managed-switch-server/local-server-service';
+import { remoteServerService } from './core/managed-switch-server/remote-server-service';
 import { promptLibraryService } from './core/prompt-library/service';
 import {
   reconcileResourceSampler,
