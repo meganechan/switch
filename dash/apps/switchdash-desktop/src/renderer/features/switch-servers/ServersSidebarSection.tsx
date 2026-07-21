@@ -206,7 +206,7 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
             e.stopPropagation();
             navigate('server', { serverId });
           }}
-          className="shrink-0 rounded bg-red-500 px-1.5 py-0.5 text-xs font-medium text-white hover:bg-red-600"
+          className="shrink-0 rounded border border-red-500/40 px-1.5 py-0.5 text-xs font-medium text-red-500 hover:bg-red-500/10"
         >
           Sign in
         </span>
