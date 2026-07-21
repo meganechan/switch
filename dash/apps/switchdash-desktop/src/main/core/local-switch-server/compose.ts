@@ -1,11 +1,6 @@
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
 import { log } from '@main/lib/logger';
-import { LOCAL_SERVER_PROFILES, LOCAL_SERVER_PROJECT_NAME } from './constants';
-import { DOCKER_EXECUTABLE } from './docker';
-import { composeFilePath, envFilePath, localServerDir } from './paths';
-
-const execFileAsync = promisify(execFile);
+import { COMPOSE_FILE_NAME, ENV_FILE_NAME, LOCAL_SERVER_PROFILES } from './constants';
+import type { ServerHost } from './host/types';
 
 /** Pulls can take minutes on a cold machine; give compose a generous ceiling. */
 const COMPOSE_TIMEOUT_MS = 20 * 60 * 1000;
@@ -14,24 +9,25 @@ function profileArgs(): string[] {
   return LOCAL_SERVER_PROFILES.flatMap((p) => ['--profile', p]);
 }
 
-/** Base args that scope every invocation to the managed project + env file. */
-function baseArgs(): string[] {
+/** Base args that scope every invocation to the managed project + env file.
+ * Relative file names resolve against the host working dir (the ctx root). */
+function baseArgs(host: ServerHost): string[] {
   return [
     'compose',
     '-f',
-    composeFilePath(),
+    COMPOSE_FILE_NAME,
     '--env-file',
-    envFilePath(),
+    ENV_FILE_NAME,
     '--project-name',
-    LOCAL_SERVER_PROJECT_NAME,
+    host.composeProjectName,
     ...profileArgs(),
   ];
 }
 
-async function runCompose(args: string[], timeout: number): Promise<string> {
+async function runCompose(host: ServerHost, args: string[], timeout: number): Promise<string> {
+  const full = [host.dockerBin, ...args];
   try {
-    const { stdout } = await execFileAsync(DOCKER_EXECUTABLE, args, {
-      cwd: localServerDir(),
+    const { stdout } = await host.ctx.exec(host.dockerBin, args, {
       timeout,
       maxBuffer: 32 * 1024 * 1024,
     });
@@ -39,64 +35,39 @@ async function runCompose(args: string[], timeout: number): Promise<string> {
   } catch (error) {
     const stderr = (error as { stderr?: string } | undefined)?.stderr;
     const message = stderr?.trim() || (error instanceof Error ? error.message : String(error));
-    throw new Error(`docker ${args.join(' ')} failed: ${message}`);
+    throw new Error(`${full.join(' ')} failed: ${message}`);
   }
 }
 
 /**
  * Bring the stack up in the background (`up -d`), streaming each line of output
  * to `onLog` so the UI can show a live tail during the (slow) image pull.
- * Assumes the compose file and `.env` are written and GHCR login has run. docker
- * compose emits pull/startup progress on stderr, so both streams are forwarded.
+ * Assumes the compose file and `.env` are written and GHCR login has run.
  */
-export function composeUp(onLog: (line: string) => void): Promise<void> {
-  log.info('local-switch-server: docker compose up');
-  return new Promise((resolve, reject) => {
-    const args = [...baseArgs(), 'up', '-d'];
-    const child = spawn(DOCKER_EXECUTABLE, args, { cwd: localServerDir() });
-    let stderrTail = '';
-
-    const emitLines = (chunk: Buffer) => {
-      for (const raw of chunk.toString('utf8').split('\n')) {
-        const line = raw.replace(/\r$/, '');
-        if (line.length > 0) onLog(line);
-      }
-    };
-
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`docker compose up timed out after ${COMPOSE_TIMEOUT_MS}ms`));
-    }, COMPOSE_TIMEOUT_MS);
-
-    child.stdout.on('data', emitLines);
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderrTail = (stderrTail + chunk.toString('utf8')).slice(-4000);
-      emitLines(chunk);
-    });
-    child.on('error', (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`docker compose up failed (exit ${code}): ${stderrTail.trim()}`));
-    });
+export function composeUp(host: ServerHost, onLog: (line: string) => void): Promise<void> {
+  log.info(`local-switch-server: docker compose up (${host.label})`);
+  return host.streamCommand(host.dockerBin, [...baseArgs(host), 'up', '-d'], onLog, {
+    timeoutMs: COMPOSE_TIMEOUT_MS,
   });
 }
 
 /** Stop and remove the stack's containers. `removeVolumes` also destroys the
  * data volumes (the reset path) — irreversible. */
-export async function composeDown(removeVolumes: boolean): Promise<void> {
-  log.info(`local-switch-server: docker compose down${removeVolumes ? ' -v' : ''}`);
-  await runCompose([...baseArgs(), 'down', ...(removeVolumes ? ['-v'] : [])], 5 * 60 * 1000);
+export async function composeDown(host: ServerHost, removeVolumes: boolean): Promise<void> {
+  log.info(`local-switch-server: docker compose down${removeVolumes ? ' -v' : ''} (${host.label})`);
+  await runCompose(
+    host,
+    [...baseArgs(host), 'down', ...(removeVolumes ? ['-v'] : [])],
+    5 * 60 * 1000
+  );
 }
 
 /** Service names currently in the `running` state for the managed project. */
-export async function runningServices(): Promise<string[]> {
+export async function runningServices(host: ServerHost): Promise<string[]> {
   try {
     const stdout = await runCompose(
-      [...baseArgs(), 'ps', '--status', 'running', '--services'],
+      host,
+      [...baseArgs(host), 'ps', '--status', 'running', '--services'],
       60_000
     );
     return stdout
@@ -110,6 +81,6 @@ export async function runningServices(): Promise<string[]> {
 }
 
 /** Whether the core `switch` service is up — our proxy for "the stack is up". */
-export async function isStackRunning(): Promise<boolean> {
-  return (await runningServices()).includes('switch');
+export async function isStackRunning(host: ServerHost): Promise<boolean> {
+  return (await runningServices(host)).includes('switch');
 }
