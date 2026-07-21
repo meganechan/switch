@@ -37,6 +37,14 @@ export async function resolvePorts(host: ServerHost): Promise<LocalServerPorts> 
   return chosen;
 }
 
+/** The persisted port choice for a host, or null if none has been chosen yet.
+ * Used at boot to re-establish a remote forward only when we know the ports the
+ * running containers are actually bound to (picking fresh here would forward to
+ * the wrong ports). */
+export function readPersistedPorts(host: ServerHost): Promise<LocalServerPorts | null> {
+  return loadPersisted(host);
+}
+
 /** Drop the persisted choice so the next start picks fresh ports (reset path). */
 export async function clearPorts(host: ServerHost): Promise<void> {
   try {
