@@ -21,6 +21,12 @@ below:
 
 ### [Unreleased]
 
+### [0.6.0] - 2026-07-20
+
+#### Added
+- Discord collaboration bridge — rooms can bridge to Discord channels, joining
+  Slack and Mattermost as supported platforms (CHOO-1365).
+
 ### [0.5.0] - 2026-07-20
 
 #### Added
