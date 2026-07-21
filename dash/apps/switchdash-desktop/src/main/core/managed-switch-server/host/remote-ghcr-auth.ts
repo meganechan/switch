@@ -15,17 +15,41 @@ async function remoteGhUsername(ctx: IExecutionContext): Promise<string | null> 
   }
 }
 
+/** Forward the desktop's GitHub token to the remote `docker login`: write it to
+ * a 0600 temp file on the host, `docker login --password-stdin < file`, delete
+ * it. Keeps the token out of argv/history on the remote. */
+async function loginWithForwardedToken(
+  host: {
+    ctx: IExecutionContext;
+    writeFile: (relPath: string, content: string, mode?: number) => Promise<void>;
+  },
+  username: string,
+  token: string
+): Promise<void> {
+  const tokenFile = '.ghcr-token';
+  await host.writeFile(tokenFile, token, 0o600);
+  try {
+    await host.ctx.exec('sh', [
+      '-c',
+      `docker login ${GHCR_REGISTRY} -u ${username} --password-stdin < ${tokenFile}`,
+    ]);
+  } finally {
+    // Remove the token file whether or not the login succeeded.
+    await host.ctx.exec('rm', ['-f', tokenFile]).catch(() => {});
+  }
+}
+
 /**
  * Authenticate a remote host's Docker to GHCR so private release images pull
- * before the public-repo flip (CHOO-1260) — CHOO-1432 decision #2:
+ * before the public-repo flip (CHOO-1260).
  *
- * 1. If `gh` is authenticated on the host, log in with its own token, piped
- *    `gh auth token | docker login --password-stdin` entirely on the remote so
- *    the token never lands in argv.
- * 2. Otherwise forward the desktop's `gh` token: write it to a 0600 temp file on
- *    the host, `docker login --password-stdin < file`, then delete it.
- * 3. If neither is available, warn and proceed — a public image is then a no-op
- *    and a private one fails loudly on the subsequent pull.
+ * Prefers the DESKTOP's `gh` identity (forwarded over the SSH connection): it is
+ * the identity the operator already uses to pull these images in local-server
+ * mode, so it is known to have read access to every release package. The remote
+ * host's own `gh` is only a fallback — a host may have `gh` logged in as a
+ * different or less-privileged account that lacks access to some package, which
+ * would 403 mid-pull. If neither is available we warn and proceed: a public
+ * image is a no-op, and a private one fails loudly on the subsequent pull.
  */
 export async function ensureRemoteGhcrLogin(host: {
   ctx: IExecutionContext;
@@ -33,6 +57,15 @@ export async function ensureRemoteGhcrLogin(host: {
   label: string;
 }): Promise<void> {
   const { ctx, label } = host;
+
+  const identity = await getLocalGithubIdentity();
+  if (identity) {
+    await loginWithForwardedToken(host, identity.username, identity.token);
+    log.info(
+      `remote-switch-server: authenticated ${label} Docker to GHCR via forwarded desktop token`
+    );
+    return;
+  }
 
   const remoteUser = await remoteGhUsername(ctx);
   if (remoteUser) {
@@ -44,24 +77,7 @@ export async function ensureRemoteGhcrLogin(host: {
     return;
   }
 
-  const identity = await getLocalGithubIdentity();
-  if (!identity) {
-    log.warn(
-      `remote-switch-server: no gh login on ${label} and no desktop gh token; skipping GHCR login (private image pulls will fail)`
-    );
-    return;
-  }
-
-  const tokenFile = '.ghcr-token';
-  await host.writeFile(tokenFile, identity.token, 0o600);
-  try {
-    await ctx.exec('sh', [
-      '-c',
-      `docker login ${GHCR_REGISTRY} -u ${identity.username} --password-stdin < ${tokenFile}`,
-    ]);
-    log.info(`remote-switch-server: authenticated ${label} Docker to GHCR via forwarded token`);
-  } finally {
-    // Remove the token file whether or not the login succeeded.
-    await ctx.exec('rm', ['-f', tokenFile]).catch(() => {});
-  }
+  log.warn(
+    `remote-switch-server: no desktop gh token and no gh login on ${label}; skipping GHCR login (private image pulls will fail)`
+  );
 }
