@@ -19,7 +19,6 @@ from switch_core.gateway.dependencies import (
     get_bridge_store,
     get_collab_lifecycle,
     get_external_user_store,
-    get_room_service,
     get_room_store,
     get_session,
 )
@@ -30,7 +29,6 @@ from switch_core.gateway.schemas import (
     BridgeUpdateRequest,
     ExternalUserSummary,
 )
-from switch_core.room_service import RoomService
 
 logger = logging.getLogger(__name__)
 
@@ -171,8 +169,6 @@ async def delete_bridge(
     bridge_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
-    room_store: Annotated[RoomStore, Depends(get_room_store)],
-    room_service: Annotated[RoomService, Depends(get_room_service)],
     collab_lifecycle: Annotated[
         CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
     ],
@@ -181,10 +177,6 @@ async def delete_bridge(
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
         raise HTTPException(status_code=404, detail="Bridge not found")
-
-    rooms = await room_store.get_by_bridge(session, bridge_id)
-    for room in rooms:
-        await room_service.delete_room(room.id)
 
     await collab_lifecycle.remove(bridge_id)
     return {"ok": True}
