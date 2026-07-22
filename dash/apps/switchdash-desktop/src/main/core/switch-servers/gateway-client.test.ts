@@ -3,11 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const getSessionCookie = vi.hoisted(() => vi.fn());
 const refreshSession = vi.hoisted(() => vi.fn());
 const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
+const emit = vi.hoisted(() => vi.fn());
 
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
+vi.mock('@main/lib/events', () => ({ events: { emit, on: vi.fn() } }));
 
 const { fetchMe } = await import('./gateway-client');
+const { switchServerConnectionStatusChannel } =
+  await import('@shared/events/switchServerConnectionEvents');
 
 const SERVER = {
   id: 'srv-1',
@@ -194,5 +198,50 @@ describe('gatewayFetch managed-server silent re-auth', () => {
     await expect(fetchMe(SERVER)).rejects.toMatchObject({ kind: 'unauthorized' });
     expect(reauthenticateManagedServer).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('gatewayFetch pushes expired status on a rejected session', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockImplementation(async () => okMeResponse());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('emits an expired connection status when an authenticated call 401s', async () => {
+    const stored = makeJwt(24 * 60 * 60);
+    getSessionCookie.mockResolvedValue(stored);
+    fetchMock.mockResolvedValue(unauthorizedResponse());
+
+    await expect(fetchMe(SERVER)).rejects.toMatchObject({ kind: 'unauthorized' });
+    expect(emit).toHaveBeenCalledExactlyOnceWith(switchServerConnectionStatusChannel, {
+      serverId: 'srv-1',
+      connected: false,
+      user: null,
+      reason: 'expired',
+    });
+  });
+
+  it('does not emit when there is no stored session to reject', async () => {
+    getSessionCookie.mockResolvedValue(null);
+
+    await expect(fetchMe(SERVER)).rejects.toMatchObject({ kind: 'unauthorized' });
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('does not emit when the managed server silently re-auths past a 401', async () => {
+    const stored = makeJwt(24 * 60 * 60);
+    const reissued = makeJwt(24 * 60 * 60);
+    getSessionCookie.mockResolvedValue(stored);
+    reauthenticateManagedServer.mockResolvedValue(reissued);
+    fetchMock.mockResolvedValueOnce(unauthorizedResponse());
+
+    await fetchMe(MANAGED);
+
+    expect(emit).not.toHaveBeenCalled();
   });
 });

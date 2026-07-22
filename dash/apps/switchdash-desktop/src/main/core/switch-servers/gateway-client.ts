@@ -1,3 +1,4 @@
+import { events } from '@main/lib/events';
 import type {
   RemoteAgentRoom,
   RemoteAgentSummary,
@@ -7,6 +8,7 @@ import type {
   SwitchServer,
   SwitchUser,
 } from '@shared/core/switch-servers/switch-servers';
+import { switchServerConnectionStatusChannel } from '@shared/events/switchServerConnectionEvents';
 import { reauthenticateManagedServer, refreshSession } from './auth';
 import { getSessionCookie } from './servers-store';
 
@@ -150,6 +152,15 @@ async function gatewayFetch(
   }
 
   if (response.status === 401) {
+    // A rejected session means the user must sign in again. Push it so the UI
+    // flips to "needs re-auth" immediately, no matter which call hit the 401 or
+    // which view is open — not only on the next focus/manual refresh.
+    events.emit(switchServerConnectionStatusChannel, {
+      serverId: server.id,
+      connected: false,
+      user: null,
+      reason: 'expired',
+    });
     throw new GatewayError('unauthorized', 'Switch session expired — please sign in again.', 401);
   }
   if (!response.ok) {

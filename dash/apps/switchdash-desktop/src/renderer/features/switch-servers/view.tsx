@@ -82,6 +82,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
 
   const status = store.statusFor(serverId);
   const connected = status?.connected ?? false;
+  const expired = !connected && status?.reason === 'expired';
   const refreshing = store.refreshing.has(serverId);
 
   return (
@@ -147,6 +148,8 @@ const ServerMainPanel = observer(function ServerMainPanel() {
                   <span className="text-foreground">
                     Connected{status?.user ? ` as ${status.user.name || status.user.email}` : ''}
                   </span>
+                ) : expired ? (
+                  <span className="text-foreground">Session expired — sign in again</span>
                 ) : (
                   <span className="text-foreground-muted">Not signed in</span>
                 )}
@@ -171,7 +174,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
               </div>
             </div>
 
-            {!connected && <LoginPanel serverId={serverId} />}
+            {!connected && <LoginPanel serverId={serverId} expired={expired} />}
 
             <div className={`${card} space-y-3`}>
               <p className="text-sm text-foreground-muted">
@@ -207,7 +210,13 @@ function StatusDot({ connected }: { connected: boolean }) {
   );
 }
 
-const LoginPanel = observer(function LoginPanel({ serverId }: { serverId: string }) {
+const LoginPanel = observer(function LoginPanel({
+  serverId,
+  expired,
+}: {
+  serverId: string;
+  expired: boolean;
+}) {
   const store = switchServersStore;
   const config = store.authConfigFor(serverId);
   const [email, setEmail] = useState('');
@@ -238,7 +247,11 @@ const LoginPanel = observer(function LoginPanel({ serverId }: { serverId: string
 
   return (
     <div className={`${card} space-y-4`}>
-      <p className="text-sm text-foreground-muted">Sign in to connect to this server.</p>
+      <p className="text-sm text-foreground-muted">
+        {expired
+          ? 'Your session expired. Sign in again to reconnect to this server.'
+          : 'Sign in to connect to this server.'}
+      </p>
 
       {config.passwordLoginEnabled && (
         <div className="space-y-3">

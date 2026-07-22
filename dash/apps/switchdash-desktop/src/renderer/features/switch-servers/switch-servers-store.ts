@@ -1,11 +1,14 @@
 import { makeAutoObservable, runInAction } from 'mobx';
-import { rpc } from '@renderer/lib/ipc';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { events, rpc } from '@renderer/lib/ipc';
+import { appState } from '@renderer/lib/stores/app-state';
 import type {
   ServerConnectionStatus,
   SwitchAuthConfig,
   SwitchServer,
   UpdateServerResult,
 } from '@shared/core/switch-servers/switch-servers';
+import { switchServerConnectionStatusChannel } from '@shared/events/switchServerConnectionEvents';
 
 /**
  * Renderer store for the Switch-server integration. Holds the registered
@@ -32,6 +35,9 @@ export class SwitchServersStore {
   /** Whether the sidebar "Servers" section is expanded. */
   serversExpanded = true;
 
+  /** Unsubscribe from the live connection-status push, set up once in `init`. */
+  private offConnectionStatus: (() => void) | null = null;
+
   constructor() {
     makeAutoObservable(this);
   }
@@ -57,6 +63,14 @@ export class SwitchServersStore {
   }
 
   async init(): Promise<void> {
+    // Subscribe once: the main process pushes a status whenever an authenticated
+    // gateway call is rejected, so an expired session surfaces live rather than
+    // waiting for the next focus/manual refresh (CHOO-1406).
+    if (!this.offConnectionStatus) {
+      this.offConnectionStatus = events.on(switchServerConnectionStatusChannel, (status) => {
+        this.applyPushedStatus(status);
+      });
+    }
     runInAction(() => {
       this.loadingServers = true;
       this.error = null;
@@ -105,13 +119,52 @@ export class SwitchServersStore {
       // global, so one unreachable server would paint an error over every
       // server's view.
       runInAction(() => {
-        this.statuses.set(serverId, { serverId, connected: false, user: null });
+        this.statuses.set(serverId, {
+          serverId,
+          connected: false,
+          user: null,
+          reason: 'signed-out',
+        });
       });
     } finally {
       runInAction(() => {
         this.refreshing.delete(serverId);
       });
     }
+  }
+
+  /**
+   * Apply a status pushed from the main process (a live 401 during use). Record
+   * it, and when a server *transitions* into the expired state — from connected,
+   * or from any other state we hadn't already flagged expired — raise an
+   * app-level toast so it's obvious no matter which view is open. Guarding on the
+   * transition keeps a burst of 401s from stacking duplicate toasts.
+   */
+  private applyPushedStatus(status: ServerConnectionStatus): void {
+    const previous = this.statuses.get(status.serverId);
+    const alreadyExpired = previous?.connected === false && previous.reason === 'expired';
+    runInAction(() => {
+      this.statuses.set(status.serverId, status);
+    });
+    if (!status.connected && status.reason === 'expired' && !alreadyExpired) {
+      this.notifyExpired(status.serverId);
+    }
+  }
+
+  private notifyExpired(serverId: string): void {
+    const name = this.servers.find((s) => s.id === serverId)?.name ?? 'a Switch server';
+    toast({
+      title: 'Sign in again',
+      description: `Your session for ${name} expired.`,
+      variant: 'destructive',
+      action: {
+        label: 'Sign in',
+        onClick: () => {
+          void this.setActive(serverId);
+          appState.navigation.navigate('server', { serverId });
+        },
+      },
+    });
   }
 
   async ensureAuthConfig(serverId: string): Promise<void> {

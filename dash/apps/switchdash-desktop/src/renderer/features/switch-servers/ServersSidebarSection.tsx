@@ -155,7 +155,8 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
   const server = store.servers.find((s) => s.id === serverId);
   if (!server) return null;
 
-  const connected = store.isConnected(serverId);
+  const status = store.statusFor(serverId);
+  const connected = status?.connected ?? false;
   const isViewing = isCurrentView(currentView, 'server') && params.serverId === serverId;
   // The active server scopes the whole sidebar (agents/rooms/sessions). Selecting
   // a server makes it active and opens its page.
@@ -170,6 +171,9 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
       : localServerStore.isRunning;
   const dormant = server.managed && !managedRunning;
   const needsSignIn = !dormant && !connected;
+  // Distinguish "was signed in, session expired" from "never signed in" so the
+  // pill nudges a re-auth rather than a first sign-in (CHOO-1406).
+  const expired = needsSignIn && status?.reason === 'expired';
 
   return (
     <SidebarMenuButton
@@ -208,7 +212,7 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
           }}
           className="shrink-0 rounded border border-red-500/40 px-1.5 py-0.5 text-xs font-medium text-red-500 hover:bg-red-500/10"
         >
-          Sign in
+          {expired ? 'Sign in again' : 'Sign in'}
         </span>
       )}
     </SidebarMenuButton>

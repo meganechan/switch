@@ -47,6 +47,7 @@ import {
   deleteSessionCookie,
   getActiveServerId,
   getServer,
+  getSessionCookie,
   listServers,
   removeServer,
   setActiveServerId,
@@ -175,10 +176,13 @@ export const switchServersController = createRPCController({
     const server = await requireServer(serverId);
     try {
       const user = await fetchMe(server);
-      return { serverId, connected: true, user };
+      return { serverId, connected: true, user, reason: null };
     } catch (cause) {
       if (cause instanceof GatewayError && cause.kind === 'unauthorized') {
-        return { serverId, connected: false, user: null };
+        // A stored-but-rejected session means the user was signed in and needs
+        // to re-auth (`expired`); no stored session is a plain `signed-out`.
+        const reason = (await getSessionCookie(serverId)) ? 'expired' : 'signed-out';
+        return { serverId, connected: false, user: null, reason };
       }
       throw cause;
     }

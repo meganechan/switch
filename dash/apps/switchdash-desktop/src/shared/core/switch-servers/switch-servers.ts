@@ -102,12 +102,24 @@ export type SwitchUser = {
   role: string;
 };
 
+/**
+ * Why switchdash is not holding a valid session for a server, when
+ * `ServerConnectionStatus.connected` is false:
+ * - `expired` — a session was stored but the gateway rejected it (401). The
+ *   user was signed in and now needs to sign in *again* (CHOO-1406).
+ * - `signed-out` — no session is stored (never signed in, or signed out). Also
+ *   the fallback when the gateway is unreachable, matching the "Sign in" state.
+ */
+export type ServerDisconnectedReason = 'expired' | 'signed-out';
+
 /** Connection status for a server: whether switchdash holds a valid session. */
 export type ServerConnectionStatus = {
   serverId: string;
   connected: boolean;
   /** The signed-in user when connected; null otherwise. */
   user: SwitchUser | null;
+  /** Why we're disconnected, when `connected` is false; null when connected. */
+  reason: ServerDisconnectedReason | null;
 };
 
 export type PasswordLoginParams = {
