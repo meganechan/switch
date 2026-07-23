@@ -2,16 +2,16 @@ import { eq } from 'drizzle-orm';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { resolveSubagentFs } from '@main/core/subagents/resolve-subagent-fs';
 import {
-  deleteAgent as gatewayDeleteAgent,
-  fetchAgentChildren,
-} from '@main/core/switch-servers/gateway-client';
-import { getServer } from '@main/core/switch-servers/servers-store';
-import {
   listAutoSessionSubagents,
   setAutoSessionAgent,
   setAutoSessionSubagent,
 } from '@main/core/switch-rooms/auto-session-store';
 import { autoSessionWatcher } from '@main/core/switch-rooms/auto-session-watcher';
+import {
+  deleteAgent as gatewayDeleteAgent,
+  fetchAgentChildren,
+} from '@main/core/switch-servers/gateway-client';
+import { getServer } from '@main/core/switch-servers/servers-store';
 import { viewStateService } from '@main/core/view-state/view-state-service';
 import { db } from '@main/db/client';
 import { agents, sessions } from '@main/db/schema';
@@ -21,8 +21,8 @@ import { sessionRuntimeManager } from '../sessions/session-runtime-manager';
 import { agentEvents } from './agent-events';
 import { getAgentLocation } from './agent-location';
 import { getAgentById } from './getAgentById';
-import { removeSwitchCredentials } from './remove-switch-settings';
 import { stopRemoteWatcher } from './remote-watcher';
+import { removeSwitchCredentials } from './remove-switch-settings';
 
 export type DeleteAgentOptions = {
   /**

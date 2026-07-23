@@ -1,5 +1,6 @@
 import { CommandPaletteModal } from '@renderer/features/command-palette/command-palette-modal';
 import { AddAgentModal } from '@renderer/features/locations/components/add-agent-modal/add-agent-modal';
+import { DeleteAgentModal } from '@renderer/features/locations/components/delete-agent-modal';
 import { CreateSessionModal } from '@renderer/features/sessions/create-session-modal/create-session-modal';
 import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-modal';
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
@@ -32,6 +33,7 @@ export const modalRegistry = {
   sessionModal: createModal(CreateSessionModal),
   addAgentModal: createModal(AddAgentModal),
   confirmActionModal: createModal(ConfirmActionDialog, { size: 'xs' }),
+  deleteAgentModal: createModal(DeleteAgentModal, { size: 'sm' }),
   confirmExternalLinkModal: createModal(ExternalLinkChoiceDialog, { size: 'sm' }),
   unsavedChangesModal: createModal(UnsavedChangesDialog, { size: 'xs' }),
   feedbackModal: createModal(FeedbackModal),

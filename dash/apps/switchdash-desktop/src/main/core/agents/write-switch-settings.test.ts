@@ -178,7 +178,10 @@ describe('removeSwitchSettings', () => {
     const existing = JSON.stringify({
       hooks: { PostToolUse: [{ command: 'x' }] },
       permissions: {
-        allow: ['mcp__plugin_switch-connector_switch', 'mcp__plugin_switch-connector_switch-channel'],
+        allow: [
+          'mcp__plugin_switch-connector_switch',
+          'mcp__plugin_switch-connector_switch-channel',
+        ],
       },
       env: { SWITCH_API_ENDPOINT: 'e', SWITCH_API_TOKEN: 't', SWITCH_AGENT_ID: 'a' },
     });
