@@ -333,3 +333,15 @@ A few things are intentionally partial and worth knowing when reading the code:
 - **Room-level protection verdicts** — the mediation request/response path is in
   place (tool/model access checks); the broader per-room protection pipeline is
   still being wired (`handle_protection_verdict` is gated).
+
+### Planned: centralized security & observability
+
+A key part of the intended design — **not yet implemented** — is a centralized
+**security and observability protection** layer built on top of Switch. Because
+every agent connects through Switch and all activity flows across the Matrix
+bus, Switch is the natural single point at which such protection can be applied
+**uniformly to all connected agents**, rather than configured per-agent: e.g.
+mediating and authorizing agents' tool and LLM calls and capturing a consistent
+observability/audit trail centrally. The low-level mediation primitives exist
+today (see §4.3), but this centralized cross-agent protection-and-observability
+layer is a planned direction and is not yet part of the implemented design.
