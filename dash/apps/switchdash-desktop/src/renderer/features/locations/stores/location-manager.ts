@@ -235,7 +235,9 @@ export class LocationManagerStore {
     });
     appState.navigation.revalidate();
     try {
-      await Promise.all(agents.map((agent) => rpc.agents.deleteAgent(agent.id)));
+      await Promise.all(
+        agents.map((agent) => rpc.agents.deleteAgent({ agentId: agent.id, deleteInSwitch: false }))
+      );
     } catch (error) {
       runInAction(() => {
         if (snapshot) this.locations.set(locationId, snapshot);

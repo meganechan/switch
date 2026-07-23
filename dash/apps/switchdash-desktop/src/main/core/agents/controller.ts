@@ -4,7 +4,7 @@ import type { AgentVerifyResult } from '@shared/core/switch-servers/switch-serve
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { assignAgentServer } from './assignAgentServer';
 import { createAgent } from './createAgent';
-import { deleteAgent } from './deleteAgent';
+import { deleteAgent, type DeleteAgentOptions } from './deleteAgent';
 import { getAgentById } from './getAgentById';
 import { getAgents } from './getAgents';
 import { onboardAgent } from './onboard-agent';
@@ -22,7 +22,8 @@ export const agentsController = createRPCController({
   getAgents: (locationId?: string) => getAgents(locationId),
   getAgentById: (agentId: string) => getAgentById(agentId),
   renameAgent: (params: RenameAgentParams) => renameAgent(params),
-  deleteAgent: (agentId: string) => deleteAgent(agentId),
+  deleteAgent: (params: { agentId: string } & DeleteAgentOptions) =>
+    deleteAgent(params.agentId, { deleteInSwitch: params.deleteInSwitch }),
   updateAgent: (params: UpdateAgentParams) => updateAgent(params),
   assignServer: (params: { agentId: string; serverId: string }): Promise<AgentVerifyResult> =>
     assignAgentServer(params),
