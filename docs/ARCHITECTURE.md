@@ -51,9 +51,9 @@ flowchart LR
     TE[Teams]
   end
 
-  subgraph agents["AI agents"]
-    MCP[MCP / HTTP agents<br/>e.g. Claude Code]
-    CONN[Server-side connectors<br/>e.g. OpenCode]
+  subgraph agents["AI agents (connect via MCP or HTTP)"]
+    A1[Claude Code<br/>MCP]
+    A2[Other agents<br/>HTTP API]
   end
 
   subgraph svc["Switch service (FastAPI — switch_core.main)"]
@@ -66,10 +66,9 @@ flowchart LR
   MX[("Matrix / Tuwunel")]
   DB[("PostgreSQL")]
   OPS[Operator dashboard SPA]
-  DASH[switchdash desktop app]
 
-  MCP <-->|MCP / HTTP long-poll| AB
-  CONN <--> AB
+  A1 <-->|MCP / long-poll| AB
+  A2 <-->|HTTP / long-poll| AB
   SL <-->|WebSocket| CB
   MM <-->|WebSocket| CB
   DC <-->|WebSocket| CB
@@ -79,7 +78,6 @@ flowchart LR
   CORE <-->|matrix-nio| MX
   svc --> DB
   OPS -->|/gateway| GW
-  DASH -.->|manages local sessions| MCP
 ```
 
 ### Components
@@ -101,7 +99,9 @@ flowchart LR
 `dash/NOTICE`) for managing the local coding-agent sessions that participate in
 Switch — which rooms an agent belongs to, its config, and session scheduling
 (e.g. auto-starting a session when a Slack user addresses an agent that has no
-live session). It has its own architecture docs under `dash/agents/`.
+live session). It is a convenience tool for running local agents, not a required
+path — agents connect to the Agent Bridge directly over MCP or HTTP. It has its
+own architecture docs under `dash/agents/`.
 
 ---
 
@@ -129,8 +129,7 @@ The relational schema is defined in
 - **Reference** / **Document** / **Package** — the attachable resource library
   (external pointers, internal docs, and bundles), each with independent
   read/write visibility.
-- **CollaborationBridge** / **ServerConnector** — configured external bridges and
-  server-side agent connectors.
+- **CollaborationBridge** — configured external chat bridges.
 - **BridgeMessageMap** — correlates a Matrix event with its external-platform
   post (for edits, threading, and loop prevention).
 - **Tool** / **Model** / **Skill** — capabilities attached to agents, consulted
@@ -241,8 +240,8 @@ Everything ingress-facing, and where to find it:
 
 | Entry point | Path / transport | Auth | Code |
 |-------------|------------------|------|------|
-| Agent Bridge API | `/agents/*` (HTTP) | Bearer (agent API key / registration token / OIDC) | `bridges/agent/api/`, `auth.py` |
-| MCP server | `/mcp` (HTTP, FastMCP) | Bearer / OIDC | `bridges/agent/mcp/server.py` |
+| Agent Bridge API | `/agents/*` (HTTP) | Bearer (agent API key / registration token) | `bridges/agent/api/`, `auth.py` |
+| MCP server | `/mcp` (HTTP, FastMCP) | Bearer | `bridges/agent/mcp/server.py` |
 | Health | `/health` | public | `main.py` |
 | Collaboration admin | `/collab/bridges` | (bridge CRUD) | `bridges/collaboration/api.py` |
 | Gateway API | `/gateway/*` | cookie JWT (`switch_auth`) | `gateway/app.py`, `gateway/auth.py` |
@@ -250,7 +249,7 @@ Everything ingress-facing, and where to find it:
 
 Auth-bypass path prefixes for the Bearer middleware are enumerated in
 `bridges/agent/auth.py` (`PUBLIC_PATH_PREFIXES`): `/health`, `/.well-known`,
-`/oauth`, `/collab`, `/gateway` (the gateway uses its own cookie-based auth).
+`/collab`, `/gateway` (the gateway uses its own cookie-based auth).
 
 ---
 
@@ -258,10 +257,9 @@ Auth-bypass path prefixes for the Bearer middleware are enumerated in
 
 - **Agent authentication** — Bearer middleware
   ([`bridges/agent/auth.py`](../core/switch_core/bridges/agent/auth.py)) accepts
-  three credential kinds: an agent API key (SHA-256 hashed, looked up in
-  `ApiKeyStore`), an OIDC/JWT token (RS256 validated against the issuer's JWKS,
-  active only when an OIDC issuer is configured), and a registration token (for
-  the registration endpoint only, rejected on `/mcp`).
+  two credential kinds: an agent API key (SHA-256 hashed, looked up in
+  `ApiKeyStore`) and a registration token (used only for the registration
+  endpoint).
 - **Gateway authentication** — cookie-based JWT
   ([`gateway/auth.py`](../core/switch_core/gateway/auth.py)): passwords hashed
   with bcrypt, a `switch_auth` HS256 cookie (`httponly`, `samesite=lax`),
@@ -293,8 +291,8 @@ Auth-bypass path prefixes for the Bearer middleware are enumerated in
   Pydantic `BaseSettings` model
   ([`config.py`](../core/switch_core/config.py)); `.env.example` documents the
   required variables. No secrets are committed to the repository.
-- **Secrets at rest** — external bridge/connector tokens are encrypted with
-  Fernet before being stored, using a key derived from a service secret
+- **Secrets at rest** — external bridge tokens are encrypted with Fernet before
+  being stored, using a key derived from a service secret
   ([`crypto.py`](../core/switch_core/crypto.py)).
 - **Matrix state** — each client persists its sync token and access token via
   `ClientStore` so it can resume across restarts.
@@ -311,7 +309,7 @@ A quick index for navigation:
 | Configuration | `core/switch_core/config.py` |
 | Authorization policy | `core/switch_core/authz.py` |
 | Token encryption | `core/switch_core/crypto.py` |
-| Agent Bridge (API, MCP, protocol, auth, commands, connectors) | `core/switch_core/bridges/agent/` |
+| Agent Bridge (API, MCP, protocol, auth, commands) | `core/switch_core/bridges/agent/` |
 | Collaboration bridges (adapters, core, lifecycle) | `core/switch_core/bridges/collaboration/` |
 | Resource bridge | `core/switch_core/bridges/resource/` |
 | Matrix clients | `core/switch_core/clients/` |
