@@ -216,7 +216,7 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
             {isScoped && (
               <span
                 aria-hidden
-                className="absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full bg-accent"
+                className="bg-accent absolute top-1/2 left-0 h-4 w-0.5 -translate-y-1/2 rounded-full"
               />
             )}
             <span className="flex min-w-0 items-center gap-2">
