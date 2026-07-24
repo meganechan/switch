@@ -89,6 +89,11 @@ below:
 
 ### [Unreleased]
 
+### [0.11.3] - 2026-07-24
+
+#### Changed
+- Sidebar and session UX polish (CHOO-1644).
+
 ### [0.11.2] - 2026-07-24
 
 #### Added
