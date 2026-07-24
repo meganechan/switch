@@ -89,6 +89,11 @@ below:
 
 ### [Unreleased]
 
+### [0.11.4] - 2026-07-24
+
+#### Added
+- Reset a remote agent — kill and reset all of its tmux sessions (CHOO-1656).
+
 ### [0.11.3] - 2026-07-24
 
 #### Changed
