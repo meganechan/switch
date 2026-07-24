@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useRemoteAgentName } from '@renderer/features/switch-servers/use-remote-agent-name';
 import { rpc } from '@renderer/lib/ipc';
 import { Field, FieldDescription, FieldTitle } from '@renderer/lib/ui/field';
 import { Switch } from '@renderer/lib/ui/switch';
@@ -20,25 +21,58 @@ export function AutoSessionSettingsSection({ locationId }: { locationId: string 
 
   const switchAgents = (agents ?? []).filter((a) => a.serverId && a.switchAgentId);
   if (switchAgents.length === 0) return null;
+  // The agent name only disambiguates when a location has more than one agent;
+  // for the common single-agent case the section title already identifies it, so
+  // the toggle sits inline with the title instead of in a redundant named row.
+  const single = switchAgents.length === 1 ? switchAgents[0] : null;
 
   return (
     <Field>
-      <FieldTitle>Auto-create a session on notify</FieldTitle>
+      <div className="flex items-center justify-between gap-3">
+        <FieldTitle>Auto-create a session on notify</FieldTitle>
+        {single && <AutoSessionSwitch agentId={single.id} />}
+      </div>
       <FieldDescription className="text-foreground-muted">
         When on, switchdash watches this agent&apos;s Switch rooms and automatically starts a
         session — connected to the room and ready to reply — whenever it&apos;s addressed with no
         session running.
       </FieldDescription>
-      <div className="flex flex-col gap-2">
-        {switchAgents.map((agent) => (
-          <AutoSessionRow key={agent.id} agentId={agent.id} agentName={agent.name} />
-        ))}
-      </div>
+      {!single && (
+        <div className="flex flex-col gap-2">
+          {switchAgents.map((agent) => (
+            <div
+              key={agent.id}
+              className="flex items-center justify-between gap-3 rounded-md border border-border px-2 py-1.5"
+            >
+              <AgentLabel
+                serverId={agent.serverId as string}
+                switchAgentId={agent.switchAgentId as string}
+                fallback={agent.name}
+              />
+              <AutoSessionSwitch agentId={agent.id} />
+            </div>
+          ))}
+        </div>
+      )}
     </Field>
   );
 }
 
-function AutoSessionRow({ agentId, agentName }: { agentId: string; agentName: string }) {
+/** Renders an agent's registered Switch name (not the directory basename). */
+function AgentLabel({
+  serverId,
+  switchAgentId,
+  fallback,
+}: {
+  serverId: string;
+  switchAgentId: string;
+  fallback: string;
+}) {
+  const name = useRemoteAgentName(serverId, switchAgentId, fallback);
+  return <span className="truncate text-sm">{name}</span>;
+}
+
+function AutoSessionSwitch({ agentId }: { agentId: string }) {
   const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
 
@@ -65,13 +99,10 @@ function AutoSessionRow({ agentId, agentName }: { agentId: string; agentName: st
   });
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-border px-2 py-1.5">
-      <span className="truncate text-sm">{agentName}</span>
-      <Switch
-        checked={enabled === true}
-        disabled={isLoading || pending}
-        onCheckedChange={(checked) => mutation.mutate(checked)}
-      />
-    </div>
+    <Switch
+      checked={enabled === true}
+      disabled={isLoading || pending}
+      onCheckedChange={(checked) => mutation.mutate(checked)}
+    />
   );
 }
