@@ -21,6 +21,22 @@ below:
 
 ### [Unreleased]
 
+### [0.7.0] - 2026-07-24
+
+#### Added
+- Microsoft Teams collaboration bridge — rooms can bridge to Teams channels,
+  joining Slack, Mattermost, and Discord as supported platforms (CHOO-1281).
+- Discord bridge polish: deeplink redirect, room icon, and outbound image relay
+  (CHOO-1588).
+
+#### Changed
+- Relicensed to Apache-2.0 + Commons Clause, with a CLA gate for contributions
+  (CHOO-1251).
+
+#### Fixed
+- Detach dependent rooms before removing a bridge, so bridge removal no longer
+  leaves rooms in a broken state (#35).
+
 ### [0.6.0] - 2026-07-20
 
 #### Added
