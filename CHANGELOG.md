@@ -21,6 +21,12 @@ below:
 
 ### [Unreleased]
 
+### [0.8.0] - 2026-07-24
+
+#### Added
+- Scoped agent-addressing permissions — control which agents and rooms an agent
+  may address, enforced server-side (CHOO-1585).
+
 ### [0.7.0] - 2026-07-24
 
 #### Added
@@ -104,6 +110,15 @@ below:
 ## switchdash
 
 ### [Unreleased]
+
+### [0.12.0] - 2026-07-24
+
+#### Added
+- Configure per-agent addressing policy from the app and gateway (CHOO-1585).
+
+#### Fixed
+- Data-entry modals no longer dismiss on outside-click, so in-progress input
+  isn't lost (CHOO-1659).
 
 ### [0.11.4] - 2026-07-24
 
