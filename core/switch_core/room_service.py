@@ -338,53 +338,66 @@ class RoomService:
                     channel_type=channel_type,
                 )
 
-        matrix_room_id = await self._matrix_admin.create_room(
-            config.name, config.description
-        )
-
-        room = Room(
-            matrix_room_id=matrix_room_id,
-            name=config.name,
-            description=config.description,
-            channel_type=channel_type,
-            bridge_id=config.bridge_id,
-            external_channel_id=external_channel_id,
-            admin_mode=config.admin_mode,
-            instructions=config.instructions,
-            protection_config=config.protection_config,
-            observe_config=config.observe_config,
-            created_by=config.created_by,
-            owner_id=config.owner_id,
-            read_visibility=config.read_visibility,
-            write_visibility=config.write_visibility,
-        )
-
-        async with self._session_factory() as session:
-            await self._room_store.create(session, room)
-            if config.group_id is not None:
-                await self._room_store.set_group(session, room.id, config.group_id)
-            if agent_ids:
-                await self._room_store.add_agents(
-                    session,
-                    room.id,
-                    agent_ids,
-                    join_event_listeners=join_event_listeners,
-                )
-            for spec in config.roles or []:
-                session.add(
-                    RoomRole(
-                        room_id=room.id,
-                        name=spec.name,
-                        instructions=spec.instructions,
-                        exclusive=spec.exclusive,
-                    )
-                )
-            if config.aliases:
-                await self._seed_aliases(session, room.id, agent_ids, config)
-            await session.commit()
-
+        # Guard the channel from the moment it exists until the room↔channel
+        # mapping is registered. Creating the channel makes the bot auto-join
+        # it, which fires an inbound join; without this guard that join would
+        # not see the not-yet-committed mapping and would auto-create a second
+        # room for the same channel (CHOO-1660).
         if bridge_core and external_channel_id:
-            bridge_core.add_room_mapping(room.id, matrix_room_id, external_channel_id)
+            bridge_core.begin_provisioning(external_channel_id)
+        try:
+            matrix_room_id = await self._matrix_admin.create_room(
+                config.name, config.description
+            )
+
+            room = Room(
+                matrix_room_id=matrix_room_id,
+                name=config.name,
+                description=config.description,
+                channel_type=channel_type,
+                bridge_id=config.bridge_id,
+                external_channel_id=external_channel_id,
+                admin_mode=config.admin_mode,
+                instructions=config.instructions,
+                protection_config=config.protection_config,
+                observe_config=config.observe_config,
+                created_by=config.created_by,
+                owner_id=config.owner_id,
+                read_visibility=config.read_visibility,
+                write_visibility=config.write_visibility,
+            )
+
+            async with self._session_factory() as session:
+                await self._room_store.create(session, room)
+                if config.group_id is not None:
+                    await self._room_store.set_group(session, room.id, config.group_id)
+                if agent_ids:
+                    await self._room_store.add_agents(
+                        session,
+                        room.id,
+                        agent_ids,
+                        join_event_listeners=join_event_listeners,
+                    )
+                for spec in config.roles or []:
+                    session.add(
+                        RoomRole(
+                            room_id=room.id,
+                            name=spec.name,
+                            instructions=spec.instructions,
+                            exclusive=spec.exclusive,
+                        )
+                    )
+                if config.aliases:
+                    await self._seed_aliases(session, room.id, agent_ids, config)
+                await session.commit()
+
+            if bridge_core and external_channel_id:
+                bridge_core.add_room_mapping(
+                    room.id, matrix_room_id, external_channel_id
+                )
+        finally:
+            if bridge_core and external_channel_id:
+                bridge_core.end_provisioning(external_channel_id)
 
         # Invite the bridge client before the agent clients so it is joined (and
         # thus replicating) before any agent can post — otherwise messages sent
@@ -831,17 +844,23 @@ class RoomService:
                 channel_type=resolved_channel_type,
             )
 
-        async with self._session_factory() as session:
-            await self._room_store.update_bridge(
-                session,
-                room_id,
-                bridge_id=bridge_id,
-                channel_type=resolved_channel_type,
-                external_channel_id=external_channel_id,
-            )
-            await session.commit()
+        # Guard the new channel until its mapping is registered, so the bot's
+        # auto-join does not spawn a duplicate room (CHOO-1660).
+        new_bridge.begin_provisioning(external_channel_id)
+        try:
+            async with self._session_factory() as session:
+                await self._room_store.update_bridge(
+                    session,
+                    room_id,
+                    bridge_id=bridge_id,
+                    channel_type=resolved_channel_type,
+                    external_channel_id=external_channel_id,
+                )
+                await session.commit()
 
-        new_bridge.add_room_mapping(room_id, matrix_room_id, external_channel_id)
+            new_bridge.add_room_mapping(room_id, matrix_room_id, external_channel_id)
+        finally:
+            new_bridge.end_provisioning(external_channel_id)
         await self._matrix_admin.invite_to_room(
             matrix_room_id, new_bridge._bridge_client_matrix_user_id
         )

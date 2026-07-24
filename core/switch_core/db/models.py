@@ -221,6 +221,17 @@ room_skills = Table(
 
 class Room(Base):
     __tablename__ = "rooms"
+    __table_args__ = (
+        # A bridged channel maps to at most one Switch room. Partial so that
+        # internal-only rooms (external_channel_id IS NULL) are unconstrained.
+        Index(
+            "uq_rooms_bridge_external_channel",
+            "bridge_id",
+            "external_channel_id",
+            unique=True,
+            postgresql_where=text("external_channel_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     matrix_room_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
