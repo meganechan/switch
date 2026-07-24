@@ -235,7 +235,35 @@ export class LocationManagerStore {
     });
     appState.navigation.revalidate();
     try {
-      await Promise.all(agents.map((agent) => rpc.agents.deleteAgent(agent.id)));
+      await Promise.all(
+        agents.map((agent) => rpc.agents.deleteAgent({ agentId: agent.id, deleteInSwitch: false }))
+      );
+    } catch (error) {
+      runInAction(() => {
+        if (snapshot) this.locations.set(locationId, snapshot);
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Remove a single agent (the sidebar's per-agent "Remove Agent" action),
+   * optionally deleting its identity in Switch too. Drops the location from the
+   * sidebar optimistically — an agent maps one-to-one to its location row here —
+   * and rolls back if the delete fails.
+   */
+  async removeAgent(
+    locationId: string,
+    agentId: string,
+    options: { deleteInSwitch: boolean }
+  ): Promise<void> {
+    const snapshot = this.locations.get(locationId);
+    runInAction(() => {
+      this.locations.delete(locationId);
+    });
+    appState.navigation.revalidate();
+    try {
+      await rpc.agents.deleteAgent({ agentId, deleteInSwitch: options.deleteInSwitch });
     } catch (error) {
       runInAction(() => {
         if (snapshot) this.locations.set(locationId, snapshot);
