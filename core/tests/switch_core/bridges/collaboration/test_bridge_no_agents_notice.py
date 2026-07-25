@@ -45,11 +45,17 @@ def _fake_bridge(*, agent_ids: list[str]):  # noqa: ANN202
     def add_room_mapping(room_id: str, matrix_room_id: str, channel_id: str) -> None:
         pass
 
+    async def _adopt_existing_room(channel_id: str) -> tuple[str, str] | None:
+        return None
+
     return SimpleNamespace(
         _adapter=_Adapter(),
         _room_service=_RoomService(),
         _resolve_agents_for_channel=_resolve_agents_for_channel,
+        _adopt_existing_room=_adopt_existing_room,
         add_room_mapping=add_room_mapping,
+        _provisioning_channels=set(),
+        _channel_to_room={},
         _bridge_display_name="Switch",
         _bridge_id="bridge-1",
         notices=notices,

@@ -101,6 +101,12 @@ class _FakeBridgeCore:
     def remove_room_mapping(self, room_id: str, matrix_room_id: str) -> None:
         self._events.append(("remove_room_mapping", room_id))
 
+    def begin_provisioning(self, external_channel_id: str) -> None:
+        self._events.append(("begin_provisioning", external_channel_id))
+
+    def end_provisioning(self, external_channel_id: str) -> None:
+        self._events.append(("end_provisioning", external_channel_id))
+
 
 class _FakeLifecycle:
     def __init__(self, bridges: dict[str, Any]) -> None:

@@ -12,6 +12,7 @@ from nio import (
     RoomMessageText,
     RoomSendError,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from switch_core.aliases import AliasError, validate_alias_format
@@ -104,6 +105,13 @@ class BridgeCore:
         self._puppet_matrix_ids: set[str] = set()
         self._channel_locks: dict[str, asyncio.Lock] = {}
         self._puppet_locks: dict[str, asyncio.Lock] = {}
+        # Channels Switch is itself provisioning right now (outbound room
+        # creation / bridge change). The bot auto-joins a channel the instant
+        # it is created, which fires an inbound join before the room↔channel
+        # mapping is committed — auto-room-creation for such a channel would
+        # spawn a duplicate room. Handlers skip adoption while a channel is in
+        # this set. See begin_provisioning / end_provisioning.
+        self._provisioning_channels: set[str] = set()
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -545,6 +553,20 @@ class BridgeCore:
 
     # ── Auto-room creation ────────────────────────────────────────────────────
 
+    async def _adopt_existing_room(self, channel_id: str) -> tuple[str, str] | None:
+        """If a room already exists in the DB for this channel on this bridge,
+        register it in the in-memory map and return its (room_id,
+        matrix_room_id). Returns None if no such room exists. Idempotent."""
+        async with self._session_factory() as session:
+            room = await self._room_store.get_by_external_channel(
+                session, self._bridge_id, channel_id
+            )
+        if room is None:
+            return None
+        self.add_room_mapping(room.id, room.matrix_room_id, channel_id)
+        logger.debug("Adopted existing room %s for channel %s", room.id, channel_id)
+        return (room.id, room.matrix_room_id)
+
     async def _create_room_for_channel(
         self,
         *,
@@ -554,6 +576,24 @@ class BridgeCore:
         sender_name: str | None = None,
         channel_name: str | None = None,
     ) -> tuple[str, str] | None:
+        # Callers hold the per-channel lock. Guard against provisioning a
+        # duplicate room for a channel that is already (or is being) bridged:
+        #  1. Switch is itself provisioning this channel right now — the mapping
+        #     is on its way; do not race it with a second room.
+        #  2. A room already exists for this channel in the DB (committed by a
+        #     concurrent create_room, or present since a prior run but not yet
+        #     loaded into the in-memory map). Adopt it instead of creating.
+        if channel_id in self._provisioning_channels:
+            logger.debug(
+                "Skipping auto-room-creation for channel %s: Switch is provisioning it",
+                channel_id,
+            )
+            return self._channel_to_room.get(channel_id)
+
+        existing = await self._adopt_existing_room(channel_id)
+        if existing is not None:
+            return existing
+
         agent_ids = await self._resolve_agents_for_channel(channel_id, channel_type)
 
         bridge_name = self._bridge_display_name
@@ -578,6 +618,22 @@ class BridgeCore:
 
         try:
             result = await self._room_service.create_room(config)
+        except IntegrityError:
+            # Backstop: the (bridge_id, external_channel_id) unique index
+            # rejected a concurrent duplicate. Adopt the room that won the race.
+            logger.warning(
+                "Duplicate room creation for channel %s rejected by unique "
+                "constraint; adopting existing room",
+                channel_id,
+            )
+            adopted = await self._adopt_existing_room(channel_id)
+            if adopted is None:
+                logger.error(
+                    "Unique constraint rejected room for channel %s but no "
+                    "existing room found to adopt",
+                    channel_id,
+                )
+            return adopted
         except Exception:
             logger.exception("Failed to auto-create room for channel %s", channel_id)
             return None
@@ -1156,6 +1212,19 @@ class BridgeCore:
         return mapping.external_post_id if mapping is not None else None
 
     # ── Room mapping management ──────────────────────────────────────────────
+
+    def begin_provisioning(self, external_channel_id: str) -> None:
+        """Mark a channel as being provisioned by Switch itself, so inbound
+        join/message handlers do not auto-create a duplicate room for it in the
+        window between the channel existing (bot auto-joins → inbound join
+        fires) and the room↔channel mapping being committed. The caller must
+        record this before awaiting anything after the channel is created, and
+        clear it with end_provisioning once the mapping is established."""
+        self._provisioning_channels.add(external_channel_id)
+
+    def end_provisioning(self, external_channel_id: str) -> None:
+        """Clear the provisioning marker set by begin_provisioning. Idempotent."""
+        self._provisioning_channels.discard(external_channel_id)
 
     def add_room_mapping(
         self, room_id: str, matrix_room_id: str, external_channel_id: str
