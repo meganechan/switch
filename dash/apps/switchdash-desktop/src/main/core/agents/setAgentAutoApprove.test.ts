@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const updateAgent = vi.fn(async ({ agentId, autoApprove }) => ({ id: agentId, autoApprove }));
+const updateAgent = vi.fn(
+  async ({ agentId, autoApprove }): Promise<{ id: string; autoApprove?: boolean } | undefined> => ({
+    id: agentId,
+    autoApprove,
+  })
+);
 const getRemoteAgentLocation = vi.fn();
 const listAutoSessionAgentIds = vi.fn();
-const ensureRemoteWatcher = vi.fn(async () => {});
+const ensureRemoteWatcher = vi.fn(async (_id: string) => {});
 
 vi.mock('./updateAgent', () => ({ updateAgent: (p: unknown) => updateAgent(p) }));
 vi.mock('./agent-location', () => ({
