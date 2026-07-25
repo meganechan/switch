@@ -7,6 +7,7 @@ import { writeSwitchSettings } from '@main/core/agents/write-switch-settings';
 import { appService } from '@main/core/app/service';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
+import { isManagedServerRunning } from '@main/core/managed-switch-server/managed-server-status';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import type { AgentProviderKind } from '@shared/core/switch-servers/switch-servers';
 import type {
@@ -184,6 +185,13 @@ export const switchServersController = createRPCController({
 
   getConnectionStatus: async (serverId: string): Promise<ServerConnectionStatus> => {
     const server = await requireServer(serverId);
+    // A managed server whose stack isn't running is knowably unreachable — its
+    // gateway port isn't listening — so probing it only yields a network error
+    // that spams the logs (CHOO-1657). Report it as disconnected without the
+    // round-trip; genuine failures for a running stack still surface below.
+    if (server.managed && !isManagedServerRunning(server)) {
+      return { serverId, connected: false, user: null };
+    }
     try {
       const user = await fetchMe(server);
       return { serverId, connected: true, user };
