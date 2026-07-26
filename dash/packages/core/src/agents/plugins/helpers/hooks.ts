@@ -20,17 +20,41 @@ function quotePowerShellString(value: string): string {
 
 type HookPostPayload = 'stdin' | { json: Record<string, string> };
 
+/**
+ * Resolve the hook endpoint at fire time, preferring the endpoint file when the
+ * launching runtime pointed us at one.
+ *
+ * A pane's environment is fixed at spawn, so a session launched against the
+ * remote sidecar would keep posting to the port and token that sidecar happened
+ * to hold at the time — both of which change every time it restarts. Baking the
+ * *path* to the endpoint file instead lets those sessions follow the sidecar
+ * across restarts, upgrades, and token rotation.
+ *
+ * The file is parsed line-by-line rather than sourced: it lives in the agent's
+ * repo dir, and `.`-ing it would make anything that can write there able to run
+ * arbitrary code in every hook. Falls back to the environment, which is how
+ * local sessions (and any pane spawned before this existed) keep working.
+ */
+const POSIX_ENDPOINT_PREAMBLE =
+  '_sd_p="$SWITCHDASH_HOOK_PORT"; _sd_t="$SWITCHDASH_HOOK_TOKEN"; ' +
+  'if [ -n "$SWITCHDASH_HOOK_ENDPOINT_FILE" ] && [ -r "$SWITCHDASH_HOOK_ENDPOINT_FILE" ]; then ' +
+  '_sd_f=$(sed -n 1p "$SWITCHDASH_HOOK_ENDPOINT_FILE"); ' +
+  '_sd_g=$(sed -n 2p "$SWITCHDASH_HOOK_ENDPOINT_FILE"); ' +
+  '[ -n "$_sd_f" ] && _sd_p="$_sd_f"; [ -n "$_sd_g" ] && _sd_t="$_sd_g"; ' +
+  'fi; ';
+
 function makePosixHookPostCommand(eventType: string, payload: HookPostPayload): string {
   const payloadPart =
     payload === 'stdin' ? '-d @- ' : `--data-binary '${JSON.stringify(payload.json)}' `;
   return (
+    POSIX_ENDPOINT_PREAMBLE +
     'curl -sf -X POST ' +
     '-H "Content-Type: application/json" ' +
-    '-H "X-Switchdash-Token: $SWITCHDASH_HOOK_TOKEN" ' +
+    '-H "X-Switchdash-Token: $_sd_t" ' +
     '-H "X-Switchdash-Pty-Id: $SWITCHDASH_PTY_ID" ' +
     `-H "X-Switchdash-Event-Type: ${eventType}" ` +
     payloadPart +
-    '"http://127.0.0.1:$SWITCHDASH_HOOK_PORT/hook" || true'
+    '"http://127.0.0.1:$_sd_p/hook" || true'
   );
 }
 

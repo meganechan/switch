@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { promisify } from 'node:util';
 import { quoteShellArg } from '@main/utils/shellEscape';
+import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { type AgentLaunchSpec, materializeAgentCommand } from './agent-launch-spec';
 import type { SessionSpawner, WatcherLogger } from './notification-watcher';
@@ -19,6 +20,10 @@ export interface InProcessSessionSpawnerDeps {
   /** The local sidecar hook server the spawned session's hooks post back to. */
   hookPort: number;
   hookToken: string;
+  /** Absolute path to the endpoint file carrying the CURRENT port/token. Hooks
+   * prefer it over the baked env, so the pane follows this sidecar across a
+   * restart instead of posting to the port it happened to hold at launch. */
+  endpointFile: string;
   /** The multi-session runtime — a room it already serves needs no new session. */
   runtime: RoomLivenessSource;
   /** The agent's Switch identity as `SWITCH_*` env, injected into every
@@ -123,17 +128,19 @@ export class InProcessSessionSpawner implements SessionSpawner {
   }
 
   async launch(roomId: string): Promise<void> {
-    const { hookPort, hookToken, log } = this.deps;
+    const { hookPort, hookToken, endpointFile, log } = this.deps;
     const spec = this.spec;
     const sessionId = randomUUID();
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
 
     const hookEnv = {
       ...this.deps.switchEnv,
-      SWITCHDASH_HOOK_PORT: String(hookPort),
-      SWITCHDASH_PTY_ID: makePtyId(spec.providerId, sessionId),
-      SWITCHDASH_HOOK_TOKEN: hookToken,
-      SWITCH_CHANNEL_DISABLE_POLL: '1',
+      ...buildAgentHookEnv({
+        port: hookPort,
+        ptyId: makePtyId(spec.providerId, sessionId),
+        token: hookToken,
+        endpointFile,
+      }),
     };
     const command = materializeAgentCommand(spec, {
       sessionId,

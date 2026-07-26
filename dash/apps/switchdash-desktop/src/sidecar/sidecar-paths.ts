@@ -33,6 +33,27 @@ export function sidecarReadyRelPath(slug: string): string {
   return `${sidecarAgentDir(slug)}/sidecar.ready`;
 }
 
+/**
+ * Current hook endpoint (port on line 1, token on line 2), rewritten by the
+ * sidecar every time it binds. Sessions are launched with the *path* to this
+ * file rather than the port/token themselves, so a restarted sidecar — which
+ * always gets a fresh ephemeral port and token — is still reachable from panes
+ * that were spawned against the previous process.
+ */
+export function sidecarEndpointRelPath(slug: string): string {
+  return `${sidecarAgentDir(slug)}/endpoint`;
+}
+
+/** Durable sidecar state (session registry + event epoch), survives restarts. */
+export function sidecarStateRelPath(slug: string): string {
+  return `${sidecarAgentDir(slug)}/state.json`;
+}
+
+/** Atomically-created deploy lock directory (mkdir is atomic on POSIX). */
+export function sidecarDeployLockRelPath(slug: string): string {
+  return `${sidecarAgentDir(slug)}/deploy.lock`;
+}
+
 export function sidecarLogRelPath(slug: string): string {
   return `${sidecarAgentDir(slug)}/sidecar.log`;
 }
