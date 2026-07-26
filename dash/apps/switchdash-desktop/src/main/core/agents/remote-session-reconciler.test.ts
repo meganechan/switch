@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const REMOTE_AGENT = {
   id: 'agent-1',
@@ -63,7 +63,9 @@ vi.mock('@main/db/client', () => ({
     delete: () => ({ where: (arg: unknown) => deleteWhere(arg as never) }),
   },
 }));
-vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('@main/lib/logger', () => ({
+  log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
 const eventsEmit = vi.fn();
 vi.mock('@main/lib/events', () => ({
   events: { emit: (...args: unknown[]) => eventsEmit(...args) },
@@ -97,6 +99,13 @@ function handleRemoteTerminated(sessionId: string): Promise<void> {
 }
 
 describe('RemoteSessionReconciler', () => {
+  beforeEach(() => {
+    // `clearAllMocks` clears calls but keeps implementations, so a test that
+    // simulates an unreachable sidecar would otherwise leave every later test
+    // probing null — and assertions like "did not prune" would pass vacuously.
+    probeAgentSidecar.mockResolvedValue({ port: 4321, token: 'tok' });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
     knownRows = [];
@@ -258,6 +267,49 @@ describe('RemoteSessionReconciler', () => {
     expect(deleteWhere).toHaveBeenCalledTimes(1);
     expect(emitSpy).toHaveBeenCalledWith('session:deleted', 'session-a');
     emitSpy.mockRestore();
+  });
+
+  it('never prunes when the sidecar is unreachable, however long it stays away', async () => {
+    // The regression this guards: an unreachable sidecar used to be reported as
+    // an empty session list, so three failed polls deleted rows for sessions
+    // that were alive and healthy on the VM — and nothing ever re-adopted them.
+    knownRows = [];
+    httpGetJsonOverChannel.mockResolvedValue({
+      sessions: [{ sessionId: 'session-unreachable', roomId: 'room-1' }],
+    });
+    await reconcile('agent-1'); // adopt session-unreachable
+    knownRows = [{ id: 'session-unreachable' }];
+
+    // Sidecar goes away entirely (restarting, upgrading, briefly unreachable).
+    probeAgentSidecar.mockResolvedValue(null);
+    httpGetJsonOverChannel.mockRejectedValue(new Error('ECONNREFUSED'));
+    for (let i = 0; i < 6; i++) await reconcile('agent-1');
+
+    expect(deleteWhere).not.toHaveBeenCalled();
+  });
+
+  it('resumes pruning once the sidecar answers again and really omits the session', async () => {
+    knownRows = [];
+    httpGetJsonOverChannel.mockResolvedValue({
+      sessions: [{ sessionId: 'session-resume', roomId: 'room-1' }],
+    });
+    await reconcile('agent-1');
+    knownRows = [{ id: 'session-resume' }];
+
+    probeAgentSidecar.mockResolvedValue(null);
+    await reconcile('agent-1');
+    await reconcile('agent-1');
+    await reconcile('agent-1');
+    expect(deleteWhere).not.toHaveBeenCalled();
+
+    // Sidecar is back and authoritatively reports no sessions.
+    probeAgentSidecar.mockResolvedValue({ port: 4321, token: 'tok' });
+    httpGetJsonOverChannel.mockResolvedValue({ sessions: [] });
+    await reconcile('agent-1');
+    await reconcile('agent-1');
+    await reconcile('agent-1');
+
+    expect(deleteWhere).toHaveBeenCalledTimes(1);
   });
 
   it('does not prune an adopted session that keeps being reported', async () => {
