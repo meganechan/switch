@@ -4,6 +4,7 @@ import { AddressingPolicySettingsSection } from '@renderer/features/locations/co
 import { AgentDefinitionSettingsSection } from '@renderer/features/locations/components/settings-view/sections/agent-definition-settings-section';
 import { AutoApproveSettingsSection } from '@renderer/features/locations/components/settings-view/sections/auto-approve-settings-section';
 import { AutoSessionSettingsSection } from '@renderer/features/locations/components/settings-view/sections/auto-session-settings-section';
+import { SidecarSettingsSection } from '@renderer/features/locations/components/settings-view/sections/sidecar-settings-section';
 import {
   asMounted,
   getLocationStore,
@@ -39,12 +40,16 @@ export const SettingsPanel = observer(function SettingsPanel() {
     : (agents ?? [])[0];
   const agentId = agent?.id;
 
+  // The sidecar is a remote-only concern — a local agent runs no on-host process.
+  const isRemote = mounted.data.sshHost !== null;
+
   return (
     <div className="flex flex-col gap-6">
       <AutoSessionSettingsSection locationId={locationId} agentId={agentId} />
       <AutoApproveSettingsSection locationId={locationId} agentId={agentId} />
       <AddressingPolicySettingsSection locationId={locationId} agentId={agentId} />
       <AgentDefinitionSettingsSection locationId={locationId} agentId={agentId} />
+      {isRemote && agentId && <SidecarSettingsSection agentId={agentId} />}
     </div>
   );
 });
