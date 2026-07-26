@@ -39,6 +39,22 @@ export interface SidecarRuntimeDeps {
   isPaneLive: (tmuxTarget: string) => boolean;
   log: RoomConnectionLogger;
   createConnection: RoomConnectionFactory;
+  /** Durable registry of the sessions this sidecar owns. Backed by the state
+   * file so ownership survives a restart, rather than being rebuilt only as
+   * each session happens to post its next hook. */
+  registry: SessionRegistry;
+}
+
+/** The slice of the durable state store the runtime needs. */
+export interface SessionRegistry {
+  has(sessionId: string): boolean;
+  record(entry: {
+    sessionId: string;
+    roomId: string | null;
+    providerId: string;
+    tmuxTarget: string;
+  }): void;
+  forget(sessionId: string): void;
 }
 
 interface SessionConnection {
@@ -62,9 +78,6 @@ interface SessionConnection {
 export class SidecarRuntime {
   /** sessionId → its live room connection. */
   private readonly sessions = new Map<string, SessionConnection>();
-  /** Every session id that has posted a hook to this sidecar — i.e. the
-   * sessions it owns, used to scope the VM-wide tmux enumeration in `/sessions`. */
-  private readonly seen = new Set<string>();
   private readonly resolveContext: ContextResolver;
   /** Notified when a session connects to a room, so the notification watcher can
    * hand its per-room in-flight guard off to the live-room check (mirrors the
@@ -96,7 +109,14 @@ export class SidecarRuntime {
     // panes — tmux session names carry no repo/agent, so without this a sidecar
     // would report other agents' sessions on the same host.
     const pid = parsePtyId(raw.ptyId);
-    if (pid) this.seen.add(pid.sessionId);
+    if (pid) {
+      this.deps.registry.record({
+        sessionId: pid.sessionId,
+        roomId: null,
+        providerId: pid.providerId,
+        tmuxTarget: makeAgentTmuxSessionName(pid.sessionId),
+      });
+    }
 
     let parsed: ParsedHookEvent;
     try {
@@ -173,9 +193,23 @@ export class SidecarRuntime {
       log: this.deps.log,
     });
     this.sessions.set(sessionId, { connection, roomId, tmuxTarget });
+    this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
     this.deps.log.debug('SidecarRuntime: room connected', { sessionId, roomId, roomName });
     connection.start();
     this.roomConnectedListener?.(roomId);
+  }
+
+  /**
+   * Re-establish a room connection for a session restored from durable state.
+   *
+   * Without this a restarted sidecar would sit idle for every session it just
+   * restored, resuming poll and injection only when that agent next posted a
+   * hook — which an agent waiting on a room message never does. The room
+   * membership itself is server-side and outlived the restart; only our
+   * connection to it did not.
+   */
+  restoreSession(entry: { sessionId: string; roomId: string; providerId: string }): void {
+    this.connectRoom(entry.sessionId, entry.providerId, entry.roomId, null);
   }
 
   /** The room a session is currently attending, or null if it has none. */
@@ -193,6 +227,7 @@ export class SidecarRuntime {
     if (!session) return;
     session.connection.stop();
     this.sessions.delete(sessionId);
+    this.deps.registry.forget(sessionId);
     this.deps.log.debug('SidecarRuntime: session stopped', { sessionId });
   }
 
@@ -216,10 +251,12 @@ export class SidecarRuntime {
     return out;
   }
 
-  /** Whether a session has ever posted a hook to this sidecar (i.e. it is
-   * one of this agent's own sessions, not another agent's pane on the host). */
+  /** Whether this sidecar owns the session — i.e. it is one of this agent's own
+   * sessions rather than another agent's pane on the same host. Backed by the
+   * durable registry, so it is true from boot for a restored session instead of
+   * only once that session next posts a hook. */
   hasSeen(sessionId: string): boolean {
-    return this.seen.has(sessionId);
+    return this.deps.registry.has(sessionId);
   }
 
   /** True when a live session is attending the room and its pane is up (watcher gate). */

@@ -5,8 +5,10 @@ import { makePtyId } from '@shared/core/pty/ptyId';
 import {
   type ManagedConnection,
   type RoomConnectionFactory,
+  type SessionRegistry,
   SidecarRuntime,
 } from './sidecar-runtime';
+import type { SidecarSessionEntry } from './sidecar-state';
 
 // Use the generic parser so raw 'start'/'stop' map to status deterministically,
 // independent of any provider's custom hook parser.
@@ -34,6 +36,20 @@ function statusHook(type: string, ptyId: string): RawHookRequest {
   return { ptyId, type, body: JSON.stringify({}) } as RawHookRequest;
 }
 
+/** In-memory stand-in for the durable state store. */
+function fakeRegistry(): SessionRegistry & { entries: () => SidecarSessionEntry[] } {
+  const sessions = new Map<string, SidecarSessionEntry>();
+  return {
+    has: (id) => sessions.has(id),
+    record: (entry) => {
+      const prev = sessions.get(entry.sessionId);
+      sessions.set(entry.sessionId, { ...entry, roomId: entry.roomId ?? prev?.roomId ?? null });
+    },
+    forget: (id) => void sessions.delete(id),
+    entries: () => [...sessions.values()],
+  };
+}
+
 function makeRuntime() {
   const created: Array<{ deps: RoomConnectionDeps; conn: ManagedConnection }> = [];
   const factory: RoomConnectionFactory = (deps) => {
@@ -41,6 +57,7 @@ function makeRuntime() {
     created.push({ deps, conn });
     return conn;
   };
+  const registry = fakeRegistry();
   const runtime = new SidecarRuntime({
     creds: { agentId: 'agent-1', apiEndpoint: 'https://switch.test', token: 'tok' },
     locationId: 'proj-1',
@@ -49,8 +66,9 @@ function makeRuntime() {
     isPaneLive: () => true,
     log: silentLog,
     createConnection: factory,
+    registry,
   });
-  return { runtime, created };
+  return { runtime, created, registry };
 }
 
 const PTY_A = makePtyId('codex', 'session-a');
@@ -153,6 +171,7 @@ describe('SidecarRuntime (multi-session)', () => {
       isPaneLive: () => paneLive,
       log: silentLog,
       createConnection: factory,
+      registry: fakeRegistry(),
     });
     await runtime.handleHook(switchRoomHook('room-1', PTY_A));
     expect(runtime.connectedSessions()).toHaveLength(1);
