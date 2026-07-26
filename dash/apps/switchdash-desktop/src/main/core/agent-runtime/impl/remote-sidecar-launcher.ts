@@ -82,6 +82,26 @@ interface ReadyLine {
   /** Wire-contract version. Absent from a sidecar predating the field, which is
    * treated as 0. */
   protocolVersion: number | null;
+  /** OS process id of the running sidecar, for display. Absent from an older one. */
+  pid: number | null;
+}
+
+/**
+ * Read-only view of the sidecar running on the host, for the UI. Independent of
+ * whether this client's bundle matches — that comparison (the verdict) is the
+ * caller's to make, since it needs the client's own hash and protocol.
+ */
+export interface SidecarRunStatus {
+  running: boolean;
+  /** Whether this client can speak to it (protocol in range). */
+  compatible: boolean;
+  /** Build fingerprint the running sidecar reports for itself. */
+  hash: string | null;
+  protocolVersion: number | null;
+  epoch: number | null;
+  pid: number | null;
+  /** Sessions the running sidecar currently owns, from its durable state. */
+  liveSessions: number;
 }
 
 /** Narrow remote seam the launcher needs — satisfied by IExecutionContext + ssh-fs. */
@@ -132,7 +152,8 @@ function parseReady(raw: string): ReadyLine | null {
       'protocolVersion' in parsed && typeof parsed.protocolVersion === 'number'
         ? parsed.protocolVersion
         : null;
-    return { port: parsed.port, token: parsed.token, hash, epoch, protocolVersion };
+    const pid = 'pid' in parsed && typeof parsed.pid === 'number' ? parsed.pid : null;
+    return { port: parsed.port, token: parsed.token, hash, epoch, protocolVersion, pid };
   }
   return null;
 }
@@ -422,6 +443,45 @@ export class RemoteSidecarLauncher {
    * asks "can I talk to it", and answering that with the *upgrade* question made
    * every client on a different build report zero sessions and prune live rows.
    */
+  /**
+   * Read-only status of the sidecar on the host, for display. Never launches,
+   * deploys, or writes. Returns `running: false` when none is up; otherwise the
+   * running sidecar's self-reported identity plus its live-session count.
+   *
+   * The client-vs-host verdict is intentionally left to the caller — it needs
+   * this client's own bundle hash and protocol, which the launcher exposes via
+   * `localBundleHash()` and the shared protocol constant.
+   */
+  async readStatus(): Promise<SidecarRunStatus> {
+    const ready = await this.readRunning();
+    if (!ready) {
+      return {
+        running: false,
+        compatible: false,
+        hash: null,
+        protocolVersion: null,
+        epoch: null,
+        pid: null,
+        liveSessions: 0,
+      };
+    }
+    return {
+      running: true,
+      compatible: this.isCompatible(ready),
+      hash: ready.hash,
+      protocolVersion: ready.protocolVersion,
+      epoch: ready.epoch,
+      pid: ready.pid,
+      liveSessions: await this.runningSessionCount(),
+    };
+  }
+
+  /** This client's own bundle fingerprint, for the caller to compare against
+   * `readStatus().hash`. */
+  localBundleHash(): Promise<string> {
+    return this.hashBundle();
+  }
+
   async probeExisting(): Promise<SidecarEndpoint | null> {
     const ready = await this.readRunning();
     if (!ready) return null;
@@ -593,13 +653,18 @@ export class RemoteSidecarLauncher {
 
   /** Best-effort tail of the sidecar log, so a startup crash surfaces its actual
    * error (e.g. a SyntaxError from too-old node) instead of an opaque message. */
-  private async readLogTail(): Promise<string> {
+  private async readLogTail(lines = 20): Promise<string> {
     try {
-      const { stdout } = await this.host.exec('tail', ['-n', '20', this.logPath]);
+      const { stdout } = await this.host.exec('tail', ['-n', String(lines), this.logPath]);
       return stdout.trim();
     } catch {
       return '';
     }
+  }
+
+  /** Public log tail for the UI's debug panel. Best-effort — empty on any error. */
+  logTail(lines: number): Promise<string> {
+    return this.readLogTail(lines);
   }
 
   private async readReadyFile(): Promise<string | null> {
