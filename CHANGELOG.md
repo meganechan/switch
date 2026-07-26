@@ -117,6 +117,12 @@ below:
 
 ### [Unreleased]
 
+### [0.13.1] - 2026-07-26
+
+#### Fixed
+- Fix slow boot caused by the agent-storage migration, and restore sessions that
+  vanished after the 0.13.0 upgrade (CHOO-1440 follow-up).
+
 ### [0.13.0] - 2026-07-26
 
 #### Changed
