@@ -457,41 +457,11 @@ export async function fetchAllExternalUsers(server: SwitchServer): Promise<Remot
   return [...byId.values()];
 }
 
-/** A gateway child agent (e.g. a Claude Code subagent) of some parent agent. */
-export type RemoteChildAgent = {
-  id: string;
-  /** Server-side name, e.g. `<parent-name>.<subagent-name>`. */
-  name: string;
-};
-
-/**
- * The parent agent's child agents, from its `AgentDetail.children`
- * (`GET /agents/{id}`). Used to reconcile locally-discovered subagents against
- * what the gateway actually has registered. `parentName` is returned alongside
- * so callers can strip the `<parent>.<subagent>` prefix from child names.
- */
-export async function fetchAgentChildren(
-  server: SwitchServer,
-  parentAgentId: string
-): Promise<{ parentName: string; children: RemoteChildAgent[] }> {
-  const res = await gatewayFetch(server, `/agents/${encodeURIComponent(parentAgentId)}`, {
-    authenticated: true,
-  });
-  const json = (await res.json()) as {
-    name: string;
-    children?: Array<{ id: string; name: string }>;
-  };
-  return {
-    parentName: json.name,
-    children: (json.children ?? []).map((c) => ({ id: c.id, name: c.name })),
-  };
-}
-
 /** A subagent registered via the bulk endpoint. `apiKey` is a secret — keep it
  * in the main process (write it to the subagent's settings file); never pass it
  * to the renderer. */
 export type BulkRegisteredSubagent = {
-  subagentName: string;
+  agentName: string;
   name: string;
   id: string;
   apiKey: string;
@@ -507,7 +477,7 @@ export async function registerSubagentsBulk(
   server: SwitchServer,
   params: {
     parentAgentId: string;
-    subagents: { subagentName: string; description: string }[];
+    subagents: { agentName: string; description: string }[];
     /** Register every subagent with the `auto_session` connection model, so a
      * watcher auto-spawns a session when the subagent is addressed. */
     autoSession: boolean;
@@ -522,7 +492,7 @@ export async function registerSubagentsBulk(
       parent_agent_id: params.parentAgentId,
       options: params.autoSession ? { auto_session: true } : {},
       subagents: params.subagents.map((s) => ({
-        subagent_name: s.subagentName,
+        subagent_name: s.agentName,
         description: s.description,
       })),
       overwrite: params.overwrite ?? false,
@@ -532,7 +502,7 @@ export async function registerSubagentsBulk(
     results: Array<{ subagent_name: string; name: string; id: string; api_key: string }>;
   };
   return json.results.map((r) => ({
-    subagentName: r.subagent_name,
+    agentName: r.subagent_name,
     name: r.name,
     id: r.id,
     apiKey: r.api_key,

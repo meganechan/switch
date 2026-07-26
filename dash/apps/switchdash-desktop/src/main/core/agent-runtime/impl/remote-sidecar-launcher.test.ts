@@ -23,6 +23,7 @@ const CONFIG: SidecarLaunchConfig = {
   repoDir: '/home/dev/repo',
   deeplinkScheme: 'switchdash',
   launchSpec: SPEC,
+  credsSlug: 'claude-code.repo.me',
 };
 
 const readyLine = (hash: string | undefined = 'hash-v1'): string =>
@@ -126,9 +127,12 @@ describe('RemoteSidecarLauncher', () => {
       { local: '/local/dist-sidecar/sidecar.mjs', remote: '.switchdash/sidecar.mjs' },
     ]);
     const specWrite = calls.find((c) => c.command === 'sh' && isLaunchSpecWrite(c.args[1] ?? ''));
-    expect(specWrite!.args[1]).toContain('.switchdash/agent-launch-spec.json');
-    // Atomic: write to a per-process temp then mv into place, so agents sharing a
-    // repo dir can't interleave writes and leave a torn, unparseable spec file.
+    // Per-agent state path (keyed by the creds slug), not the shared per-dir path.
+    expect(specWrite!.args[1]).toContain(
+      '.switchdash/agents/claude-code.repo.me/agent-launch-spec.json'
+    );
+    // Atomic: write to a per-process temp then mv into place, so nothing observes
+    // a torn, unparseable spec file.
     expect(specWrite!.args[1]).toMatch(/> "\$tmp".*&& mv "\$tmp"/);
   });
 
@@ -154,6 +158,7 @@ describe('RemoteSidecarLauncher', () => {
     ]);
     const inner = launch!.args[6];
     expect(inner).toContain("SWITCHDASH_SIDECAR_REPO_DIR='/home/dev/repo'");
+    expect(inner).toContain("SWITCHDASH_SIDECAR_AGENT_SLUG='claude-code.repo.me'");
     expect(inner).not.toContain('SWITCHDASH_SIDECAR_LOCATION_ID');
     expect(inner).not.toContain('SWITCHDASH_SIDECAR_TMUX_TARGET');
     expect(inner).toContain('.switchdash/sidecar.mjs');
@@ -223,16 +228,18 @@ describe('RemoteSidecarLauncher', () => {
 });
 
 describe('agentSidecarTmuxName', () => {
-  it('is deterministic per repo dir and does not end in -sidecar', () => {
-    const a = agentSidecarTmuxName('/home/dev/repo');
-    expect(a).toBe(agentSidecarTmuxName('/home/dev/repo'));
-    expect(a).not.toBe(agentSidecarTmuxName('/home/dev/other'));
+  it('is deterministic per repo dir + slug and does not end in -sidecar', () => {
+    const a = agentSidecarTmuxName('/home/dev/repo', 'agent-a');
+    expect(a).toBe(agentSidecarTmuxName('/home/dev/repo', 'agent-a'));
+    expect(a).not.toBe(agentSidecarTmuxName('/home/dev/other', 'agent-a'));
+    // Two agents sharing one repo dir get distinct sidecars (CHOO-1440).
+    expect(a).not.toBe(agentSidecarTmuxName('/home/dev/repo', 'agent-b'));
     expect(a.endsWith('-sidecar')).toBe(false);
   });
 });
 
 describe('writeWatchEnabled', () => {
-  it('writes 1 / 0 to the watch-enabled flag file', async () => {
+  it('writes 1 / 0 to the agent-scoped watch-enabled flag file', async () => {
     const calls: ExecCall[] = [];
     const host: SidecarHost = {
       exec: async (command, args) => {
@@ -241,10 +248,10 @@ describe('writeWatchEnabled', () => {
       },
       putFile: async () => {},
     };
-    await writeWatchEnabled(host, true);
-    await writeWatchEnabled(host, false);
+    await writeWatchEnabled(host, 'agent-a', true);
+    await writeWatchEnabled(host, 'agent-a', false);
     expect(calls[0].args[1]).toContain('printf %s 1 > ');
-    expect(calls[0].args[1]).toContain('.switchdash/watch-enabled');
+    expect(calls[0].args[1]).toContain('.switchdash/agents/agent-a/watch-enabled');
     expect(calls[1].args[1]).toContain('printf %s 0 > ');
   });
 });

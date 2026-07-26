@@ -3,12 +3,22 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { HookEventLog, HookServer } from '@main/core/agent-hooks/hook-server';
-import { readSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
+import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
+import {
+  readSwitchAgentCredentials,
+  readSwitchAgentCredentialsFromSettings,
+} from '@main/core/switch-rooms/switch-credentials';
 import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
 import { NotificationWatcher } from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
+import {
+  LEGACY_LAUNCH_SPEC_REL_PATH,
+  LEGACY_WATCH_ENABLED_REL_PATH,
+  sidecarLaunchSpecRelPath,
+  sidecarWatchEnabledRelPath,
+} from './sidecar-paths';
 import { defaultRoomConnectionFactory, SidecarRuntime } from './sidecar-runtime';
 import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 
@@ -28,20 +38,21 @@ import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
  *    with no live session.
  *
  * Pure Node (no Electron, no database). The agent's Switch credentials come from
- * its `.claude/settings.local.json`; the provider-specific launch recipe for
- * auto-started sessions comes from the launch spec switchdash writes to the VM.
+ * its provider-neutral per-agent file `.switch/agents/<slug>.json` (the slug is
+ * passed in `SWITCHDASH_SIDECAR_AGENT_SLUG`), falling back to the legacy shared
+ * `.claude/settings.local.json` for un-migrated installs (CHOO-1440); the
+ * provider-specific launch recipe for auto-started sessions comes from the launch
+ * spec switchdash writes to the VM.
  * On startup it prints one JSON line to stdout — `{event:"ready",port,token}` —
  * so the launcher can point switchdash's remote sessions at this hook server.
  */
 
 const PANE_POLL_INTERVAL_MS = 2000;
-const LAUNCH_SPEC_REL_PATH = '.switchdash/agent-launch-spec.json';
-const WATCH_ENABLED_REL_PATH = '.switchdash/watch-enabled';
 
 const execFileAsync = promisify(execFile);
 
-async function readLaunchSpec(repoDir: string): Promise<AgentLaunchSpec> {
-  const specPath = path.join(repoDir, LAUNCH_SPEC_REL_PATH);
+async function readLaunchSpec(repoDir: string, specRelPath: string): Promise<AgentLaunchSpec> {
+  const specPath = path.join(repoDir, specRelPath);
   let raw: string;
   try {
     raw = await readFile(specPath, 'utf8');
@@ -61,13 +72,30 @@ async function main(): Promise<void> {
   const repoDir = requireEnv('SWITCHDASH_SIDECAR_REPO_DIR');
   const deeplinkScheme = process.env.SWITCHDASH_SIDECAR_DEEPLINK_SCHEME?.trim() || 'switchdash';
 
-  const creds = await readSwitchAgentCredentials(repoDir, log);
+  // Prefer the agent's provider-neutral per-agent creds file; fall back to the
+  // legacy shared settings.local.json for un-migrated installs (CHOO-1440).
+  const credsSlug = process.env.SWITCHDASH_SIDECAR_AGENT_SLUG?.trim();
+  const creds =
+    (credsSlug
+      ? await readSwitchAgentCredentialsFromSettings(agentSettingsPath(repoDir, credsSlug), log)
+      : null) ?? (await readSwitchAgentCredentials(repoDir, log));
   if (!creds) {
-    throw new Error(
-      `sidecar: no Switch credentials in ${repoDir}/.claude/settings.local.json — run remote setup first`
-    );
+    const where = credsSlug
+      ? agentSettingsPath(repoDir, credsSlug)
+      : `${repoDir}/.claude/settings.local.json`;
+    throw new Error(`sidecar: no Switch credentials at ${where} — run remote setup first`);
   }
-  const launchSpec = await readLaunchSpec(repoDir);
+
+  // Per-agent state paths, so multiple agents in one repo dir each drive their
+  // own sidecar without clobbering each other's spec/watch flag (CHOO-1440).
+  // Fall back to the legacy shared paths when launched without a slug.
+  const launchSpecRel = credsSlug
+    ? sidecarLaunchSpecRelPath(credsSlug)
+    : LEGACY_LAUNCH_SPEC_REL_PATH;
+  const watchEnabledRel = credsSlug
+    ? sidecarWatchEnabledRelPath(credsSlug)
+    : LEGACY_WATCH_ENABLED_REL_PATH;
+  const launchSpec = await readLaunchSpec(repoDir, launchSpecRel);
 
   // Pane-liveness cache: a background poll marks each active/pending tmux target
   // live or dead so injection defers (rather than fails) when a pane is briefly
@@ -180,6 +208,11 @@ async function main(): Promise<void> {
     hookPort: server.getPort(),
     hookToken: server.getToken(),
     runtime,
+    switchEnv: {
+      SWITCH_API_ENDPOINT: creds.apiEndpoint,
+      SWITCH_API_TOKEN: creds.token,
+      SWITCH_AGENT_ID: creds.agentId,
+    },
     isPaneLive,
     log,
   });
@@ -192,7 +225,7 @@ async function main(): Promise<void> {
   let watchEnabled = false;
   const refreshWatchEnabled = async (): Promise<void> => {
     try {
-      const raw = await readFile(path.join(repoDir, WATCH_ENABLED_REL_PATH), 'utf8');
+      const raw = await readFile(path.join(repoDir, watchEnabledRel), 'utf8');
       watchEnabled = raw.trim() === '1';
     } catch {
       watchEnabled = false;
@@ -207,7 +240,7 @@ async function main(): Promise<void> {
   const refreshLaunchSpec = async (): Promise<void> => {
     let spec: AgentLaunchSpec;
     try {
-      spec = await readLaunchSpec(repoDir);
+      spec = await readLaunchSpec(repoDir, launchSpecRel);
     } catch (error) {
       log.warn('sidecar: failed to re-read launch spec; keeping current', {
         error: String(error),

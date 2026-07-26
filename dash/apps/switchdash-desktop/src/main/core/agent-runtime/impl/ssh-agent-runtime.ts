@@ -206,6 +206,8 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       repoDir: this.sessionPath,
       deeplinkScheme: DEEPLINK_SCHEME,
       autoApprove: agent?.autoApprove ?? false,
+      credsSlug: agent?.definitionName ?? session.agentName ?? session.agentId,
+      definitionName: agent?.definitionName ?? session.agentName ?? null,
       ctx: this.ctx,
       connectionId: this.connectionId,
       host: this.createSidecarHost(),
@@ -344,6 +346,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       const providerConfig = await providerOverrideSettings.getItem(session.providerId);
       const agentSession = resolveAgentSessionCommandArgs(session, isResuming);
       const plugin = getPlugin(session.providerId);
+      const repoAgents = plugin.behavior.repoAgents;
 
       const binaryName = plugin.capabilities.hostDependency.binaryNames[0] ?? session.providerId;
       const executableCli = await resolveAgentExecutable({
@@ -357,6 +360,14 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       const agentCommand = plugin.behavior.prompt!.buildCommand({
         cli: executableCli,
         extraArgs: parseExtraArgs(providerConfig?.extraArgs),
+        // A remote agent runs as its own definition: the provider produces the
+        // run-as-name args (Claude → `--agent <name> --settings <neutral creds>`),
+        // resolved on the VM (sessionPath is remote). Distinct from user extra
+        // args (CHOO-1440).
+        agentArgs:
+          session.agentName && repoAgents
+            ? repoAgents.launchArgs(this.sessionPath, session.agentName)
+            : [],
         autoApprove: session.autoApprove ?? false,
         initialPrompt: agentSession.isResuming ? undefined : initialPrompt,
         sessionId: agentSession.sessionId,
@@ -367,6 +378,15 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
 
       const customEnv = providerConfig?.env ?? {};
       const providerEnv: Record<string, string> = { ...agentCommand.env, ...customEnv };
+
+      // The agent's Switch identity as real env vars (highest precedence): read
+      // from its neutral `.switch/agents/<name>.json` on the VM. A `--settings`
+      // file's env block is not reliably propagated to the spawned MCP server, so
+      // inject it directly, matching the local runtime.
+      const identityVars =
+        session.agentName && repoAgents
+          ? await repoAgents.readLaunchEnv(createRemotePluginFs(this.fs), session.agentName)
+          : {};
 
       const tmuxSessionName = this.tmux ? makeAgentTmuxSessionName(this.sessionId) : undefined;
 
@@ -419,7 +439,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       const sshCommand = resolveSshCommand(
         'agent',
         cfg,
-        { ...providerEnv, ...colorEnv, ...this.sessionEnvVars, ...hookEnv },
+        { ...providerEnv, ...colorEnv, ...this.sessionEnvVars, ...hookEnv, ...identityVars },
         profile
       );
 

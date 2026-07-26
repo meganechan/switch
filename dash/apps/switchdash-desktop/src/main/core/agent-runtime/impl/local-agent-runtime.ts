@@ -5,6 +5,7 @@ import { ensureHooksInstalled } from '@main/core/agent-hooks/hook-config-service
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
+import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
 import { localDependencyManager } from '@main/core/dependencies/dependency-managers';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import type { IExecutionContext } from '@main/core/execution-context/types';
@@ -19,6 +20,7 @@ import { getTerminalColorEnv } from '@main/core/pty/terminal-color-scheme';
 import { killTmuxSession, makeAgentTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { providerOverrideSettings } from '@main/core/settings/provider-settings-service';
+import { readAgentSwitchEnv } from '@main/core/switch-rooms/switch-credentials';
 import { switchNotificationPoller } from '@main/core/switch-rooms/switch-notification-poller';
 import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
 import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
@@ -130,7 +132,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       const providerConfig = await providerOverrideSettings.getItem(session.providerId);
       const agentSession = resolveAgentSessionCommandArgs(session, isResuming);
       const plugin = getPlugin(session.providerId);
-      const subagentsBehavior = plugin.behavior.subagents;
+      const repoAgents = plugin.behavior.repoAgents;
 
       const binaryName = plugin.capabilities.hostDependency.binaryNames[0] ?? session.providerId;
       const cachedStatePath = localDependencyManager.get(session.providerId as never)?.path;
@@ -142,15 +144,14 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         cachedStatePath,
       });
 
-      const extraArgs = [
-        ...parseExtraArgs(providerConfig?.extraArgs),
-        ...(session.subagentName && subagentsBehavior
-          ? subagentsBehavior.launchArgs(this.sessionPath, session.subagentName)
-          : []),
-      ];
       const agentCommand = plugin.behavior.prompt!.buildCommand({
         cli: executableCli,
-        extraArgs,
+        extraArgs: parseExtraArgs(providerConfig?.extraArgs),
+        // The provider owns how to run as the named agent (CHOO-1440).
+        agentArgs:
+          session.agentName && repoAgents
+            ? repoAgents.launchArgs(this.sessionPath, session.agentName)
+            : [],
         autoApprove: session.autoApprove ?? false,
         initialPrompt: agentSession.isResuming ? undefined : initialPrompt,
         sessionId: agentSession.sessionId,
@@ -185,17 +186,18 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       const port = agentHookService.getPort();
       const token = agentHookService.getToken();
       const colorEnv = await getTerminalColorEnv();
-      // A subagent session must talk to Switch as the subagent, not the parent
-      // whose creds live in `.claude/settings.local.json`. Real env vars outrank
-      // every settings file and reach the spawned MCP server, so inject them
-      // last (highest precedence).
+      // A session talks to Switch as its own agent, not whatever identity happens
+      // to sit in `.claude/settings.local.json`. Real env vars outrank every
+      // settings file and reach the spawned MCP server, so inject the agent's
+      // identity last (highest precedence): a subagent from its definition creds,
+      // and a plain agent from its provider-neutral `.switch/agents/<id>.json`
+      // (empty when absent — the session then falls back to settings.local.json,
+      // which Claude reads natively). Lets agents sharing a location keep distinct
+      // identities (CHOO-1440).
       const subagentVars =
-        session.subagentName && subagentsBehavior
-          ? await subagentsBehavior.readLaunchEnv(
-              createPluginFs(this.sessionPath),
-              session.subagentName
-            )
-          : {};
+        session.agentName && repoAgents
+          ? await repoAgents.readLaunchEnv(createPluginFs(this.sessionPath), session.agentName)
+          : await readAgentSwitchEnv(agentSettingsPath(this.sessionPath, session.agentId), log);
       const pty = spawnLocalPty({
         id: ptySessionId,
         command: resolved.command,

@@ -32,10 +32,16 @@ export async function generateAgentLaunchSpec(params: {
   deeplinkScheme: string;
   /** The agent's bypass-permissions setting, applied to auto-started sessions. */
   autoApprove: boolean;
+  /** The agent's definition name, so auto-started sessions launch as the
+   * definition (`--agent <name> --settings <neutral creds>`) with its own model,
+   * prompt, tools, and Switch identity. Null for a provider/agent with no
+   * on-disk definition (CHOO-1440). */
+  agentName: string | null;
   ctx: IExecutionContext;
   connectionId: string;
 }): Promise<AgentLaunchSpec> {
-  const { providerId, remoteRepoDir, deeplinkScheme, autoApprove, ctx, connectionId } = params;
+  const { providerId, remoteRepoDir, deeplinkScheme, autoApprove, agentName, ctx, connectionId } =
+    params;
   const plugin = getPlugin(providerId);
   if (!plugin.behavior.prompt) {
     throw new Error(
@@ -53,9 +59,13 @@ export async function generateAgentLaunchSpec(params: {
     connectionId,
   });
 
+  const repoAgents = plugin.behavior.repoAgents;
   const agentCommand = plugin.behavior.prompt.buildCommand({
     cli,
     extraArgs: parseExtraArgs(providerConfig?.extraArgs),
+    // The provider owns how to run as the named agent (CHOO-1440); kept distinct
+    // from user extra args.
+    agentArgs: agentName && repoAgents ? repoAgents.launchArgs(remoteRepoDir, agentName) : [],
     autoApprove,
     initialPrompt: INITIAL_PROMPT_PLACEHOLDER,
     sessionId: SESSION_ID_PLACEHOLDER,

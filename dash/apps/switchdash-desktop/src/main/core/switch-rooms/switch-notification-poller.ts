@@ -2,7 +2,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { eq } from 'drizzle-orm';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
-import { subagentSettingsPath } from '@main/core/agents/switch-settings-paths';
+import { agentSettingsPath, subagentSettingsPath } from '@main/core/agents/switch-settings-paths';
 import { getLocationById } from '@main/core/locations/store';
 import { isHumanInputRecent } from '@main/core/pty/human-activity';
 import { loadSessionWithAgent } from '@main/core/sessions/session-join';
@@ -97,22 +97,35 @@ class SwitchNotificationPoller {
     // not the parent's `.claude/settings.local.json` — otherwise it receives the
     // events addressed to the parent rather than to the subagent.
     const [sessionRow] = await db
-      .select({ config: sessions.config })
+      .select({ config: sessions.config, agentId: sessions.agentId })
       .from(sessions)
       .where(eq(sessions.id, ctx.sessionId))
       .limit(1);
-    const subagentName = sessionRow?.config?.subagentName;
+    const agentName = sessionRow?.config?.agentName;
+    const agentId = sessionRow?.agentId;
 
-    const creds = subagentName
-      ? await readSwitchAgentCredentialsFromSettings(
-          subagentSettingsPath(rootPath, subagentName),
+    // Credentials come from the agent's provider-neutral per-agent file — a
+    // subagent's `.switch/agents/<name>.json` or a plain agent's
+    // `.switch/agents/<agentId>.json` — so a session polls as its own identity
+    // even when agents share a location. Fall back to the legacy subagent path,
+    // then the location's `.claude/settings.local.json`, for un-migrated installs
+    // (CHOO-1440).
+    const creds = agentName
+      ? ((await readSwitchAgentCredentialsFromSettings(
+          agentSettingsPath(rootPath, agentName),
           log
-        )
-      : await readSwitchAgentCredentials(rootPath, log);
+        )) ??
+        (await readSwitchAgentCredentialsFromSettings(
+          subagentSettingsPath(rootPath, agentName),
+          log
+        )))
+      : ((agentId
+          ? await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, agentId), log)
+          : null) ?? (await readSwitchAgentCredentials(rootPath, log)));
     if (!creds) {
       log.warn(
         'SwitchNotificationPoller: missing Switch credentials (SWITCH_API_TOKEN/ENDPOINT/AGENT_ID) — cannot poll room',
-        { sessionId: ctx.sessionId, dir: rootPath, roomId, subagentName }
+        { sessionId: ctx.sessionId, dir: rootPath, roomId, agentName }
       );
       return;
     }

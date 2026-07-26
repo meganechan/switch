@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
 import { getAgentById } from '@main/core/agents/getAgentById';
-import { SWITCH_SUBAGENTS_DIR_RELATIVE } from '@main/core/agents/switch-settings-paths';
+import {
+  agentSettingsPath,
+  SWITCH_SUBAGENTS_DIR_RELATIVE,
+} from '@main/core/agents/switch-settings-paths';
 import { getLocationById } from '@main/core/locations/store';
 import { sessionService } from '@main/core/sessions/session-service';
 import { events } from '@main/lib/events';
@@ -39,12 +42,12 @@ const INFLIGHT_TTL_MS = 120_000;
 
 interface AgentWatcher {
   abort: AbortController;
-  /** Map key: the local agent id for a parent, or `parentId::subagentName`. */
+  /** Map key: the local agent id for a parent, or `parentId::agentName`. */
   key: string;
   /** Local agent that owns spawned sessions (the parent for a subagent). */
   localAgentId: string;
   /** When set, spawn sessions as this Claude Code subagent of `localAgentId`. */
-  subagentName?: string;
+  agentName?: string;
   creds: SwitchAgentCredentials;
   /** Room ids with a spawn in flight (booting / connecting) → guards against
    * duplicate spawns while a notification storm lands during the boot window. */
@@ -196,7 +199,13 @@ class AutoSessionWatcher {
       });
       return;
     }
-    const creds = await readSwitchAgentCredentials(rootPath, log);
+    // Read the agent's own identity from its provider-neutral per-agent file so
+    // agents sharing a location watch as themselves; fall back to the location's
+    // `.claude/settings.local.json` for un-migrated installs (CHOO-1440).
+    const slug = agent?.definitionName ?? localAgentId;
+    const creds =
+      (await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, slug), log)) ??
+      (await readSwitchAgentCredentials(rootPath, log));
     if (!creds) {
       log.warn('AutoSessionWatcher: missing Switch credentials; cannot watch', {
         localAgentId,
@@ -225,28 +234,29 @@ class AutoSessionWatcher {
       });
       return;
     }
-    const settingsPath = path.join(
-      rootPath,
-      SWITCH_SUBAGENTS_DIR_RELATIVE,
-      `${name}.settings.json`
-    );
-    const creds = await readSwitchAgentCredentialsFromSettings(settingsPath, log);
+    // A subagent's credentials now live in the provider-neutral
+    // `.switch/agents/<name>.json`; fall back to the legacy
+    // `.claude/switch-subagents/<name>.settings.json` for un-migrated installs
+    // (CHOO-1440).
+    const legacyPath = path.join(rootPath, SWITCH_SUBAGENTS_DIR_RELATIVE, `${name}.settings.json`);
+    const creds =
+      (await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, name), log)) ??
+      (await readSwitchAgentCredentialsFromSettings(legacyPath, log));
     if (!creds) {
       log.warn('AutoSessionWatcher: missing subagent credentials; cannot watch', {
         parentAgentId,
         name,
-        settingsPath,
       });
       return;
     }
 
-    this.startWatcher({ key, localAgentId: parentAgentId, subagentName: name, creds });
+    this.startWatcher({ key, localAgentId: parentAgentId, agentName: name, creds });
   }
 
   private startWatcher(init: {
     key: string;
     localAgentId: string;
-    subagentName?: string;
+    agentName?: string;
     creds: SwitchAgentCredentials;
   }): void {
     const abort = new AbortController();
@@ -255,7 +265,7 @@ class AutoSessionWatcher {
     log.info('AutoSessionWatcher: watching agent', {
       key: init.key,
       localAgentId: init.localAgentId,
-      subagentName: init.subagentName,
+      agentName: init.agentName,
       agentId: init.creds.agentId,
     });
 
@@ -402,7 +412,7 @@ class AutoSessionWatcher {
         const result = await sessionService.createSession({
           id: randomUUID(),
           agentId: watcher.localAgentId,
-          subagentName: watcher.subagentName,
+          agentName: watcher.agentName,
           title: `Switch room ${roomId}`,
           // Bootstrap: tell the fresh session to join the room. Once it calls
           // connect_to_room, the connect hook starts the per-room poller, which

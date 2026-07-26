@@ -1,6 +1,7 @@
 import type { Result } from '@switchdash/shared';
 import { suggestAgentDefaults } from '@main/core/agents/agent-defaults';
 import { propagateServerApiUrl } from '@main/core/agents/propagate-server-api-url';
+import { registerAgentIdentity } from '@main/core/agents/register-agent-identity';
 import { resolveAgentServers } from '@main/core/agents/resolve-servers';
 import { writeRemoteSwitchSettings } from '@main/core/agents/write-remote-switch-settings';
 import { writeSwitchSettings } from '@main/core/agents/write-switch-settings';
@@ -9,7 +10,6 @@ import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { isManagedServerRunning } from '@main/core/managed-switch-server/managed-server-status';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
-import type { AgentProviderKind } from '@shared/core/switch-servers/switch-servers';
 import type {
   AddressingPolicy,
   AddServerParams,
@@ -47,7 +47,6 @@ import {
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
-  registerKnownAgent,
   updateAddressingPolicy,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
@@ -69,53 +68,6 @@ async function requireServer(serverId: string): Promise<SwitchServer> {
     throw new Error(`No Switch server with id ${serverId}`);
   }
   return server;
-}
-
-type RegisterAgentInput = {
-  name: string;
-  description: string;
-  providerKind: AgentProviderKind;
-  repoDir: string;
-  notifyUser?: string;
-  autoSession?: boolean;
-};
-
-/**
- * Register a new Claude Code agent on `server` and map recoverable gateway
- * failures to a typed `ProvisionAgentResult` (unauthorized→unauthenticated,
- * 409→name-conflict, 400→invalid-name, else error). Shared by the local and
- * remote provisioning flows so the option mapping stays identical.
- */
-async function registerProvisionedAgent(
-  server: SwitchServer,
-  input: RegisterAgentInput
-): Promise<
-  | { kind: 'created'; id: string; apiKey: string }
-  | Exclude<ProvisionAgentResult, { kind: 'created' }>
-> {
-  try {
-    const registered = await registerKnownAgent(server, {
-      name: input.name,
-      description: input.description,
-      options: {
-        channels_enabled: input.providerKind === 'anthropic',
-        repo_dir: input.repoDir,
-        ...(input.autoSession ? { auto_session: true } : {}),
-        ...(input.notifyUser ? { notify_user: input.notifyUser } : {}),
-      },
-    });
-    return { kind: 'created', id: registered.id, apiKey: registered.apiKey };
-  } catch (cause) {
-    if (cause instanceof GatewayError) {
-      if (cause.kind === 'unauthorized') return { kind: 'unauthenticated' };
-      if (cause.kind === 'http' && cause.status === 409) return { kind: 'name-conflict' };
-      if (cause.kind === 'http' && cause.status === 400) {
-        return { kind: 'invalid-name', message: cause.message };
-      }
-      return { kind: 'error', message: cause.message };
-    }
-    throw cause;
-  }
 }
 
 export const switchServersController = createRPCController({
@@ -272,12 +224,10 @@ export const switchServersController = createRPCController({
   provisionAgent: async (params: ProvisionAgentParams): Promise<ProvisionAgentResult> => {
     const server = await requireServer(params.serverId);
 
-    const registered = await registerProvisionedAgent(server, {
+    const registered = await registerAgentIdentity(server, {
       name: params.name,
       description: params.description,
-      providerKind: params.providerKind,
       repoDir: params.dir,
-      notifyUser: params.notifyUser,
       autoSession: params.autoSession,
     });
     if (registered.kind !== 'created') return registered;
@@ -305,12 +255,10 @@ export const switchServersController = createRPCController({
   ): Promise<ProvisionAgentResult> => {
     const server = await requireServer(params.serverId);
 
-    const registered = await registerProvisionedAgent(server, {
+    const registered = await registerAgentIdentity(server, {
       name: params.name,
       description: params.description,
-      providerKind: params.providerKind,
       repoDir: params.remoteRepoDir,
-      notifyUser: params.notifyUser,
       autoSession: params.autoSession,
     });
     if (registered.kind !== 'created') return registered;

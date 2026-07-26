@@ -12,6 +12,7 @@ import type {
   StartAgentOnboardingOptions,
   StartAgentOnboardingResult,
 } from './agent-onboarding-types';
+import { agentsStore } from './agents-store';
 import {
   createUnmountedLocation,
   createUnregisteredLocation,
@@ -34,6 +35,17 @@ export class LocationManagerStore {
     if (!this._loadPromise) {
       this._loadPromise = this._doLoad();
     }
+    return this._loadPromise;
+  }
+
+  /**
+   * Force a fresh reconcile, bypassing the memoized initial {@link load}. Mounts
+   * any location that gained agents since the last load (and drops nothing that is
+   * already mounted). Called after onboarding agents into a directory so the new
+   * location appears immediately instead of only after a restart (CHOO-1440).
+   */
+  reload(): Promise<void> {
+    this._loadPromise = this._doLoad();
     return this._loadPromise;
   }
 
@@ -63,6 +75,29 @@ export class LocationManagerStore {
 
     const completion = await result.completion;
     return completion.success ? result.locationId : undefined;
+  }
+
+  /**
+   * Add a brand-new agent to a location (local or remote): mint its identity,
+   * write its definition + credentials, and create the row — all server-side via
+   * `addAgent` — then mount the resulting location so it shows immediately. The
+   * flat-agent create path (CHOO-1440); returns the typed `addAgent` result so
+   * the caller can surface recoverable gateway failures.
+   */
+  async addAgentAndOpen(
+    params: Parameters<typeof rpc.agents.addAgent>[0]
+  ): Promise<Awaited<ReturnType<typeof rpc.agents.addAgent>>> {
+    const result = await rpc.agents.addAgent(params);
+    if (result.kind === 'created') {
+      const location = (await rpc.locations.getLocations()).find(
+        (l) => l.id === result.agent.locationId
+      );
+      if (!location) {
+        throw new Error(`Added agent's location ${result.agent.locationId} not found`);
+      }
+      this._setAndOpenLocation(location.id, location);
+    }
+    return result;
   }
 
   async startAgentOnboarding(
@@ -258,17 +293,33 @@ export class LocationManagerStore {
     agentId: string,
     options: { deleteInSwitch: boolean }
   ): Promise<void> {
-    const snapshot = this.locations.get(locationId);
+    // A directory is a flat container of independent agents (CHOO-1440), so
+    // deleting one must remove only that agent — its siblings, and the location
+    // itself, stay put. Optimistically drop the agent from the cache; remove the
+    // location row only when it was this agent's last one.
+    const prevAgents = agentsStore.byLocation.get(locationId);
+    const remaining = (prevAgents ?? []).filter((a) => a.id !== agentId);
+    const locationSnapshot = remaining.length === 0 ? this.locations.get(locationId) : undefined;
+
     runInAction(() => {
-      this.locations.delete(locationId);
+      if (prevAgents) {
+        if (remaining.length > 0) agentsStore.byLocation.set(locationId, remaining);
+        else agentsStore.byLocation.delete(locationId);
+      }
+      if (remaining.length === 0) this.locations.delete(locationId);
     });
-    appState.navigation.revalidate();
+    if (remaining.length === 0) appState.navigation.revalidate();
+
     try {
       await rpc.agents.deleteAgent({ agentId, deleteInSwitch: options.deleteInSwitch });
+      // Reconcile against the source of truth (also corrects the optimistic guess).
+      await agentsStore.load();
     } catch (error) {
       runInAction(() => {
-        if (snapshot) this.locations.set(locationId, snapshot);
+        if (prevAgents) agentsStore.byLocation.set(locationId, prevAgents);
+        if (locationSnapshot) this.locations.set(locationId, locationSnapshot);
       });
+      if (locationSnapshot) appState.navigation.revalidate();
       throw error;
     }
   }

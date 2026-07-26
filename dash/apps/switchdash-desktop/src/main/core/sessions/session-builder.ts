@@ -1,3 +1,8 @@
+import { getAgentById } from '@main/core/agents/getAgentById';
+import {
+  agentSettingsRelativePath,
+  SWITCH_SETTINGS_RELATIVE_PATH,
+} from '@main/core/agents/switch-settings-paths';
 import type { LocationProvider } from '@main/core/locations/location-provider';
 import type { LocationRuntime } from '@main/core/locations/location-runtime';
 import { locationRuntimeRegistry } from '@main/core/locations/location-runtime-registry';
@@ -104,6 +109,21 @@ export async function buildSessionFromRuntime(
     settings
   );
 
+  // The remote preflight verifies the session's own creds file, keyed by the
+  // agent's NAME (`.switch/agents/<name>.json`). Resolve the name from the agent
+  // row's definitionName — the source of truth, so a session picks up the right
+  // name even if it was created (or restored) before the agent was migrated — and
+  // fall back to the session's own agentName. The agent-id path and the legacy
+  // shared `.claude/settings.local.json` are last-resort fallbacks for agents not
+  // yet migrated (CHOO-1440).
+  const agent = await getAgentById(session.agentId);
+  const slug = agent?.definitionName ?? session.agentName;
+  const credsRelPaths = [
+    ...(slug ? [agentSettingsRelativePath(slug)] : []),
+    agentSettingsRelativePath(session.agentId),
+    SWITCH_SETTINGS_RELATIVE_PATH,
+  ];
+
   return buildAgentRuntime(transport, {
     locationId: runtime.id,
     sessionId: session.id,
@@ -111,5 +131,6 @@ export async function buildSessionFromRuntime(
     tmuxEnabled,
     shellSetup,
     sessionEnvVars,
+    credsRelPaths,
   });
 }

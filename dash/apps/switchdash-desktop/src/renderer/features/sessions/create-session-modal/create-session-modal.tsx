@@ -37,6 +37,7 @@ import {
 import { Textarea } from '@renderer/lib/ui/textarea';
 import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
+import { representativeAgent } from '@shared/core/agents/agents';
 import type { RemoteAgentRoom } from '@shared/core/switch-servers/switch-servers';
 import { buildConnectPrompt } from './build-connect-prompt';
 
@@ -70,12 +71,12 @@ function useDefaultLocationId(propLocationId?: string): string | undefined {
 
 export const CreateSessionModal = observer(function CreateSessionModal({
   locationId,
-  subagentName,
+  agentName,
   onClose,
 }: BaseModalProps & {
   locationId?: string;
   /** When set, start the session as this Claude Code subagent of the agent. */
-  subagentName?: string;
+  agentName?: string;
   // Accepted for source compatibility with switchdash callers; ignored in switchdash v0.
   strategy?: string;
   initialPR?: unknown;
@@ -90,31 +91,23 @@ export const CreateSessionModal = observer(function CreateSessionModal({
 
   // A session belongs to an agent; resolve the location's agent up front so we
   // can offer the rooms it belongs to.
-  const agentQuery = useQuery({
-    queryKey: ['locationAgent', selectedLocationId],
-    queryFn: async () => {
-      const agents = await rpc.agents.getAgents(selectedLocationId);
-      return agents[0] ?? null;
-    },
+  const agentsQuery = useQuery({
+    queryKey: ['location-agents', selectedLocationId],
+    queryFn: () => rpc.agents.getAgents(selectedLocationId),
     enabled: !!selectedLocationId,
   });
-  const agent = agentQuery.data ?? null;
+  const locationAgents = agentsQuery.data ?? [];
+  const agent = representativeAgent(locationAgents) ?? null;
 
   // When launching as a subagent, the session joins rooms under the subagent's
-  // own Switch identity, so the room picker must use the subagent's id/server —
-  // not the parent agent's.
-  const subagentsQuery = useQuery({
-    queryKey: ['subagents', agent?.id],
-    queryFn: () => rpc.subagents.list(agent!.id),
-    enabled: !!agent && !!subagentName,
-  });
-  const subagent =
-    subagentName && subagentsQuery.data
-      ? (subagentsQuery.data.subagents.find((s) => s.name === subagentName) ?? null)
-      : null;
+  // own Switch identity — its own agent row (a definitionName agent) — so the
+  // room picker uses the subagent's id/server, not the parent agent's (CHOO-1440).
+  const subagent = agentName
+    ? (locationAgents.find((a) => a.definitionName === agentName) ?? null)
+    : null;
 
-  const serverId = subagentName ? (subagent?.serverId ?? null) : (agent?.serverId ?? null);
-  const switchAgentId = subagentName
+  const serverId = agentName ? (subagent?.serverId ?? null) : (agent?.serverId ?? null);
+  const switchAgentId = agentName
     ? (subagent?.switchAgentId ?? null)
     : (agent?.switchAgentId ?? null);
 
@@ -154,7 +147,8 @@ export const CreateSessionModal = observer(function CreateSessionModal({
     const initialPrompt = buildConnectPrompt(room?.roomName ?? null, chosenRole, prompt);
 
     void (async () => {
-      const resolvedAgent = agent ?? (await rpc.agents.getAgents(selectedLocationId))[0];
+      const resolvedAgent =
+        agent ?? representativeAgent(await rpc.agents.getAgents(selectedLocationId));
       if (!resolvedAgent) {
         log.error('spawn session failed: location has no agents', selectedLocationId);
         return;
@@ -168,7 +162,7 @@ export const CreateSessionModal = observer(function CreateSessionModal({
         title: trimmedName || 'Session',
         autoApprove: resolvedAgent.autoApprove,
         initialPrompt,
-        subagentName: subagentName || undefined,
+        agentName: agentName || undefined,
       });
       navigate('session', { locationId: selectedLocationId, sessionId: id });
       onClose();
@@ -179,7 +173,7 @@ export const CreateSessionModal = observer(function CreateSessionModal({
   return (
     <>
       <DialogHeader className="flex items-center gap-2">
-        <DialogTitle>{subagentName ? `New Session · @${subagentName}` : 'New Session'}</DialogTitle>
+        <DialogTitle>{agentName ? `New Session · @${agentName}` : 'New Session'}</DialogTitle>
       </DialogHeader>
       <DialogContentArea>
         <div className="flex w-full flex-col gap-5">

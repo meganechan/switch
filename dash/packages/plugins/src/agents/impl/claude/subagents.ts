@@ -1,12 +1,13 @@
 import path from 'node:path';
 import {
-  type ISubagentsBehavior,
-  type LocalSubagent,
+  type IRepoAgentsBehavior,
+  type LocalRepoAgent,
   type PluginFs,
-  type SubagentAttributes,
-  type SubagentCredentials,
-  type SubagentDefinition,
-  type SubagentField,
+  type RepoAgentAttributes,
+  type RepoAgentCredentials,
+  type RepoAgentDefinition,
+  type RepoAgentField,
+  SWITCH_AGENT_SETTINGS_DIR,
   SWITCH_CONNECTOR_TOOL_RULES,
 } from '@switchdash/core/agents/plugins';
 
@@ -46,7 +47,7 @@ const BOOLEAN_KEYS = new Set(['background']);
  * field keys match the `.claude/agents/<name>.md` frontmatter keys verbatim
  * (`prompt` being the body). hooks / mcpServers / skills are intentionally
  * omitted — they are nested/block-list YAML, edit the `.md` directly for those. */
-const CLAUDE_SUBAGENT_FIELDS: SubagentField[] = [
+const CLAUDE_SUBAGENT_FIELDS: RepoAgentField[] = [
   {
     key: 'name',
     label: 'Name',
@@ -243,13 +244,13 @@ function extractBody(content: string): string {
   return (match ? normalised.slice(match[0].length) : normalised).trim();
 }
 
-function toScalar(value: SubagentAttributes[string] | undefined): string {
+function toScalar(value: RepoAgentAttributes[string] | undefined): string {
   if (value === null || value === undefined) return '';
   if (Array.isArray(value)) return value.join(', ');
   return String(value).trim();
 }
 
-function toList(value: SubagentAttributes[string] | undefined): string[] {
+function toList(value: RepoAgentAttributes[string] | undefined): string[] {
   if (Array.isArray(value)) return value.map((v) => String(v).trim()).filter((v) => v.length > 0);
   if (typeof value === 'string') return splitList(value);
   return [];
@@ -262,7 +263,7 @@ function toList(value: SubagentAttributes[string] | undefined): string[] {
  * `tools` is omitted entirely, which inherits all tools. The body defaults to
  * the description when no system prompt is given.
  */
-function serializeDefinition(attributes: SubagentAttributes): string {
+function serializeDefinition(attributes: RepoAgentAttributes): string {
   const name = toScalar(attributes.name);
   const description = toScalar(attributes.description).replace(/\s*\r?\n\s*/g, ' ');
   const lines = ['---', `name: ${name}`, `description: ${description}`];
@@ -324,8 +325,28 @@ function parseSettingsObject(raw: string | null): Record<string, unknown> {
   }
 }
 
+/** Legacy per-subagent credentials file under `.claude/switch-subagents/`. */
 function settingsRelPath(name: string): string {
   return path.join(CLAUDE_SUBAGENTS.dirRelative, `${name}${CLAUDE_SUBAGENTS.settingsSuffix}`);
+}
+
+/** Provider-neutral per-agent credentials file (the current location). */
+function neutralSettingsRelPath(name: string): string {
+  return path.join(SWITCH_AGENT_SETTINGS_DIR, `${name}.json`);
+}
+
+/**
+ * Read an agent's credentials JSON, preferring the provider-neutral location and
+ * falling back to the legacy `.claude/switch-subagents/` file for installs not
+ * yet migrated (CHOO-1440).
+ */
+async function readCredsObject(
+  workspaceFs: PluginFs,
+  name: string
+): Promise<Record<string, unknown>> {
+  const neutral = await workspaceFs.read(neutralSettingsRelPath(name));
+  if (neutral !== null) return parseSettingsObject(neutral);
+  return parseSettingsObject(await workspaceFs.read(settingsRelPath(name)));
 }
 
 function definitionRelPath(name: string): string {
@@ -351,18 +372,37 @@ async function readDefinitionMeta(
   return { description: null, model: null };
 }
 
-export const claudeSubagentsBehavior: ISubagentsBehavior = {
-  async discoverLocal(workspaceFs, homeFs): Promise<LocalSubagent[]> {
-    const entries = await workspaceFs.list(CLAUDE_SUBAGENTS.dirRelative);
-    const names = entries
+export const claudeRepoAgentsBehavior: IRepoAgentsBehavior = {
+  async discoverLocal(workspaceFs, homeFs): Promise<LocalRepoAgent[]> {
+    // Names come from either credentials location — the neutral `.switch/agents`
+    // dir and the legacy `.claude/switch-subagents` dir — so both migrated and
+    // un-migrated installs are discovered (CHOO-1440). Plain agents' creds files
+    // live in the neutral dir too (keyed by agent id, no `.claude/agents/<name>.md`
+    // definition); a neutral file counts as a subagent only when it has a
+    // definition, so those are filtered out here.
+    const neutralCandidates = (await workspaceFs.list(SWITCH_AGENT_SETTINGS_DIR))
+      .filter((entry) => entry.endsWith('.json'))
+      .map((entry) => entry.slice(0, -'.json'.length))
+      .filter((name) => name.length > 0);
+    const neutralNames: string[] = [];
+    for (const name of neutralCandidates) {
+      if (
+        (await workspaceFs.exists(definitionRelPath(name))) ||
+        (await homeFs.exists(definitionRelPath(name)))
+      ) {
+        neutralNames.push(name);
+      }
+    }
+    const legacyNames = (await workspaceFs.list(CLAUDE_SUBAGENTS.dirRelative))
       .filter((entry) => entry.endsWith(CLAUDE_SUBAGENTS.settingsSuffix))
-      .map((entry) => entry.slice(0, -CLAUDE_SUBAGENTS.settingsSuffix.length))
+      .map((entry) => entry.slice(0, -CLAUDE_SUBAGENTS.settingsSuffix.length));
+    const names = [...new Set([...neutralNames, ...legacyNames])]
       .filter((name) => name.length > 0)
       .sort((a, b) => a.localeCompare(b));
 
     return Promise.all(
       names.map(async (name) => {
-        const settings = parseSettingsObject(await workspaceFs.read(settingsRelPath(name)));
+        const settings = await readCredsObject(workspaceFs, name);
         const env = (settings.env ?? {}) as Record<string, unknown>;
         const { description, model } = await readDefinitionMeta(workspaceFs, homeFs, name);
         return {
@@ -376,7 +416,7 @@ export const claudeSubagentsBehavior: ISubagentsBehavior = {
     );
   },
 
-  async discoverDefinitions(workspaceFs): Promise<SubagentDefinition[]> {
+  async discoverDefinitions(workspaceFs): Promise<RepoAgentDefinition[]> {
     const entries = await workspaceFs.list(CLAUDE_SUBAGENTS.definitionsDirRelative);
     const files = entries
       .filter((entry) => entry.endsWith(MD_SUFFIX))
@@ -400,17 +440,17 @@ export const claudeSubagentsBehavior: ISubagentsBehavior = {
     );
   },
 
-  launchArgs(sessionPath, subagentName): string[] {
+  launchArgs(workingDir, agentName): string[] {
     return [
       '--agent',
-      subagentName,
+      agentName,
       '--settings',
-      path.join(sessionPath, settingsRelPath(subagentName)),
+      path.join(workingDir, neutralSettingsRelPath(agentName)),
     ];
   },
 
-  async readLaunchEnv(workspaceFs, subagentName): Promise<Record<string, string>> {
-    const settings = parseSettingsObject(await workspaceFs.read(settingsRelPath(subagentName)));
+  async readLaunchEnv(workspaceFs, agentName): Promise<Record<string, string>> {
+    const settings = await readCredsObject(workspaceFs, agentName);
     const env = (settings.env ?? {}) as Record<string, unknown>;
     const result: Record<string, string> = {};
     for (const key of SWITCH_ENV_KEYS) {
@@ -420,14 +460,14 @@ export const claudeSubagentsBehavior: ISubagentsBehavior = {
     return result;
   },
 
-  async writeSettings(workspaceFs, credentials: SubagentCredentials): Promise<void> {
+  async writeCredentials(workspaceFs, credentials: RepoAgentCredentials): Promise<void> {
     // Keep the tokens out of git — `*` ignores everything in the directory.
-    const gitignoreRel = path.join(CLAUDE_SUBAGENTS.dirRelative, '.gitignore');
+    const gitignoreRel = path.join(SWITCH_AGENT_SETTINGS_DIR, '.gitignore');
     if (!(await workspaceFs.exists(gitignoreRel))) {
       await workspaceFs.write(gitignoreRel, '*\n');
     }
 
-    const relPath = settingsRelPath(credentials.subagentName);
+    const relPath = neutralSettingsRelPath(credentials.agentName);
     const existing = parseSettingsObject(await workspaceFs.read(relPath));
     const currentEnv = (existing.env ?? {}) as Record<string, unknown>;
     const currentPerms =
@@ -456,21 +496,21 @@ export const claudeSubagentsBehavior: ISubagentsBehavior = {
     await workspaceFs.write(relPath, `${JSON.stringify(settings, null, 2)}\n`);
   },
 
-  attributeFields(): SubagentField[] {
+  attributeFields(): RepoAgentField[] {
     return CLAUDE_SUBAGENT_FIELDS;
   },
 
-  async writeDefinition(workspaceFs, attributes: SubagentAttributes): Promise<void> {
+  async writeDefinition(workspaceFs, attributes: RepoAgentAttributes): Promise<void> {
     const name = toScalar(attributes.name);
     await workspaceFs.write(definitionRelPath(name), serializeDefinition(attributes));
   },
 
-  async readDefinition(workspaceFs, name): Promise<SubagentAttributes | null> {
+  async readDefinition(workspaceFs, name): Promise<RepoAgentAttributes | null> {
     const content = await workspaceFs.read(definitionRelPath(name));
     if (content === null) return null;
     const fields = parseFrontmatterFields(content);
 
-    const attributes: SubagentAttributes = {
+    const attributes: RepoAgentAttributes = {
       name: fields.name ?? name,
       description: fields.description ?? '',
       [BODY_KEY]: extractBody(content),
@@ -494,6 +534,7 @@ export const claudeSubagentsBehavior: ISubagentsBehavior = {
 
   async removeLocal(workspaceFs, name): Promise<void> {
     await workspaceFs.delete(definitionRelPath(name));
+    await workspaceFs.delete(neutralSettingsRelPath(name));
     await workspaceFs.delete(settingsRelPath(name));
   },
 };

@@ -14,13 +14,20 @@ import { log } from '@renderer/utils/logger';
  * also pushes the change to a remote agent's on-VM watcher so it takes effect
  * live (CHOO-1664).
  */
-export function AutoApproveSettingsSection({ locationId }: { locationId: string }) {
+export function AutoApproveSettingsSection({
+  locationId,
+  agentId,
+}: {
+  locationId: string;
+  /** Scope to a single agent (e.g. a subagent's own row); omit for every agent. */
+  agentId?: string;
+}) {
   const { data: agents } = useQuery({
     queryKey: ['location-agents', locationId],
     queryFn: () => rpc.agents.getAgents(locationId),
   });
 
-  const list = agents ?? [];
+  const list = (agents ?? []).filter((a) => !agentId || a.id === agentId);
   if (list.length === 0) return null;
   // Single-agent locations don't need the (directory-derived) agent name label —
   // the section title identifies the setting, so the toggle sits inline with it.

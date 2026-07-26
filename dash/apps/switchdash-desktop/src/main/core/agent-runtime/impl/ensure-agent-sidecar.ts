@@ -23,24 +23,41 @@ export async function ensureAgentSidecar(params: {
   deeplinkScheme: string;
   /** The agent's bypass-permissions setting, baked into the auto-start launch spec. */
   autoApprove: boolean;
+  /** Per-agent creds slug (definition name, else agent id) — selects the sidecar's
+   * `.switch/agents/<slug>.json` identity file (CHOO-1440). */
+  credsSlug: string;
+  /** The agent's definition name (null if none) — so auto-started sessions launch
+   * as the definition with its own identity. */
+  definitionName: string | null;
   ctx: IExecutionContext;
   connectionId: string;
   host: SidecarHost;
 }): Promise<SidecarEndpoint> {
-  const { providerId, repoDir, deeplinkScheme, autoApprove, ctx, connectionId, host } = params;
+  const {
+    providerId,
+    repoDir,
+    deeplinkScheme,
+    autoApprove,
+    credsSlug,
+    definitionName,
+    ctx,
+    connectionId,
+    host,
+  } = params;
   const launchSpec = await generateAgentLaunchSpec({
     providerId,
     remoteRepoDir: repoDir,
     deeplinkScheme,
     autoApprove,
+    agentName: definitionName,
     ctx,
     connectionId,
   });
   const launcher = new RemoteSidecarLauncher({
     host,
     bundlePath: resolveSidecarBundlePath(),
-    sidecarTmuxName: agentSidecarTmuxName(repoDir),
-    config: { repoDir, deeplinkScheme, launchSpec },
+    sidecarTmuxName: agentSidecarTmuxName(repoDir, credsSlug),
+    config: { repoDir, deeplinkScheme, launchSpec, credsSlug },
     log,
   });
   return launcher.deployAndLaunch();
@@ -60,24 +77,41 @@ export async function probeAgentSidecar(params: {
   /** The agent's bypass-permissions setting. Probe never writes the spec, so this
    * only shapes the (unused) config; pass the real value for consistency. */
   autoApprove: boolean;
+  /** Per-agent creds slug (definition name, else agent id). Probe never launches,
+   * so this only shapes the (unused) config; pass the real value for consistency. */
+  credsSlug: string;
+  /** The agent's definition name (null if none). Probe never launches; passed for
+   * consistency with ensureAgentSidecar. */
+  definitionName: string | null;
   ctx: IExecutionContext;
   connectionId: string;
   host: SidecarHost;
 }): Promise<SidecarEndpoint | null> {
-  const { providerId, repoDir, deeplinkScheme, autoApprove, ctx, connectionId, host } = params;
+  const {
+    providerId,
+    repoDir,
+    deeplinkScheme,
+    autoApprove,
+    credsSlug,
+    definitionName,
+    ctx,
+    connectionId,
+    host,
+  } = params;
   const launchSpec = await generateAgentLaunchSpec({
     providerId,
     remoteRepoDir: repoDir,
     deeplinkScheme,
     autoApprove,
+    agentName: definitionName,
     ctx,
     connectionId,
   });
   const launcher = new RemoteSidecarLauncher({
     host,
     bundlePath: resolveSidecarBundlePath(),
-    sidecarTmuxName: agentSidecarTmuxName(repoDir),
-    config: { repoDir, deeplinkScheme, launchSpec },
+    sidecarTmuxName: agentSidecarTmuxName(repoDir, credsSlug),
+    config: { repoDir, deeplinkScheme, launchSpec, credsSlug },
     log,
   });
   return launcher.probeExisting();
