@@ -24,6 +24,7 @@ import {
   sidecarReadyRelPath,
   sidecarWatchEnabledRelPath,
 } from './sidecar-paths';
+import { SIDECAR_PROTOCOL_VERSION } from './sidecar-protocol';
 import { defaultRoomConnectionFactory, SidecarRuntime } from './sidecar-runtime';
 import { SidecarStateStore } from './sidecar-state';
 import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
@@ -356,6 +357,7 @@ async function main(): Promise<void> {
     port: server.getPort(),
     token: server.getToken(),
     hash: bundleHash,
+    protocolVersion: SIDECAR_PROTOCOL_VERSION,
     epoch: store.epoch,
     pid: process.pid,
   })}\n`;

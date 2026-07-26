@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
 import { SIDECAR_BUNDLE_REL_PATH } from '../../../../sidecar/sidecar-paths';
+import { SIDECAR_PROTOCOL_VERSION } from '../../../../sidecar/sidecar-protocol';
 import {
   agentSidecarTmuxName,
   killSidecarSession,
@@ -32,8 +33,19 @@ const CONFIG: SidecarLaunchConfig = {
 const ENDPOINT_FILE = '/home/dev/repo/.switchdash/agents/claude-code.repo.me/endpoint';
 const ENDPOINT = { port: 4321, token: 'tok-abc', endpointFile: ENDPOINT_FILE };
 
-const readyLine = (hash: string | undefined = 'hash-v1', epoch = 1): string =>
-  `${JSON.stringify({ event: 'ready', port: 4321, token: 'tok-abc', hash, epoch })}\n`;
+const readyLine = (
+  hash: string | undefined = 'hash-v1',
+  epoch = 1,
+  protocolVersion: number | undefined = SIDECAR_PROTOCOL_VERSION
+): string =>
+  `${JSON.stringify({
+    event: 'ready',
+    port: 4321,
+    token: 'tok-abc',
+    hash,
+    epoch,
+    protocolVersion,
+  })}\n`;
 const noopLog = { debug: vi.fn(), warn: vi.fn() };
 
 interface ExecCall {
@@ -64,6 +76,10 @@ function makeHost(
     remoteBundleHash?: string;
     /** Simulates another client holding the host-side deploy lock. */
     lockHeld?: boolean;
+    /** Protocol the running sidecar reports (undefined = predates the field). */
+    readyProtocol?: number;
+    /** Sessions recorded in the running sidecar's durable state. */
+    liveSessions?: number;
     /** Bundle hash the (already-running) sidecar's ready line reports. */
     readyHash?: string;
     /** What `tail` of the sidecar log returns after a startup crash. */
@@ -72,6 +88,7 @@ function makeHost(
 ): { host: SidecarHost; calls: ExecCall[]; puts: Array<{ local: string; remote: string }> } {
   const existingSidecar = opts.existingSidecar ?? false;
   const readyHash = opts.readyHash ?? 'hash-v1';
+  const readyProtocol = 'readyProtocol' in opts ? opts.readyProtocol : SIDECAR_PROTOCOL_VERSION;
   const readyAfter = opts.readyAfter ?? 0;
   const diesAfter = opts.diesAfter ?? Infinity;
   const calls: ExecCall[] = [];
@@ -115,10 +132,18 @@ function makeHost(
         return { stdout: '', stderr: '' };
       }
       if (command === 'cat') {
-        if (existingSidecar) return { stdout: readyLine(readyHash, epoch), stderr: '' };
+        // The launcher reads two different files through `cat`.
+        if ((args[0] ?? '').endsWith('state.json')) {
+          const sessions = Array.from({ length: opts.liveSessions ?? 0 }, (_, i) => ({
+            sessionId: `s${i}`,
+          }));
+          return { stdout: JSON.stringify({ version: '1', epoch, sessions }), stderr: '' };
+        }
+        const line = readyLine(readyHash, epoch, readyProtocol);
+        if (existingSidecar) return { stdout: line, stderr: '' };
         const n = catReads++;
         if (n < readyAfter) throw new Error('no such file');
-        return { stdout: readyLine(readyHash, epoch), stderr: '' };
+        return { stdout: line, stderr: '' };
       }
       if (command === 'tail') {
         return { stdout: opts.logTail ?? '', stderr: '' };
@@ -311,6 +336,74 @@ describe('RemoteSidecarLauncher', () => {
       command: 'tmux',
       args: ['kill-session', '-t', '=switchdash-sidecar-abc'],
     });
+  });
+});
+
+describe('RemoteSidecarLauncher versioning', () => {
+  it('probes a running sidecar of a DIFFERENT build — a build difference is not an incompatibility', async () => {
+    // The two-client kill-loop: each client judged the other's sidecar unusable
+    // purely because its bundle hash differed, killed it, relaunched, and
+    // reported zero sessions in between — pruning live rows on both sides.
+    const { host, calls } = makeHost({ existingSidecar: true, readyHash: 'hash-other' });
+
+    const endpoint = await makeLauncher(host).probeExisting();
+
+    expect(endpoint).toEqual(ENDPOINT);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('refuses to probe a sidecar speaking a protocol it cannot support', async () => {
+    const { host } = makeHost({
+      existingSidecar: true,
+      readyProtocol: SIDECAR_PROTOCOL_VERSION + 1,
+    });
+
+    expect(await makeLauncher(host).probeExisting()).toBeNull();
+  });
+
+  it('treats a sidecar predating the protocol field as version 0, still usable', async () => {
+    const { host } = makeHost({ existingSidecar: true, readyProtocol: undefined });
+
+    expect(await makeLauncher(host).probeExisting()).toEqual(ENDPOINT);
+  });
+
+  it('defers an available upgrade while the sidecar has live sessions', async () => {
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyHash: 'hash-old',
+      liveSessions: 2,
+    });
+
+    const endpoint = await makeLauncher(host).deployAndLaunch();
+
+    expect(endpoint).toEqual(ENDPOINT);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('takes the upgrade once the sidecar is idle', async () => {
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyHash: 'hash-old',
+      liveSessions: 0,
+    });
+
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(true);
+  });
+
+  it('replaces an incompatible sidecar even when sessions are live', async () => {
+    // Compatibility is the one reason worth interrupting work for: we cannot
+    // talk to it at all, so deferring would mean never recovering.
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyProtocol: SIDECAR_PROTOCOL_VERSION + 1,
+      liveSessions: 3,
+    });
+
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(true);
   });
 });
 
