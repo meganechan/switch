@@ -70,6 +70,9 @@ const h = vi.hoisted(() => {
     ),
     discoverLocal: vi.fn(async () => []),
     updateAgent: vi.fn(async () => undefined),
+    isComplete: vi.fn(async () => false),
+    markComplete: vi.fn(async () => undefined),
+    backfill: vi.fn(async () => 0),
   };
 });
 
@@ -101,6 +104,13 @@ vi.mock('./updateAgent', () => ({ updateAgent: h.updateAgent }));
 vi.mock('@main/core/switch-servers/gateway-client', () => ({ fetchAgentDetail: vi.fn() }));
 vi.mock('@main/core/switch-servers/servers-store', () => ({ getServer: vi.fn() }));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
+vi.mock('./agent-storage-migration-marker', () => ({
+  isAgentStorageMigrationComplete: h.isComplete,
+  markAgentStorageMigrationComplete: h.markComplete,
+}));
+vi.mock('@main/core/sessions/operations/backfillSessionAgentName', () => ({
+  backfillSessionAgentName: h.backfill,
+}));
 
 import { migrateAgentStorage } from './migrate-agent-storage';
 
@@ -173,5 +183,76 @@ describe('migrateAgentStorage', () => {
 
     expect(h.writeCredentials).not.toHaveBeenCalled();
     expect(await ws.exists('.switch/agents/cc-hoot-main.json')).toBe(false);
+  });
+
+  it('skips the whole pass (no workspace opened) once the marker is set', async () => {
+    h.isComplete.mockResolvedValueOnce(true);
+    const resolveWorkspaceFsFor = (await import('./agent-workspace-fs')).resolveWorkspaceFsFor;
+
+    await migrateAgentStorage();
+
+    expect(resolveWorkspaceFsFor).not.toHaveBeenCalled();
+    expect(h.writeCredentials).not.toHaveBeenCalled();
+    expect(h.markComplete).not.toHaveBeenCalled();
+  });
+
+  it('latches the marker after a clean pass', async () => {
+    h.state.workspace = fakeFs({
+      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
+      '.claude/agents/cc-hoot-main.md': '# def',
+    });
+
+    await migrateAgentStorage();
+
+    expect(h.markComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not latch the marker when an agent migration throws', async () => {
+    h.state.workspace = fakeFs({
+      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
+      '.claude/agents/cc-hoot-main.md': '# def',
+    });
+    h.readDefinition.mockRejectedValueOnce(new Error('host unreachable'));
+
+    await migrateAgentStorage();
+
+    expect(h.markComplete).not.toHaveBeenCalled();
+  });
+
+  it('does not latch the marker when an agent name cannot be resolved', async () => {
+    h.state.agents = [{ ...baseAgent, definitionName: null }];
+    h.discoverLocal.mockResolvedValueOnce([]);
+    h.state.workspace = fakeFs({});
+
+    await migrateAgentStorage();
+
+    expect(h.markComplete).not.toHaveBeenCalled();
+  });
+
+  it('backfills session agentName so migrated sessions stay grouped under the agent', async () => {
+    h.state.workspace = fakeFs({
+      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
+      '.claude/agents/cc-hoot-main.md': '# def',
+    });
+
+    await migrateAgentStorage();
+
+    expect(h.backfill).toHaveBeenCalledWith('agent-id-1', 'cc-hoot-main');
+  });
+
+  it('backfills even when definitionName was already set (repairs a prior migration)', async () => {
+    // definitionName is already populated (an earlier migration ran) but old
+    // sessions still carry no agentName — the backfill must still repair them.
+    h.state.agents = [{ ...baseAgent, definitionName: 'cc-hoot-main' }];
+    h.backfill.mockResolvedValueOnce(3);
+    h.state.workspace = fakeFs({
+      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
+      '.claude/agents/cc-hoot-main.md': '# def',
+    });
+
+    await migrateAgentStorage();
+
+    expect(h.updateAgent).not.toHaveBeenCalled();
+    expect(h.backfill).toHaveBeenCalledWith('agent-id-1', 'cc-hoot-main');
   });
 });
