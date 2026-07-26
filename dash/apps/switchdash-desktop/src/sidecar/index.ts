@@ -22,6 +22,7 @@ import {
   sidecarWatchEnabledRelPath,
 } from './sidecar-paths';
 import { defaultRoomConnectionFactory, SidecarRuntime } from './sidecar-runtime';
+import { SidecarStateStore } from './sidecar-state';
 import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 
 /**
@@ -128,6 +129,16 @@ async function main(): Promise<void> {
     }
   };
 
+  // Durable session registry. Restored entries whose pane is gone are dropped
+  // here, so what survives is what is actually still running on the host.
+  const stateSlug = credsSlug ?? 'default';
+  const store = await SidecarStateStore.open({
+    repoDir,
+    slug: stateSlug,
+    isPaneAlive: hasSession,
+    log,
+  });
+
   const runtime = new SidecarRuntime({
     creds,
     deeplinkScheme,
@@ -135,7 +146,22 @@ async function main(): Promise<void> {
     isPaneLive,
     log,
     createConnection: defaultRoomConnectionFactory,
+    registry: store,
   });
+
+  // Bring each restored session's room connection back up. The agent is still
+  // sitting in its pane and still a member of the room server-side; only our
+  // poll + injection loop died with the previous process, and an idle agent
+  // would never post the hook that would otherwise rebuild it.
+  for (const entry of store.entries()) {
+    if (!entry.roomId) continue;
+    liveTargets.add(entry.tmuxTarget); // seed, so injection is not deferred pre-poll
+    runtime.restoreSession({
+      sessionId: entry.sessionId,
+      roomId: entry.roomId,
+      providerId: entry.providerId,
+    });
+  }
 
   // Every raw hook the agents post is buffered so switchdash can replay it
   // through its own hook path (room/status/session) while the UI is attached;
@@ -168,9 +194,12 @@ async function main(): Promise<void> {
         // Every live agent pane THIS sidecar owns, room or not — so bare sessions
         // are discoverable. Scope by hasSeen: tmux names carry no repo/agent, so
         // the VM-wide enumeration must be filtered to this sidecar's sessions.
+        // That ownership is durable, so a pane restored across a restart is
+        // reported immediately rather than only once its agent next speaks —
+        // otherwise clients read the gap as "deleted" and prune a live session.
         for (const sessionId of await listAgentSessionIds()) {
           if (runtime.hasSeen(sessionId) && !byId.has(sessionId)) {
-            byId.set(sessionId, null);
+            byId.set(sessionId, store.roomIdFor(sessionId));
           }
         }
         // Room-attending / watcher-spawned sessions overwrite with their room id.
@@ -312,7 +341,9 @@ async function main(): Promise<void> {
     watcher?.stop();
     runtime.stop();
     server.stop();
-    process.exit(0);
+    // Flush any debounced state change before exiting, so a clean restart (the
+    // upgrade path) resumes from the sessions we actually had.
+    void store.close().finally(() => process.exit(0));
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
