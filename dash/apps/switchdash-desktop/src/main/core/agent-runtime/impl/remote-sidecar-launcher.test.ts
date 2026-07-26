@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
+import { SIDECAR_BUNDLE_REL_PATH } from '../../../../sidecar/sidecar-paths';
 import {
   agentSidecarTmuxName,
   killSidecarSession,
@@ -31,8 +32,8 @@ const CONFIG: SidecarLaunchConfig = {
 const ENDPOINT_FILE = '/home/dev/repo/.switchdash/agents/claude-code.repo.me/endpoint';
 const ENDPOINT = { port: 4321, token: 'tok-abc', endpointFile: ENDPOINT_FILE };
 
-const readyLine = (hash: string | undefined = 'hash-v1'): string =>
-  `${JSON.stringify({ event: 'ready', port: 4321, token: 'tok-abc', hash })}\n`;
+const readyLine = (hash: string | undefined = 'hash-v1', epoch = 1): string =>
+  `${JSON.stringify({ event: 'ready', port: 4321, token: 'tok-abc', hash, epoch })}\n`;
 const noopLog = { debug: vi.fn(), warn: vi.fn() };
 
 interface ExecCall {
@@ -43,8 +44,16 @@ interface ExecCall {
 function isLaunchSpecWrite(script: string): boolean {
   return script.includes('base64 -d');
 }
-function isBundleHashWrite(script: string): boolean {
-  return script.includes('printf %s') && script.includes('.sha256');
+function isDeployLock(script: string): boolean {
+  return script.includes('deploy.lock') && script.includes('mkdir');
+}
+function isLockRelease(script: string): boolean {
+  // The acquire script also contains an `rm -rf` (its stale-break branch), so
+  // match only the standalone release.
+  return script.startsWith('rm -rf') && script.includes('deploy.lock');
+}
+function isBundleRename(script: string): boolean {
+  return script.startsWith('mv ');
 }
 
 function makeHost(
@@ -53,6 +62,8 @@ function makeHost(
     readyAfter?: number;
     diesAfter?: number;
     remoteBundleHash?: string;
+    /** Simulates another client holding the host-side deploy lock. */
+    lockHeld?: boolean;
     /** Bundle hash the (already-running) sidecar's ready line reports. */
     readyHash?: string;
     /** What `tail` of the sidecar log returns after a startup crash. */
@@ -60,7 +71,7 @@ function makeHost(
   } = {}
 ): { host: SidecarHost; calls: ExecCall[]; puts: Array<{ local: string; remote: string }> } {
   const existingSidecar = opts.existingSidecar ?? false;
-  const readyLineOut = readyLine(opts.readyHash ?? 'hash-v1');
+  const readyHash = opts.readyHash ?? 'hash-v1';
   const readyAfter = opts.readyAfter ?? 0;
   const diesAfter = opts.diesAfter ?? Infinity;
   const calls: ExecCall[] = [];
@@ -68,18 +79,29 @@ function makeHost(
   let sidecarExists = existingSidecar;
   let catReads = 0;
   let aliveChecks = 0;
+  // The real sidecar bumps its epoch on every start; the launcher relies on
+  // that to tell a freshly-launched process from the one it just killed.
+  let epoch = 1;
 
   const host: SidecarHost = {
     async exec(command, args) {
       calls.push({ command, args });
       if (command === 'sh') {
         const script = args[1] ?? '';
-        if (isLaunchSpecWrite(script) || isBundleHashWrite(script))
+        if (isDeployLock(script)) {
+          // `mkdir` succeeds unless another client holds the lock.
+          return { stdout: opts.lockHeld ? 'busy' : 'acquired', stderr: '' };
+        }
+        if (isLaunchSpecWrite(script) || isLockRelease(script) || isBundleRename(script)) {
           return { stdout: '', stderr: '' };
-        return { stdout: opts.remoteBundleHash ?? '', stderr: '' }; // prepareDir hash read
+        }
+        // prepareDir: `sha256sum <bundle>` output is "<hash>  <path>".
+        const remote = opts.remoteBundleHash;
+        return { stdout: remote ? `${remote}  ${SIDECAR_BUNDLE_REL_PATH}` : '', stderr: '' };
       }
       if (command === 'tmux' && args[0] === 'new-session') {
         sidecarExists = true;
+        epoch += 1;
         return { stdout: '', stderr: '' };
       }
       if (command === 'tmux' && args[0] === 'kill-session') {
@@ -93,10 +115,10 @@ function makeHost(
         return { stdout: '', stderr: '' };
       }
       if (command === 'cat') {
-        if (existingSidecar) return { stdout: readyLineOut, stderr: '' };
+        if (existingSidecar) return { stdout: readyLine(readyHash, epoch), stderr: '' };
         const n = catReads++;
         if (n < readyAfter) throw new Error('no such file');
-        return { stdout: readyLineOut, stderr: '' };
+        return { stdout: readyLine(readyHash, epoch), stderr: '' };
       }
       if (command === 'tail') {
         return { stdout: opts.logTail ?? '', stderr: '' };
@@ -128,9 +150,14 @@ describe('RemoteSidecarLauncher', () => {
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
     expect(endpoint).toEqual(ENDPOINT);
-    expect(puts).toEqual([
-      { local: '/local/dist-sidecar/sidecar.mjs', remote: '.switchdash/sidecar.mjs' },
-    ]);
+    // The bundle lands on a temp path and is renamed into place: an SFTP
+    // overwrite of the live file is observable half-written, and node loading
+    // it mid-transfer dies on a SyntaxError.
+    expect(puts).toHaveLength(1);
+    expect(puts[0]!.local).toBe('/local/dist-sidecar/sidecar.mjs');
+    expect(puts[0]!.remote).toMatch(/^\.switchdash\/sidecar\.mjs\.\d+\.tmp$/);
+    const rename = calls.find((c) => c.command === 'sh' && isBundleRename(c.args[1] ?? ''));
+    expect(rename!.args[1]).toContain(`mv '${puts[0]!.remote}' '.switchdash/sidecar.mjs'`);
     const specWrite = calls.find((c) => c.command === 'sh' && isLaunchSpecWrite(c.args[1] ?? ''));
     // Per-agent state path (keyed by the creds slug), not the shared per-dir path.
     expect(specWrite!.args[1]).toContain(
@@ -200,6 +227,61 @@ describe('RemoteSidecarLauncher', () => {
     expect(
       calls.find((c) => c.command === 'sh' && isLaunchSpecWrite(c.args[1] ?? ''))
     ).toBeDefined();
+  });
+
+  it('does not delete the ready file, so a healthy sidecar stays discoverable', async () => {
+    // Clearing it up front made a running sidecar invisible to every other
+    // client for the length of the deploy — and permanently if the deploy died.
+    const { host, calls } = makeHost();
+    await makeLauncher(host).deployAndLaunch();
+
+    const removedReady = calls.some(
+      (c) =>
+        c.command === 'sh' &&
+        (c.args[1] ?? '').includes('rm -f') &&
+        (c.args[1] ?? '').includes('sidecar.ready')
+    );
+    expect(removedReady).toBe(false);
+  });
+
+  it('takes the deploy lock before replacing the sidecar, and releases it after', async () => {
+    const { host, calls } = makeHost();
+    await makeLauncher(host).deployAndLaunch();
+
+    const lockIdx = calls.findIndex((c) => c.command === 'sh' && isDeployLock(c.args[1] ?? ''));
+    const killIdx = calls.findIndex((c) => c.command === 'tmux' && c.args[0] === 'kill-session');
+    const releaseIdx = calls.findIndex((c) => c.command === 'sh' && isLockRelease(c.args[1] ?? ''));
+
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(lockIdx).toBeLessThan(killIdx);
+    expect(releaseIdx).toBeGreaterThan(killIdx);
+  });
+
+  it('refuses to replace the sidecar while another client holds the deploy lock', async () => {
+    // Better to fail loudly than to race a concurrent deploy: both clients
+    // would overwrite the bundle under each other and kill each other's process.
+    const { host, calls } = makeHost({ lockHeld: true });
+
+    await expect(makeLauncher(host).deployAndLaunch()).rejects.toThrow(/another client/i);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('releases the deploy lock even when the launch fails', async () => {
+    const { host, calls } = makeHost({ diesAfter: 1 });
+
+    await expect(makeLauncher(host).deployAndLaunch()).rejects.toThrow();
+    expect(calls.some((c) => c.command === 'sh' && isLockRelease(c.args[1] ?? ''))).toBe(true);
+  });
+
+  it('hashes the deployed bundle on the host instead of trusting a sidecar hash file', async () => {
+    const { host, calls, puts } = makeHost({ remoteBundleHash: 'hash-v1' });
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'sh' && (c.args[1] ?? '').includes('sha256sum'))).toBe(
+      true
+    );
+    // Identical bundle already on the host — no re-upload.
+    expect(puts).toHaveLength(0);
   });
 
   it('relaunches a running sidecar whose bundle hash is stale (upgrade takes effect)', async () => {

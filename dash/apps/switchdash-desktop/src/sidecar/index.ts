@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { HookEventLog, HookServer } from '@main/core/agent-hooks/hook-server';
 import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
@@ -11,7 +13,7 @@ import {
 import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
 import { atomicWriteFile } from './atomic-file';
-import { NotificationWatcher } from './notification-watcher';
+import { NotificationWatcher, type WatcherLogger } from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
 import {
@@ -19,6 +21,7 @@ import {
   LEGACY_WATCH_ENABLED_REL_PATH,
   sidecarEndpointRelPath,
   sidecarLaunchSpecRelPath,
+  sidecarReadyRelPath,
   sidecarWatchEnabledRelPath,
 } from './sidecar-paths';
 import { defaultRoomConnectionFactory, SidecarRuntime } from './sidecar-runtime';
@@ -53,6 +56,26 @@ import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 const PANE_POLL_INTERVAL_MS = 2000;
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * sha256 of the bundle file this process was actually loaded from.
+ *
+ * Deriving it here rather than trusting the launcher's env closes the window
+ * where a concurrent deploy replaces the bundle between the launcher hashing it
+ * and node reading it — after which the sidecar would advertise one build while
+ * running another, and every client would happily reattach to it forever.
+ */
+async function hashOwnBundle(log: WatcherLogger): Promise<string | null> {
+  try {
+    const self = fileURLToPath(import.meta.url);
+    return createHash('sha256')
+      .update(await readFile(self))
+      .digest('hex');
+  } catch (error) {
+    log.warn('sidecar: could not hash own bundle', { error: String(error) });
+    return null;
+  }
+}
 
 async function readLaunchSpec(repoDir: string, specRelPath: string): Promise<AgentLaunchSpec> {
   const specPath = path.join(repoDir, specRelPath);
@@ -324,17 +347,25 @@ async function main(): Promise<void> {
   void refresh();
   const paneTimer = setInterval(() => void refresh(), PANE_POLL_INTERVAL_MS);
 
-  // Echo the bundle hash switchdash launched us with so it can tell, on reattach,
-  // whether this running process is the current bundle or a stale one to replace.
-  const bundleHash = process.env.SWITCHDASH_SIDECAR_BUNDLE_HASH?.trim() || undefined;
-  process.stdout.write(
-    `${JSON.stringify({
-      event: 'ready',
-      port: server.getPort(),
-      token: server.getToken(),
-      hash: bundleHash,
-    })}\n`
-  );
+  // Hash our OWN bytes rather than echoing the hash we were launched with: the
+  // launcher can skip an upload it believes is redundant and be wrong, and a
+  // sidecar that advertises a build it is not running is undetectable.
+  const bundleHash = await hashOwnBundle(log);
+  const readyLine = `${JSON.stringify({
+    event: 'ready',
+    port: server.getPort(),
+    token: server.getToken(),
+    hash: bundleHash,
+    epoch: store.epoch,
+    pid: process.pid,
+  })}\n`;
+  // Write the ready file ourselves, atomically, instead of letting the shell
+  // truncate it on redirect. It is the only record of the running sidecar's
+  // endpoint, so a reader arriving mid-startup must see the previous complete
+  // line or the new one — never an empty file, which reads as "no sidecar" and
+  // sends that client off to kill and relaunch a healthy process.
+  await atomicWriteFile(path.join(repoDir, sidecarReadyRelPath(stateSlug)), readyLine);
+  process.stdout.write(readyLine);
 
   const shutdown = (): void => {
     clearInterval(paneTimer);

@@ -12,9 +12,16 @@
 
 export const SIDECAR_DIR = '.switchdash';
 
-/** Shared sidecar bundle + its hash (identical for every agent in the dir). */
+/**
+ * Shared sidecar bundle (identical for every agent in the dir).
+ *
+ * There is deliberately no companion hash file: keeping one alongside the
+ * bundle meant two writes that could tear or fall out of step, and a stale hash
+ * silently defeats the comparison it exists to serve. The bundle is hashed from
+ * its own bytes instead — on the host when deciding whether to upload, and by
+ * the sidecar itself when reporting what it is running.
+ */
 export const SIDECAR_BUNDLE_REL_PATH = `${SIDECAR_DIR}/sidecar.mjs`;
-export const SIDECAR_BUNDLE_HASH_REL_PATH = `${SIDECAR_DIR}/sidecar.mjs.sha256`;
 
 /** Per-agent state directory, keyed by the creds slug (definition name / id). */
 export function sidecarAgentDir(slug: string): string {
