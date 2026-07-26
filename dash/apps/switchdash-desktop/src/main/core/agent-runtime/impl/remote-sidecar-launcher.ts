@@ -15,9 +15,10 @@ import {
   sidecarWatchEnabledRelPath,
 } from '../../../../sidecar/sidecar-paths';
 import {
-  MIN_SUPPORTED_SIDECAR_PROTOCOL,
-  SIDECAR_PROTOCOL_VERSION,
-} from '../../../../sidecar/sidecar-protocol';
+  MIN_SUPPORTED_SIDECAR_MAJOR,
+  SIDECAR_CLIENT_MAJOR,
+  sidecarMajor,
+} from '../../../../sidecar/sidecar-version';
 
 /**
  * Deploys and launches the switchdash remote runtime sidecar on the agent's VM
@@ -31,7 +32,8 @@ import {
  * `{event:"ready",port,token,hash,epoch,pid}` to its ready file atomically once
  * bound; the launcher polls that file until a line from the incarnation it just
  * started appears, then returns the endpoint so the caller can point its remote
- * sessions' hook env at the VM-local server.
+ * sessions' hook env at the VM-local server. The ready line also carries the
+ * sidecar's `version` (human-readable `x.y`) and build `hash`.
  *
  * Replacing a running sidecar is serialised across clients by a host-side deploy
  * lock: two clients deploying at once would overwrite the bundle under each
@@ -79,9 +81,9 @@ interface ReadyLine {
   /** Monotonic per-start counter from the sidecar's durable state. Absent from
    * a pre-CHOO-1425 sidecar. */
   epoch: number | null;
-  /** Wire-contract version. Absent from a sidecar predating the field, which is
-   * treated as 0. */
-  protocolVersion: number | null;
+  /** Human-readable `x.y` version; the major governs compatibility. Absent from
+   * a sidecar predating versioning, which is treated as major 0. */
+  version: string | null;
   /** OS process id of the running sidecar, for display. Absent from an older one. */
   pid: number | null;
 }
@@ -89,15 +91,16 @@ interface ReadyLine {
 /**
  * Read-only view of the sidecar running on the host, for the UI. Independent of
  * whether this client's bundle matches — that comparison (the verdict) is the
- * caller's to make, since it needs the client's own hash and protocol.
+ * caller's to make, since it needs the client's own hash and version.
  */
 export interface SidecarRunStatus {
   running: boolean;
-  /** Whether this client can speak to it (protocol in range). */
+  /** Whether this client can speak to it (its major is in the supported range). */
   compatible: boolean;
   /** Build fingerprint the running sidecar reports for itself. */
   hash: string | null;
-  protocolVersion: number | null;
+  /** Human-readable `x.y` version the running sidecar reports. */
+  version: string | null;
   epoch: number | null;
   pid: number | null;
   /** Sessions the running sidecar currently owns, from its durable state. */
@@ -148,12 +151,10 @@ function parseReady(raw: string): ReadyLine | null {
   ) {
     const hash = 'hash' in parsed && typeof parsed.hash === 'string' ? parsed.hash : null;
     const epoch = 'epoch' in parsed && typeof parsed.epoch === 'number' ? parsed.epoch : null;
-    const protocolVersion =
-      'protocolVersion' in parsed && typeof parsed.protocolVersion === 'number'
-        ? parsed.protocolVersion
-        : null;
+    const version =
+      'version' in parsed && typeof parsed.version === 'string' ? parsed.version : null;
     const pid = 'pid' in parsed && typeof parsed.pid === 'number' ? parsed.pid : null;
-    return { port: parsed.port, token: parsed.token, hash, epoch, protocolVersion, pid };
+    return { port: parsed.port, token: parsed.token, hash, epoch, version, pid };
   }
   return null;
 }
@@ -428,8 +429,8 @@ export class RemoteSidecarLauncher {
    * as version 0.
    */
   private isCompatible(ready: ReadyLine): boolean {
-    const version = ready.protocolVersion ?? 0;
-    return version >= MIN_SUPPORTED_SIDECAR_PROTOCOL && version <= SIDECAR_PROTOCOL_VERSION;
+    const major = sidecarMajor(ready.version);
+    return major >= MIN_SUPPORTED_SIDECAR_MAJOR && major <= SIDECAR_CLIENT_MAJOR;
   }
 
   /**
@@ -449,8 +450,8 @@ export class RemoteSidecarLauncher {
    * running sidecar's self-reported identity plus its live-session count.
    *
    * The client-vs-host verdict is intentionally left to the caller — it needs
-   * this client's own bundle hash and protocol, which the launcher exposes via
-   * `localBundleHash()` and the shared protocol constant.
+   * this client's own bundle hash and version, which the launcher exposes via
+   * `localBundleHash()` and the shared version constant.
    */
   async readStatus(): Promise<SidecarRunStatus> {
     const ready = await this.readRunning();
@@ -459,7 +460,7 @@ export class RemoteSidecarLauncher {
         running: false,
         compatible: false,
         hash: null,
-        protocolVersion: null,
+        version: null,
         epoch: null,
         pid: null,
         liveSessions: 0,
@@ -469,7 +470,7 @@ export class RemoteSidecarLauncher {
       running: true,
       compatible: this.isCompatible(ready),
       hash: ready.hash,
-      protocolVersion: ready.protocolVersion,
+      version: ready.version,
       epoch: ready.epoch,
       pid: ready.pid,
       liveSessions: await this.runningSessionCount(),
@@ -488,8 +489,8 @@ export class RemoteSidecarLauncher {
     if (!this.isCompatible(ready)) {
       this.log.debug('RemoteSidecarLauncher: running sidecar speaks an unusable protocol', {
         sidecarTmuxName: this.sidecarTmuxName,
-        runningProtocol: ready.protocolVersion,
-        supported: `${MIN_SUPPORTED_SIDECAR_PROTOCOL}..${SIDECAR_PROTOCOL_VERSION}`,
+        runningVersion: ready.version,
+        clientVersion: `${SIDECAR_CLIENT_MAJOR}.x`,
       });
       return null;
     }
@@ -515,8 +516,8 @@ export class RemoteSidecarLauncher {
     if (!this.isCompatible(ready)) {
       this.log.warn('RemoteSidecarLauncher: replacing sidecar with an unusable protocol', {
         sidecarTmuxName: this.sidecarTmuxName,
-        runningProtocol: ready.protocolVersion,
-        supported: `${MIN_SUPPORTED_SIDECAR_PROTOCOL}..${SIDECAR_PROTOCOL_VERSION}`,
+        runningVersion: ready.version,
+        clientVersion: `${SIDECAR_CLIENT_MAJOR}.x`,
       });
       return null;
     }

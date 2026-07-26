@@ -8,7 +8,7 @@ const status = (over: Partial<SidecarRunStatus>): SidecarRunStatus => ({
   running: true,
   compatible: true,
   hash: CLIENT,
-  protocolVersion: 1,
+  version: '1.0',
   epoch: 1,
   pid: 100,
   liveSessions: 0,

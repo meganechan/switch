@@ -136,7 +136,7 @@ export class VersionedSchema<TLatest> {
     // In dev: validate the stored data against its declared schema to catch drift.
     // In production: trust the data was valid when written, skip validation for performance.
     let current: unknown = data;
-    if (import.meta.env.DEV) {
+    if (import.meta.env?.DEV) {
       const parsed = entry.schema.safeParse(data);
       if (!parsed.success) {
         return {
@@ -178,7 +178,7 @@ export class VersionedSchema<TLatest> {
         return { status: 'needs-context', version: resolvedVersion, raw: data };
       }
 
-      if (import.meta.env.DEV) {
+      if (import.meta.env?.DEV) {
         const check = nextEntry.schema.safeParse(upgraded);
         if (!check.success) {
           return {

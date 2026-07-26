@@ -15,7 +15,7 @@ import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
 import { type AgentSidecarStatus, sidecarStatusChannel } from '@shared/events/sidecarEvents';
 import { createRPCController } from '@shared/lib/ipc/rpc';
-import { SIDECAR_PROTOCOL_VERSION } from '../../../sidecar/sidecar-protocol';
+import { SIDECAR_VERSION } from '../../../sidecar/sidecar-version';
 import { verdictFor } from './verdict';
 
 const LOG_TAIL_LINES = 100;
@@ -64,9 +64,9 @@ async function readAndBroadcast(agentId: string): Promise<AgentSidecarStatus> {
     running: status.running,
     verdict: verdictFor(status, clientHash),
     clientHash,
-    clientProtocol: SIDECAR_PROTOCOL_VERSION,
+    clientVersion: SIDECAR_VERSION,
     deployedHash: status.hash,
-    deployedProtocol: status.protocolVersion,
+    deployedVersion: status.version,
     epoch: status.epoch,
     pid: status.pid,
     liveSessions: status.liveSessions,

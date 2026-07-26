@@ -1,6 +1,7 @@
 import { observer } from 'mobx-react-lite';
 import { SessionList } from '@renderer/features/locations/components/session-view/session-list';
 import { SettingsPanel } from '@renderer/features/locations/components/settings-view/settings-panel';
+import { SidecarPanel } from '@renderer/features/locations/components/settings-view/sidecar-panel';
 import {
   asMounted,
   getLocationStore,
@@ -53,13 +54,20 @@ export const ActiveLocation = observer(function ActiveLocation() {
 
   if (!store) return null;
 
+  // The sidecar is a remote-only concern — a local agent runs no on-host process.
+  const isRemote = store.data.sshHost !== null;
+
   const items: Array<{ id: LocationView; label: string }> = [
     { id: 'sessions', label: 'Sessions' },
     { id: 'settings', label: 'Settings' },
+    ...(isRemote ? [{ id: 'sidecar' as const, label: 'Sidecar' }] : []),
   ];
 
-  // 'subagents' is a retired view; fall back to Sessions if a stale view sticks.
-  const activeView = store.view.activeView === 'settings' ? 'settings' : 'sessions';
+  // Resolve the active view, falling back to Sessions for a retired ('subagents')
+  // or now-unavailable ('sidecar' on a local location) stored view.
+  const stored = store.view.activeView;
+  const activeView: LocationView =
+    stored === 'settings' || (stored === 'sidecar' && isRemote) ? stored : 'sessions';
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
@@ -74,6 +82,7 @@ export const ActiveLocation = observer(function ActiveLocation() {
             <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col px-1 py-10">
               {activeView === 'sessions' && <SessionList />}
               {activeView === 'settings' && <SettingsPanel />}
+              {activeView === 'sidecar' && <SidecarPanel />}
             </div>
           </div>
         </div>

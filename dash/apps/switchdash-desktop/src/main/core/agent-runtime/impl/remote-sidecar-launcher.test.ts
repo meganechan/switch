@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
 import { SIDECAR_BUNDLE_REL_PATH } from '../../../../sidecar/sidecar-paths';
-import { SIDECAR_PROTOCOL_VERSION } from '../../../../sidecar/sidecar-protocol';
+import { SIDECAR_VERSION } from '../../../../sidecar/sidecar-version';
 import {
   agentSidecarTmuxName,
   killSidecarSession,
@@ -36,7 +36,7 @@ const ENDPOINT = { port: 4321, token: 'tok-abc', endpointFile: ENDPOINT_FILE };
 const readyLine = (
   hash: string | undefined = 'hash-v1',
   epoch = 1,
-  protocolVersion: number | undefined = SIDECAR_PROTOCOL_VERSION
+  version: string | undefined = SIDECAR_VERSION
 ): string =>
   `${JSON.stringify({
     event: 'ready',
@@ -44,7 +44,7 @@ const readyLine = (
     token: 'tok-abc',
     hash,
     epoch,
-    protocolVersion,
+    version,
   })}\n`;
 const noopLog = { debug: vi.fn(), warn: vi.fn() };
 
@@ -76,8 +76,8 @@ function makeHost(
     remoteBundleHash?: string;
     /** Simulates another client holding the host-side deploy lock. */
     lockHeld?: boolean;
-    /** Protocol the running sidecar reports (undefined = predates the field). */
-    readyProtocol?: number;
+    /** Version the running sidecar reports (undefined = predates the field). */
+    readyVersion?: string;
     /** Sessions recorded in the running sidecar's durable state. */
     liveSessions?: number;
     /** Bundle hash the (already-running) sidecar's ready line reports. */
@@ -88,7 +88,7 @@ function makeHost(
 ): { host: SidecarHost; calls: ExecCall[]; puts: Array<{ local: string; remote: string }> } {
   const existingSidecar = opts.existingSidecar ?? false;
   const readyHash = opts.readyHash ?? 'hash-v1';
-  const readyProtocol = 'readyProtocol' in opts ? opts.readyProtocol : SIDECAR_PROTOCOL_VERSION;
+  const readyVersion = 'readyVersion' in opts ? opts.readyVersion : SIDECAR_VERSION;
   const readyAfter = opts.readyAfter ?? 0;
   const diesAfter = opts.diesAfter ?? Infinity;
   const calls: ExecCall[] = [];
@@ -139,7 +139,7 @@ function makeHost(
           }));
           return { stdout: JSON.stringify({ version: '1', epoch, sessions }), stderr: '' };
         }
-        const line = readyLine(readyHash, epoch, readyProtocol);
+        const line = readyLine(readyHash, epoch, readyVersion);
         if (existingSidecar) return { stdout: line, stderr: '' };
         const n = catReads++;
         if (n < readyAfter) throw new Error('no such file');
@@ -355,14 +355,14 @@ describe('RemoteSidecarLauncher versioning', () => {
   it('refuses to probe a sidecar speaking a protocol it cannot support', async () => {
     const { host } = makeHost({
       existingSidecar: true,
-      readyProtocol: SIDECAR_PROTOCOL_VERSION + 1,
+      readyVersion: '2.0',
     });
 
     expect(await makeLauncher(host).probeExisting()).toBeNull();
   });
 
-  it('treats a sidecar predating the protocol field as version 0, still usable', async () => {
-    const { host } = makeHost({ existingSidecar: true, readyProtocol: undefined });
+  it('treats a sidecar predating the version field as major 0, still usable', async () => {
+    const { host } = makeHost({ existingSidecar: true, readyVersion: undefined });
 
     expect(await makeLauncher(host).probeExisting()).toEqual(ENDPOINT);
   });
@@ -397,7 +397,7 @@ describe('RemoteSidecarLauncher versioning', () => {
     // talk to it at all, so deferring would mean never recovering.
     const { host, calls } = makeHost({
       existingSidecar: true,
-      readyProtocol: SIDECAR_PROTOCOL_VERSION + 1,
+      readyVersion: '2.0',
       liveSessions: 3,
     });
 

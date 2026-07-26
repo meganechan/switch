@@ -25,12 +25,13 @@ export interface AgentSidecarStatus {
   agentId: string;
   running: boolean;
   verdict: SidecarVerdict;
-  /** What this client ships. */
+  /** What this client ships. `version` is the human-readable `x.y`; `hash` is the
+   * exact build fingerprint (what actually decides "is an upgrade available"). */
   clientHash: string;
-  clientProtocol: number;
+  clientVersion: string;
   /** What the host reports running (null when nothing is up). */
   deployedHash: string | null;
-  deployedProtocol: number | null;
+  deployedVersion: string | null;
   epoch: number | null;
   pid: number | null;
   liveSessions: number;

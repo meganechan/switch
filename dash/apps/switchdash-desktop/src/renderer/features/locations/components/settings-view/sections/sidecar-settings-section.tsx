@@ -167,13 +167,13 @@ function VersionRows({ status }: { status: AgentSidecarStatus }) {
     <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
       <Row
         label="This client ships"
-        value={`build ${shortHash(status.clientHash)} · protocol v${status.clientProtocol}`}
+        value={`${status.clientVersion}+${shortHash(status.clientHash)}`}
       />
       <Row
         label="Host running"
         value={
           status.running
-            ? `build ${shortHash(status.deployedHash)} · protocol v${status.deployedProtocol ?? '?'}` +
+            ? `${status.deployedVersion ?? '?'}+${shortHash(status.deployedHash)}` +
               (status.epoch !== null ? ` · restart #${status.epoch}` : '') +
               (status.pid !== null ? ` · pid ${status.pid}` : '')
             : 'not running'
