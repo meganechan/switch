@@ -26,6 +26,11 @@ const CONFIG: SidecarLaunchConfig = {
   credsSlug: 'claude-code.repo.me',
 };
 
+/** The endpoint the launcher derives for CONFIG — sessions are pointed at this
+ * path rather than at the port/token, so it must track repoDir + credsSlug. */
+const ENDPOINT_FILE = '/home/dev/repo/.switchdash/agents/claude-code.repo.me/endpoint';
+const ENDPOINT = { port: 4321, token: 'tok-abc', endpointFile: ENDPOINT_FILE };
+
 const readyLine = (hash: string | undefined = 'hash-v1'): string =>
   `${JSON.stringify({ event: 'ready', port: 4321, token: 'tok-abc', hash })}\n`;
 const noopLog = { debug: vi.fn(), warn: vi.fn() };
@@ -122,7 +127,7 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost();
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toEqual([
       { local: '/local/dist-sidecar/sidecar.mjs', remote: '.switchdash/sidecar.mjs' },
     ]);
@@ -139,7 +144,7 @@ describe('RemoteSidecarLauncher', () => {
   it('skips the bundle upload when the host already holds an identical bundle', async () => {
     const { host, puts } = makeHost({ remoteBundleHash: 'hash-v1' });
     const endpoint = await makeLauncher(host).deployAndLaunch();
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(0);
   });
 
@@ -166,7 +171,7 @@ describe('RemoteSidecarLauncher', () => {
 
   it('polls the ready file until the sidecar reports its endpoint', async () => {
     const { host } = makeHost({ readyAfter: 3 });
-    expect(await makeLauncher(host).deployAndLaunch()).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(await makeLauncher(host).deployAndLaunch()).toEqual(ENDPOINT);
   });
 
   it('fails loud if the sidecar tmux session dies during startup', async () => {
@@ -189,7 +194,7 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost({ existingSidecar: true });
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(0);
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'new-session')).toBeUndefined();
     expect(
@@ -204,7 +209,7 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost({ existingSidecar: true, readyHash: 'hash-OLD' });
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(1); // new bundle uploaded
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBeDefined();
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'new-session')).toBeDefined();

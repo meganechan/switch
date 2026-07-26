@@ -8,6 +8,7 @@ import {
   SIDECAR_BUNDLE_REL_PATH,
   sidecarAgentDir,
   sidecarLaunchSpecRelPath,
+  sidecarEndpointRelPath,
   sidecarLogRelPath,
   sidecarReadyRelPath,
   sidecarWatchEnabledRelPath,
@@ -46,11 +47,17 @@ export interface SidecarLaunchConfig {
 export interface SidecarEndpoint {
   port: number;
   token: string;
+  /** Absolute on-VM path of the sidecar's endpoint file. Sessions are launched
+   * pointing at this rather than at `port`/`token` directly, so they survive the
+   * sidecar restarting on a fresh port with a fresh token. */
+  endpointFile: string;
 }
 
-/** The ready line the sidecar prints, plus the bundle hash the running process
- * was launched with (absent for a pre-CHOO-1085 sidecar). */
-interface ReadyLine extends SidecarEndpoint {
+/** The ready line the sidecar prints. `hash` is absent for a pre-CHOO-1085
+ * sidecar; the endpoint file path is derived locally, not carried on the wire. */
+interface ReadyLine {
+  port: number;
+  token: string;
   hash: string | null;
 }
 
@@ -168,6 +175,15 @@ export class RemoteSidecarLauncher {
   private get logPath(): string {
     return sidecarLogRelPath(this.config.credsSlug);
   }
+  /** Absolute, because it is baked into spawned sessions' env and read by hooks
+   * whose working directory is not guaranteed to be the repo dir. */
+  private get endpointFile(): string {
+    return `${this.config.repoDir}/${sidecarEndpointRelPath(this.config.credsSlug)}`;
+  }
+
+  private toEndpoint(ready: ReadyLine): SidecarEndpoint {
+    return { port: ready.port, token: ready.token, endpointFile: this.endpointFile };
+  }
 
   /**
    * Reconcile-or-launch. The sidecar is designed to outlive the switchdash UI,
@@ -267,7 +283,7 @@ export class RemoteSidecarLauncher {
       });
       return null;
     }
-    return { port: ready.port, token: ready.token };
+    return this.toEndpoint(ready);
   }
 
   /**
@@ -320,7 +336,7 @@ export class RemoteSidecarLauncher {
       await this.assertAlive();
       const raw = await this.readReadyFile();
       const ready = raw ? parseReady(raw) : null;
-      if (ready) return { port: ready.port, token: ready.token };
+      if (ready) return this.toEndpoint(ready);
       await this.sleep(READY_POLL_INTERVAL_MS);
     }
     throw new Error(

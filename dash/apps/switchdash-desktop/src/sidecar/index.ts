@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { HookEventLog, HookServer } from '@main/core/agent-hooks/hook-server';
@@ -10,12 +10,14 @@ import {
 } from '@main/core/switch-rooms/switch-credentials';
 import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
+import { atomicWriteFile } from './atomic-file';
 import { NotificationWatcher } from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
 import {
   LEGACY_LAUNCH_SPEC_REL_PATH,
   LEGACY_WATCH_ENABLED_REL_PATH,
+  sidecarEndpointRelPath,
   sidecarLaunchSpecRelPath,
   sidecarWatchEnabledRelPath,
 } from './sidecar-paths';
@@ -203,10 +205,19 @@ async function main(): Promise<void> {
     }
   );
 
+  // Publish the live endpoint before anything can be spawned against it. Panes
+  // resolve the port/token from this file at hook time rather than from the env
+  // they were launched with, so sessions started by a previous incarnation of
+  // this sidecar keep reaching us across a restart, upgrade, or token rotation.
+  const endpointFile = path.join(repoDir, sidecarEndpointRelPath(credsSlug ?? 'default'));
+  await mkdir(path.dirname(endpointFile), { recursive: true });
+  await atomicWriteFile(endpointFile, `${server.getPort()}\n${server.getToken()}\n`);
+
   spawner = new InProcessSessionSpawner({
     spec: launchSpec,
     hookPort: server.getPort(),
     hookToken: server.getToken(),
+    endpointFile,
     runtime,
     switchEnv: {
       SWITCH_API_ENDPOINT: creds.apiEndpoint,
