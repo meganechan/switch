@@ -36,14 +36,27 @@ const TOMBSTONE_TTL_MS = 10_000;
 // the sidecar `/sessions` snapshot before its local row is pruned. This is the
 // backstop for a client that missed the `session-terminated` push (e.g. it
 // adopted a session but never opened it, so it has no relay polling `/events`).
-// A threshold (rather than pruning on first absence) tolerates the brief empty
-// window after a sidecar restart, before the agents re-post their hooks. Only
-// successful polls count — a failed fetch throws and skips the pass entirely.
+// A threshold (rather than pruning on first absence) absorbs a one-off odd
+// snapshot. It is NOT what covers a sidecar restart: the sidecar restores its
+// session registry from durable state, so a restarted sidecar reports its
+// sessions immediately rather than going empty until the agents next speak.
+// Only successful polls count — an unreachable sidecar skips the pass entirely
+// rather than counting as an absence.
 const PRUNE_MISSING_THRESHOLD = 3;
 
 interface SidecarSessionsResponse {
   sessions: Array<{ sessionId: string; roomId: string | null }>;
 }
+
+/**
+ * Outcome of a poll. "The VM says it has no sessions" and "I could not ask the
+ * VM" are different facts and only the first is evidence a session is gone —
+ * conflating them meant an unreachable sidecar looked exactly like an empty one
+ * and drove the client to delete rows for sessions that were still running.
+ */
+type SessionsSnapshot =
+  | { ok: true; sessions: Array<{ sessionId: string; roomId: string | null }> }
+  | { ok: false; reason: string };
 
 /**
  * Surfaces the sessions a remote agent's on-VM sidecar started on its own (the
@@ -239,8 +252,18 @@ class RemoteSessionReconciler {
     if (connectionState === 'reconnecting') return;
 
     const conn = await connectRemoteAgent(agent);
-    const response = await this.fetchSessions(agent, conn);
-    const vmSessions = response.sessions ?? [];
+    const snapshot = await this.fetchSessions(agent, conn);
+    // A poll we could not complete tells us nothing about what is running, so
+    // this pass makes no adoptions and — crucially — no prunes. Deleting rows
+    // because the VM was unreachable is how live sessions used to disappear.
+    if (!snapshot.ok) {
+      log.debug('RemoteSessionReconciler: sessions poll failed — skipping pass', {
+        agentId,
+        reason: snapshot.reason,
+      });
+      return;
+    }
+    const vmSessions = snapshot.sessions;
     const vmIds = new Set(vmSessions.map((s) => s.sessionId));
 
     // Check adoption candidates against ALL local sessions, not just this
@@ -302,7 +325,8 @@ class RemoteSessionReconciler {
    * only ever adopted (never opened) has no relay to receive the `session-terminated`
    * push, so without this it would keep a ghost row that could re-attach into a
    * blank tmux session. Only prune after `PRUNE_MISSING_THRESHOLD` consecutive
-   * absences to ride out the empty window after a sidecar restart.
+   * absences, and only on snapshots we actually got — an unreachable sidecar is
+   * not evidence of anything and never reaches here.
    */
   private async pruneVanished(agentId: string, vmIds: Set<string>): Promise<void> {
     const adoptedIds = this.adopted.get(agentId);
@@ -335,11 +359,11 @@ class RemoteSessionReconciler {
   private async fetchSessions(
     agent: Agent,
     conn: Awaited<ReturnType<typeof connectRemoteAgent>>
-  ): Promise<SidecarSessionsResponse> {
+  ): Promise<SessionsSnapshot> {
     const cached = this.endpoints.get(agent.id);
     if (cached) {
       try {
-        return await this.pollSessions(conn.proxy, cached);
+        return { ok: true, sessions: (await this.pollSessions(conn.proxy, cached)).sessions ?? [] };
       } catch (error) {
         log.debug('RemoteSessionReconciler: cached endpoint poll failed — re-probing sidecar', {
           agentId: agent.id,
@@ -362,9 +386,17 @@ class RemoteSessionReconciler {
       connectionId: conn.connectionId,
       host: conn.host,
     });
-    if (!endpoint) return { sessions: [] };
+    // No sidecar answered the probe. That is not "the agent has no sessions" —
+    // it may be restarting, mid-upgrade, or briefly unreachable — so report it
+    // as a failed poll and leave the local rows alone.
+    if (!endpoint) return { ok: false, reason: 'no sidecar reachable' };
     this.endpoints.set(agent.id, endpoint);
-    return this.pollSessions(conn.proxy, endpoint);
+    try {
+      return { ok: true, sessions: (await this.pollSessions(conn.proxy, endpoint)).sessions ?? [] };
+    } catch (error) {
+      this.endpoints.delete(agent.id);
+      return { ok: false, reason: String(error) };
+    }
   }
 
   private async pollSessions(

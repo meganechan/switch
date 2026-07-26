@@ -172,7 +172,7 @@ async function main(): Promise<void> {
   let spawner: InProcessSessionSpawner | null = null;
   let watcher: NotificationWatcher | null = null;
 
-  const eventLog = new HookEventLog();
+  const eventLog = new HookEventLog(undefined, store.epoch);
   const server = new HookServer(log);
   await server.start(
     async (raw) => {

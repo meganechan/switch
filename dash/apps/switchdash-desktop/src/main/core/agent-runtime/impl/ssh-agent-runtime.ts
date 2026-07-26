@@ -27,7 +27,7 @@ import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
 import type { Session } from '@shared/core/sessions/sessions';
-import { ensureAgentSidecar } from './ensure-agent-sidecar';
+import { ensureAgentSidecar, probeAgentSidecar } from './ensure-agent-sidecar';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
 import { RemoteHookEventRelay } from './remote-hook-event-relay';
 import { createRemotePluginFs } from './remote-plugin-fs';
@@ -274,13 +274,35 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
    * local sessions, but with `startLocalPoller: false` — the sidecar already
    * polls and injects on the VM.
    */
-  private startRelay(endpoint: { port: number; token: string }): void {
+  private startRelay(endpoint: SidecarEndpoint): void {
     this.relay?.stop();
     const proxy = this.proxy;
     const relay = new RemoteHookEventRelay({
       opener: { openChannel: (port) => proxy.forwardOut(port) },
       port: endpoint.port,
       token: endpoint.token,
+      // Follow the sidecar if it restarts on a different port with a new token,
+      // instead of polling the dead one for the rest of the app's life. Probe,
+      // never launch: a relay must not resurrect a sidecar the user stopped.
+      resolveEndpoint: async () => {
+        const session = this.session;
+        if (!session) return null;
+        const agent = await getAgentById(session.agentId);
+        const next = await probeAgentSidecar({
+          providerId: session.providerId,
+          repoDir: this.sessionPath,
+          deeplinkScheme: DEEPLINK_SCHEME,
+          autoApprove: agent?.autoApprove ?? false,
+          credsSlug: agent?.definitionName ?? session.agentName ?? session.agentId,
+          definitionName: agent?.definitionName ?? session.agentName ?? null,
+          ctx: this.ctx,
+          connectionId: this.connectionId,
+          host: this.createSidecarHost(),
+        });
+        // Keep the cached endpoint used by /disconnect in step with the relay.
+        if (next) this.sidecarEndpoint = next;
+        return next;
+      },
       sink: async (raw) => {
         if (raw.type === 'session-terminated') {
           this.onRemoteTerminated(raw.body);

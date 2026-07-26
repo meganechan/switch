@@ -29,7 +29,17 @@ export class HookEventLog {
   private seq = 0;
   private waiters: Array<() => void> = [];
 
-  constructor(private readonly capacity = 256) {}
+  /**
+   * Identifies this log's incarnation. Sequence numbers restart at zero when
+   * the process does, so a consumer holding a cursor from a previous life would
+   * otherwise treat the new, lower sequence as "already seen" and silently
+   * ignore every event. Callers pass the sidecar's persisted epoch; the default
+   * suits the local hook server, which dies with its consumers anyway.
+   */
+  constructor(
+    private readonly capacity = 256,
+    readonly epoch = 0
+  ) {}
 
   append(raw: RawHookRequest): void {
     this.seq += 1;
@@ -49,15 +59,26 @@ export class HookEventLog {
   poll(
     since: number,
     timeoutMs: number
-  ): Promise<{ events: RelayedHookEvent[]; oldestSeq: number; latestSeq: number }> {
+  ): Promise<{
+    events: RelayedHookEvent[];
+    oldestSeq: number;
+    latestSeq: number;
+    epoch: number;
+  }> {
     const snapshot = () => ({
       events: this.buffer.filter((e) => e.seq > since),
       oldestSeq: this.buffer.length > 0 ? this.buffer[0]!.seq : 0,
       latestSeq: this.seq,
+      epoch: this.epoch,
     });
 
     const immediate = snapshot();
     if (immediate.events.length > 0) return Promise.resolve(immediate);
+    // A cursor beyond our highest seq cannot belong to this stream — the caller
+    // is holding one from a previous incarnation. Answer now instead of parking
+    // it on the long poll, so it sees the epoch and resyncs promptly rather
+    // than after a full timeout per attempt.
+    if (since > this.seq) return Promise.resolve(immediate);
 
     return new Promise((resolve) => {
       const wake = (): void => {
