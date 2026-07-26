@@ -11,8 +11,13 @@ import {
   sidecarEndpointRelPath,
   sidecarLogRelPath,
   sidecarReadyRelPath,
+  sidecarStateRelPath,
   sidecarWatchEnabledRelPath,
 } from '../../../../sidecar/sidecar-paths';
+import {
+  MIN_SUPPORTED_SIDECAR_PROTOCOL,
+  SIDECAR_PROTOCOL_VERSION,
+} from '../../../../sidecar/sidecar-protocol';
 
 /**
  * Deploys and launches the switchdash remote runtime sidecar on the agent's VM
@@ -74,6 +79,9 @@ interface ReadyLine {
   /** Monotonic per-start counter from the sidecar's durable state. Absent from
    * a pre-CHOO-1425 sidecar. */
   epoch: number | null;
+  /** Wire-contract version. Absent from a sidecar predating the field, which is
+   * treated as 0. */
+  protocolVersion: number | null;
 }
 
 /** Narrow remote seam the launcher needs — satisfied by IExecutionContext + ssh-fs. */
@@ -120,7 +128,11 @@ function parseReady(raw: string): ReadyLine | null {
   ) {
     const hash = 'hash' in parsed && typeof parsed.hash === 'string' ? parsed.hash : null;
     const epoch = 'epoch' in parsed && typeof parsed.epoch === 'number' ? parsed.epoch : null;
-    return { port: parsed.port, token: parsed.token, hash, epoch };
+    const protocolVersion =
+      'protocolVersion' in parsed && typeof parsed.protocolVersion === 'number'
+        ? parsed.protocolVersion
+        : null;
+    return { port: parsed.port, token: parsed.token, hash, epoch, protocolVersion };
   }
   return null;
 }
@@ -191,6 +203,9 @@ export class RemoteSidecarLauncher {
   private get logPath(): string {
     return sidecarLogRelPath(this.config.credsSlug);
   }
+  private get statePath(): string {
+    return sidecarStateRelPath(this.config.credsSlug);
+  }
   private get deployLockPath(): string {
     return sidecarDeployLockRelPath(this.config.credsSlug);
   }
@@ -217,7 +232,7 @@ export class RemoteSidecarLauncher {
     await this.writeLaunchSpec();
 
     const localHash = await this.hashBundle();
-    const existing = await this.reattachExisting(localHash);
+    const existing = await this.decideExisting(localHash);
     if (existing) {
       this.log.debug('RemoteSidecarLauncher: reattached to running sidecar', {
         sidecarTmuxName: this.sidecarTmuxName,
@@ -231,7 +246,7 @@ export class RemoteSidecarLauncher {
     // started process. Serialise it across clients, then re-check — whoever
     // waited may find the holder already started exactly what it wanted.
     return this.withDeployLock(async () => {
-      const reattach = await this.reattachExisting(localHash);
+      const reattach = await this.decideExisting(localHash);
       if (reattach) {
         this.log.debug('RemoteSidecarLauncher: another client deployed a matching sidecar', {
           sidecarTmuxName: this.sidecarTmuxName,
@@ -371,20 +386,50 @@ export class RemoteSidecarLauncher {
    * and relaunched — otherwise a bundle upgrade never takes effect while the old
    * process keeps running.
    */
-  private async reattachExisting(localHash: string): Promise<SidecarEndpoint | null> {
+  /** The running sidecar's ready line, or null when none is running. */
+  private async readRunning(): Promise<ReadyLine | null> {
     try {
       await this.host.exec('tmux', ['has-session', '-t', exactTmuxTarget(this.sidecarTmuxName)]);
     } catch {
       return null; // not running
     }
     const raw = await this.readReadyFile();
-    const ready = raw ? parseReady(raw) : null;
+    return raw ? parseReady(raw) : null;
+  }
+
+  /**
+   * Whether this client can speak to the running sidecar at all.
+   *
+   * Deliberately independent of the bundle hash. A different build is not an
+   * incompatibility — it only means an upgrade exists — and treating it as one
+   * is what made two clients on different builds kill each other's sidecar in a
+   * loop. A sidecar that reports no protocol predates the field and is treated
+   * as version 0.
+   */
+  private isCompatible(ready: ReadyLine): boolean {
+    const version = ready.protocolVersion ?? 0;
+    return version >= MIN_SUPPORTED_SIDECAR_PROTOCOL && version <= SIDECAR_PROTOCOL_VERSION;
+  }
+
+  /**
+   * Endpoint of an already-running, *compatible* sidecar, or null if none is
+   * running. Read-only — unlike `deployAndLaunch` it never deploys, writes, or
+   * starts anything. For callers that only want to talk to a sidecar if one
+   * exists (cross-client discovery), so a merely-configured agent does not cause
+   * one to be launched.
+   *
+   * A running sidecar built from a different bundle is still returned: discovery
+   * asks "can I talk to it", and answering that with the *upgrade* question made
+   * every client on a different build report zero sessions and prune live rows.
+   */
+  async probeExisting(): Promise<SidecarEndpoint | null> {
+    const ready = await this.readRunning();
     if (!ready) return null;
-    if (ready.hash !== localHash) {
-      this.log.debug('RemoteSidecarLauncher: running sidecar is a stale bundle — relaunching', {
+    if (!this.isCompatible(ready)) {
+      this.log.debug('RemoteSidecarLauncher: running sidecar speaks an unusable protocol', {
         sidecarTmuxName: this.sidecarTmuxName,
-        runningHash: ready.hash,
-        localHash,
+        runningProtocol: ready.protocolVersion,
+        supported: `${MIN_SUPPORTED_SIDECAR_PROTOCOL}..${SIDECAR_PROTOCOL_VERSION}`,
       });
       return null;
     }
@@ -392,14 +437,65 @@ export class RemoteSidecarLauncher {
   }
 
   /**
-   * Endpoint of an already-running current-bundle sidecar, or null if none is
-   * running (or it is a stale bundle). Read-only — unlike `deployAndLaunch` it
-   * never deploys, writes, or starts anything. For callers that only want to
-   * talk to a sidecar if one already exists (e.g. cross-client discovery), so a
-   * merely-configured agent does not cause a sidecar to be launched.
+   * Decide what to do about a sidecar that is already running.
+   *
+   * Replacing one is disruptive even now that sessions survive it, so it is
+   * reserved for the cases that need it:
+   *  - incompatible protocol → must replace; we cannot talk to it at all.
+   *  - same build → reattach; there is nothing to gain.
+   *  - different build, no live sessions → upgrade, since nothing is disturbed.
+   *  - different build, live sessions → reattach and record that an upgrade is
+   *    pending, rather than interrupting work in flight for a build difference.
+   *    The next launch with an idle sidecar picks it up.
    */
-  async probeExisting(): Promise<SidecarEndpoint | null> {
-    return this.reattachExisting(await this.hashBundle());
+  private async decideExisting(localHash: string): Promise<SidecarEndpoint | null> {
+    const ready = await this.readRunning();
+    if (!ready) return null;
+
+    if (!this.isCompatible(ready)) {
+      this.log.warn('RemoteSidecarLauncher: replacing sidecar with an unusable protocol', {
+        sidecarTmuxName: this.sidecarTmuxName,
+        runningProtocol: ready.protocolVersion,
+        supported: `${MIN_SUPPORTED_SIDECAR_PROTOCOL}..${SIDECAR_PROTOCOL_VERSION}`,
+      });
+      return null;
+    }
+    if (ready.hash === localHash) return this.toEndpoint(ready);
+
+    const liveSessions = await this.runningSessionCount();
+    if (liveSessions > 0) {
+      this.log.warn(
+        'RemoteSidecarLauncher: sidecar upgrade pending — deferring while sessions run',
+        {
+          sidecarTmuxName: this.sidecarTmuxName,
+          runningHash: ready.hash,
+          localHash,
+          liveSessions,
+        }
+      );
+      return this.toEndpoint(ready);
+    }
+    this.log.debug('RemoteSidecarLauncher: upgrading idle sidecar to the current bundle', {
+      sidecarTmuxName: this.sidecarTmuxName,
+      runningHash: ready.hash,
+      localHash,
+    });
+    return null;
+  }
+
+  /**
+   * How many sessions the running sidecar currently owns, read from its durable
+   * state. Zero when unreadable — an unparseable state file is not grounds for
+   * refusing to upgrade forever.
+   */
+  private async runningSessionCount(): Promise<number> {
+    try {
+      const { stdout } = await this.host.exec('cat', [this.statePath]);
+      const parsed = JSON.parse(stdout) as { sessions?: unknown };
+      return Array.isArray(parsed.sessions) ? parsed.sessions.length : 0;
+    } catch {
+      return 0;
+    }
   }
 
   async stop(): Promise<void> {
