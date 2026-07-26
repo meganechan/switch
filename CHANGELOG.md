@@ -117,6 +117,17 @@ below:
 
 ### [Unreleased]
 
+### [0.13.0] - 2026-07-26
+
+#### Changed
+- Removed the subagent concept — agents are now flat and repository-defined;
+  existing subagents migrate forward automatically on first launch (CHOO-1440).
+
+#### Fixed
+- Honor the bypass-permissions toggle for remote agents and clear a stale
+  session guard (CHOO-1664).
+- Skip the connection-status probe for a stopped managed server (CHOO-1657).
+
 ### [0.12.0] - 2026-07-24
 
 #### Added
