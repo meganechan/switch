@@ -121,11 +121,12 @@ void app.whenReady().then(async () => {
     log.warn('switch-agents: failed to reconcile agent → server links at boot', { error: e });
   }
 
-  try {
-    await migrateAgentStorage();
-  } catch (e) {
+  // Kept off the boot path: this can open an SSH/SFTP connection per remote
+  // agent, so awaiting it here delayed the window opening. Session relaunch below
+  // waits on it (it needs each agent's definitionName); nothing else does.
+  const migrationReady = migrateAgentStorage().catch((e) => {
     log.warn('switch-agents: failed to migrate agent storage layout at boot', { error: e });
-  }
+  });
 
   const agentHookReady = agentHookService.initialize().catch((e) => {
     log.error('Failed to start agent event service:', e);
@@ -153,7 +154,7 @@ void app.whenReady().then(async () => {
   // Restore first so already-live sessions register their room connections,
   // then start the auto_session watchers — the watcher's "is a session already
   // attending this room?" check relies on those connections being present.
-  void Promise.all([agentHookReady, dependenciesReady]).then(async () => {
+  void Promise.all([agentHookReady, dependenciesReady, migrationReady]).then(async () => {
     try {
       await restoreSwitchRoomSessions();
     } catch (e) {

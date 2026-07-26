@@ -1,10 +1,15 @@
 import { getLocationById } from '@main/core/locations/store';
 import { getPlugin } from '@main/core/providers/plugin-registry';
+import { backfillSessionAgentName } from '@main/core/sessions/operations/backfillSessionAgentName';
 import { parseSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
 import { fetchAgentDetail } from '@main/core/switch-servers/gateway-client';
 import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
+import {
+  isAgentStorageMigrationComplete,
+  markAgentStorageMigrationComplete,
+} from './agent-storage-migration-marker';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { getAgents } from './getAgents';
 import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
@@ -25,12 +30,21 @@ import { updateAgent } from './updateAgent';
  * through the same provider filesystem abstraction.
  */
 export async function migrateAgentStorage(): Promise<void> {
+  // Once a full pass has migrated every agent, never re-run: the steady-state
+  // migration re-opens each agent's workspace filesystem (an SSH/SFTP round trip
+  // per remote agent) on every boot for no benefit.
+  if (await isAgentStorageMigrationComplete()) return;
+
   const agents = await getAgents();
   let migrated = 0;
+  let allComplete = true;
   for (const agent of agents) {
     try {
-      if (await migrateOne(agent)) migrated += 1;
+      const result = await migrateOne(agent);
+      if (result.changed) migrated += 1;
+      if (!result.complete) allComplete = false;
     } catch (error) {
+      allComplete = false;
       log.warn('migrateAgentStorage: failed to migrate agent', {
         agentId: agent.id,
         error: String(error),
@@ -40,15 +54,26 @@ export async function migrateAgentStorage(): Promise<void> {
   if (migrated > 0) {
     log.info('migrateAgentStorage: migrated agents to the neutral storage layout', { migrated });
   }
+  // Only latch the marker when every agent reached the final layout this pass.
+  // A transient failure (unreachable host, gateway down) leaves it unset so the
+  // next boot retries — cheaply, since the migration now runs off the boot path.
+  if (allComplete) await markAgentStorageMigrationComplete();
 }
 
-/** Migrate one agent (local or remote); returns whether anything changed. */
-async function migrateOne(agent: Agent): Promise<boolean> {
+interface MigrateResult {
+  /** Whether this pass wrote anything for the agent. */
+  changed: boolean;
+  /** Whether the agent is now fully in the new layout (nothing left to retry). */
+  complete: boolean;
+}
+
+/** Migrate one agent (local or remote). */
+async function migrateOne(agent: Agent): Promise<MigrateResult> {
   const behavior = getPlugin(agent.providerId).behavior.repoAgents;
-  if (!behavior) return false;
+  if (!behavior) return { changed: false, complete: true };
 
   const location = await getLocationById(agent.locationId);
-  if (!location) return false;
+  if (!location) return { changed: false, complete: true };
 
   const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
@@ -60,7 +85,9 @@ async function migrateOne(agent: Agent): Promise<boolean> {
     let name = agent.definitionName;
     let description = agent.name;
     if (!name) {
-      if (!agent.switchAgentId) return false;
+      // No switchAgentId → nothing anchors a real name; leave for a later boot
+      // in case the row is still being populated.
+      if (!agent.switchAgentId) return { changed: false, complete: false };
       const discovered = await behavior.discoverLocal(workspace.fs, workspace.homeFs);
       const match = discovered.find((d) => d.switchAgentId === agent.switchAgentId);
       if (match) {
@@ -73,7 +100,8 @@ async function migrateOne(agent: Agent): Promise<boolean> {
             agentId: agent.id,
             switchAgentId: agent.switchAgentId,
           });
-          return false;
+          // Resolution may fail transiently (gateway down); retry next boot.
+          return { changed: false, complete: false };
         }
         name = registered.name;
         description = registered.description;
@@ -136,7 +164,22 @@ async function migrateOne(agent: Agent): Promise<boolean> {
       changed = true;
     }
 
-    return changed;
+    // 4. Backfill this agent's own pre-existing sessions: they froze no
+    //    `agentName` (created before it had a definitionName), so the sidebar —
+    //    which pairs a session to its agent by `agentName === definitionName` —
+    //    would orphan them once definitionName is set. Idempotent, and run even
+    //    when definitionName was already populated so installs that ran an
+    //    earlier migration (before this backfill existed) are repaired too.
+    const backfilled = await backfillSessionAgentName(agent.id, name);
+    if (backfilled > 0) {
+      log.info('migrateAgentStorage: backfilled session agentName for migrated agent', {
+        agentId: agent.id,
+        backfilled,
+      });
+      changed = true;
+    }
+
+    return { changed, complete: true };
   } finally {
     workspace.close();
   }
