@@ -35,7 +35,7 @@ export function AgentDefinitionSettingsSection({
   });
   const agent = (agents ?? []).find((a) => a.id === agentId);
   const providerId = agent?.providerId ?? null;
-  const editable = !!agent && agent.definitionName != null;
+  const editable = !!agent;
 
   const { data: allFields } = useQuery({
     queryKey: ['agentDefinitionFields', providerId],

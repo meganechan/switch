@@ -114,13 +114,13 @@ export async function ensureRemoteWatcher(agentId: string): Promise<void> {
     repoDir: remoteRepoDir,
     deeplinkScheme: DEEPLINK_SCHEME,
     autoApprove: agent.autoApprove,
-    credsSlug: agent.definitionName ?? agent.id,
-    definitionName: agent.definitionName ?? null,
+    credsSlug: agent.name ?? agent.id,
+    agentName: agent.name ?? null,
     ctx,
     connectionId,
     host,
   });
-  await writeWatchEnabled(host, agent.definitionName ?? agent.id, true);
+  await writeWatchEnabled(host, agent.name ?? agent.id, true);
   log.info('ensureRemoteWatcher: sidecar deployed + watching', {
     agentId,
     switchAgentId: agent.switchAgentId,
@@ -142,6 +142,6 @@ export async function stopRemoteWatcher(agentId: string): Promise<void> {
   if (!agent || !(await getRemoteAgentLocation(agent))) return;
   remoteSessionReconciler.stop(agentId);
   const { host } = await connectRemoteAgent(agent);
-  await writeWatchEnabled(host, agent.definitionName ?? agent.id, false);
+  await writeWatchEnabled(host, agent.name ?? agent.id, false);
   log.info('stopRemoteWatcher: watching disabled', { agentId });
 }

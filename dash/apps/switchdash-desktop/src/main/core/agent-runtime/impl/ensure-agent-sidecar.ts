@@ -21,12 +21,12 @@ export interface AgentSidecarParams {
   deeplinkScheme: string;
   /** The agent's bypass-permissions setting, baked into the auto-start launch spec. */
   autoApprove: boolean;
-  /** Per-agent creds slug (definition name, else agent id) — selects the sidecar's
+  /** Per-agent creds slug (the agent's name) — selects the sidecar's
    * `.switch/agents/<slug>.json` identity file (CHOO-1440). */
   credsSlug: string;
-  /** The agent's definition name (null if none) — so auto-started sessions launch
-   * as the definition with its own identity. */
-  definitionName: string | null;
+  /** The agent's name — so auto-started sessions launch as it with its own
+   * identity (a definitions-capable provider passes it as `--agent <name>`). */
+  agentName: string | null;
   ctx: IExecutionContext;
   connectionId: string;
   host: SidecarHost;
@@ -38,7 +38,7 @@ async function buildLauncher(params: AgentSidecarParams): Promise<RemoteSidecarL
     remoteRepoDir: params.repoDir,
     deeplinkScheme: params.deeplinkScheme,
     autoApprove: params.autoApprove,
-    agentName: params.definitionName,
+    agentName: params.agentName,
     ctx: params.ctx,
     connectionId: params.connectionId,
   });

@@ -31,7 +31,7 @@ async function requireRemoteAgent(
     agent,
     sshHost: location.sshHost,
     repoDir: location.dir,
-    credsSlug: agent.definitionName ?? agent.id,
+    credsSlug: agent.name ?? agent.id,
   };
 }
 
@@ -43,8 +43,8 @@ async function paramsForAgent(agent: Agent): Promise<AgentSidecarParams> {
     repoDir: conn.remoteRepoDir,
     deeplinkScheme: DEEPLINK_SCHEME,
     autoApprove: agent.autoApprove,
-    credsSlug: agent.definitionName ?? agent.id,
-    definitionName: agent.definitionName ?? null,
+    credsSlug: agent.name ?? agent.id,
+    agentName: agent.name ?? null,
     ctx: conn.ctx,
     connectionId: conn.connectionId,
     host: conn.host,

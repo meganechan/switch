@@ -30,9 +30,7 @@ export const SidecarPanel = observer(function SidecarPanel() {
     );
   }
 
-  const agent = agentName
-    ? (agents ?? []).find((a) => a.definitionName === agentName)
-    : (agents ?? [])[0];
+  const agent = agentName ? (agents ?? []).find((a) => a.name === agentName) : (agents ?? [])[0];
 
   if (!agent) {
     return <p className="py-10 text-sm text-foreground-muted">No agent found for this location.</p>;

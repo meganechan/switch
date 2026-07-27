@@ -34,9 +34,7 @@ export const SettingsPanel = observer(function SettingsPanel() {
     );
   }
 
-  const agent = agentName
-    ? (agents ?? []).find((a) => a.definitionName === agentName)
-    : (agents ?? [])[0];
+  const agent = agentName ? (agents ?? []).find((a) => a.name === agentName) : (agents ?? [])[0];
   const agentId = agent?.id;
 
   return (

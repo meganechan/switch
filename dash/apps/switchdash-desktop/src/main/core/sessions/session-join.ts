@@ -7,16 +7,14 @@ export type SessionWithAgent = {
   row: SessionRow;
   locationId: string;
   providerId: AgentProviderId;
-  /** The owning agent's provider definition (`.claude/agents/<name>` stem), or
-   * null for a plain agent. This is the session's identity source — the creds
-   * slug and `--agent` launch name derive from it, not from any frozen tag. */
-  definitionName: string | null;
+  /** The owning agent's `name` — the session's identity source. The creds slug
+   * and `--agent` launch name derive from it, read live, not from a frozen tag. */
+  name: string;
 };
 
 /**
  * Loads a session row joined with its owning agent, exposing the agent's
- * `locationId`, `providerId`, and `definitionName` (denormalised onto the
- * session view).
+ * `locationId`, `providerId`, and `name` (denormalised onto the session view).
  */
 export async function loadSessionWithAgent(
   sessionId: string
@@ -26,7 +24,7 @@ export async function loadSessionWithAgent(
       session: sessions,
       locationId: agents.locationId,
       providerId: agents.providerId,
-      definitionName: agents.definitionName,
+      name: agents.name,
     })
     .from(sessions)
     .innerJoin(agents, eq(sessions.agentId, agents.id))
@@ -37,6 +35,6 @@ export async function loadSessionWithAgent(
     row: joined.session,
     locationId: joined.locationId,
     providerId: joined.providerId,
-    definitionName: joined.definitionName,
+    name: joined.name,
   };
 }

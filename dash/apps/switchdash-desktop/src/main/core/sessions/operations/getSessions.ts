@@ -6,7 +6,7 @@ import { mapSessionRowToSession } from '../utils/utils';
 
 export async function getSessions(locationId?: string): Promise<Session[]> {
   const base = db
-    .select({ session: sessions, providerId: agents.providerId })
+    .select({ session: sessions, providerId: agents.providerId, name: agents.name })
     .from(sessions)
     .innerJoin(agents, eq(sessions.agentId, agents.id));
 
@@ -14,5 +14,7 @@ export async function getSessions(locationId?: string): Promise<Session[]> {
     ? await base.where(eq(agents.locationId, locationId)).orderBy(desc(sessions.updatedAt))
     : await base.orderBy(desc(sessions.updatedAt));
 
-  return rows.map(({ session, providerId }) => mapSessionRowToSession(session, providerId));
+  return rows.map(({ session, providerId, name }) =>
+    mapSessionRowToSession(session, providerId, name)
+  );
 }

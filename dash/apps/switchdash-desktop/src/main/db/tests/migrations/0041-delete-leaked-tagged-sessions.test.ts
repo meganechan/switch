@@ -1,23 +1,23 @@
 /**
- * Migration 0041 — deletes leaked / misidentified sessions (CHOO-1440 follow-up).
+ * Migration 0041 — collapses agent identity onto `agents.name` and deletes
+ * leaked / misidentified sessions (CHOO-1440 follow-up).
  *
- * A session used to freeze its agent identity as a `config.agentName` (legacy
- * `subagentName`) tag while its `agent_id` pointed at the wrong agent. Identity
- * now resolves from `agent_id -> agents.definition_name`, so a session whose tag
- * disagrees with its owning agent's definition is unrepairable and is wiped. A
- * healthy session (tag == the owning agent's definition_name) and any untagged
- * session are kept, so live auto-started sessions are not churned.
+ * Step 1 backfills `name` from the authoritative `definition_name`. Step 2
+ * deletes sessions whose frozen `config.agentName` (legacy `subagentName`) tag
+ * disagrees with the owning agent's (now-authoritative) `name`; healthy and
+ * untagged sessions survive.
  *
- * openFixture('empty') already applied 0041 over an empty dataset (a no-op), so
- * this test seeds representative pre-0041 rows and re-applies the committed
- * migration SQL to assert the transform.
+ * This migration reads `definition_name`, which the very next migration drops —
+ * so it cannot be replayed against the final schema that `openFixture` builds.
+ * The test instead stands up a minimal isolated schema carrying just the columns
+ * the migration touches, and applies the committed SQL against it.
  */
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openFixture } from '@tooling/utils/db';
-import { afterEach, describe, expect, it } from 'vitest';
+import Database from 'better-sqlite3';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const MIGRATION_SQL = readFileSync(
   path.resolve(
@@ -27,82 +27,101 @@ const MIGRATION_SQL = readFileSync(
   'utf8'
 );
 
-describe('migration 0041: delete diverged tagged sessions', () => {
-  let fixture: Awaited<ReturnType<typeof openFixture>>;
+function applyMigration(db: Database.Database): void {
+  for (const stmt of MIGRATION_SQL.split('--> statement-breakpoint')) {
+    const trimmed = stmt.trim();
+    if (trimmed) db.exec(trimmed);
+  }
+}
 
-  afterEach(() => {
-    fixture?.close();
+describe('migration 0041: collapse to agents.name + delete diverged sessions', () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(':memory:');
+    db.exec(`
+      CREATE TABLE agents (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        definition_name TEXT
+      );
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY,
+        agent_id TEXT NOT NULL,
+        title TEXT NOT NULL,
+        config TEXT
+      );
+    `);
   });
 
-  function seedLocation(): void {
-    fixture.sqlite
-      .prepare(`INSERT INTO locations (id, name, ssh_host, dir) VALUES (?, ?, '', ?)`)
-      .run('loc', 'loc', '/tmp/loc');
-  }
+  afterEach(() => {
+    db.close();
+  });
 
-  function seedAgent(id: string, definitionName: string | null): void {
-    fixture.sqlite
-      .prepare(
-        `INSERT INTO agents (id, location_id, name, provider_id, definition_name) VALUES (?, 'loc', ?, 'claude', ?)`
-      )
-      .run(id, id, definitionName);
+  function seedAgent(id: string, name: string, definitionName: string | null): void {
+    db.prepare(`INSERT INTO agents (id, name, definition_name) VALUES (?, ?, ?)`).run(
+      id,
+      name,
+      definitionName
+    );
   }
 
   function seedSession(id: string, agentId: string, config: Record<string, unknown> | null): void {
-    fixture.sqlite
-      .prepare(`INSERT INTO sessions (id, agent_id, title, config) VALUES (?, ?, ?, ?)`)
-      .run(id, agentId, id, config === null ? null : JSON.stringify(config));
+    db.prepare(`INSERT INTO sessions (id, agent_id, title, config) VALUES (?, ?, ?, ?)`).run(
+      id,
+      agentId,
+      id,
+      config === null ? null : JSON.stringify(config)
+    );
+  }
+
+  function agentName(id: string): string {
+    return (db.prepare(`SELECT name FROM agents WHERE id = ?`).get(id) as { name: string }).name;
   }
 
   function sessionIds(): string[] {
-    return (
-      fixture.sqlite.prepare(`SELECT id FROM sessions ORDER BY id`).all() as { id: string }[]
-    ).map((r) => r.id);
+    return (db.prepare(`SELECT id FROM sessions ORDER BY id`).all() as { id: string }[]).map(
+      (r) => r.id
+    );
   }
 
-  it('deletes only sessions whose tag diverges from their owning agent', async () => {
-    fixture = await openFixture('empty');
-    seedLocation();
-    seedAgent('main', 'main'); // definition-backed agent
-    seedAgent('orchestrator', 'room-orchestrator'); // another definition-backed agent
-    seedAgent('bare', null); // a provider with no definition capability
+  it('backfills name from definition_name and keeps only matching/untagged sessions', () => {
+    // 'main' already agrees; 'orchestrator' has a stale name that must be
+    // rewritten to its authoritative definition_name.
+    seedAgent('main', 'main', 'main');
+    seedAgent('orchestrator', 'stale-name', 'room-orchestrator');
 
-    // Healthy: tag matches the owning agent's definition_name — kept.
+    // Healthy: tag matches the agent's authoritative (post-backfill) name.
     seedSession('healthy', 'main', { agentName: 'main', autoApprove: true });
     seedSession('healthy-legacy-key', 'orchestrator', { subagentName: 'room-orchestrator' });
 
-    // Broken: owned by the representative ('main') but tagged as another
-    // definition — the classic mis-assigned subagent session. Deleted.
+    // Broken: owned by 'main' but tagged as another agent. Deleted.
     seedSession('mis-assigned', 'main', { agentName: 'room-orchestrator' });
-
-    // Ghost: tagged as a definition whose agent row no longer exists. Deleted.
+    // Ghost: tagged as a name no agent carries. Deleted.
     seedSession('ghost', 'main', { agentName: 'vanished-agent' });
-
-    // Untagged: nothing to reconcile — kept regardless of the agent's definition.
-    seedSession('untagged-def', 'main', { autoApprove: false });
+    // Untagged: nothing to reconcile. Kept.
+    seedSession('untagged', 'main', { autoApprove: false });
     seedSession('untagged-null-config', 'main', null);
-    seedSession('untagged-bare', 'bare', null);
 
-    fixture.sqlite.exec(MIGRATION_SQL);
+    applyMigration(db);
 
+    expect(agentName('main')).toBe('main');
+    expect(agentName('orchestrator')).toBe('room-orchestrator');
     expect(sessionIds()).toEqual([
       'healthy',
       'healthy-legacy-key',
-      'untagged-bare',
-      'untagged-def',
+      'untagged',
       'untagged-null-config',
     ]);
   });
 
-  it('is a no-op when every tagged session matches its agent', async () => {
-    fixture = await openFixture('empty');
-    seedLocation();
-    seedAgent('main', 'main');
-    seedSession('a', 'main', { agentName: 'main' });
-    seedSession('b', 'main', null);
+  it('leaves name untouched when definition_name is null', () => {
+    seedAgent('plain', 'plain-name', null);
+    seedSession('s', 'plain', null);
 
-    fixture.sqlite.exec(MIGRATION_SQL);
+    applyMigration(db);
 
-    expect(sessionIds()).toEqual(['a', 'b']);
+    expect(agentName('plain')).toBe('plain-name');
+    expect(sessionIds()).toEqual(['s']);
   });
 });

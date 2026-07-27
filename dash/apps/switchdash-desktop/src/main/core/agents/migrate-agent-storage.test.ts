@@ -72,7 +72,6 @@ const h = vi.hoisted(() => {
     updateAgent: vi.fn(async () => undefined),
     isComplete: vi.fn(async () => false),
     markComplete: vi.fn(async () => undefined),
-    backfill: vi.fn(async () => 0),
   };
 });
 
@@ -108,9 +107,6 @@ vi.mock('./agent-storage-migration-marker', () => ({
   isAgentStorageMigrationComplete: h.isComplete,
   markAgentStorageMigrationComplete: h.markComplete,
 }));
-vi.mock('@main/core/sessions/operations/backfillSessionAgentName', () => ({
-  backfillSessionAgentName: h.backfill,
-}));
 
 import { migrateAgentStorage } from './migrate-agent-storage';
 
@@ -118,8 +114,8 @@ const baseAgent = {
   id: 'agent-id-1',
   providerId: 'claude',
   locationId: 'loc',
-  name: 'hoot-main',
-  definitionName: 'cc-hoot-main',
+  // The agent's single identity — the creds/definition stem on disk (CHOO-1440).
+  name: 'cc-hoot-main',
   switchAgentId: 'sw-1',
   serverId: 'srv-1',
 };
@@ -217,42 +213,5 @@ describe('migrateAgentStorage', () => {
     await migrateAgentStorage();
 
     expect(h.markComplete).not.toHaveBeenCalled();
-  });
-
-  it('does not latch the marker when an agent name cannot be resolved', async () => {
-    h.state.agents = [{ ...baseAgent, definitionName: null }];
-    h.discoverLocal.mockResolvedValueOnce([]);
-    h.state.workspace = fakeFs({});
-
-    await migrateAgentStorage();
-
-    expect(h.markComplete).not.toHaveBeenCalled();
-  });
-
-  it('backfills session agentName so migrated sessions stay grouped under the agent', async () => {
-    h.state.workspace = fakeFs({
-      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
-      '.claude/agents/cc-hoot-main.md': '# def',
-    });
-
-    await migrateAgentStorage();
-
-    expect(h.backfill).toHaveBeenCalledWith('agent-id-1', 'cc-hoot-main');
-  });
-
-  it('backfills even when definitionName was already set (repairs a prior migration)', async () => {
-    // definitionName is already populated (an earlier migration ran) but old
-    // sessions still carry no agentName — the backfill must still repair them.
-    h.state.agents = [{ ...baseAgent, definitionName: 'cc-hoot-main' }];
-    h.backfill.mockResolvedValueOnce(3);
-    h.state.workspace = fakeFs({
-      '.switch/agents/cc-hoot-main.json': credsJson('sw-1'),
-      '.claude/agents/cc-hoot-main.md': '# def',
-    });
-
-    await migrateAgentStorage();
-
-    expect(h.updateAgent).not.toHaveBeenCalled();
-    expect(h.backfill).toHaveBeenCalledWith('agent-id-1', 'cc-hoot-main');
   });
 });

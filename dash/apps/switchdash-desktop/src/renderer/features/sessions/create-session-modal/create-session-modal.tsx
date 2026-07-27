@@ -37,7 +37,6 @@ import {
 import { Textarea } from '@renderer/lib/ui/textarea';
 import { log } from '@renderer/utils/logger';
 import { cn } from '@renderer/utils/utils';
-import { representativeAgent } from '@shared/core/agents/agents';
 import type { RemoteAgentRoom } from '@shared/core/switch-servers/switch-servers';
 import { buildConnectPrompt } from './build-connect-prompt';
 
@@ -97,14 +96,12 @@ export const CreateSessionModal = observer(function CreateSessionModal({
     enabled: !!selectedLocationId,
   });
   const locationAgents = agentsQuery.data ?? [];
-  const agent = representativeAgent(locationAgents) ?? null;
+  const agent = locationAgents[0] ?? null;
 
-  // When launching as a subagent, the session joins rooms under the subagent's
-  // own Switch identity — its own agent row (a definitionName agent) — so the
-  // room picker uses the subagent's id/server, not the parent agent's (CHOO-1440).
-  const subagent = agentName
-    ? (locationAgents.find((a) => a.definitionName === agentName) ?? null)
-    : null;
+  // When a specific agent is named, the session joins rooms under that agent's
+  // own Switch identity — its own agent row — so the room picker uses that
+  // agent's id/server, matched by name (CHOO-1440).
+  const subagent = agentName ? (locationAgents.find((a) => a.name === agentName) ?? null) : null;
 
   const serverId = agentName ? (subagent?.serverId ?? null) : (agent?.serverId ?? null);
   const switchAgentId = agentName
@@ -148,14 +145,13 @@ export const CreateSessionModal = observer(function CreateSessionModal({
 
     void (async () => {
       const freshAgents = await rpc.agents.getAgents(selectedLocationId);
-      // A subagent session must be OWNED by the subagent's own agent row — its
-      // identity flows from `session.agent_id → agents.definition_name`, so the
-      // session is invisible/misidentified if it points at the representative
-      // (plain) agent instead. Resolve the definition-backed row here; error out
-      // rather than silently fall back to the wrong agent (CHOO-1440).
+      // A named session must be OWNED by that agent's own row — identity flows
+      // from `session.agent_id → agents.name`, so the session is
+      // invisible/misidentified if it points at a different agent. Resolve the
+      // row by name here; error out rather than silently fall back (CHOO-1440).
       const resolvedAgent = agentName
-        ? (subagent ?? freshAgents.find((a) => a.definitionName === agentName) ?? null)
-        : (agent ?? representativeAgent(freshAgents));
+        ? (subagent ?? freshAgents.find((a) => a.name === agentName) ?? null)
+        : (agent ?? freshAgents[0]);
       if (!resolvedAgent) {
         log.error('spawn session failed: no agent for location/subagent', {
           locationId: selectedLocationId,

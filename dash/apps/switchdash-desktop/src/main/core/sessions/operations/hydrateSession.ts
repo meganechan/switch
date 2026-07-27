@@ -24,7 +24,7 @@ export async function hydrateSession(sessionId: string): Promise<void> {
   const isResuming = !isFirstSpawn;
 
   await agent.start(
-    mapSessionRowToSession(row, loaded.providerId),
+    mapSessionRowToSession(row, loaded.providerId, loaded.name),
     undefined,
     isResuming,
     isFirstSpawn ? config.initialPrompt : undefined

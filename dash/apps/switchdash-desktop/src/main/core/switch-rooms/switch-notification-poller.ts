@@ -97,24 +97,19 @@ class SwitchNotificationPoller {
     const rootPath = location.dir;
 
     // A session polls as its OWN agent's identity — resolved from the joined
-    // agent row, not from a name frozen into the session's config. A subagent's
-    // creds live in its provider-neutral `.switch/agents/<definitionName>.json`,
-    // keyed by the agent's definition name; a plain agent (no definitionName)
-    // uses `.switch/agents/<agentId>.json`. Deriving the slug from the live agent
-    // row is what stops a session from polling under the wrong identity when the
-    // definition is renamed or when a stale tag disagrees with the agent row.
-    const agentId = loaded.row.agentId;
-    const slug = loaded.definitionName;
+    // agent row, not from a name frozen into the session's config. An agent's
+    // creds live in its provider-neutral `.switch/agents/<name>.json`, keyed by
+    // the agent's name. Deriving the slug from the live agent row is what stops a
+    // session from polling under the wrong identity when a stale tag disagrees
+    // with the agent row.
+    const slug = loaded.name;
 
     // Fall back to the legacy subagent path, then the location's
     // `.claude/settings.local.json`, for un-migrated installs (CHOO-1440).
-    const creds = slug
-      ? ((await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, slug), log)) ??
-        (await readSwitchAgentCredentialsFromSettings(subagentSettingsPath(rootPath, slug), log)))
-      : ((await readSwitchAgentCredentialsFromSettings(
-          agentSettingsPath(rootPath, agentId),
-          log
-        )) ?? (await readSwitchAgentCredentials(rootPath, log)));
+    const creds =
+      (await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, slug), log)) ??
+      (await readSwitchAgentCredentialsFromSettings(subagentSettingsPath(rootPath, slug), log)) ??
+      (await readSwitchAgentCredentials(rootPath, log));
     if (!creds) {
       log.warn(
         'SwitchNotificationPoller: missing Switch credentials (SWITCH_API_TOKEN/ENDPOINT/AGENT_ID) — cannot poll room',

@@ -295,6 +295,13 @@
       "when": 1785162743556,
       "tag": "0041_delete_leaked_tagged_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1785164441913,
+      "tag": "0042_drop_agent_definition_name",
+      "breakpoints": true
     }
   ]
 }

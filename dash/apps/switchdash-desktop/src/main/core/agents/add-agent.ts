@@ -105,9 +105,6 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
     locationId: location.id,
     name: params.name,
     providerId: params.providerId,
-    // A provider with a definitions capability launches as `--agent <name>`;
-    // one without has no on-disk definition, so it launches plainly.
-    definitionName: behavior ? params.name : null,
     switchAgentId: registered.id,
     apiEndpoint: server.apiUrl,
     serverId: params.serverId,
