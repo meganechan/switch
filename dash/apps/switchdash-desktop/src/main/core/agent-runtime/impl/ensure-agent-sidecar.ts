@@ -6,61 +6,65 @@ import {
   RemoteSidecarLauncher,
   type SidecarEndpoint,
   type SidecarHost,
+  type SidecarRunStatus,
 } from './remote-sidecar-launcher';
 import { resolveSidecarBundlePath } from './resolve-sidecar-bundle';
 
 /**
- * Deploy + launch (or reattach to) the one agent-scoped remote sidecar and
- * return its hook endpoint. Shared by the SSH agent runtime (which
- * points a UI-started session's hook env at the endpoint) and the auto-session
- * setup path (which just needs the sidecar — and its watcher — running). One
- * sidecar per remote repo dir, so both callers reattach to the same instance.
+ * The parameters every sidecar operation shares: enough to identify the agent's
+ * sidecar on the host and (re)generate its launch recipe.
  */
-export async function ensureAgentSidecar(params: {
+export interface AgentSidecarParams {
   providerId: string;
   /** Absolute remote repo dir; the agent's Switch creds + bundle live under it. */
   repoDir: string;
   deeplinkScheme: string;
   /** The agent's bypass-permissions setting, baked into the auto-start launch spec. */
   autoApprove: boolean;
-  /** Per-agent creds slug (definition name, else agent id) — selects the sidecar's
+  /** Per-agent creds slug (the agent's name) — selects the sidecar's
    * `.switch/agents/<slug>.json` identity file (CHOO-1440). */
   credsSlug: string;
-  /** The agent's definition name (null if none) — so auto-started sessions launch
-   * as the definition with its own identity. */
-  definitionName: string | null;
+  /** The agent's name — so auto-started sessions launch as it with its own
+   * identity (a definitions-capable provider passes it as `--agent <name>`). */
+  agentName: string | null;
   ctx: IExecutionContext;
   connectionId: string;
   host: SidecarHost;
-}): Promise<SidecarEndpoint> {
-  const {
-    providerId,
-    repoDir,
-    deeplinkScheme,
-    autoApprove,
-    credsSlug,
-    definitionName,
-    ctx,
-    connectionId,
-    host,
-  } = params;
+}
+
+async function buildLauncher(params: AgentSidecarParams): Promise<RemoteSidecarLauncher> {
   const launchSpec = await generateAgentLaunchSpec({
-    providerId,
-    remoteRepoDir: repoDir,
-    deeplinkScheme,
-    autoApprove,
-    agentName: definitionName,
-    ctx,
-    connectionId,
+    providerId: params.providerId,
+    remoteRepoDir: params.repoDir,
+    deeplinkScheme: params.deeplinkScheme,
+    autoApprove: params.autoApprove,
+    agentName: params.agentName,
+    ctx: params.ctx,
+    connectionId: params.connectionId,
   });
-  const launcher = new RemoteSidecarLauncher({
-    host,
+  return new RemoteSidecarLauncher({
+    host: params.host,
     bundlePath: resolveSidecarBundlePath(),
-    sidecarTmuxName: agentSidecarTmuxName(repoDir, credsSlug),
-    config: { repoDir, deeplinkScheme, launchSpec, credsSlug },
+    sidecarTmuxName: agentSidecarTmuxName(params.repoDir, params.credsSlug),
+    config: {
+      repoDir: params.repoDir,
+      deeplinkScheme: params.deeplinkScheme,
+      launchSpec,
+      credsSlug: params.credsSlug,
+    },
     log,
   });
-  return launcher.deployAndLaunch();
+}
+
+/**
+ * Deploy + launch (or reattach to) the one agent-scoped remote sidecar and
+ * return its hook endpoint. Shared by the SSH agent runtime (which points a
+ * UI-started session's hook env at the endpoint) and the auto-session setup path
+ * (which just needs the sidecar — and its watcher — running). One sidecar per
+ * remote repo dir, so both callers reattach to the same instance.
+ */
+export async function ensureAgentSidecar(params: AgentSidecarParams): Promise<SidecarEndpoint> {
+  return (await buildLauncher(params)).deployAndLaunch();
 }
 
 /**
@@ -70,49 +74,54 @@ export async function ensureAgentSidecar(params: {
  * just to poll. When no sidecar is up there is nothing to discover, so callers
  * treat null as "no sessions this tick".
  */
-export async function probeAgentSidecar(params: {
-  providerId: string;
-  repoDir: string;
-  deeplinkScheme: string;
-  /** The agent's bypass-permissions setting. Probe never writes the spec, so this
-   * only shapes the (unused) config; pass the real value for consistency. */
-  autoApprove: boolean;
-  /** Per-agent creds slug (definition name, else agent id). Probe never launches,
-   * so this only shapes the (unused) config; pass the real value for consistency. */
-  credsSlug: string;
-  /** The agent's definition name (null if none). Probe never launches; passed for
-   * consistency with ensureAgentSidecar. */
-  definitionName: string | null;
-  ctx: IExecutionContext;
-  connectionId: string;
-  host: SidecarHost;
-}): Promise<SidecarEndpoint | null> {
-  const {
-    providerId,
-    repoDir,
-    deeplinkScheme,
-    autoApprove,
-    credsSlug,
-    definitionName,
-    ctx,
-    connectionId,
-    host,
-  } = params;
-  const launchSpec = await generateAgentLaunchSpec({
-    providerId,
-    remoteRepoDir: repoDir,
-    deeplinkScheme,
-    autoApprove,
-    agentName: definitionName,
-    ctx,
-    connectionId,
-  });
-  const launcher = new RemoteSidecarLauncher({
-    host,
-    bundlePath: resolveSidecarBundlePath(),
-    sidecarTmuxName: agentSidecarTmuxName(repoDir, credsSlug),
-    config: { repoDir, deeplinkScheme, launchSpec, credsSlug },
-    log,
-  });
-  return launcher.probeExisting();
+export async function probeAgentSidecar(
+  params: AgentSidecarParams
+): Promise<SidecarEndpoint | null> {
+  return (await buildLauncher(params)).probeExisting();
+}
+
+/**
+ * Read-only status of an agent's sidecar for the UI (running? which build/
+ * protocol/epoch/pid? how many live sessions?), plus this client's own bundle
+ * hash so the caller can render the client-vs-host verdict. Never launches.
+ */
+export async function readAgentSidecarStatus(
+  params: AgentSidecarParams
+): Promise<{ status: SidecarRunStatus; clientHash: string }> {
+  const launcher = await buildLauncher(params);
+  const [status, clientHash] = await Promise.all([
+    launcher.readStatus(),
+    launcher.localBundleHash(),
+  ]);
+  return { status, clientHash };
+}
+
+/**
+ * Stop an agent's sidecar (kills its tmux session). Sessions keep running in
+ * their own panes; they simply lose room injection until a sidecar is back.
+ */
+export async function stopAgentSidecar(params: AgentSidecarParams): Promise<void> {
+  await (await buildLauncher(params)).stop();
+}
+
+/**
+ * Force a fresh sidecar process: stop the running one, then deploy + launch.
+ *
+ * `ensureAgentSidecar` alone reattaches to a same-build sidecar and defers an
+ * upgrade while sessions are live, so it is not a restart. This is the explicit
+ * "restart / force upgrade now" the UI offers — safe because sessions follow
+ * the new process via the endpoint file.
+ */
+export async function restartAgentSidecar(params: AgentSidecarParams): Promise<SidecarEndpoint> {
+  const launcher = await buildLauncher(params);
+  await launcher.stop();
+  return launcher.deployAndLaunch();
+}
+
+/** Best-effort tail of an agent's sidecar log, for the UI's debug view. */
+export async function readAgentSidecarLog(
+  params: AgentSidecarParams,
+  lines: number
+): Promise<string> {
+  return (await buildLauncher(params)).logTail(lines);
 }

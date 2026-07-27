@@ -19,11 +19,6 @@ import {
 } from './sidebar-room-grouping';
 import { agentRoomGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
 
-/** The provider definition a session was launched as, if any. */
-function sessionDefinitionName(session: SessionStore): string | undefined {
-  return 'agentName' in session.data ? session.data.agentName : undefined;
-}
-
 /** An agent paired with its (mounted) location, for the flat sidebar list. */
 type AgentEntry = { agent: Agent; location: LocationStore };
 
@@ -44,14 +39,18 @@ function scopedAgents(): AgentEntry[] {
   );
 }
 
-/** An agent's visible sessions: its location's sessions launched as its definition. */
+/**
+ * An agent's visible sessions: the location's sessions it owns. Sessions are
+ * paired to their agent by `agent_id` — the authoritative link — not by matching
+ * a name frozen into the session's config against the agent's definition. A
+ * session whose owning agent no longer matches by name is still shown under its
+ * agent instead of silently vanishing (CHOO-1440).
+ */
 function agentSessions(entry: AgentEntry): SessionStore[] {
   const all = sidebarStore.visibleSessionsForLocation(entry.location.id);
-  const def = entry.agent.definitionName;
-  return all.filter((session) => {
-    const name = sessionDefinitionName(session);
-    return def == null ? !name : name === def;
-  });
+  return all.filter(
+    (session) => 'agentId' in session.data && session.data.agentId === entry.agent.id
+  );
 }
 
 export const SidebarGroupedList = observer(function SidebarGroupedList() {

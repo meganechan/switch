@@ -7,21 +7,34 @@ export type SessionWithAgent = {
   row: SessionRow;
   locationId: string;
   providerId: AgentProviderId;
+  /** The owning agent's `name` — the session's identity source. The creds slug
+   * and `--agent` launch name derive from it, read live, not from a frozen tag. */
+  name: string;
 };
 
 /**
  * Loads a session row joined with its owning agent, exposing the agent's
- * `locationId` and `providerId` (denormalised onto the session view).
+ * `locationId`, `providerId`, and `name` (denormalised onto the session view).
  */
 export async function loadSessionWithAgent(
   sessionId: string
 ): Promise<SessionWithAgent | undefined> {
   const [joined] = await db
-    .select({ session: sessions, locationId: agents.locationId, providerId: agents.providerId })
+    .select({
+      session: sessions,
+      locationId: agents.locationId,
+      providerId: agents.providerId,
+      name: agents.name,
+    })
     .from(sessions)
     .innerJoin(agents, eq(sessions.agentId, agents.id))
     .where(eq(sessions.id, sessionId))
     .limit(1);
   if (!joined) return undefined;
-  return { row: joined.session, locationId: joined.locationId, providerId: joined.providerId };
+  return {
+    row: joined.session,
+    locationId: joined.locationId,
+    providerId: joined.providerId,
+    name: joined.name,
+  };
 }

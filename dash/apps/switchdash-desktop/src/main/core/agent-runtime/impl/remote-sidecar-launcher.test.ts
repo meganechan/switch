@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
+import { SIDECAR_BUNDLE_REL_PATH } from '../../../../sidecar/sidecar-paths';
+import { SIDECAR_VERSION } from '../../../../sidecar/sidecar-version';
 import {
   agentSidecarTmuxName,
   killSidecarSession,
@@ -26,8 +28,24 @@ const CONFIG: SidecarLaunchConfig = {
   credsSlug: 'claude-code.repo.me',
 };
 
-const readyLine = (hash: string | undefined = 'hash-v1'): string =>
-  `${JSON.stringify({ event: 'ready', port: 4321, token: 'tok-abc', hash })}\n`;
+/** The endpoint the launcher derives for CONFIG — sessions are pointed at this
+ * path rather than at the port/token, so it must track repoDir + credsSlug. */
+const ENDPOINT_FILE = '/home/dev/repo/.switchdash/agents/claude-code.repo.me/endpoint';
+const ENDPOINT = { port: 4321, token: 'tok-abc', endpointFile: ENDPOINT_FILE };
+
+const readyLine = (
+  hash: string | undefined = 'hash-v1',
+  epoch = 1,
+  version: string | undefined = SIDECAR_VERSION
+): string =>
+  `${JSON.stringify({
+    event: 'ready',
+    port: 4321,
+    token: 'tok-abc',
+    hash,
+    epoch,
+    version,
+  })}\n`;
 const noopLog = { debug: vi.fn(), warn: vi.fn() };
 
 interface ExecCall {
@@ -38,8 +56,16 @@ interface ExecCall {
 function isLaunchSpecWrite(script: string): boolean {
   return script.includes('base64 -d');
 }
-function isBundleHashWrite(script: string): boolean {
-  return script.includes('printf %s') && script.includes('.sha256');
+function isDeployLock(script: string): boolean {
+  return script.includes('deploy.lock') && script.includes('mkdir');
+}
+function isLockRelease(script: string): boolean {
+  // The acquire script also contains an `rm -rf` (its stale-break branch), so
+  // match only the standalone release.
+  return script.startsWith('rm -rf') && script.includes('deploy.lock');
+}
+function isBundleRename(script: string): boolean {
+  return script.startsWith('mv ');
 }
 
 function makeHost(
@@ -48,6 +74,12 @@ function makeHost(
     readyAfter?: number;
     diesAfter?: number;
     remoteBundleHash?: string;
+    /** Simulates another client holding the host-side deploy lock. */
+    lockHeld?: boolean;
+    /** Version the running sidecar reports (undefined = predates the field). */
+    readyVersion?: string;
+    /** Sessions recorded in the running sidecar's durable state. */
+    liveSessions?: number;
     /** Bundle hash the (already-running) sidecar's ready line reports. */
     readyHash?: string;
     /** What `tail` of the sidecar log returns after a startup crash. */
@@ -55,7 +87,8 @@ function makeHost(
   } = {}
 ): { host: SidecarHost; calls: ExecCall[]; puts: Array<{ local: string; remote: string }> } {
   const existingSidecar = opts.existingSidecar ?? false;
-  const readyLineOut = readyLine(opts.readyHash ?? 'hash-v1');
+  const readyHash = opts.readyHash ?? 'hash-v1';
+  const readyVersion = 'readyVersion' in opts ? opts.readyVersion : SIDECAR_VERSION;
   const readyAfter = opts.readyAfter ?? 0;
   const diesAfter = opts.diesAfter ?? Infinity;
   const calls: ExecCall[] = [];
@@ -63,18 +96,29 @@ function makeHost(
   let sidecarExists = existingSidecar;
   let catReads = 0;
   let aliveChecks = 0;
+  // The real sidecar bumps its epoch on every start; the launcher relies on
+  // that to tell a freshly-launched process from the one it just killed.
+  let epoch = 1;
 
   const host: SidecarHost = {
     async exec(command, args) {
       calls.push({ command, args });
       if (command === 'sh') {
         const script = args[1] ?? '';
-        if (isLaunchSpecWrite(script) || isBundleHashWrite(script))
+        if (isDeployLock(script)) {
+          // `mkdir` succeeds unless another client holds the lock.
+          return { stdout: opts.lockHeld ? 'busy' : 'acquired', stderr: '' };
+        }
+        if (isLaunchSpecWrite(script) || isLockRelease(script) || isBundleRename(script)) {
           return { stdout: '', stderr: '' };
-        return { stdout: opts.remoteBundleHash ?? '', stderr: '' }; // prepareDir hash read
+        }
+        // prepareDir: `sha256sum <bundle>` output is "<hash>  <path>".
+        const remote = opts.remoteBundleHash;
+        return { stdout: remote ? `${remote}  ${SIDECAR_BUNDLE_REL_PATH}` : '', stderr: '' };
       }
       if (command === 'tmux' && args[0] === 'new-session') {
         sidecarExists = true;
+        epoch += 1;
         return { stdout: '', stderr: '' };
       }
       if (command === 'tmux' && args[0] === 'kill-session') {
@@ -88,10 +132,18 @@ function makeHost(
         return { stdout: '', stderr: '' };
       }
       if (command === 'cat') {
-        if (existingSidecar) return { stdout: readyLineOut, stderr: '' };
+        // The launcher reads two different files through `cat`.
+        if ((args[0] ?? '').endsWith('state.json')) {
+          const sessions = Array.from({ length: opts.liveSessions ?? 0 }, (_, i) => ({
+            sessionId: `s${i}`,
+          }));
+          return { stdout: JSON.stringify({ version: '1', epoch, sessions }), stderr: '' };
+        }
+        const line = readyLine(readyHash, epoch, readyVersion);
+        if (existingSidecar) return { stdout: line, stderr: '' };
         const n = catReads++;
         if (n < readyAfter) throw new Error('no such file');
-        return { stdout: readyLineOut, stderr: '' };
+        return { stdout: line, stderr: '' };
       }
       if (command === 'tail') {
         return { stdout: opts.logTail ?? '', stderr: '' };
@@ -122,10 +174,15 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost();
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
-    expect(puts).toEqual([
-      { local: '/local/dist-sidecar/sidecar.mjs', remote: '.switchdash/sidecar.mjs' },
-    ]);
+    expect(endpoint).toEqual(ENDPOINT);
+    // The bundle lands on a temp path and is renamed into place: an SFTP
+    // overwrite of the live file is observable half-written, and node loading
+    // it mid-transfer dies on a SyntaxError.
+    expect(puts).toHaveLength(1);
+    expect(puts[0]!.local).toBe('/local/dist-sidecar/sidecar.mjs');
+    expect(puts[0]!.remote).toMatch(/^\.switchdash\/sidecar\.mjs\.\d+\.tmp$/);
+    const rename = calls.find((c) => c.command === 'sh' && isBundleRename(c.args[1] ?? ''));
+    expect(rename!.args[1]).toContain(`mv '${puts[0]!.remote}' '.switchdash/sidecar.mjs'`);
     const specWrite = calls.find((c) => c.command === 'sh' && isLaunchSpecWrite(c.args[1] ?? ''));
     // Per-agent state path (keyed by the creds slug), not the shared per-dir path.
     expect(specWrite!.args[1]).toContain(
@@ -139,7 +196,7 @@ describe('RemoteSidecarLauncher', () => {
   it('skips the bundle upload when the host already holds an identical bundle', async () => {
     const { host, puts } = makeHost({ remoteBundleHash: 'hash-v1' });
     const endpoint = await makeLauncher(host).deployAndLaunch();
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(0);
   });
 
@@ -166,7 +223,7 @@ describe('RemoteSidecarLauncher', () => {
 
   it('polls the ready file until the sidecar reports its endpoint', async () => {
     const { host } = makeHost({ readyAfter: 3 });
-    expect(await makeLauncher(host).deployAndLaunch()).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(await makeLauncher(host).deployAndLaunch()).toEqual(ENDPOINT);
   });
 
   it('fails loud if the sidecar tmux session dies during startup', async () => {
@@ -189,12 +246,67 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost({ existingSidecar: true });
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(0);
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'new-session')).toBeUndefined();
     expect(
       calls.find((c) => c.command === 'sh' && isLaunchSpecWrite(c.args[1] ?? ''))
     ).toBeDefined();
+  });
+
+  it('does not delete the ready file, so a healthy sidecar stays discoverable', async () => {
+    // Clearing it up front made a running sidecar invisible to every other
+    // client for the length of the deploy — and permanently if the deploy died.
+    const { host, calls } = makeHost();
+    await makeLauncher(host).deployAndLaunch();
+
+    const removedReady = calls.some(
+      (c) =>
+        c.command === 'sh' &&
+        (c.args[1] ?? '').includes('rm -f') &&
+        (c.args[1] ?? '').includes('sidecar.ready')
+    );
+    expect(removedReady).toBe(false);
+  });
+
+  it('takes the deploy lock before replacing the sidecar, and releases it after', async () => {
+    const { host, calls } = makeHost();
+    await makeLauncher(host).deployAndLaunch();
+
+    const lockIdx = calls.findIndex((c) => c.command === 'sh' && isDeployLock(c.args[1] ?? ''));
+    const killIdx = calls.findIndex((c) => c.command === 'tmux' && c.args[0] === 'kill-session');
+    const releaseIdx = calls.findIndex((c) => c.command === 'sh' && isLockRelease(c.args[1] ?? ''));
+
+    expect(lockIdx).toBeGreaterThanOrEqual(0);
+    expect(lockIdx).toBeLessThan(killIdx);
+    expect(releaseIdx).toBeGreaterThan(killIdx);
+  });
+
+  it('refuses to replace the sidecar while another client holds the deploy lock', async () => {
+    // Better to fail loudly than to race a concurrent deploy: both clients
+    // would overwrite the bundle under each other and kill each other's process.
+    const { host, calls } = makeHost({ lockHeld: true });
+
+    await expect(makeLauncher(host).deployAndLaunch()).rejects.toThrow(/another client/i);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('releases the deploy lock even when the launch fails', async () => {
+    const { host, calls } = makeHost({ diesAfter: 1 });
+
+    await expect(makeLauncher(host).deployAndLaunch()).rejects.toThrow();
+    expect(calls.some((c) => c.command === 'sh' && isLockRelease(c.args[1] ?? ''))).toBe(true);
+  });
+
+  it('hashes the deployed bundle on the host instead of trusting a sidecar hash file', async () => {
+    const { host, calls, puts } = makeHost({ remoteBundleHash: 'hash-v1' });
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'sh' && (c.args[1] ?? '').includes('sha256sum'))).toBe(
+      true
+    );
+    // Identical bundle already on the host — no re-upload.
+    expect(puts).toHaveLength(0);
   });
 
   it('relaunches a running sidecar whose bundle hash is stale (upgrade takes effect)', async () => {
@@ -204,7 +316,7 @@ describe('RemoteSidecarLauncher', () => {
     const { host, calls, puts } = makeHost({ existingSidecar: true, readyHash: 'hash-OLD' });
     const endpoint = await makeLauncher(host).deployAndLaunch();
 
-    expect(endpoint).toEqual({ port: 4321, token: 'tok-abc' });
+    expect(endpoint).toEqual(ENDPOINT);
     expect(puts).toHaveLength(1); // new bundle uploaded
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBeDefined();
     expect(calls.find((c) => c.command === 'tmux' && c.args[0] === 'new-session')).toBeDefined();
@@ -224,6 +336,74 @@ describe('RemoteSidecarLauncher', () => {
       command: 'tmux',
       args: ['kill-session', '-t', '=switchdash-sidecar-abc'],
     });
+  });
+});
+
+describe('RemoteSidecarLauncher versioning', () => {
+  it('probes a running sidecar of a DIFFERENT build — a build difference is not an incompatibility', async () => {
+    // The two-client kill-loop: each client judged the other's sidecar unusable
+    // purely because its bundle hash differed, killed it, relaunched, and
+    // reported zero sessions in between — pruning live rows on both sides.
+    const { host, calls } = makeHost({ existingSidecar: true, readyHash: 'hash-other' });
+
+    const endpoint = await makeLauncher(host).probeExisting();
+
+    expect(endpoint).toEqual(ENDPOINT);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('refuses to probe a sidecar speaking a protocol it cannot support', async () => {
+    const { host } = makeHost({
+      existingSidecar: true,
+      readyVersion: '2.0',
+    });
+
+    expect(await makeLauncher(host).probeExisting()).toBeNull();
+  });
+
+  it('treats a sidecar predating the version field as major 0, still usable', async () => {
+    const { host } = makeHost({ existingSidecar: true, readyVersion: undefined });
+
+    expect(await makeLauncher(host).probeExisting()).toEqual(ENDPOINT);
+  });
+
+  it('defers an available upgrade while the sidecar has live sessions', async () => {
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyHash: 'hash-old',
+      liveSessions: 2,
+    });
+
+    const endpoint = await makeLauncher(host).deployAndLaunch();
+
+    expect(endpoint).toEqual(ENDPOINT);
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(false);
+  });
+
+  it('takes the upgrade once the sidecar is idle', async () => {
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyHash: 'hash-old',
+      liveSessions: 0,
+    });
+
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(true);
+  });
+
+  it('replaces an incompatible sidecar even when sessions are live', async () => {
+    // Compatibility is the one reason worth interrupting work for: we cannot
+    // talk to it at all, so deferring would mean never recovering.
+    const { host, calls } = makeHost({
+      existingSidecar: true,
+      readyVersion: '2.0',
+      liveSessions: 3,
+    });
+
+    await makeLauncher(host).deployAndLaunch();
+
+    expect(calls.some((c) => c.command === 'tmux' && c.args[0] === 'kill-session')).toBe(true);
   });
 });
 

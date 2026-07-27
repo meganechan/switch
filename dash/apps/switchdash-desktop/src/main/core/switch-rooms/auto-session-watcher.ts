@@ -202,7 +202,7 @@ class AutoSessionWatcher {
     // Read the agent's own identity from its provider-neutral per-agent file so
     // agents sharing a location watch as themselves; fall back to the location's
     // `.claude/settings.local.json` for un-migrated installs (CHOO-1440).
-    const slug = agent?.definitionName ?? localAgentId;
+    const slug = agent?.name ?? localAgentId;
     const creds =
       (await readSwitchAgentCredentialsFromSettings(agentSettingsPath(rootPath, slug), log)) ??
       (await readSwitchAgentCredentials(rootPath, log));

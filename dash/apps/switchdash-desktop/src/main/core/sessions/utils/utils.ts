@@ -4,10 +4,17 @@ import type { AgentStatus } from '@shared/core/providers/agentEvents';
 import type { Session, SessionLifecycleStatus } from '@shared/core/sessions/sessions';
 
 /**
- * Maps a session row to a `Session`. `providerId` is denormalised from the
- * owning agent and must be supplied by the caller (which has joined `agents`).
+ * Maps a session row to a `Session`. `providerId` and `agentName` are
+ * denormalised from the owning agent and must be supplied by the caller (which
+ * has joined `agents`). `agentName` is the agent's live `name` — the value a
+ * definitions-capable provider launches as (`--agent <name>`) — read from the
+ * agent row rather than frozen into the session, so it follows a rename.
  */
-export function mapSessionRowToSession(row: SessionRow, providerId: AgentProviderId): Session {
+export function mapSessionRowToSession(
+  row: SessionRow,
+  providerId: AgentProviderId,
+  agentName: string
+): Session {
   const config = row.config ?? {};
   return {
     id: row.id,
@@ -26,7 +33,7 @@ export function mapSessionRowToSession(row: SessionRow, providerId: AgentProvide
     lastInteractedAt: row.lastInteractedAt ?? undefined,
     autoApprove: config.autoApprove,
     providerSessionId: config.providerSessionId,
-    agentName: config.agentName ?? config.subagentName,
+    agentName,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

@@ -37,11 +37,7 @@ export async function discoverLocationAgents(params: {
 
   const location = await getLocationByHostDir(params.sshHost, params.dir);
   const existing = location
-    ? new Set(
-        (await getAgents(location.id))
-          .map((a) => a.definitionName)
-          .filter((n): n is string => n != null)
-      )
+    ? new Set((await getAgents(location.id)).map((a) => a.name))
     : new Set<string>();
 
   const workspace = await resolveWorkspaceFsFor(params.sshHost, params.dir);

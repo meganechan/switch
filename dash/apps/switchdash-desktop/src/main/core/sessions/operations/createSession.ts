@@ -31,13 +31,9 @@ export async function createSession(
   const configObj: SessionConfig = {};
   if (params.autoApprove !== undefined) configObj.autoApprove = params.autoApprove;
   if (params.initialPrompt?.trim()) configObj.initialPrompt = params.initialPrompt.trim();
-  // A subagent is just an agent that launches as a provider definition. When the
-  // owning agent carries a definitionName, its sessions launch with
-  // `--agent <definitionName>` — derive it here so the runtime needs no DB
-  // lookup. An explicit param still wins (legacy "run this session as subagent
-  // X of parent" callers) (CHOO-1440).
-  const launchDefinition = params.agentName?.trim() || agent.definitionName?.trim();
-  if (launchDefinition) configObj.agentName = launchDefinition;
+  // The session's launch identity is not stored — it is read live from the
+  // owning agent's `name` (see mapSessionRowToSession). How that name spawns is
+  // the provider's business (Claude Code → `--agent <name>`) (CHOO-1440).
   const config = Object.keys(configObj).length > 0 ? configObj : undefined;
 
   const [row] = await db
@@ -63,7 +59,7 @@ export async function createSession(
   // as a Result instead of a raw UNIQUE-constraint throw.
   if (!row) return err({ type: 'already-exists' });
 
-  const session = mapSessionRowToSession(row, agent.providerId);
+  const session = mapSessionRowToSession(row, agent.providerId, agent.name);
 
   try {
     const built = await provisionSessionRuntime(session, location);

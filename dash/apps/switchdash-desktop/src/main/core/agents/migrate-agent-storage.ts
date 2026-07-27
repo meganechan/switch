@@ -1,9 +1,6 @@
 import { getLocationById } from '@main/core/locations/store';
 import { getPlugin } from '@main/core/providers/plugin-registry';
-import { backfillSessionAgentName } from '@main/core/sessions/operations/backfillSessionAgentName';
 import { parseSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
-import { fetchAgentDetail } from '@main/core/switch-servers/gateway-client';
-import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
 import {
@@ -13,15 +10,14 @@ import {
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { getAgents } from './getAgents';
 import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
-import { updateAgent } from './updateAgent';
 
 /**
  * Migrate existing switchdash-managed agents to the current storage/definition
  * layout (CHOO-1440): every agent is a repository-defined agent with a per-agent
- * credentials file at `.switch/agents/<name>.json`, an on-disk definition, and a
- * populated `definitionName`. Pre-CHOO-1440 installs kept credentials in the
- * legacy `.claude/switch-subagents/<name>.settings.json` (or the shared
- * `.claude/settings.local.json`) and left `definitionName` null.
+ * credentials file at `.switch/agents/<name>.json` and an on-disk definition,
+ * both keyed by the agent's single `name`. Pre-CHOO-1440 installs kept
+ * credentials in the legacy `.claude/switch-subagents/<name>.settings.json` (or
+ * the shared `.claude/settings.local.json`).
  *
  * Runs once at boot, best-effort: each agent is migrated in isolation so one bad
  * directory or unreachable host never aborts the rest, and every step is
@@ -77,36 +73,11 @@ async function migrateOne(agent: Agent): Promise<MigrateResult> {
 
   const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
-    // Resolve the agent's REAL name — the credentials/definition stem, NOT
-    // `agent.name` (the directory-derived display name). Prefer the row's
-    // definitionName; else the on-disk agent matched to this row by switchAgentId;
-    // else the registered Switch name from the gateway (authoritative — the same
-    // name new agents are created under). Never the directory name (CHOO-1440).
-    let name = agent.definitionName;
-    let description = agent.name;
-    if (!name) {
-      // No switchAgentId → nothing anchors a real name; leave for a later boot
-      // in case the row is still being populated.
-      if (!agent.switchAgentId) return { changed: false, complete: false };
-      const discovered = await behavior.discoverLocal(workspace.fs, workspace.homeFs);
-      const match = discovered.find((d) => d.switchAgentId === agent.switchAgentId);
-      if (match) {
-        name = match.name;
-        description = match.description ?? match.name;
-      } else {
-        const registered = await fetchRegisteredName(agent);
-        if (!registered) {
-          log.info('migrateAgentStorage: could not resolve a real name for agent; skipping', {
-            agentId: agent.id,
-            switchAgentId: agent.switchAgentId,
-          });
-          // Resolution may fail transiently (gateway down); retry next boot.
-          return { changed: false, complete: false };
-        }
-        name = registered.name;
-        description = registered.description;
-      }
-    }
+    // The agent's identity is its single `name` (CHOO-1440): the creds/definition
+    // stem on disk. It is authoritative — earlier migrations, and the 0041 SQL
+    // backfill, have already collapsed the former `definitionName` onto it.
+    const name = agent.name;
+    const description = agent.name;
 
     let changed = false;
 
@@ -158,49 +129,9 @@ async function migrateOne(agent: Agent): Promise<MigrateResult> {
       changed = true;
     }
 
-    // 3. Row: populate definitionName so sessions launch as this named agent.
-    if (agent.definitionName === null) {
-      await updateAgent({ agentId: agent.id, definitionName: name });
-      changed = true;
-    }
-
-    // 4. Backfill this agent's own pre-existing sessions: they froze no
-    //    `agentName` (created before it had a definitionName), so the sidebar —
-    //    which pairs a session to its agent by `agentName === definitionName` —
-    //    would orphan them once definitionName is set. Idempotent, and run even
-    //    when definitionName was already populated so installs that ran an
-    //    earlier migration (before this backfill existed) are repaired too.
-    const backfilled = await backfillSessionAgentName(agent.id, name);
-    if (backfilled > 0) {
-      log.info('migrateAgentStorage: backfilled session agentName for migrated agent', {
-        agentId: agent.id,
-        backfilled,
-      });
-      changed = true;
-    }
-
     return { changed, complete: true };
   } finally {
     workspace.close();
-  }
-}
-
-/** The agent's registered name + description on its Switch server, or null. */
-async function fetchRegisteredName(
-  agent: Agent
-): Promise<{ name: string; description: string } | null> {
-  if (!agent.serverId || !agent.switchAgentId) return null;
-  const server = await getServer(agent.serverId);
-  if (!server) return null;
-  try {
-    const detail = await fetchAgentDetail(server, agent.switchAgentId);
-    return { name: detail.name, description: detail.description || detail.name };
-  } catch (error) {
-    log.warn('migrateAgentStorage: failed to fetch registered agent name', {
-      agentId: agent.id,
-      error: String(error),
-    });
-    return null;
   }
 }
 

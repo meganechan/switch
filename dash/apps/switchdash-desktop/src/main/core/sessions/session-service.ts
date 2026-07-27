@@ -116,7 +116,7 @@ export class SessionService implements Hookable<SessionLifecycleHooks> {
     const agent = await getAgentById(row.agentId);
     if (!agent) throw new Error(`Agent not found: ${row.agentId}`);
     return {
-      session: mapSessionRowToSession(row, agent.providerId),
+      session: mapSessionRowToSession(row, agent.providerId, agent.name),
       agentLocationId: agent.locationId,
     };
   }

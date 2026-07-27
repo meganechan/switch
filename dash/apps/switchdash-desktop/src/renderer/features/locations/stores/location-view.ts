@@ -2,7 +2,7 @@ import { makeAutoObservable } from 'mobx';
 import type { Snapshottable } from '@renderer/lib/stores/snapshottable';
 import type { LocationViewSnapshot } from '@shared/view-state';
 
-export type LocationView = 'sessions' | 'subagents' | 'settings';
+export type LocationView = 'sessions' | 'subagents' | 'settings' | 'sidecar';
 
 export class LocationViewStore implements Snapshottable<LocationViewSnapshot> {
   activeView: LocationView = 'sessions';

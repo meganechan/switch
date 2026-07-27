@@ -9,7 +9,6 @@ import type { IExecutionContext } from '@main/core/execution-context/types';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import type { Pty } from '@main/core/pty/pty';
-import { buildAgentHookEnv } from '@main/core/pty/pty-env';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { resolveSshCommand } from '@main/core/pty/spawn-utils';
 import { openSsh2Pty } from '@main/core/pty/ssh2-pty';
@@ -24,14 +23,15 @@ import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { AgentSessionConfig } from '@shared/core/providers/agent-session';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
+import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
 import type { Session } from '@shared/core/sessions/sessions';
-import { ensureAgentSidecar } from './ensure-agent-sidecar';
+import { ensureAgentSidecar, probeAgentSidecar } from './ensure-agent-sidecar';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
 import { RemoteHookEventRelay } from './remote-hook-event-relay';
 import { createRemotePluginFs } from './remote-plugin-fs';
-import type { SidecarHost } from './remote-sidecar-launcher';
+import type { SidecarEndpoint, SidecarHost } from './remote-sidecar-launcher';
 import { resolveAgentExecutable } from './resolve-agent-executable';
 import { httpPostJsonOverChannel } from './sidecar-http';
 
@@ -54,7 +54,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
   private relay: RemoteHookEventRelay | null = null;
   /** Last resolved sidecar endpoint (agent-scoped, shared by all sessions on the
    * VM), captured at launch so a delete can POST /disconnect without re-ensuring. */
-  private sidecarEndpoint: { port: number; token: string } | null = null;
+  private sidecarEndpoint: SidecarEndpoint | null = null;
   private supervisor = new AgentRuntimeSupervisor();
   private readonly handleConnectionEvent: (evt: SshConnectionManagerEvent) => void;
   private readonly locationId: string;
@@ -194,7 +194,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     }
   }
 
-  private async launchSidecar(session: Session): Promise<{ port: number; token: string }> {
+  private async launchSidecar(session: Session): Promise<SidecarEndpoint> {
     // One agent-scoped sidecar serves every session on the VM (this one and any
     // the sidecar's own watcher auto-starts) — ensure it is running and point
     // this session's hooks at its shared hook server. Reattaches if already up.
@@ -206,8 +206,8 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       repoDir: this.sessionPath,
       deeplinkScheme: DEEPLINK_SCHEME,
       autoApprove: agent?.autoApprove ?? false,
-      credsSlug: agent?.definitionName ?? session.agentName ?? session.agentId,
-      definitionName: agent?.definitionName ?? session.agentName ?? null,
+      credsSlug: agent?.name ?? session.agentName ?? session.agentId,
+      agentName: agent?.name ?? session.agentName ?? null,
       ctx: this.ctx,
       connectionId: this.connectionId,
       host: this.createSidecarHost(),
@@ -274,13 +274,35 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
    * local sessions, but with `startLocalPoller: false` — the sidecar already
    * polls and injects on the VM.
    */
-  private startRelay(endpoint: { port: number; token: string }): void {
+  private startRelay(endpoint: SidecarEndpoint): void {
     this.relay?.stop();
     const proxy = this.proxy;
     const relay = new RemoteHookEventRelay({
       opener: { openChannel: (port) => proxy.forwardOut(port) },
       port: endpoint.port,
       token: endpoint.token,
+      // Follow the sidecar if it restarts on a different port with a new token,
+      // instead of polling the dead one for the rest of the app's life. Probe,
+      // never launch: a relay must not resurrect a sidecar the user stopped.
+      resolveEndpoint: async () => {
+        const session = this.session;
+        if (!session) return null;
+        const agent = await getAgentById(session.agentId);
+        const next = await probeAgentSidecar({
+          providerId: session.providerId,
+          repoDir: this.sessionPath,
+          deeplinkScheme: DEEPLINK_SCHEME,
+          autoApprove: agent?.autoApprove ?? false,
+          credsSlug: agent?.name ?? session.agentName ?? session.agentId,
+          agentName: agent?.name ?? session.agentName ?? null,
+          ctx: this.ctx,
+          connectionId: this.connectionId,
+          host: this.createSidecarHost(),
+        });
+        // Keep the cached endpoint used by /disconnect in step with the relay.
+        if (next) this.sidecarEndpoint = next;
+        return next;
+      },
       sink: async (raw) => {
         if (raw.type === 'session-terminated') {
           this.onRemoteTerminated(raw.body);
@@ -424,7 +446,12 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
         // ensureHooksInstalled).
         await this.installRemoteHooks(session.providerId);
         const endpoint = await this.launchSidecar(session);
-        hookEnv = buildAgentHookEnv({ port: endpoint.port, ptyId, token: endpoint.token });
+        hookEnv = buildAgentHookEnv({
+          port: endpoint.port,
+          ptyId,
+          token: endpoint.token,
+          endpointFile: endpoint.endpointFile,
+        });
       } else {
         log.warn(
           'SshAgentRuntime: tmux disabled — remote agent will not stay connected to Switch while detached',

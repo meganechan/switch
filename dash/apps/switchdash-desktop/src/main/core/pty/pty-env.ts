@@ -2,6 +2,7 @@ import os from 'node:os';
 import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { detectSshAuthSock } from '@main/utils/shellEnv';
 import { getWindowsEnvValue } from '@main/utils/windows-env';
+import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 
 export const AGENT_ENV_VARS = [
   'ALL_PROXY',
@@ -133,31 +134,6 @@ function getWindowsEssentialEnv(resolvedPath: string): Record<string, string> {
     ProgramW6432: getWindowsEnvValue(process.env, 'ProgramW6432') || 'C:\\Program Files',
     CommonProgramW6432:
       getWindowsEnvValue(process.env, 'CommonProgramW6432') || 'C:\\Program Files\\Common Files',
-  };
-}
-
-export interface AgentHookEnv {
-  port: number;
-  ptyId: string;
-  token: string;
-}
-
-/**
- * Environment that points an agent CLI's lifecycle hooks at a switchdash hook
- * server (the local one for local sessions, the on-VM sidecar for remote ones)
- * and stands the in-session Switch connector's own poll loop down so it does
- * not race switchdash's poller on the bridge's destructive event queue.
- *
- * Shared by `buildAgentEnv` (local) and the SSH agent runtime (remote)
- * so the hook wiring — including the no-double-delivery gate — lives in one
- * place.
- */
-export function buildAgentHookEnv(hook: AgentHookEnv): Record<string, string> {
-  return {
-    SWITCHDASH_HOOK_PORT: String(hook.port),
-    SWITCHDASH_PTY_ID: hook.ptyId,
-    SWITCHDASH_HOOK_TOKEN: hook.token,
-    SWITCH_CHANNEL_DISABLE_POLL: '1',
   };
 }
 

@@ -17,11 +17,11 @@ export async function restoreSession(id: string): Promise<Session | undefined> {
   if (!updatedRow) return undefined;
 
   const [agent] = await db
-    .select({ providerId: agents.providerId })
+    .select({ providerId: agents.providerId, name: agents.name })
     .from(agents)
     .where(eq(agents.id, updatedRow.agentId))
     .limit(1);
   if (!agent) return undefined;
 
-  return mapSessionRowToSession(updatedRow, agent.providerId);
+  return mapSessionRowToSession(updatedRow, agent.providerId, agent.name);
 }

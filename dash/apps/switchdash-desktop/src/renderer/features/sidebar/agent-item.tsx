@@ -67,7 +67,7 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
   const confirmDeleteAgent = useConfirmDeleteAgent();
   const { toastPromise } = useToast();
 
-  const agentName = agent.definitionName ?? undefined;
+  const agentName = agent.name;
   const location = getLocationStore(agent.locationId);
 
   // The row is labelled by the agent's registered Switch name; fall back to the

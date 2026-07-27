@@ -173,11 +173,7 @@ export async function onboardLocationAgents(
     name: params.locationName ?? basenameFromAnyPath(params.dir) ?? params.providerId,
   });
 
-  const existing = new Set(
-    (await getAgents(location.id))
-      .map((a) => a.definitionName)
-      .filter((n): n is string => n != null)
-  );
+  const existing = new Set((await getAgents(location.id)).map((a) => a.name));
 
   const workspace = await resolveWorkspaceFsFor(params.sshHost, params.dir);
   const created: Agent[] = [];
@@ -225,7 +221,6 @@ export async function onboardLocationAgents(
         locationId: location.id,
         name: def.name,
         providerId: params.providerId,
-        definitionName: def.name,
         switchAgentId: resolved.identity.switchAgentId,
         apiEndpoint: resolved.identity.apiEndpoint,
         serverId: params.serverId,

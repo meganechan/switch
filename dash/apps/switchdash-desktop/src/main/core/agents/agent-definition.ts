@@ -16,12 +16,12 @@ export async function readAgentDefinition(agentId: string): Promise<RepoAgentAtt
   if (!agent) throw new Error(`No agent with id ${agentId}`);
 
   const behavior = getPlugin(agent.providerId).behavior.repoAgents;
-  if (!behavior || !agent.definitionName) return null;
+  if (!behavior || !agent.name) return null;
 
   const location = await getAgentLocation(agent);
   const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
-    return await behavior.readDefinition(workspace.fs, agent.definitionName);
+    return await behavior.readDefinition(workspace.fs, agent.name);
   } finally {
     workspace.close();
   }
@@ -42,18 +42,18 @@ export async function updateAgentDefinition(params: {
   if (!agent) throw new Error(`No agent with id ${params.agentId}`);
 
   const behavior = getPlugin(agent.providerId).behavior.repoAgents;
-  if (!behavior || !agent.definitionName) {
+  if (!behavior || !agent.name) {
     throw new Error(`Agent ${params.agentId} has no editable on-disk definition.`);
   }
 
   const location = await getAgentLocation(agent);
   const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
-    const current = await behavior.readDefinition(workspace.fs, agent.definitionName);
+    const current = await behavior.readDefinition(workspace.fs, agent.name);
     const description = typeof current?.description === 'string' ? current.description : '';
     await behavior.writeDefinition(workspace.fs, {
       ...params.attributes,
-      name: agent.definitionName,
+      name: agent.name,
       description,
     });
   } finally {

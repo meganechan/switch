@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { HookEventLog, HookServer } from '@main/core/agent-hooks/hook-server';
 import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
@@ -10,16 +12,21 @@ import {
 } from '@main/core/switch-rooms/switch-credentials';
 import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
-import { NotificationWatcher } from './notification-watcher';
+import { atomicWriteFile } from './atomic-file';
+import { NotificationWatcher, type WatcherLogger } from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
 import {
   LEGACY_LAUNCH_SPEC_REL_PATH,
   LEGACY_WATCH_ENABLED_REL_PATH,
+  sidecarEndpointRelPath,
   sidecarLaunchSpecRelPath,
+  sidecarReadyRelPath,
   sidecarWatchEnabledRelPath,
 } from './sidecar-paths';
 import { defaultRoomConnectionFactory, SidecarRuntime } from './sidecar-runtime';
+import { SidecarStateStore } from './sidecar-state';
+import { SIDECAR_VERSION } from './sidecar-version';
 import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 
 /**
@@ -50,6 +57,26 @@ import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 const PANE_POLL_INTERVAL_MS = 2000;
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * sha256 of the bundle file this process was actually loaded from.
+ *
+ * Deriving it here rather than trusting the launcher's env closes the window
+ * where a concurrent deploy replaces the bundle between the launcher hashing it
+ * and node reading it — after which the sidecar would advertise one build while
+ * running another, and every client would happily reattach to it forever.
+ */
+async function hashOwnBundle(log: WatcherLogger): Promise<string | null> {
+  try {
+    const self = fileURLToPath(import.meta.url);
+    return createHash('sha256')
+      .update(await readFile(self))
+      .digest('hex');
+  } catch (error) {
+    log.warn('sidecar: could not hash own bundle', { error: String(error) });
+    return null;
+  }
+}
 
 async function readLaunchSpec(repoDir: string, specRelPath: string): Promise<AgentLaunchSpec> {
   const specPath = path.join(repoDir, specRelPath);
@@ -126,6 +153,16 @@ async function main(): Promise<void> {
     }
   };
 
+  // Durable session registry. Restored entries whose pane is gone are dropped
+  // here, so what survives is what is actually still running on the host.
+  const stateSlug = credsSlug ?? 'default';
+  const store = await SidecarStateStore.open({
+    repoDir,
+    slug: stateSlug,
+    isPaneAlive: hasSession,
+    log,
+  });
+
   const runtime = new SidecarRuntime({
     creds,
     deeplinkScheme,
@@ -133,7 +170,22 @@ async function main(): Promise<void> {
     isPaneLive,
     log,
     createConnection: defaultRoomConnectionFactory,
+    registry: store,
   });
+
+  // Bring each restored session's room connection back up. The agent is still
+  // sitting in its pane and still a member of the room server-side; only our
+  // poll + injection loop died with the previous process, and an idle agent
+  // would never post the hook that would otherwise rebuild it.
+  for (const entry of store.entries()) {
+    if (!entry.roomId) continue;
+    liveTargets.add(entry.tmuxTarget); // seed, so injection is not deferred pre-poll
+    runtime.restoreSession({
+      sessionId: entry.sessionId,
+      roomId: entry.roomId,
+      providerId: entry.providerId,
+    });
+  }
 
   // Every raw hook the agents post is buffered so switchdash can replay it
   // through its own hook path (room/status/session) while the UI is attached;
@@ -144,7 +196,7 @@ async function main(): Promise<void> {
   let spawner: InProcessSessionSpawner | null = null;
   let watcher: NotificationWatcher | null = null;
 
-  const eventLog = new HookEventLog();
+  const eventLog = new HookEventLog(undefined, store.epoch);
   const server = new HookServer(log);
   await server.start(
     async (raw) => {
@@ -166,9 +218,12 @@ async function main(): Promise<void> {
         // Every live agent pane THIS sidecar owns, room or not — so bare sessions
         // are discoverable. Scope by hasSeen: tmux names carry no repo/agent, so
         // the VM-wide enumeration must be filtered to this sidecar's sessions.
+        // That ownership is durable, so a pane restored across a restart is
+        // reported immediately rather than only once its agent next speaks —
+        // otherwise clients read the gap as "deleted" and prune a live session.
         for (const sessionId of await listAgentSessionIds()) {
           if (runtime.hasSeen(sessionId) && !byId.has(sessionId)) {
-            byId.set(sessionId, null);
+            byId.set(sessionId, store.roomIdFor(sessionId));
           }
         }
         // Room-attending / watcher-spawned sessions overwrite with their room id.
@@ -203,10 +258,19 @@ async function main(): Promise<void> {
     }
   );
 
+  // Publish the live endpoint before anything can be spawned against it. Panes
+  // resolve the port/token from this file at hook time rather than from the env
+  // they were launched with, so sessions started by a previous incarnation of
+  // this sidecar keep reaching us across a restart, upgrade, or token rotation.
+  const endpointFile = path.join(repoDir, sidecarEndpointRelPath(credsSlug ?? 'default'));
+  await mkdir(path.dirname(endpointFile), { recursive: true });
+  await atomicWriteFile(endpointFile, `${server.getPort()}\n${server.getToken()}\n`);
+
   spawner = new InProcessSessionSpawner({
     spec: launchSpec,
     hookPort: server.getPort(),
     hookToken: server.getToken(),
+    endpointFile,
     runtime,
     switchEnv: {
       SWITCH_API_ENDPOINT: creds.apiEndpoint,
@@ -284,24 +348,35 @@ async function main(): Promise<void> {
   void refresh();
   const paneTimer = setInterval(() => void refresh(), PANE_POLL_INTERVAL_MS);
 
-  // Echo the bundle hash switchdash launched us with so it can tell, on reattach,
-  // whether this running process is the current bundle or a stale one to replace.
-  const bundleHash = process.env.SWITCHDASH_SIDECAR_BUNDLE_HASH?.trim() || undefined;
-  process.stdout.write(
-    `${JSON.stringify({
-      event: 'ready',
-      port: server.getPort(),
-      token: server.getToken(),
-      hash: bundleHash,
-    })}\n`
-  );
+  // Hash our OWN bytes rather than echoing the hash we were launched with: the
+  // launcher can skip an upload it believes is redundant and be wrong, and a
+  // sidecar that advertises a build it is not running is undetectable.
+  const bundleHash = await hashOwnBundle(log);
+  const readyLine = `${JSON.stringify({
+    event: 'ready',
+    port: server.getPort(),
+    token: server.getToken(),
+    hash: bundleHash,
+    version: SIDECAR_VERSION,
+    epoch: store.epoch,
+    pid: process.pid,
+  })}\n`;
+  // Write the ready file ourselves, atomically, instead of letting the shell
+  // truncate it on redirect. It is the only record of the running sidecar's
+  // endpoint, so a reader arriving mid-startup must see the previous complete
+  // line or the new one — never an empty file, which reads as "no sidecar" and
+  // sends that client off to kill and relaunch a healthy process.
+  await atomicWriteFile(path.join(repoDir, sidecarReadyRelPath(stateSlug)), readyLine);
+  process.stdout.write(readyLine);
 
   const shutdown = (): void => {
     clearInterval(paneTimer);
     watcher?.stop();
     runtime.stop();
     server.stop();
-    process.exit(0);
+    // Flush any debounced state change before exiting, so a clean restart (the
+    // upgrade path) resumes from the sessions we actually had.
+    void store.close().finally(() => process.exit(0));
   };
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);

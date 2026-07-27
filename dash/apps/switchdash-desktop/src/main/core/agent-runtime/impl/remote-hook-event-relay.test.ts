@@ -130,6 +130,69 @@ describe('RemoteHookEventRelay', () => {
     expect(attempt).toBeGreaterThan(1);
     expect(seen.map((r) => r.ptyId)).toEqual(['pty-1']);
   });
+
+  it('follows the sidecar to a new port and token after repeated failures', async () => {
+    // A restarted sidecar binds a fresh ephemeral port and mints a fresh token,
+    // so the values the relay launched with are stale, not merely unreachable.
+    // Without re-resolution it polls the dead port until the app quits.
+    const eventLog = new HookEventLog();
+    eventLog.append(raw(1));
+    server = new HookServer(serverLog);
+    await server.start(async () => {}, { eventLog });
+    const livePort = server.getPort();
+    const liveToken = server.getToken();
+
+    const seen: RawHookRequest[] = [];
+    const relay = new RemoteHookEventRelay({
+      opener: localOpener,
+      port: 1, // dead: nothing listening
+      token: 'stale-token',
+      resolveEndpoint: async () => ({ port: livePort, token: liveToken }),
+      sink: async (r) => {
+        seen.push(r);
+      },
+      log: noopLog,
+      sleep: async () => {},
+    });
+    relay.start();
+
+    await waitFor(() => seen.length >= 1);
+    relay.stop();
+
+    expect(relay.endpoint).toEqual({ port: livePort, token: liveToken });
+    expect(seen.map((r) => r.ptyId)).toEqual(['pty-1']);
+  });
+
+  it('resets its cursor when the sidecar epoch changes, so a lower seq still lands', async () => {
+    // Epoch 2's sequence numbers restart at 1, below the cursor the relay holds
+    // from epoch 1 — without the epoch reset every new event looks already-seen.
+    const restarted = new HookEventLog(256, 2);
+    restarted.append(raw(42));
+    server = new HookServer(serverLog);
+    await server.start(async () => {}, { eventLog: restarted });
+
+    const seen: RawHookRequest[] = [];
+    const relay = new RemoteHookEventRelay({
+      opener: localOpener,
+      port: server.getPort(),
+      token: server.getToken(),
+      sink: async (r) => {
+        seen.push(r);
+      },
+      log: noopLog,
+      sleep: async () => {},
+    });
+    // Simulate having consumed epoch 1 up to seq 9.
+    const internals = relay as unknown as { cursor: number; epoch: number | null };
+    internals.cursor = 9;
+    internals.epoch = 1;
+    relay.start();
+
+    await waitFor(() => seen.length >= 1);
+    relay.stop();
+
+    expect(seen.map((r) => r.ptyId)).toEqual(['pty-42']);
+  });
 });
 
 function httpResponse(payload: unknown): string {

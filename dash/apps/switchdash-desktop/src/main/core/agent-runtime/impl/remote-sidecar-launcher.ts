@@ -4,14 +4,21 @@ import { exactTmuxTarget } from '@main/core/pty/tmux-session-name';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
 import {
-  SIDECAR_BUNDLE_HASH_REL_PATH,
   SIDECAR_BUNDLE_REL_PATH,
   sidecarAgentDir,
+  sidecarDeployLockRelPath,
   sidecarLaunchSpecRelPath,
+  sidecarEndpointRelPath,
   sidecarLogRelPath,
   sidecarReadyRelPath,
+  sidecarStateRelPath,
   sidecarWatchEnabledRelPath,
 } from '../../../../sidecar/sidecar-paths';
+import {
+  MIN_SUPPORTED_SIDECAR_MAJOR,
+  SIDECAR_CLIENT_MAJOR,
+  sidecarMajor,
+} from '../../../../sidecar/sidecar-version';
 
 /**
  * Deploys and launches the switchdash remote runtime sidecar on the agent's VM
@@ -21,15 +28,28 @@ import {
  * the VM (the one switchdash starts over SSH and any it auto-starts) plus the
  * notification watcher. It must outlive the switchdash UI — that is the whole
  * point — so it runs inside its own detached tmux session rather than on the
- * launching SSH channel (which dies when switchdash disconnects). It prints
- * `{event:"ready",port,token}` to stdout, redirected to a ready file; the
- * launcher polls that file until the endpoint appears, then returns it so the
- * caller can point its remote sessions' hook env at the VM-local server.
+ * launching SSH channel (which dies when switchdash disconnects). It writes
+ * `{event:"ready",port,token,hash,epoch,pid}` to its ready file atomically once
+ * bound; the launcher polls that file until a line from the incarnation it just
+ * started appears, then returns the endpoint so the caller can point its remote
+ * sessions' hook env at the VM-local server. The ready line also carries the
+ * sidecar's `version` (human-readable `x.y`) and build `hash`.
+ *
+ * Replacing a running sidecar is serialised across clients by a host-side deploy
+ * lock: two clients deploying at once would overwrite the bundle under each
+ * other and each kill the other's freshly started process.
  */
 
 const SIDECAR_TMUX_SUFFIX = '-sidecar';
 const READY_POLL_INTERVAL_MS = 250;
 const READY_MAX_ATTEMPTS = 80; // ~20s
+const DEPLOY_LOCK_POLL_MS = 500;
+const DEPLOY_LOCK_MAX_ATTEMPTS = 60; // ~30s waiting on another client's deploy
+/** `find -mmin` granularity is minutes; 2 comfortably exceeds a real deploy. */
+const DEPLOY_LOCK_STALE_MIN = 2;
+/** Trim the append-only sidecar log at launch once it passes this size. */
+const SIDECAR_LOG_MAX_BYTES = 8 * 1024 * 1024;
+const SIDECAR_LOG_KEEP_BYTES = 1024 * 1024;
 
 export interface SidecarLaunchConfig {
   /** Absolute remote repo dir; the bundle, spec, ready file, and log live under .switchdash/. */
@@ -46,12 +66,45 @@ export interface SidecarLaunchConfig {
 export interface SidecarEndpoint {
   port: number;
   token: string;
+  /** Absolute on-VM path of the sidecar's endpoint file. Sessions are launched
+   * pointing at this rather than at `port`/`token` directly, so they survive the
+   * sidecar restarting on a fresh port with a fresh token. */
+  endpointFile: string;
 }
 
-/** The ready line the sidecar prints, plus the bundle hash the running process
- * was launched with (absent for a pre-CHOO-1085 sidecar). */
-interface ReadyLine extends SidecarEndpoint {
+/** The ready line the sidecar prints. `hash` is absent for a pre-CHOO-1085
+ * sidecar; the endpoint file path is derived locally, not carried on the wire. */
+interface ReadyLine {
+  port: number;
+  token: string;
   hash: string | null;
+  /** Monotonic per-start counter from the sidecar's durable state. Absent from
+   * a pre-CHOO-1425 sidecar. */
+  epoch: number | null;
+  /** Human-readable `x.y` version; the major governs compatibility. Absent from
+   * a sidecar predating versioning, which is treated as major 0. */
+  version: string | null;
+  /** OS process id of the running sidecar, for display. Absent from an older one. */
+  pid: number | null;
+}
+
+/**
+ * Read-only view of the sidecar running on the host, for the UI. Independent of
+ * whether this client's bundle matches — that comparison (the verdict) is the
+ * caller's to make, since it needs the client's own hash and version.
+ */
+export interface SidecarRunStatus {
+  running: boolean;
+  /** Whether this client can speak to it (its major is in the supported range). */
+  compatible: boolean;
+  /** Build fingerprint the running sidecar reports for itself. */
+  hash: string | null;
+  /** Human-readable `x.y` version the running sidecar reports. */
+  version: string | null;
+  epoch: number | null;
+  pid: number | null;
+  /** Sessions the running sidecar currently owns, from its durable state. */
+  liveSessions: number;
 }
 
 /** Narrow remote seam the launcher needs — satisfied by IExecutionContext + ssh-fs. */
@@ -97,7 +150,11 @@ function parseReady(raw: string): ReadyLine | null {
     typeof parsed.token === 'string'
   ) {
     const hash = 'hash' in parsed && typeof parsed.hash === 'string' ? parsed.hash : null;
-    return { port: parsed.port, token: parsed.token, hash };
+    const epoch = 'epoch' in parsed && typeof parsed.epoch === 'number' ? parsed.epoch : null;
+    const version =
+      'version' in parsed && typeof parsed.version === 'string' ? parsed.version : null;
+    const pid = 'pid' in parsed && typeof parsed.pid === 'number' ? parsed.pid : null;
+    return { port: parsed.port, token: parsed.token, hash, epoch, version, pid };
   }
   return null;
 }
@@ -168,6 +225,21 @@ export class RemoteSidecarLauncher {
   private get logPath(): string {
     return sidecarLogRelPath(this.config.credsSlug);
   }
+  private get statePath(): string {
+    return sidecarStateRelPath(this.config.credsSlug);
+  }
+  private get deployLockPath(): string {
+    return sidecarDeployLockRelPath(this.config.credsSlug);
+  }
+  /** Absolute, because it is baked into spawned sessions' env and read by hooks
+   * whose working directory is not guaranteed to be the repo dir. */
+  private get endpointFile(): string {
+    return `${this.config.repoDir}/${sidecarEndpointRelPath(this.config.credsSlug)}`;
+  }
+
+  private toEndpoint(ready: ReadyLine): SidecarEndpoint {
+    return { port: ready.port, token: ready.token, endpointFile: this.endpointFile };
+  }
 
   /**
    * Reconcile-or-launch. The sidecar is designed to outlive the switchdash UI,
@@ -182,7 +254,7 @@ export class RemoteSidecarLauncher {
     await this.writeLaunchSpec();
 
     const localHash = await this.hashBundle();
-    const existing = await this.reattachExisting(localHash);
+    const existing = await this.decideExisting(localHash);
     if (existing) {
       this.log.debug('RemoteSidecarLauncher: reattached to running sidecar', {
         sidecarTmuxName: this.sidecarTmuxName,
@@ -191,34 +263,127 @@ export class RemoteSidecarLauncher {
       return existing;
     }
 
-    const remoteHash = await this.prepareDir();
-    if (remoteHash === localHash) {
-      this.log.debug('RemoteSidecarLauncher: bundle unchanged on host — skipping upload', {
-        sidecarTmuxName: this.sidecarTmuxName,
-      });
-    } else {
-      await this.host.putFile(this.bundlePath, SIDECAR_BUNDLE_REL_PATH);
-      await this.writeBundleHash(localHash);
-    }
-    await this.killSidecar();
-    await this.startDetached(localHash);
-    return this.awaitReady();
+    // Replacing the sidecar is not safe to do concurrently: two clients would
+    // overwrite the bundle under each other and each kill the other's freshly
+    // started process. Serialise it across clients, then re-check — whoever
+    // waited may find the holder already started exactly what it wanted.
+    return this.withDeployLock(async () => {
+      const reattach = await this.decideExisting(localHash);
+      if (reattach) {
+        this.log.debug('RemoteSidecarLauncher: another client deployed a matching sidecar', {
+          sidecarTmuxName: this.sidecarTmuxName,
+          port: reattach.port,
+        });
+        return reattach;
+      }
+
+      const previousEpoch = await this.runningEpoch();
+      const remoteHash = await this.prepareDir();
+      if (remoteHash === localHash) {
+        this.log.debug('RemoteSidecarLauncher: bundle unchanged on host — skipping upload', {
+          sidecarTmuxName: this.sidecarTmuxName,
+        });
+      } else {
+        await this.uploadBundle();
+      }
+      await this.killSidecar();
+      await this.startDetached(localHash);
+      return this.awaitReady(previousEpoch);
+    });
   }
 
   /**
-   * Create the sidecar dir, clear any stale ready file, and return the hash of
-   * the bundle already on the host (empty when absent) — one round-trip, so the
-   * 1.2MB bundle SFTP is skipped whenever an identical copy is already deployed
-   * (the common case: a new session reusing a prior session's bundle).
+   * Create the sidecar dir and return the hash of the bundle already on the
+   * host (empty when absent), so the 1.2MB SFTP is skipped whenever an identical
+   * copy is already deployed (the common case: a new session reusing a prior
+   * session's bundle).
+   *
+   * The hash is computed from the file itself rather than read from a sidecar
+   * file kept alongside it: that file could be torn, written out of step with
+   * the bundle, or simply stale, each of which silently defeats the comparison.
+   *
+   * Note this no longer deletes the ready file. Doing so made a healthy running
+   * sidecar undiscoverable to every other client for the duration of a deploy —
+   * and permanently if the deploy then failed. The sidecar replaces that file
+   * atomically when it starts.
    */
   private async prepareDir(): Promise<string> {
+    const bundle = quoteShellArg(SIDECAR_BUNDLE_REL_PATH);
     const script = [
       `mkdir -p ${quoteShellArg(this.agentDir)}`,
-      `rm -f ${quoteShellArg(this.readyPath)}`,
-      `[ -f ${quoteShellArg(SIDECAR_BUNDLE_REL_PATH)} ] && cat ${quoteShellArg(SIDECAR_BUNDLE_HASH_REL_PATH)} 2>/dev/null || true`,
+      `if [ -f ${bundle} ]; then sha256sum ${bundle} 2>/dev/null || shasum -a 256 ${bundle} 2>/dev/null; fi`,
     ].join('; ');
     const { stdout } = await this.host.exec('sh', ['-c', script]);
-    return stdout.trim();
+    return stdout.trim().split(/\s+/)[0] ?? '';
+  }
+
+  /**
+   * Upload the bundle to a temp path and rename it into place.
+   *
+   * `putFile` is a direct SFTP overwrite: it truncates the destination and
+   * streams into it, so for the length of the transfer the file node is about
+   * to load is observably half-written. A concurrent start would fail on a
+   * SyntaxError. Renaming is atomic, so a reader sees the old bundle or the new
+   * one.
+   */
+  private async uploadBundle(): Promise<void> {
+    const tmpRel = `${SIDECAR_BUNDLE_REL_PATH}.${process.pid}.tmp`;
+    await this.host.putFile(this.bundlePath, tmpRel);
+    await this.host.exec('sh', [
+      '-c',
+      `mv ${quoteShellArg(tmpRel)} ${quoteShellArg(SIDECAR_BUNDLE_REL_PATH)}`,
+    ]);
+  }
+
+  /** Epoch of the sidecar currently running, or null if none/unreadable. */
+  private async runningEpoch(): Promise<number | null> {
+    const raw = await this.readReadyFile();
+    return (raw ? parseReady(raw) : null)?.epoch ?? null;
+  }
+
+  /**
+   * Run `fn` holding the host-side deploy lock for this agent.
+   *
+   * `mkdir` is atomic on POSIX — it fails if the directory exists — which makes
+   * it a usable mutex over plain ssh, unlike a create-then-write lockfile. A
+   * lock older than the timeout is broken rather than honoured: the holder may
+   * have been killed mid-deploy, and refusing to ever deploy again would be a
+   * worse failure than the race the lock prevents.
+   */
+  private async withDeployLock<T>(fn: () => Promise<T>): Promise<T> {
+    const lock = quoteShellArg(this.deployLockPath);
+    for (let attempt = 0; attempt < DEPLOY_LOCK_MAX_ATTEMPTS; attempt++) {
+      const { stdout } = await this.host.exec('sh', [
+        '-c',
+        `if mkdir ${lock} 2>/dev/null; then echo acquired; else ` +
+          // Break a stale lock: find returns the dir only when it is older than
+          // the staleness window, so a live holder is left alone.
+          `if [ -n "$(find ${lock} -maxdepth 0 -mmin +${DEPLOY_LOCK_STALE_MIN} 2>/dev/null)" ]; then ` +
+          `rm -rf ${lock} && mkdir ${lock} 2>/dev/null && echo broke-stale; else echo busy; fi; fi`,
+      ]);
+      const outcome = stdout.trim();
+      if (outcome === 'broke-stale') {
+        this.log.warn('RemoteSidecarLauncher: broke a stale deploy lock', {
+          sidecarTmuxName: this.sidecarTmuxName,
+        });
+      }
+      if (outcome === 'acquired' || outcome === 'broke-stale') {
+        try {
+          return await fn();
+        } finally {
+          await this.host.exec('sh', ['-c', `rm -rf ${lock}`]).catch((error: unknown) =>
+            this.log.warn('RemoteSidecarLauncher: failed to release deploy lock', {
+              error: String(error),
+            })
+          );
+        }
+      }
+      await this.sleep(DEPLOY_LOCK_POLL_MS);
+    }
+    throw new Error(
+      `another client has been deploying this sidecar for over ` +
+        `${(DEPLOY_LOCK_MAX_ATTEMPTS * DEPLOY_LOCK_POLL_MS) / 1000}s — not replacing it`
+    );
   }
 
   private async writeLaunchSpec(): Promise<void> {
@@ -235,13 +400,6 @@ export class RemoteSidecarLauncher {
     ]);
   }
 
-  private async writeBundleHash(hash: string): Promise<void> {
-    await this.host.exec('sh', [
-      '-c',
-      `printf %s ${quoteShellArg(hash)} > ${quoteShellArg(SIDECAR_BUNDLE_HASH_REL_PATH)}`,
-    ]);
-  }
-
   /**
    * Endpoint of an already-running sidecar for this session, or null. Reattaches
    * only when the running process was launched from the current bundle: its ready
@@ -250,35 +408,155 @@ export class RemoteSidecarLauncher {
    * and relaunched — otherwise a bundle upgrade never takes effect while the old
    * process keeps running.
    */
-  private async reattachExisting(localHash: string): Promise<SidecarEndpoint | null> {
+  /** The running sidecar's ready line, or null when none is running. */
+  private async readRunning(): Promise<ReadyLine | null> {
     try {
       await this.host.exec('tmux', ['has-session', '-t', exactTmuxTarget(this.sidecarTmuxName)]);
     } catch {
       return null; // not running
     }
     const raw = await this.readReadyFile();
-    const ready = raw ? parseReady(raw) : null;
-    if (!ready) return null;
-    if (ready.hash !== localHash) {
-      this.log.debug('RemoteSidecarLauncher: running sidecar is a stale bundle — relaunching', {
-        sidecarTmuxName: this.sidecarTmuxName,
-        runningHash: ready.hash,
-        localHash,
-      });
-      return null;
-    }
-    return { port: ready.port, token: ready.token };
+    return raw ? parseReady(raw) : null;
   }
 
   /**
-   * Endpoint of an already-running current-bundle sidecar, or null if none is
-   * running (or it is a stale bundle). Read-only — unlike `deployAndLaunch` it
-   * never deploys, writes, or starts anything. For callers that only want to
-   * talk to a sidecar if one already exists (e.g. cross-client discovery), so a
-   * merely-configured agent does not cause a sidecar to be launched.
+   * Whether this client can speak to the running sidecar at all.
+   *
+   * Deliberately independent of the bundle hash. A different build is not an
+   * incompatibility — it only means an upgrade exists — and treating it as one
+   * is what made two clients on different builds kill each other's sidecar in a
+   * loop. A sidecar that reports no protocol predates the field and is treated
+   * as version 0.
    */
+  private isCompatible(ready: ReadyLine): boolean {
+    const major = sidecarMajor(ready.version);
+    return major >= MIN_SUPPORTED_SIDECAR_MAJOR && major <= SIDECAR_CLIENT_MAJOR;
+  }
+
+  /**
+   * Endpoint of an already-running, *compatible* sidecar, or null if none is
+   * running. Read-only — unlike `deployAndLaunch` it never deploys, writes, or
+   * starts anything. For callers that only want to talk to a sidecar if one
+   * exists (cross-client discovery), so a merely-configured agent does not cause
+   * one to be launched.
+   *
+   * A running sidecar built from a different bundle is still returned: discovery
+   * asks "can I talk to it", and answering that with the *upgrade* question made
+   * every client on a different build report zero sessions and prune live rows.
+   */
+  /**
+   * Read-only status of the sidecar on the host, for display. Never launches,
+   * deploys, or writes. Returns `running: false` when none is up; otherwise the
+   * running sidecar's self-reported identity plus its live-session count.
+   *
+   * The client-vs-host verdict is intentionally left to the caller — it needs
+   * this client's own bundle hash and version, which the launcher exposes via
+   * `localBundleHash()` and the shared version constant.
+   */
+  async readStatus(): Promise<SidecarRunStatus> {
+    const ready = await this.readRunning();
+    if (!ready) {
+      return {
+        running: false,
+        compatible: false,
+        hash: null,
+        version: null,
+        epoch: null,
+        pid: null,
+        liveSessions: 0,
+      };
+    }
+    return {
+      running: true,
+      compatible: this.isCompatible(ready),
+      hash: ready.hash,
+      version: ready.version,
+      epoch: ready.epoch,
+      pid: ready.pid,
+      liveSessions: await this.runningSessionCount(),
+    };
+  }
+
+  /** This client's own bundle fingerprint, for the caller to compare against
+   * `readStatus().hash`. */
+  localBundleHash(): Promise<string> {
+    return this.hashBundle();
+  }
+
   async probeExisting(): Promise<SidecarEndpoint | null> {
-    return this.reattachExisting(await this.hashBundle());
+    const ready = await this.readRunning();
+    if (!ready) return null;
+    if (!this.isCompatible(ready)) {
+      this.log.debug('RemoteSidecarLauncher: running sidecar speaks an unusable protocol', {
+        sidecarTmuxName: this.sidecarTmuxName,
+        runningVersion: ready.version,
+        clientVersion: `${SIDECAR_CLIENT_MAJOR}.x`,
+      });
+      return null;
+    }
+    return this.toEndpoint(ready);
+  }
+
+  /**
+   * Decide what to do about a sidecar that is already running.
+   *
+   * Replacing one is disruptive even now that sessions survive it, so it is
+   * reserved for the cases that need it:
+   *  - incompatible protocol → must replace; we cannot talk to it at all.
+   *  - same build → reattach; there is nothing to gain.
+   *  - different build, no live sessions → upgrade, since nothing is disturbed.
+   *  - different build, live sessions → reattach and record that an upgrade is
+   *    pending, rather than interrupting work in flight for a build difference.
+   *    The next launch with an idle sidecar picks it up.
+   */
+  private async decideExisting(localHash: string): Promise<SidecarEndpoint | null> {
+    const ready = await this.readRunning();
+    if (!ready) return null;
+
+    if (!this.isCompatible(ready)) {
+      this.log.warn('RemoteSidecarLauncher: replacing sidecar with an unusable protocol', {
+        sidecarTmuxName: this.sidecarTmuxName,
+        runningVersion: ready.version,
+        clientVersion: `${SIDECAR_CLIENT_MAJOR}.x`,
+      });
+      return null;
+    }
+    if (ready.hash === localHash) return this.toEndpoint(ready);
+
+    const liveSessions = await this.runningSessionCount();
+    if (liveSessions > 0) {
+      this.log.warn(
+        'RemoteSidecarLauncher: sidecar upgrade pending — deferring while sessions run',
+        {
+          sidecarTmuxName: this.sidecarTmuxName,
+          runningHash: ready.hash,
+          localHash,
+          liveSessions,
+        }
+      );
+      return this.toEndpoint(ready);
+    }
+    this.log.debug('RemoteSidecarLauncher: upgrading idle sidecar to the current bundle', {
+      sidecarTmuxName: this.sidecarTmuxName,
+      runningHash: ready.hash,
+      localHash,
+    });
+    return null;
+  }
+
+  /**
+   * How many sessions the running sidecar currently owns, read from its durable
+   * state. Zero when unreadable — an unparseable state file is not grounds for
+   * refusing to upgrade forever.
+   */
+  private async runningSessionCount(): Promise<number> {
+    try {
+      const { stdout } = await this.host.exec('cat', [this.statePath]);
+      const parsed = JSON.parse(stdout) as { sessions?: unknown };
+      return Array.isArray(parsed.sessions) ? parsed.sessions.length : 0;
+    } catch {
+      return 0;
+    }
   }
 
   async stop(): Promise<void> {
@@ -301,9 +579,23 @@ export class RemoteSidecarLauncher {
     const envPrefix = Object.entries(env)
       .map(([key, value]) => `${key}=${quoteShellArg(value)}`)
       .join(' ');
+    // Trim the log first: it is append-only for the life of the host, and the
+    // sidecar logs a line per `/events` poll per attached client. Left alone it
+    // eventually fills the disk, which then breaks the very files — ready,
+    // endpoint, state — that everything else depends on. A restart is the
+    // natural rotation point.
+    const log = quoteShellArg(this.logPath);
+    await this.host.exec('sh', [
+      '-c',
+      `if [ -f ${log} ] && [ "$(wc -c < ${log})" -gt ${SIDECAR_LOG_MAX_BYTES} ]; then ` +
+        `tail -c ${SIDECAR_LOG_KEEP_BYTES} ${log} > ${log}.tmp && mv ${log}.tmp ${log}; fi`,
+    ]);
+    // stdout goes to the log alongside stderr; the sidecar writes its ready file
+    // itself (atomically) rather than relying on a shell redirect, which would
+    // truncate it the moment the process starts.
     const inner =
       `${envPrefix} exec node ${quoteShellArg(SIDECAR_BUNDLE_REL_PATH)} ` +
-      `> ${quoteShellArg(this.readyPath)} 2>> ${quoteShellArg(this.logPath)}`;
+      `>> ${quoteShellArg(this.logPath)} 2>&1`;
     await this.host.exec('tmux', [
       'new-session',
       '-d',
@@ -315,12 +607,23 @@ export class RemoteSidecarLauncher {
     ]);
   }
 
-  private async awaitReady(): Promise<SidecarEndpoint> {
+  /**
+   * Wait for the sidecar we just started to publish its endpoint.
+   *
+   * The ready file is no longer deleted before launch, so a leftover line from
+   * the process we killed would otherwise be mistaken for the new one's. The
+   * epoch increments on every start, so requiring a higher one identifies the
+   * new incarnation. A sidecar that reports no epoch predates this and cannot
+   * be distinguished — accept it rather than hang.
+   */
+  private async awaitReady(previousEpoch: number | null): Promise<SidecarEndpoint> {
     for (let attempt = 0; attempt < READY_MAX_ATTEMPTS; attempt++) {
       await this.assertAlive();
       const raw = await this.readReadyFile();
       const ready = raw ? parseReady(raw) : null;
-      if (ready) return { port: ready.port, token: ready.token };
+      const isNew =
+        ready && (previousEpoch === null || ready.epoch === null || ready.epoch > previousEpoch);
+      if (ready && isNew) return this.toEndpoint(ready);
       await this.sleep(READY_POLL_INTERVAL_MS);
     }
     throw new Error(
@@ -351,13 +654,18 @@ export class RemoteSidecarLauncher {
 
   /** Best-effort tail of the sidecar log, so a startup crash surfaces its actual
    * error (e.g. a SyntaxError from too-old node) instead of an opaque message. */
-  private async readLogTail(): Promise<string> {
+  private async readLogTail(lines = 20): Promise<string> {
     try {
-      const { stdout } = await this.host.exec('tail', ['-n', '20', this.logPath]);
+      const { stdout } = await this.host.exec('tail', ['-n', String(lines), this.logPath]);
       return stdout.trim();
     } catch {
       return '';
     }
+  }
+
+  /** Public log tail for the UI's debug panel. Best-effort — empty on any error. */
+  logTail(lines: number): Promise<string> {
+    return this.readLogTail(lines);
   }
 
   private async readReadyFile(): Promise<string | null> {
@@ -409,11 +717,19 @@ export async function killSidecarSession(
 }
 
 /**
- * Kill sidecar tmux sessions on the host whose agent pane is gone. A sidecar is
- * named `<agentTmux>-sidecar`; if its `<agentTmux>` session no longer exists the
- * agent has exited (or its session was deleted) and the sidecar is an orphan —
- * still polling Switch with nowhere to inject. Best-effort: a missing tmux
- * server (no sessions at all) is a no-op, not an error.
+ * Reap LEGACY per-session sidecars — those named `<agentTmux>-sidecar`, one per
+ * session — whose agent pane is gone: they are still polling Switch with nowhere
+ * to inject.
+ *
+ * This deliberately does not match today's agent-scoped sidecars
+ * (`switchdash-sidecar-<hash>`, see `agentSidecarTmuxName`). Those are *supposed*
+ * to outlive every pane: with no live session the notification watcher is the
+ * thing that starts one when the agent is next addressed, so reaping them for
+ * having no panes would quietly disable auto-start. An agent-scoped sidecar is
+ * torn down explicitly instead, via `killSidecarSession`, when the agent or host
+ * goes away.
+ *
+ * Best-effort: a missing tmux server (no sessions at all) is a no-op, not an error.
  */
 export async function reapOrphanedSidecars(
   host: SidecarHost,

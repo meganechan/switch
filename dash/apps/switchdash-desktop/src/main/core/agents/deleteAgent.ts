@@ -66,11 +66,11 @@ async function removeProvisionedFiles(agent: Agent, location: Location): Promise
   const ctx = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
     const behavior = getPlugin(agent.providerId).behavior.repoAgents;
-    if (behavior && agent.definitionName) {
-      await behavior.removeLocal(ctx.fs, agent.definitionName).catch((error) => {
+    if (behavior && agent.name) {
+      await behavior.removeLocal(ctx.fs, agent.name).catch((error) => {
         log.warn('deleteAgent: failed to remove agent definition files', {
           agentId: agent.id,
-          definitionName: agent.definitionName,
+          name: agent.name,
           error: String(error),
         });
       });

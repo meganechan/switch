@@ -10,7 +10,7 @@ export async function renameSession(
   newTitle: string
 ): Promise<Result<RenameSessionSuccess, RenameSessionError>> {
   const [existing] = await db
-    .select({ providerId: agents.providerId })
+    .select({ providerId: agents.providerId, name: agents.name })
     .from(sessions)
     .innerJoin(agents, eq(sessions.agentId, agents.id))
     .where(eq(sessions.id, sessionId))
@@ -23,5 +23,5 @@ export async function renameSession(
     .where(eq(sessions.id, sessionId))
     .returning();
 
-  return ok({ session: mapSessionRowToSession(updatedRow, existing.providerId) });
+  return ok({ session: mapSessionRowToSession(updatedRow, existing.providerId, existing.name) });
 }
