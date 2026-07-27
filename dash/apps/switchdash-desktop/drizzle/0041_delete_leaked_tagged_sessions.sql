@@ -3,19 +3,21 @@
 
  A session used to freeze its agent identity as a name tag in `config`
  (`agentName`, legacy `subagentName`) while its `agent_id` was written to the
- location's representative (plain) agent rather than the definition-backed agent
- it actually ran as. Identity is now resolved authoritatively from
+ wrong agent — the location's representative agent instead of the definition it
+ actually ran as. Identity is now resolved authoritatively from
  `session.agent_id -> agents.definition_name` (the sidebar groups by agent_id;
- the notification poller reads its credentials from the joined agent row). Every
- tagged session therefore points at the wrong agent and can no longer be
- repaired from the tag alone — and some point at a definition whose agent row no
- longer exists at all (the invisible "ghost" sessions).
+ the notification poller reads its credentials from the joined agent row), so a
+ session whose frozen tag disagrees with its owning agent's definition points at
+ the wrong agent and cannot be repaired from the tag alone. Some point at a
+ definition whose agent row no longer exists at all — the invisible "ghosts".
 
- A one-shot wipe of the tagged rows is the sanctioned fix (approved: losing the
- existing sessions is acceptable). Auto-start and manual launch recreate them
- under the correct agent id. Plain-agent sessions carry no tag and already hold
- the correct agent_id, so they are left untouched.
+ Delete exactly those diverged rows: a tag that does NOT equal the owning agent's
+ `definition_name`. A healthy session — created under the right agent, whose tag
+ was derived from that same `definition_name` — has tag == definition_name and is
+ kept, so live auto-started sessions are not churned. Untagged sessions are kept.
+ The wiped rows recreate under the correct agent id on next launch / auto-start.
 */
 DELETE FROM `sessions`
-WHERE json_extract(`config`, '$.agentName') IS NOT NULL
-   OR json_extract(`config`, '$.subagentName') IS NOT NULL;
+WHERE COALESCE(json_extract(`config`, '$.agentName'), json_extract(`config`, '$.subagentName')) IS NOT NULL
+  AND COALESCE(json_extract(`config`, '$.agentName'), json_extract(`config`, '$.subagentName'))
+    IS NOT (SELECT `definition_name` FROM `agents` WHERE `agents`.`id` = `sessions`.`agent_id`);
