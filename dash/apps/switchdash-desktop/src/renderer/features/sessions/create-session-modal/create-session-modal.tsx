@@ -147,10 +147,20 @@ export const CreateSessionModal = observer(function CreateSessionModal({
     const initialPrompt = buildConnectPrompt(room?.roomName ?? null, chosenRole, prompt);
 
     void (async () => {
-      const resolvedAgent =
-        agent ?? representativeAgent(await rpc.agents.getAgents(selectedLocationId));
+      const freshAgents = await rpc.agents.getAgents(selectedLocationId);
+      // A subagent session must be OWNED by the subagent's own agent row — its
+      // identity flows from `session.agent_id → agents.definition_name`, so the
+      // session is invisible/misidentified if it points at the representative
+      // (plain) agent instead. Resolve the definition-backed row here; error out
+      // rather than silently fall back to the wrong agent (CHOO-1440).
+      const resolvedAgent = agentName
+        ? (subagent ?? freshAgents.find((a) => a.definitionName === agentName) ?? null)
+        : (agent ?? representativeAgent(freshAgents));
       if (!resolvedAgent) {
-        log.error('spawn session failed: location has no agents', selectedLocationId);
+        log.error('spawn session failed: no agent for location/subagent', {
+          locationId: selectedLocationId,
+          agentName,
+        });
         return;
       }
       // createSession registers the session synchronously (before its first
