@@ -117,6 +117,17 @@ below:
 
 ### [Unreleased]
 
+### [0.14.0] - 2026-07-27
+
+#### Added
+- Remote sidecar now persists durable state and versioning, so running sessions
+  survive sidecar restarts, upgrades, and token rotation (CHOO-1425).
+
+#### Fixed
+- Client no longer deletes healthy sessions when it briefly can't reach the
+  sidecar; fixes cross-build kill loops and deaf clients after a sidecar restart
+  (CHOO-1425).
+
 ### [0.13.1] - 2026-07-26
 
 #### Fixed
