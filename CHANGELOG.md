@@ -117,6 +117,12 @@ below:
 
 ### [Unreleased]
 
+### [0.14.1] - 2026-07-27
+
+#### Fixed
+- Reap sidecars orphaned when their tmux session name changes across upgrades,
+  instead of leaving duplicates running for the same agent directory (CHOO-1425).
+
 ### [0.14.0] - 2026-07-27
 
 #### Added
