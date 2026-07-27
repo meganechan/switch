@@ -224,7 +224,7 @@ function SidecarLog({ agentId }: { agentId: string }) {
           Refresh
         </Button>
       </div>
-      <pre className="max-h-48 overflow-auto rounded-md border border-border bg-background-2 p-2 text-xs whitespace-pre-wrap">
+      <pre className="h-48 max-h-[80vh] min-h-24 resize-y overflow-auto rounded-md border border-border bg-background-2 p-2 text-xs whitespace-pre-wrap">
         {data ? data : 'No log output.'}
       </pre>
     </div>
