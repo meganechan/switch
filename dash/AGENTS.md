@@ -232,6 +232,34 @@ shell, terminals, updates, and view state. Stateful main-process concerns use
 singleton services; expected failures should use the `Result<T, E>` pattern from
 `src/main/lib/result.ts`.
 
+### Logging
+
+`createLogger()` in `src/shared/logger.ts` backs all three processes. The console and
+the file sink are levelled independently: the console follows `LOG_LEVEL` (default
+`warn`), the file follows `LOG_FILE_LEVEL` (default `info`), so a shipped build records
+the run that led to a failure without a noisy terminal.
+
+Entries carry structured context. Do not add a parameter to a function only so a log
+line can mention it — the identity is ambient:
+
+- **Main:** an `AsyncLocalStorage` scope (`src/main/lib/log-context.ts`) is opened at the
+  RPC chokepoint, so anything beneath a call inherits its `sessionId`. Use
+  `runWithLogContext()` when adding a new entry point, and `bindLogContext()` for
+  callbacks that outlive the operation that created them (streams, intervals) — ALS
+  follows promises and timers but such emitters otherwise keep a stale scope forever.
+- **Renderer:** no ALS in the browser; attach ids with `log.child({ … })`.
+- **Enrichment:** `registerLogContextResolver()` derives the remaining fields from the
+  ids present (session → room, id → name). Resolvers must stay synchronous and
+  best-effort; never query the database from the logging path, which runs during
+  shutdown and inside error handlers.
+
+Names come from a cache **pushed to** by the row mappers (`mapSessionRowToSession`,
+`mapAgentRowToAgent`) — never fetched on demand.
+
+At the boundaries that fail (sidecar launch, migrations, updater, PTY, RPC), log an
+`event` plus an enumerated `stage`/`errorCode` rather than prose, so failures can be
+grepped and counted.
+
 ## Testing Strategy
 
 - Local merge gate:
@@ -282,8 +310,19 @@ pnpm run lint
 - Application secrets are stored through encrypted app secret services and Electron
   safe storage.
 - The app ships no telemetry or analytics; do not add tracking or phone-home behavior.
-- File logging redacts common secret patterns; preserve this behavior when touching
-  logging or error-reporting code.
+  Logs are local-only: they leave the machine solely when the user attaches them to a
+  feedback report, via `getDiagnosticLogAttachment()`. Do not add any other path that
+  transmits log content.
+- **Redaction is split by destination, and both halves must be preserved:**
+  - **Secrets** (tokens, keys, JWTs, PEM blocks, URL credentials) are redacted on the
+    write path by `redactSecrets()` and must never reach disk.
+  - **Personal data** (home directories, IP and MAC addresses, emails) is deliberately
+    *retained* in the local log file — it is what makes a user's own log debuggable —
+    and is redacted by `redactDiagnosticLog()` in `getDiagnosticLogAttachment()`, the
+    single point at which content leaves the machine. Do not "fix" the local file by
+    scrubbing it on write; that reinstates the problem this split exists to solve.
+  - Anything contributed via `registerDiagnosticSection()` passes through the same
+    export scrub. Never read the raw log file from outside `file-logger.ts`.
 - PTY environment passthrough must use the allowlist in `src/main/core/pty/pty-env.ts`.
 - Treat shell escaping and PTY spawning as security-sensitive.
 - Do not bypass path-safety, shell escaping, or validation helpers.
