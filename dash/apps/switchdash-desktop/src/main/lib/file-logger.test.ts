@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { redactDiagnosticLog } from './file-logger';
+import { redactDiagnosticLog, redactSecrets } from './file-logger';
 
 vi.mock('electron', () => ({
   app: {
@@ -128,5 +128,55 @@ describe('redactDiagnosticLog', () => {
     expect(redacted).toContain('macaddr [REDACTED_MAC]');
     expect(redacted).toContain('git@[REDACTED_HOST]');
     expect(redacted).toContain('https://[REDACTED_CREDENTIALS]@example.com/repo');
+  });
+});
+
+describe('redactSecrets (write path)', () => {
+  it.each([
+    ['bearer authorization', 'authorization: Bearer abc123', 'abc123'],
+    ['api key', 'api_key=super-secret-key', 'super-secret-key'],
+    ['github token', 'ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'ghp_a'],
+    ['anthropic key', 'sk-ant-aaaaaaaaaaaaaaaaaaaaaaaa', 'sk-ant-a'],
+    ['jwt', 'eyJabcdefgh.eyJabcdefgh.signaturebits', 'signaturebits'],
+    ['json password', JSON.stringify({ password: 'hunter2' }), 'hunter2'],
+  ])('never lets %s reach disk', (_label, input, secret) => {
+    const written = redactSecrets(input);
+
+    expect(written).not.toContain(secret);
+    expect(written).toContain('REDACTED');
+  });
+
+  it('redacts PEM private-key blocks', () => {
+    const pem = [
+      '-----BEGIN RSA PRIVATE KEY-----',
+      'MIIEpAIBAAKCAQEAxyz...',
+      '-----END RSA PRIVATE KEY-----',
+    ].join('\n');
+
+    expect(redactSecrets(pem)).toBe('[REDACTED_PEM_BLOCK]');
+  });
+
+  it.each([
+    ['ipv4 address', 'ssh to 192.168.1.25 refused', '192.168.1.25'],
+    ['linux home path', 'worktree /home/bob/work/repo missing', '/home/bob/work/repo'],
+    ['macos home path', 'worktree /Users/alice/repo missing', '/Users/alice/repo'],
+    ['email address', 'signed in as person@example.com', 'person@example.com'],
+  ])('keeps %s readable in the local file', (_label, input, retained) => {
+    // The local log is the copy the user debugs from; scrubbing the address or
+    // path here would delete the very detail a failure report is about. It is
+    // removed by redactDiagnosticLog when content actually leaves the machine.
+    expect(redactSecrets(input)).toContain(retained);
+  });
+
+  it('is applied before the export pass, which then removes the rest', () => {
+    const line = 'ssh to 192.168.1.25 with token ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+    const onDisk = redactSecrets(line);
+    const exported = redactDiagnosticLog(onDisk);
+
+    expect(onDisk).toContain('192.168.1.25');
+    expect(onDisk).not.toContain('ghp_a');
+    expect(exported).toContain('[REDACTED_IP]');
+    expect(exported).not.toContain('ghp_a');
   });
 });
