@@ -117,6 +117,13 @@ below:
 
 ### [Unreleased]
 
+### [0.14.2] - 2026-07-28
+
+#### Fixed
+- Key the remote session reconciler per-sidecar instead of per-location, so
+  sessions from multiple agents sharing one working directory all get adopted
+  into the sidebar (#81).
+
 ### [0.14.1] - 2026-07-27
 
 #### Fixed
