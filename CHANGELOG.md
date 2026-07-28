@@ -117,6 +117,15 @@ below:
 
 ### [Unreleased]
 
+### [0.14.3] - 2026-07-28
+
+#### Fixed
+- Model remote-host reachability as a first-class per-host state machine, so
+  switchdash stops the unbounded reconnect/reconcile retries against an
+  unreachable host (one bounded backoff probe per host), persists the state
+  across restarts, and surfaces a clear "host unreachable — work paused" panel
+  with a global Retry instead of raw SSH errors (CHOO-1682, #82).
+
 ### [0.14.2] - 2026-07-28
 
 #### Fixed
