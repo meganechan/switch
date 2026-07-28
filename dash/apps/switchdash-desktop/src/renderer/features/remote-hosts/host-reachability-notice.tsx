@@ -1,6 +1,7 @@
-import { PlugZap, RefreshCw } from 'lucide-react';
+import { Loader2, PlugZap, RefreshCw } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
+import { Button } from '@renderer/lib/ui/button';
 import { hostReachabilityStore } from './host-reachability-store';
 
 /**
@@ -32,33 +33,43 @@ export const HostReachabilityNotice = observer(function HostReachabilityNotice({
 
   if (retrying) {
     return (
-      <p className="flex items-center gap-1.5 text-xs text-foreground-muted">
-        <RefreshCw className="h-3 w-3 animate-spin" />
-        Checking that {sshHost} is reachable…
-      </p>
+      <div className="flex items-center gap-2 rounded-md border border-border bg-background-1 px-2.5 py-2 text-xs text-foreground-muted">
+        <Loader2 className="size-3.5 shrink-0 animate-spin" />
+        <span>
+          Checking that <span className="font-medium text-foreground">{sshHost}</span> is reachable…
+        </span>
+      </div>
     );
   }
 
   if (!hostReachabilityStore.isBlocked(sshHost)) return null;
 
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-border-warning bg-background-warning p-2">
-      <p className="flex items-center gap-1.5 text-xs font-medium text-foreground-warning">
-        <PlugZap className="h-3.5 w-3.5 shrink-0" />
-        {reachability.status === 'suspended'
-          ? `SSH authentication to ${sshHost} failed`
-          : `Cannot reach ${sshHost}`}
-      </p>
-      {reachability.lastError && (
-        <p className="text-xs text-foreground-passive">{reachability.lastError}</p>
-      )}
-      <button
+    <div className="flex items-start gap-2.5 rounded-md border border-amber-500/30 bg-amber-500/8 px-2.5 py-2">
+      <PlugZap className="mt-0.5 size-4 shrink-0 text-amber-500" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="text-xs font-medium text-foreground">
+          {reachability.status === 'suspended'
+            ? `SSH authentication to ${sshHost} failed`
+            : `Can’t reach ${sshHost}`}
+        </p>
+        {reachability.lastError && (
+          <p className="text-xs break-words text-foreground-muted">{reachability.lastError}</p>
+        )}
+        <p className="text-xs text-foreground-passive">
+          Choose a different run location, or bring the host back and retry.
+        </p>
+      </div>
+      <Button
         type="button"
-        className="self-start text-xs text-foreground-muted underline underline-offset-2 transition-colors hover:text-foreground"
+        variant="outline"
+        size="sm"
+        className="shrink-0"
         onClick={() => void hostReachabilityStore.retry(sshHost)}
       >
+        <RefreshCw className="size-3" />
         Retry
-      </button>
+      </Button>
     </div>
   );
 });

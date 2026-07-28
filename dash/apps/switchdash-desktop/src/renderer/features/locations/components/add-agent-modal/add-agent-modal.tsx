@@ -590,11 +590,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
     >
       <DialogContentArea data-autofocus tabIndex={-1} className="max-h-[calc(100dvh-13rem)] gap-4">
-        <AgentTypePicker
-          value={pickState.providerId}
-          onChange={pickState.setProviderId}
-          sshHost={isRemoteRun ? runHost : undefined}
-        />
         <Field>
           <FieldLabel>Run location</FieldLabel>
           <Select value={runHost} onValueChange={(v) => setRunHost(v ?? LOCAL_RUN_LOCATION)}>
@@ -618,7 +613,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             </p>
           )}
           {isRemoteRun && <HostReachabilityNotice sshHost={runHost} />}
-          {isRemoteRun && (
+          {isRemoteRun && runHostReachable && (
             <div className="flex items-center gap-2">
               <Input
                 value={remoteRepoDirDraft}
@@ -642,7 +637,19 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             </div>
           )}
         </Field>
-        {!isRemoteRun && <PickExistingPanel state={pickState} showName={!isMissingSwitchAgent} />}
+        {/* The host is the first gate: with it unreachable we cannot know which
+            agent types it has, so offering a type picker (or a directory to scan)
+            would be guessing. Everything below waits for a usable host. */}
+        {runHostReachable && (
+          <AgentTypePicker
+            value={pickState.providerId}
+            onChange={pickState.setProviderId}
+            sshHost={isRemoteRun ? runHost : undefined}
+          />
+        )}
+        {runHostReachable && !isRemoteRun && (
+          <PickExistingPanel state={pickState} showName={!isMissingSwitchAgent} />
+        )}
         {isChecking && (
           <p className="text-sm text-foreground-muted">Scanning directory for agents…</p>
         )}
