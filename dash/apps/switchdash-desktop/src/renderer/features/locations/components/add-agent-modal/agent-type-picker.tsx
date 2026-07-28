@@ -48,9 +48,22 @@ export function AgentTypePicker({
     return (
       <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
         <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+        {/* Name the host: "no agent type is set up" reads as a global problem,
+            but availability is per-host — the connector may well be installed
+            locally and simply missing on the machine being targeted. */}
         <span>
-          No agent type is set up for Switch yet. Install an agent&apos;s Switch connector in
-          Settings &rarr; Agents before onboarding it.
+          {sshHost ? (
+            <>
+              No agent type is set up for Switch on <span className="font-medium">{sshHost}</span>.
+              Install an agent&apos;s Switch connector on that host in Settings &rarr; Remote hosts
+              before onboarding it there.
+            </>
+          ) : (
+            <>
+              No agent type is set up for Switch on this computer. Install an agent&apos;s Switch
+              connector in Settings &rarr; Agents before onboarding it.
+            </>
+          )}
         </span>
       </div>
     );

@@ -1,6 +1,8 @@
 import { Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useConfirmDeleteAgent } from '@renderer/features/locations/hooks/use-confirm-delete-agent';
+import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
+import { HostUnreachablePanel } from '@renderer/features/remote-hosts/host-unreachable-panel';
 import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { isUnregisteredLocation } from '../../stores/location';
 import {
@@ -23,6 +25,14 @@ export const LocationMainPanel = observer(function LocationMainPanel() {
 
   if (kind === 'creating' && store && isUnregisteredLocation(store)) {
     return <PendingLocationStatus location={store} />;
+  }
+
+  // A blocked host outranks every other failure state: the location cannot
+  // bootstrap, mount, or find its path while its host is down, and showing the
+  // downstream symptom instead of the cause is what CHOO-1682 is about.
+  const sshHost = store?.data?.sshHost ?? null;
+  if (sshHost && hostReachabilityStore.isBlocked(sshHost) && kind !== 'ready') {
+    return <HostUnreachablePanel reachability={hostReachabilityStore.get(sshHost)} />;
   }
 
   if (kind === 'bootstrapping') {

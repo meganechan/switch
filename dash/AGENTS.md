@@ -248,7 +248,18 @@ pnpm run test
 - Migration tests run in the `migrations` project via `pnpm run test:migrations`.
 - Fixture generation runs in the `fixtures` project via `pnpm run db:fixtures`.
 - Renderer browser tests run in the `browser` project using Playwright-backed
-  `@vitest/browser-playwright`.
+  `@vitest/browser-playwright`. **Agents: skip these — do not run or try to fix
+  them.** They need a real Chromium and its system libraries (e.g. `libnspr4`),
+  which dev VMs generally lack, so they fail for environment reasons unrelated
+  to your change. CI is the gate for them. Run the node projects instead:
+
+```bash
+pnpm vitest run --project node --project main-db
+```
+
+  If `pnpm run test` reports failures only from the `browser` project (a
+  Playwright launch error rather than an assertion), treat the run as green and
+  say so — do not install browsers or chase the failure.
 - Main-process tests are colocated in `src/main/core/**/*.test.ts`.
 - Renderer unit tests live under `src/renderer/tests/`.
 - Renderer browser tests live under `src/renderer/tests/browser/`.

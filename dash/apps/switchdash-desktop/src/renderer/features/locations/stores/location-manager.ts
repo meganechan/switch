@@ -1,9 +1,10 @@
 import { err, ok } from '@switchdash/shared';
 import { makeObservable, observable, runInAction } from 'mobx';
-import { rpc } from '@renderer/lib/ipc';
+import { events, rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { viewStateCache } from '@renderer/lib/stores/view-state-cache';
 import { type Location } from '@shared/core/locations/locations';
+import { hostReachabilityEventChannel } from '@shared/core/remote-hosts/reachability';
 import type { LocationViewSnapshot } from '@shared/view-state';
 import type {
   AgentOnboardingCompletion,
@@ -29,6 +30,23 @@ export class LocationManagerStore {
 
   constructor() {
     makeObservable(this, { locations: observable, pendingCreationIds: observable });
+
+    // A location that failed to open because its host was down holds an error
+    // that is meaningless the moment the host is back. Without this the user
+    // has to retry twice — once for the host, then again for each location —
+    // and the second failure looks like the fix did not work (CHOO-1682).
+    events.on(hostReachabilityEventChannel, (reachability) => {
+      if (reachability.status === 'reachable') this.remountFailedOnHost(reachability.sshHost);
+    });
+  }
+
+  /** Re-open every errored location on a host, e.g. after it becomes reachable. */
+  remountFailedOnHost(sshHost: string): void {
+    for (const [id, store] of this.locations) {
+      if (store.data?.sshHost !== sshHost) continue;
+      if (!isUnmountedLocation(store) || store.phase !== 'error') continue;
+      void this.mountLocation(id);
+    }
   }
 
   load(): Promise<void> {

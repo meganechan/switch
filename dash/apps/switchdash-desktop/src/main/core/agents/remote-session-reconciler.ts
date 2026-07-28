@@ -4,6 +4,9 @@ import { probeAgentSidecar } from '@main/core/agent-runtime/impl/ensure-agent-si
 import type { SidecarEndpoint } from '@main/core/agent-runtime/impl/remote-sidecar-launcher';
 import { httpGetJsonOverChannel } from '@main/core/agent-runtime/impl/sidecar-http';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
+import type { HostReachabilityChange } from '@main/core/remote-hosts/host-reachability-service';
+import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
+import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
 import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
@@ -108,6 +111,23 @@ class RemoteSessionReconciler {
     sessionHooks.on('session:remote-terminated', ({ terminatedSessionId }) => {
       void this.handleRemoteTerminated(terminatedSessionId);
     });
+
+    // A host coming back is the signal to resume the agents that were paused on
+    // it — without this they would idle until their next 2s tick, which is
+    // harmless, but ticking immediately makes recovery feel instant and keeps
+    // the paused/resumed transition symmetric.
+    hostReachabilityService.on('change', ({ current }: HostReachabilityChange) => {
+      if (current.status === 'reachable') void this.onHostReachable(current.sshHost);
+    });
+  }
+
+  /** Tick every agent whose location sits on a host that just became reachable. */
+  private async onHostReachable(sshHost: string): Promise<void> {
+    for (const agentId of [...this.timers.keys()]) {
+      const agent = await getAgentById(agentId);
+      const location = agent ? await getRemoteAgentLocation(agent) : null;
+      if (location?.sshHost === sshHost) void this.tick(agentId);
+    }
   }
 
   private async handleRemoteTerminated(sessionId: string): Promise<void> {
@@ -227,7 +247,17 @@ class RemoteSessionReconciler {
         }),
       ]);
     } catch (error) {
-      log.warn('RemoteSessionReconciler: reconcile failed', { agentId, error: String(error) });
+      // A host that went unreachable mid-pass is already reported once, loudly,
+      // by the reachability service. Repeating it here every 2s per agent is the
+      // log flood CHOO-1682 is about.
+      if (error instanceof HostUnreachableError) {
+        log.debug('RemoteSessionReconciler: host unreachable — pass skipped', {
+          agentId,
+          sshHost: error.reachability.sshHost,
+        });
+      } else {
+        log.warn('RemoteSessionReconciler: reconcile failed', { agentId, error: String(error) });
+      }
     } finally {
       if (deadline) clearTimeout(deadline);
       this.inFlight.delete(agentId);
@@ -249,6 +279,12 @@ class RemoteSessionReconciler {
     // starved of session discovery.
     const sidecarKey = `${location.id}::${agent.name ?? agent.id}`;
     if (!this.claimSidecar(agentId, sidecarKey)) return;
+
+    // The host is known to be down: skip the pass entirely rather than
+    // attempting a connect every 2s per agent. Recovery is driven by the
+    // reachability service's single backoff probe, and `onHostReachable` ticks
+    // this agent the moment the host comes back, so nothing is lost by waiting.
+    if (hostReachabilityService.isBlocked(location.sshHost)) return;
 
     // The manager is mid-backoff rebuilding the transport: let it finish
     // rather than racing it with connect attempts every tick. Disconnected and

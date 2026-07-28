@@ -1,10 +1,23 @@
+import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
+import { log } from '@main/lib/logger';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { getRemoteSwitchSetupService } from './remote-switch-setup';
 import { switchSetupService } from './switch-setup-service';
 
 export const switchSetupController = createRPCController({
   listOnboardable: () => switchSetupService.listOnboardable(),
+  /**
+   * Agent types installed on a remote host. An unreachable host has no
+   * answerable list, so return none rather than throwing: this is a query that
+   * paints UI, and its caller renders the host-unreachable state alongside it,
+   * so the degraded result is disclosed. Throwing surfaced an ordinary,
+   * expected condition as an unhandled handler error with a stack trace.
+   */
   listOnboardableRemote: async (sshHost: string) => {
+    if (hostReachabilityService.isBlocked(sshHost)) {
+      log.warn('switchSetup.listOnboardableRemote: host unreachable — no agent types', { sshHost });
+      return [];
+    }
     const service = await getRemoteSwitchSetupService(sshHost);
     const statuses = await service.listAgentTypeStatuses();
     return statuses.filter((s) => s.installed).map((s) => ({ agentId: s.agentId }));

@@ -2,6 +2,7 @@ import { observer } from 'mobx-react-lite';
 import { Fragment, useEffect } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import type { LocationStore } from '@renderer/features/locations/stores/location';
+import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
@@ -59,6 +60,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
   useEffect(() => {
     roomConnectionsStore.ensureLoaded();
     void agentsStore.load();
+    void hostReachabilityStore.hydrate();
     void switchServersStore.init().then(() => switchRoomsStore.loadRoomNames());
     const onFocus = () => {
       void agentsStore.load();

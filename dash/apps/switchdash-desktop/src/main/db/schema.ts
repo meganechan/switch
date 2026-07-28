@@ -198,6 +198,30 @@ export const remoteHosts = sqliteTable('remote_hosts', {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+/**
+ * Persisted reachability of a remote SSH host (CHOO-1682). Keyed by the same
+ * `~/.ssh/config` alias as `remote_hosts` and `locations.ssh_host`, but kept in
+ * its own table because a location can name a host that was never onboarded —
+ * reachability must be tracked for any alias we actually talk to, not only the
+ * ones on the remote-hosts page.
+ *
+ * Persisting it means a restart does not forget that a host was down: the app
+ * boots into the known-bad state and schedules a probe, instead of every
+ * host-dependent path racing to rediscover the failure at once.
+ */
+export const remoteHostReachability = sqliteTable('remote_host_reachability', {
+  sshHost: text('ssh_host').primaryKey(),
+  /** One of HostReachabilityStatus — 'unknown' | 'reachable' | 'unreachable' | 'suspended'. */
+  status: text('status').notNull().default('unknown'),
+  lastError: text('last_error'),
+  lastCheckedAt: text('last_checked_at'),
+  lastReachableAt: text('last_reachable_at'),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -293,3 +317,5 @@ export type SwitchServerRow = typeof switchServers.$inferSelect;
 export type SwitchServerInsert = typeof switchServers.$inferInsert;
 export type RemoteHostRow = typeof remoteHosts.$inferSelect;
 export type RemoteHostInsert = typeof remoteHosts.$inferInsert;
+export type RemoteHostReachabilityRow = typeof remoteHostReachability.$inferSelect;
+export type RemoteHostReachabilityInsert = typeof remoteHostReachability.$inferInsert;
