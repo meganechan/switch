@@ -40,7 +40,9 @@ import {
   registerProcessErrorLogging,
   registerRendererLogHandler,
 } from './lib/file-logger';
+import { registerLogEnrichment } from './lib/log-enrichment';
 import { log } from './lib/logger';
+import { withRPCLogContext } from './lib/rpc-logging';
 import { rpcRouter } from './rpc';
 import { resolveUserEnv } from './utils/userEnv';
 
@@ -56,6 +58,7 @@ registerAppScheme();
 setupDeeplinks();
 
 initializeFileLogger();
+registerLogEnrichment();
 registerProcessErrorLogging(log);
 registerRendererLogHandler(ipcMain);
 
@@ -134,7 +137,7 @@ void app.whenReady().then(async () => {
     log.error('Failed to start agent event service:', e);
   });
 
-  registerRPCRouter(rpcRouter, ipcMain);
+  registerRPCRouter(rpcRouter, ipcMain, withRPCLogContext);
 
   void reconcileResourceSampler();
 

@@ -2,12 +2,8 @@ import { appendFile, mkdir, readFile, rename, stat, unlink } from 'node:fs/promi
 import { join } from 'node:path';
 import { app } from 'electron';
 import { APP_SCHEME } from '@main/app/protocol';
-import {
-  serializeLogValue,
-  stringifyLogValue,
-  type Level,
-  type LogSinkEntry,
-} from '@shared/logger';
+import { serializeLogValue, type Level, type LogContext, type LogSinkEntry } from '@shared/logger';
+import { resolveLogContext } from './log-context';
 
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const DIAGNOSTIC_LOG_BYTES = 500 * 1024;
@@ -109,8 +105,9 @@ export function writeLogEntry(entry: LogSinkEntry) {
     timestamp: new Date().toISOString(),
     level: entry.level,
     source: entry.source ?? 'main',
+    ...omitEmptyContext(resolveLogContext(entry.context)),
     message: formatMessage(entry.input),
-    data: entry.input.map(serializeLogValue),
+    data: structuredArgs(entry.input),
   });
   const line = `${redactDiagnosticLog(payload)}\n`;
 
@@ -219,21 +216,48 @@ function parseRendererLog(payload: unknown): LogSinkEntry | undefined {
   const record = payload as Record<string, unknown>;
   if (!isLevel(record.level)) return undefined;
   const input = Array.isArray(record.input) ? record.input : [record.input];
-  return { level: record.level, source: 'renderer', input };
+  return {
+    level: record.level,
+    source: 'renderer',
+    input,
+    context: isLogContext(record.context) ? record.context : undefined,
+  };
+}
+
+function isLogContext(value: unknown): value is LogContext {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isLevel(value: unknown): value is Level {
   return value === 'debug' || value === 'info' || value === 'warn' || value === 'error';
 }
 
+/**
+ * The human-readable part of the line: the string arguments only.
+ *
+ * Structured arguments are recorded separately by `structuredArgs`, so keeping
+ * them out of here stops every entry from carrying the same payload twice —
+ * which at a 5 MiB rotation directly halves how much history is retained.
+ */
 function formatMessage(input: unknown[]) {
-  return input
-    .map((value) => {
-      if (typeof value === 'string') return value;
-      if (value instanceof Error) return value.message;
-      return stringifyLogValue(value);
-    })
-    .join(' ');
+  const strings = input.filter((value): value is string => typeof value === 'string');
+  if (strings.length) return strings.join(' ');
+
+  // A bare `log.error(err)` would otherwise produce an empty message; the error
+  // text is worth the small overlap with `data`.
+  const firstError = input.find((value) => value instanceof Error);
+  return firstError instanceof Error ? firstError.message : '';
+}
+
+function structuredArgs(input: unknown[]) {
+  const structured = input.filter((value) => typeof value !== 'string');
+  return structured.length ? structured.map(serializeLogValue) : undefined;
+}
+
+function omitEmptyContext(context: LogContext | undefined) {
+  if (!context) return undefined;
+  const entries = Object.entries(context).filter(([, value]) => value !== undefined);
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 export function redactDiagnosticLog(value: string) {

@@ -22,23 +22,44 @@ export function createRPCRouter<T extends RouterMap>(routers: T): T {
   return routers;
 }
 
+/**
+ * Wraps a leaf handler invocation. Every RPC call funnels through here, which
+ * makes it the one place able to give the whole call tree beneath it an
+ * identity (see the main process's log context) without touching call sites.
+ */
+export type RPCInvocationWrapper = (
+  channel: string,
+  args: unknown[],
+  invoke: () => unknown
+) => unknown;
+
 // Recursively walks the handler tree and registers every leaf function with
 // ipcMain at its full dot-joined path (e.g. "git.commit", "git.worktree.commit").
-function registerHandlers(ipcMain: IpcMain, prefix: string, value: unknown): void {
+function registerHandlers(
+  ipcMain: IpcMain,
+  prefix: string,
+  value: unknown,
+  wrap: RPCInvocationWrapper | undefined
+): void {
   if (typeof value === 'function') {
+    const handler = value as (...a: unknown[]) => unknown;
     ipcMain.handle(prefix, (_event, ...args: unknown[]) =>
-      (value as (...a: unknown[]) => unknown)(...args)
+      wrap ? wrap(prefix, args, () => handler(...args)) : handler(...args)
     );
   } else if (value !== null && typeof value === 'object') {
     for (const [key, child] of Object.entries(value)) {
-      registerHandlers(ipcMain, `${prefix}.${key}`, child);
+      registerHandlers(ipcMain, `${prefix}.${key}`, child, wrap);
     }
   }
 }
 
-export function registerRPCRouter(router: RouterMap, ipcMain: IpcMain): void {
+export function registerRPCRouter(
+  router: RouterMap,
+  ipcMain: IpcMain,
+  wrap?: RPCInvocationWrapper
+): void {
   for (const [ns, handlers] of Object.entries(router)) {
-    registerHandlers(ipcMain, ns, handlers);
+    registerHandlers(ipcMain, ns, handlers, wrap);
   }
 }
 
