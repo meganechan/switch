@@ -116,8 +116,65 @@ export type CreateLoggerArgs = {
   sinkLevel?: Level;
   /** Ambient fields resolved at write time, merged under the entry's own context. */
   contextProvider?: () => LogContext | undefined;
+  /**
+   * Append the resolved context to console output as well as to the sink.
+   *
+   * Off by default so shipped console output stays terse, but the terminal is
+   * where the app is actually watched during development — context that only
+   * reaches the log file is context nobody sees while working.
+   */
+  consoleContext?: boolean;
   onSinkError?: (error: unknown) => void;
 };
+
+const CONSOLE_CONTEXT_KEYS: Array<keyof LogContext> = [
+  'component',
+  'event',
+  'stage',
+  'agentName',
+  'agentSlug',
+  'agentId',
+  'sessionTitle',
+  'sessionId',
+  'roomName',
+  'roomId',
+];
+
+const SHORTENED_ID_KEYS = new Set<keyof LogContext>(['agentId', 'sessionId', 'roomId']);
+
+/** Compact single-token rendering, e.g. `[sidecar-launcher agent=freebsd_vt session=ac3bee1e]`. */
+export function formatContextForConsole(context: LogContext): string {
+  const parts: string[] = [];
+
+  for (const key of CONSOLE_CONTEXT_KEYS) {
+    const value = context[key];
+    if (value === undefined || value === '') continue;
+
+    const text = String(value);
+    // Ids are for correlating against the log file, where they appear in full;
+    // the leading segment is enough to recognise one by eye.
+    const rendered = SHORTENED_ID_KEYS.has(key) ? text.slice(0, 8) : text;
+
+    // A name makes its id redundant at a glance, so only one of the pair shows.
+    if (key === 'agentId' && context.agentName) continue;
+    if (key === 'sessionId' && context.sessionTitle) continue;
+    if (key === 'roomId' && context.roomName) continue;
+
+    parts.push(key === 'component' ? rendered : `${consoleKey(key)}=${rendered}`);
+  }
+
+  return parts.length ? `[${parts.join(' ')}]` : '';
+}
+
+function consoleKey(key: keyof LogContext): string {
+  if (key === 'agentName' || key === 'agentSlug') return 'agent';
+  if (key === 'sessionTitle') return 'session';
+  if (key === 'roomName') return 'room';
+  if (key === 'sessionId') return 'session';
+  if (key === 'agentId') return 'agent';
+  if (key === 'roomId') return 'room';
+  return key;
+}
 
 export function createLogger(args?: CreateLoggerArgs): Logger {
   const level = resolveLogLevel({
@@ -134,16 +191,24 @@ export function createLogger(args?: CreateLoggerArgs): Logger {
     function emit(target: Level, writer: (...input: unknown[]) => void, input: unknown[]) {
       // Errors are always recorded regardless of the configured level.
       const always = target === 'error';
+      const toConsole = always || enabled(target, level);
+      const toSink = Boolean(args?.sink) && (always || enabled(target, sinkLevel));
+      if (!toConsole && !toSink) return;
 
-      if (always || enabled(target, level)) writer(...input);
-      if (!args?.sink) return;
-      if (!always && !enabled(target, sinkLevel)) return;
+      const context = mergeLogContext(args?.contextProvider?.(), bound);
+
+      if (toConsole) {
+        const suffix = args?.consoleContext && context ? formatContextForConsole(context) : '';
+        writer(...(suffix ? [...input, suffix] : input));
+      }
+
+      if (!args?.sink || !toSink) return;
 
       try {
         args.sink({
           level: target,
           input,
-          context: mergeLogContext(args.contextProvider?.(), bound),
+          context,
         });
       } catch (error) {
         // Sink failures must never break the caller, but they must not be

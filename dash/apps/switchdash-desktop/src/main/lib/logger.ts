@@ -1,5 +1,6 @@
 import { createLogger, resolveLogLevel } from '@shared/logger';
 import { writeLogEntry } from './file-logger';
+import { resolveLogContext } from './log-context';
 
 /**
  * The console and the file are levelled independently.
@@ -20,8 +21,11 @@ export const log = createLogger({
   debugFlag: process.argv.includes('--debug-logs'),
   sink: writeLogEntry,
   sinkLevel: fileLevel,
-  // Ambient context is resolved by the sink, which serves renderer and sidecar
-  // entries too — doing it here as well would just resolve it twice.
+  // Resolution is idempotent, and the sink resolves again so that renderer and
+  // sidecar entries are enriched the same way; doing it here as well is what
+  // lets the console show the same identity the file records.
+  contextProvider: () => resolveLogContext(undefined),
+  consoleContext: true,
   onSinkError: (error) => console.error('Log sink failed:', error),
 });
 

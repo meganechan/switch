@@ -21,6 +21,7 @@ import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-co
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';
 import type { SshConnectionManagerEvent } from '@main/core/ssh/lifecycle/ssh-connection-manager';
 import { events } from '@main/lib/events';
+import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
 import type { AgentSessionConfig } from '@shared/core/providers/agent-session';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
@@ -132,6 +133,10 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     if (!this.supervisor.isDesired()) return;
     const session = this.session;
     if (!session) return;
+    return this.withLogScope(() => this.rehydrateInternal(session));
+  }
+
+  private async rehydrateInternal(session: Session): Promise<void> {
     const size = ptySessionRegistry.getLastSize(this.ptySessionId) ?? {
       cols: DEFAULT_COLS,
       rows: DEFAULT_ROWS,
@@ -315,7 +320,15 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
         }
         await agentHookService.handleRawHook(raw, { startLocalPoller: false });
       },
-      log,
+      // Bound explicitly rather than inherited: the relay polls on its own timer
+      // for the lifetime of the session, and a scope captured from whatever call
+      // happened to start it would drift out of date.
+      log: log.child({
+        component: 'hook-relay',
+        sessionId: this.sessionId,
+        agentId: this.session?.agentId,
+        agentName: this.session?.agentName ?? undefined,
+      }),
     });
     this.relay = relay;
     relay.start();
@@ -336,6 +349,26 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     this.stopRelay();
   }
 
+  /**
+   * Run inside this runtime's log scope.
+   *
+   * Remote agent work is driven by watchers and reconnect events rather than by
+   * an RPC call, so there is no ambient context to inherit — it is established
+   * here instead. Everything below reports which session and agent it belongs
+   * to without any intermediate signature carrying the ids.
+   */
+  private withLogScope<T>(fn: () => T): T {
+    return runWithLogContext(
+      {
+        component: 'ssh-agent-runtime',
+        sessionId: this.sessionId,
+        agentId: this.session?.agentId,
+        agentName: this.session?.agentName ?? undefined,
+      },
+      fn
+    );
+  }
+
   async start(
     session: Session,
     initialSize: { cols: number; rows: number } = {
@@ -345,9 +378,20 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     isResuming: boolean = false,
     initialPrompt?: string
   ): Promise<void> {
-    return this.startInternal(session, initialSize, isResuming, initialPrompt, false, {
-      shellRefreshRetried: false,
-    });
+    // Bound before the assignment inside startInternal, so the agent fields come
+    // from the session being started rather than a stale one.
+    return runWithLogContext(
+      {
+        component: 'ssh-agent-runtime',
+        sessionId: this.sessionId,
+        agentId: session.agentId,
+        agentName: session.agentName ?? undefined,
+      },
+      () =>
+        this.startInternal(session, initialSize, isResuming, initialPrompt, false, {
+          shellRefreshRetried: false,
+        })
+    );
   }
 
   private async startInternal(

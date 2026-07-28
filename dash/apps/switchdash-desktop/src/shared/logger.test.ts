@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createLogger, type LogSinkEntry } from './logger';
+import { createLogger, formatContextForConsole, type LogSinkEntry } from './logger';
 
 function collect() {
   const entries: LogSinkEntry[] = [];
@@ -114,5 +114,48 @@ describe('sink failures', () => {
 
     expect(() => log.info('hello')).not.toThrow();
     expect(onSinkError).toHaveBeenCalledOnce();
+  });
+});
+
+describe('console context rendering', () => {
+  it('appends identity to console output when enabled', () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const log = createLogger({ envLevel: 'debug', consoleContext: true }).child({
+      component: 'hook-relay',
+      agentName: 'freebsd_vt',
+      sessionId: 'ac3bee1e-bb1d-47ba-809c-75ed35d46df7',
+    });
+
+    log.info('received events');
+
+    expect(spy).toHaveBeenCalledWith(
+      'received events',
+      '[hook-relay agent=freebsd_vt session=ac3bee1e]'
+    );
+    spy.mockRestore();
+  });
+
+  it('stays silent about context when not enabled', () => {
+    const spy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const log = createLogger({ envLevel: 'debug' }).child({ component: 'hook-relay' });
+
+    log.info('received events');
+
+    expect(spy).toHaveBeenCalledWith('received events');
+    spy.mockRestore();
+  });
+
+  it('shows the name instead of the id when both are known', () => {
+    expect(formatContextForConsole({ agentId: 'abcdef12-3456', agentName: 'freebsd_vt' })).toBe(
+      '[agent=freebsd_vt]'
+    );
+  });
+
+  it('falls back to a shortened id when there is no name', () => {
+    expect(formatContextForConsole({ agentId: 'abcdef12-3456' })).toBe('[agent=abcdef12]');
+  });
+
+  it('renders nothing when there is nothing worth showing', () => {
+    expect(formatContextForConsole({ runId: 'only-a-run-id' })).toBe('');
   });
 });
