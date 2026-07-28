@@ -221,7 +221,9 @@ export class SshConnectionManager extends EventEmitter {
    */
   async forceReconnect(id: string): Promise<SshClientProxy> {
     const record = this.record(id);
-    this.deps.log.warn('SshConnectionManager: force reconnect requested', { connectionId: id });
+    // Routine: this is also the reachability probe's transport rebuild, so it
+    // recurs on the backoff schedule for an unreachable host.
+    this.deps.log.info('SshConnectionManager: force reconnect requested', { connectionId: id });
     record.intentional = false;
     this.cancelReconnect(record);
     if (record.client) {
@@ -517,7 +519,11 @@ export class SshConnectionManager extends EventEmitter {
       };
 
       client.on('error', (error: Error) => {
-        this.deps.log.error('SshConnectionManager: connection error', {
+        // A remote host being down is an expected condition, not a fault in the
+        // app: laptops sleep, VPNs drop, SSO tokens expire. The host's
+        // reachability state is what escalates a persistent outage — this is
+        // one transport attempt failing, so warn rather than error.
+        this.deps.log.warn('SshConnectionManager: connection error', {
           connectionId: id,
           error: error.message,
         });
@@ -683,7 +689,10 @@ export class SshConnectionManager extends EventEmitter {
         // Auth failures won't resolve with blind retries — suspend instead of
         // hammering the server. connect()/forceReconnect()/system resume revive.
         if (error instanceof SshAuthError) {
-          this.deps.log.error('SshConnectionManager: reconnect suspended — auth failure', {
+          // Expected (expired or rotated credentials), and the host's
+          // reachability state surfaces it to the user as `suspended` — the log
+          // does not need to shout about it.
+          this.deps.log.warn('SshConnectionManager: reconnect suspended — auth failure', {
             connectionId: id,
           });
           record.reconnect = undefined;

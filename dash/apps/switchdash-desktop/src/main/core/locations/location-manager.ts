@@ -1,5 +1,6 @@
 import { err, ok, type Result } from '@switchdash/shared';
 import type { IDisposable } from '@switchdash/shared';
+import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { LifecycleMap } from '@main/lib/lifecycle-map';
 import { log } from '@main/lib/logger';
@@ -51,10 +52,13 @@ class LocationManager implements Hookable<LocationManagerHooks>, IDisposable {
         return ok(provider);
       } catch (e) {
         const initError = toLifecycleError(e);
-        log.error('LocationManager: error during location initialization', {
-          locationId: location.id,
-          ...initError,
-        });
+        // A location on a host that is down cannot open, and that is an
+        // expected condition the host's reachability state already reports —
+        // logging it as an app error made every outage look like a defect.
+        const message = 'LocationManager: error during location initialization';
+        const metadata = { locationId: location.id, ...initError };
+        if (e instanceof HostUnreachableError) log.warn(message, metadata);
+        else log.error(message, metadata);
         return err(initError);
       }
     });

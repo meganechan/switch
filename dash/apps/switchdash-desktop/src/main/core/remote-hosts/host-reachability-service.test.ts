@@ -92,10 +92,11 @@ describe('HostReachabilityService', () => {
     expect(timers.at(-1)?.ms).toBe(15_000);
   });
 
-  it('caps the backoff at 30s so a recovered host is noticed promptly', () => {
+  it('probes tightly at first, then caps at five minutes', () => {
     expect(probeDelayFor(1)).toBe(1_000);
     expect(probeDelayFor(4)).toBe(30_000);
-    expect(probeDelayFor(50)).toBe(30_000);
+    expect(probeDelayFor(6)).toBe(300_000);
+    expect(probeDelayFor(50)).toBe(300_000);
   });
 
   it('clears the blocked state and emits a change when the host recovers', async () => {

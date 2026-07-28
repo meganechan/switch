@@ -15,14 +15,16 @@ import {
 } from './reachability-store';
 
 /**
- * Backoff schedule between probes of an unreachable host. Capped at 30s and
- * repeated. The cap is deliberately short: the common cause is a credential
- * the user just re-established (VPN, `aws sso login`), and they expect the app
- * to notice within seconds — a minutes-long cap reads as "still broken". One
- * probe per 30s per host is still ~60x cheaper than the per-agent 2s reconnect
- * loop this replaces.
+ * Backoff schedule between probes of an unreachable host, capped at five
+ * minutes and repeated.
+ *
+ * The early steps stay tight because the common cause is a credential the user
+ * is actively re-establishing (VPN, `aws sso login`) and they expect the app to
+ * notice quickly; the long tail keeps a host that is genuinely gone from
+ * costing anything. Manual retry short-circuits the whole schedule, so the cap
+ * only governs the unattended case.
  */
-const PROBE_BACKOFF_MS = [1_000, 5_000, 15_000, 30_000];
+const PROBE_BACKOFF_MS = [1_000, 5_000, 15_000, 30_000, 60_000, 300_000];
 
 export function probeDelayFor(consecutiveFailures: number): number {
   const step = Math.min(Math.max(consecutiveFailures, 1), PROBE_BACKOFF_MS.length);
