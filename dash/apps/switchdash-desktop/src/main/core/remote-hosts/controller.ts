@@ -23,10 +23,15 @@ import {
   getRemoteSwitchSetupService,
   type RemoteSwitchSetupService,
 } from '@main/core/switch-setup/remote-switch-setup';
+import {
+  hostBlockedReason,
+  type HostReachability,
+} from '@shared/core/remote-hosts/reachability';
 import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';
 import { listSshConfigHosts } from './list-ssh-config-hosts';
+import { hostReachabilityService } from './production-host-reachability';
 import { listRemoteHosts, removeRemoteHost, upsertRemoteHost, type RemoteHost } from './store';
 
 /** A single dependency's status on a remote host, enriched for the UI. */
@@ -89,15 +94,16 @@ async function probeGhAuth(sshHost: string): Promise<GhAuthStatus> {
   }
 }
 
+/**
+ * Ad-hoc reachability check. Routed through the reachability service rather
+ * than connecting directly, so a manual "Test connection" and the background
+ * probe share one code path — and a successful test immediately un-pauses the
+ * host-dependent work that was gated on the old state.
+ */
 async function testConnection(sshHost: string): Promise<TestConnectionResult> {
-  try {
-    const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
-    const ctx = new SshExecutionContext(proxy);
-    await ctx.exec('uname', ['-s']);
-    return { ok: true };
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) };
-  }
+  const reachability = await hostReachabilityService.checkNow(sshHost);
+  if (reachability.status === 'reachable') return { ok: true };
+  return { ok: false, message: reachability.lastError ?? hostBlockedReason(reachability) };
 }
 
 async function probeDeps(sshHost: string): Promise<RemoteDependencyView[]> {
@@ -241,13 +247,36 @@ export const remoteHostsController = createRPCController({
   getConnectionStatus: (sshHost: string): Promise<HostConnectionStatus> =>
     Promise.resolve(hostConnectionStatus(sshHost)),
 
+  /** Modeled reachability for one host — the state the UI gates its display on. */
+  getReachability: (sshHost: string): Promise<HostReachability> =>
+    Promise.resolve(hostReachabilityService.get(sshHost)),
+
+  /** Every host the reachability model knows about, for the initial UI hydrate. */
+  listReachability: (): Promise<HostReachability[]> =>
+    Promise.resolve(hostReachabilityService.getAll()),
+
+  /**
+   * Probe now, bypassing the backoff — the "Retry connection" button. On
+   * success this clears the blocked state, which resumes every paused
+   * host-dependent path (reconciler included) rather than only fixing the
+   * screen the user is looking at.
+   */
+  retryHost: (sshHost: string): Promise<HostReachability> =>
+    hostReachabilityService.checkNow(sshHost),
+
   /**
    * Force a full transport rebuild for the host's pooled connection — the
    * manual recovery path for a wedged or given-up connection. Returns the
    * post-rebuild status.
    */
   reconnectHost: async (sshHost: string): Promise<HostConnectionStatus> => {
-    await forceSshReconnect(sshConnectionIdForHost(sshHost), sshHost);
+    try {
+      await forceSshReconnect(sshConnectionIdForHost(sshHost), sshHost);
+    } catch (error) {
+      hostReachabilityService.reportFailure(sshHost, error);
+      throw error;
+    }
+    hostReachabilityService.reportSuccess(sshHost);
     return hostConnectionStatus(sshHost);
   },
 

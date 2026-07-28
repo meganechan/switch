@@ -20,6 +20,8 @@ import { locationSettingsService } from './core/locations/settings/location-sett
 import { localServerService } from './core/managed-switch-server/local-server-service';
 import { remoteServerService } from './core/managed-switch-server/remote-server-service';
 import { promptLibraryService } from './core/prompt-library/service';
+import { initializeHostReachability } from './core/remote-hosts/host-reachability-startup';
+import { hostReachabilityService } from './core/remote-hosts/production-host-reachability';
 import {
   reconcileResourceSampler,
   stopResourceSampler,
@@ -155,6 +157,14 @@ void app.whenReady().then(async () => {
   // then start the auto_session watchers — the watcher's "is a session already
   // attending this room?" check relies on those connections being present.
   void Promise.all([agentHookReady, dependenciesReady, migrationReady]).then(async () => {
+    // Must precede the remote watchers: they gate on host reachability, and
+    // starting them first would let every agent on a known-down host attempt a
+    // connect before the persisted state is loaded.
+    try {
+      await initializeHostReachability();
+    } catch (e) {
+      log.error('Failed to initialise host reachability at startup:', e);
+    }
     try {
       await restoreSwitchRoomSessions();
     } catch (e) {
@@ -183,6 +193,7 @@ void app.whenReady().then(async () => {
   powerMonitor.on('resume', () => {
     log.info('powerMonitor: system resumed — refreshing SSH connections');
     sshConnectionManager.handleSystemResume();
+    hostReachabilityService.handleSystemResume();
   });
 
   setupAppProtocol(join(app.getAppPath(), 'out', 'renderer'));
