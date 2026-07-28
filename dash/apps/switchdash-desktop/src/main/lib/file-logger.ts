@@ -20,6 +20,7 @@ const RENDERER_LOG_PAYLOAD_LIMIT = 64 * 1024;
 const PROCESS_EXIT_FLUSH_TIMEOUT_MS = 1000;
 const FLUSH_INTERVAL_MS = 250;
 const FLUSH_BYTES = 64 * 1024;
+const DIAGNOSTIC_SECTION_TIMEOUT_MS = 5000;
 
 const SECRET_KEY_NAMES =
   'authorization|api[_-]?key|token|password|passphrase|secret|access[_-]?token|refresh[_-]?token|client[_-]?secret';
@@ -102,6 +103,60 @@ export function getLogWriteFailures(): { count: number; lastError?: string } {
   return { count: failedWrites, lastError: lastWriteError };
 }
 
+type DiagnosticSection = { title: string; collect: () => Promise<string> };
+
+const diagnosticSections: DiagnosticSection[] = [];
+
+/**
+ * Contribute an extra section to the diagnostic attachment.
+ *
+ * Registered rather than imported for the same reason the context resolvers
+ * are: the subsystems worth reporting on all log, so importing them here would
+ * be a cycle.
+ */
+export function registerDiagnosticSection(title: string, collect: () => Promise<string>): void {
+  diagnosticSections.push({ title, collect });
+}
+
+/** Test seam. */
+export function clearDiagnosticSections(): void {
+  diagnosticSections.length = 0;
+}
+
+async function collectDiagnosticSections(): Promise<string> {
+  if (!diagnosticSections.length) return '';
+
+  const collected = await Promise.all(
+    diagnosticSections.map(async ({ title, collect }) => {
+      try {
+        // A section that hangs must not hold the report hostage; a remote pull
+        // over SSH can stall indefinitely on an unreachable host.
+        const body = await withTimeout(collect(), DIAGNOSTIC_SECTION_TIMEOUT_MS);
+        if (body === TIMED_OUT) return `===== ${title} =====\n(timed out collecting)\n`;
+        return body.trim() ? `===== ${title} =====\n${body.trim()}\n` : '';
+      } catch (error) {
+        // Say so rather than omitting the section: a silently missing section
+        // reads as "there was nothing to report".
+        return `===== ${title} =====\n(failed to collect: ${String(error)})\n`;
+      }
+    })
+  );
+
+  return collected.filter(Boolean).join('\n');
+}
+
+const TIMED_OUT = Symbol('timed-out');
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+  return Promise.race([
+    promise,
+    new Promise<typeof TIMED_OUT>((resolve) => {
+      const timer = setTimeout(() => resolve(TIMED_OUT), ms);
+      timer.unref?.();
+    }),
+  ]);
+}
+
 export async function getDiagnosticLogAttachment() {
   if (!logFilePath) initializeFileLogger();
   const path = logFilePath;
@@ -119,11 +174,16 @@ export async function getDiagnosticLogAttachment() {
 
   const raw = await readFile(path, 'utf8').catch(() => '');
   const tail = trimToLineBoundary(raw, DIAGNOSTIC_LOG_BYTES);
+  const sections = await collectDiagnosticSections();
+
+  const body = sections ? `${sections}\n===== application log =====\n${tail}` : tail;
+
   // Personal data is removed here rather than on write: this is the only path
   // by which log content leaves the machine, so scrubbing at the boundary keeps
   // the exported copy exactly as safe while leaving the user's own log
-  // readable enough to debug from.
-  const redacted = redactDiagnosticLog(tail);
+  // readable enough to debug from. Contributed sections go through the same
+  // pass, so a section cannot become a way around it.
+  const redacted = redactDiagnosticLog(body);
 
   return {
     filename: DIAGNOSTIC_ATTACHMENT_FILENAME,

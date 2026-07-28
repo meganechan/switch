@@ -117,6 +117,7 @@ export interface SidecarHost {
 export interface SidecarLauncherLogger {
   debug(message: string, meta?: Record<string, unknown>): void;
   warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
 }
 
 function sidecarEnv(config: SidecarLaunchConfig): Record<string, string> {
@@ -190,6 +191,9 @@ export class RemoteSidecarLauncher {
   private readonly log: SidecarLauncherLogger;
   private readonly sleep: (ms: number) => Promise<void>;
 
+  /** Step currently being attempted, reported when a launch fails. */
+  private stage = 'idle';
+
   private readonly hashBundle: () => Promise<string>;
 
   constructor(opts: {
@@ -250,11 +254,41 @@ export class RemoteSidecarLauncher {
    * the bundle and start fresh.
    */
   async deployAndLaunch(): Promise<SidecarEndpoint> {
+    const startedAt = Date.now();
+    // Which step was reached is the whole diagnosis here: an SSH auth refusal
+    // and a ready-file timeout are unrelated faults with unrelated fixes, and
+    // a single "sidecar launch failed" cannot tell them apart.
+    this.stage = 'launch-spec';
+
+    try {
+      const endpoint = await this.runDeployAndLaunch();
+      this.log.debug('RemoteSidecarLauncher: launch succeeded', {
+        event: 'sidecar_launch_succeeded',
+        durationMs: Date.now() - startedAt,
+        sidecarTmuxName: this.sidecarTmuxName,
+      });
+      return endpoint;
+    } catch (error) {
+      this.log.error('RemoteSidecarLauncher: launch failed', {
+        event: 'sidecar_launch_failed',
+        stage: this.stage,
+        durationMs: Date.now() - startedAt,
+        sidecarTmuxName: this.sidecarTmuxName,
+        agentSlug: this.config.credsSlug,
+        error: String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async runDeployAndLaunch(): Promise<SidecarEndpoint> {
     // Always (re)write the launch spec first so a config change (e.g. new extra
     // args) takes effect on the next fresh launch, even when reattaching.
     await this.writeLaunchSpec();
 
+    this.stage = 'hash-bundle';
     const localHash = await this.hashBundle();
+    this.stage = 'reattach-check';
     const existing = await this.decideExisting(localHash);
     if (existing) {
       this.log.debug('RemoteSidecarLauncher: reattached to running sidecar', {
@@ -268,6 +302,7 @@ export class RemoteSidecarLauncher {
     // overwrite the bundle under each other and each kill the other's freshly
     // started process. Serialise it across clients, then re-check — whoever
     // waited may find the holder already started exactly what it wanted.
+    this.stage = 'deploy-lock';
     return this.withDeployLock(async () => {
       const reattach = await this.decideExisting(localHash);
       if (reattach) {
@@ -279,16 +314,21 @@ export class RemoteSidecarLauncher {
       }
 
       const previousEpoch = await this.runningEpoch();
+      this.stage = 'prepare-dir';
       const remoteHash = await this.prepareDir();
       if (remoteHash === localHash) {
         this.log.debug('RemoteSidecarLauncher: bundle unchanged on host — skipping upload', {
           sidecarTmuxName: this.sidecarTmuxName,
         });
       } else {
+        this.stage = 'upload-bundle';
         await this.uploadBundle();
       }
+      this.stage = 'kill-previous';
       await this.killSidecar();
+      this.stage = 'spawn';
       await this.startDetached(localHash);
+      this.stage = 'await-ready';
       return this.awaitReady(previousEpoch);
     });
   }

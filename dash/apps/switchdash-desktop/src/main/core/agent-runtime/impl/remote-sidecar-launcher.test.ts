@@ -48,7 +48,7 @@ const readyLine = (
     epoch,
     version,
   })}\n`;
-const noopLog = { debug: vi.fn(), warn: vi.fn() };
+const noopLog = { debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
 interface ExecCall {
   command: string;

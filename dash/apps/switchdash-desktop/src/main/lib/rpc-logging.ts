@@ -1,6 +1,7 @@
 import type { RPCInvocationWrapper } from '@shared/lib/ipc/rpc';
-import type { LogContext } from '@shared/logger';
+import { serializeLogValue, type LogContext } from '@shared/logger';
 import { runWithLogContext } from './log-context';
+import { log } from './logger';
 
 /**
  * Reads the ids an RPC call already carries in its arguments.
@@ -25,4 +26,29 @@ function rpcLogContext(channel: string, args: unknown[]): LogContext {
 }
 
 export const withRPCLogContext: RPCInvocationWrapper = (channel, args, invoke) =>
-  runWithLogContext(rpcLogContext(channel, args), invoke);
+  runWithLogContext(rpcLogContext(channel, args), () => {
+    try {
+      const result = invoke();
+      // A rejected handler surfaces in the renderer as a failed call with no
+      // record of why on this side, so the reason is captured here — the one
+      // point every call already passes through.
+      if (result instanceof Promise) {
+        return result.catch((error: unknown) => {
+          logRPCFailure(channel, error);
+          throw error;
+        });
+      }
+      return result;
+    } catch (error) {
+      logRPCFailure(channel, error);
+      throw error;
+    }
+  });
+
+function logRPCFailure(channel: string, error: unknown) {
+  log.error('RPC handler failed', {
+    event: 'rpc_failed',
+    component: `rpc:${channel}`,
+    error: serializeLogValue(error),
+  });
+}

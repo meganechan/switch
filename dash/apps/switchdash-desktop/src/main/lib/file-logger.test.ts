@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
-import { redactDiagnosticLog, redactSecrets } from './file-logger';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  clearDiagnosticSections,
+  getDiagnosticLogAttachment,
+  redactDiagnosticLog,
+  redactSecrets,
+  registerDiagnosticSection,
+} from './file-logger';
 
 vi.mock('electron', () => ({
   app: {
@@ -168,7 +174,7 @@ describe('redactSecrets (write path)', () => {
     expect(redactSecrets(input)).toContain(retained);
   });
 
-  it('is applied before the export pass, which then removes the rest', () => {
+  it('composes with the export pass, which then removes the rest', () => {
     const line = 'ssh to 192.168.1.25 with token ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 
     const onDisk = redactSecrets(line);
@@ -178,5 +184,61 @@ describe('redactSecrets (write path)', () => {
     expect(onDisk).not.toContain('ghp_a');
     expect(exported).toContain('[REDACTED_IP]');
     expect(exported).not.toContain('ghp_a');
+  });
+});
+
+describe('diagnostic sections', () => {
+  beforeEach(() => {
+    clearDiagnosticSections();
+  });
+
+  it('includes a contributed section in the attachment', async () => {
+    registerDiagnosticSection('sidecar', async () => 'sidecar said hello');
+
+    const { content } = await getDiagnosticLogAttachment();
+
+    expect(content).toContain('===== sidecar =====');
+    expect(content).toContain('sidecar said hello');
+  });
+
+  it('redacts contributed sections like everything else', async () => {
+    registerDiagnosticSection('sidecar', async () => 'connected from 192.168.1.25');
+
+    const { content } = await getDiagnosticLogAttachment();
+
+    // A section must not become a way around the export scrub.
+    expect(content).toContain('[REDACTED_IP]');
+    expect(content).not.toContain('192.168.1.25');
+  });
+
+  it('reports a failing section rather than omitting it', async () => {
+    registerDiagnosticSection('sidecar', async () => {
+      throw new Error('host unreachable');
+    });
+
+    const { content } = await getDiagnosticLogAttachment();
+
+    // Silence would read as "there was nothing to report" — and an unreachable
+    // host is frequently the thing being reported.
+    expect(content).toContain('failed to collect');
+    expect(content).toContain('host unreachable');
+  });
+
+  it('does not let one section block the others', async () => {
+    registerDiagnosticSection('slow', () => new Promise<string>(() => {}));
+    registerDiagnosticSection('fast', async () => 'collected fine');
+
+    const { content } = await vi.waitFor(() => getDiagnosticLogAttachment(), { timeout: 10_000 });
+
+    expect(content).toContain('collected fine');
+    expect(content).toContain('timed out collecting');
+  }, 15_000);
+
+  it('omits an empty section entirely', async () => {
+    registerDiagnosticSection('empty', async () => '   ');
+
+    const { content } = await getDiagnosticLogAttachment();
+
+    expect(content).not.toContain('===== empty =====');
   });
 });
