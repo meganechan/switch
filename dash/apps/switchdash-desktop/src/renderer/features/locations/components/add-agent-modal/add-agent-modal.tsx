@@ -9,6 +9,8 @@ import type {
 } from '@renderer/features/locations/stores/agent-onboarding-types';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
+import { HostReachabilityNotice } from '@renderer/features/remote-hosts/host-reachability-notice';
+import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { policyHasDeadRule } from '@renderer/features/switch-servers/addressing-policy-editor';
 import type { ServerVerifyState } from '@renderer/features/switch-servers/agent-server-picker';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
@@ -273,12 +275,17 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Remote submit gate: a provider, a remote dir, a detected agent, and a
   // verified server. Name defaults from the remote dir basename (see below), so
   // it is not separately gated. Local submit keeps the existing pick validity.
+  // Never create an agent on a host we know we cannot reach — it would be born
+  // into the failing state this ticket exists to surface (CHOO-1676).
+  const runHostReachable = !isRemoteRun || !hostReachabilityStore.isBlocked(runHost);
+
   const canSubmitDetected = isRemoteRun
     ? !!pickState.providerId &&
       trimmedRemoteDir.length > 0 &&
       !isChecking &&
       !!switchAgent &&
       verifyState === 'found' &&
+      runHostReachable &&
       submitState === 'idle'
     : pickState.isValid &&
       !isChecking &&
@@ -293,6 +300,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.serverId &&
     !!pickState.providerId &&
     remoteRunValid &&
+    runHostReachable &&
     submitState === 'idle';
 
   // Remote configure gate: no agent in the remote dir yet — a valid remote
@@ -307,6 +315,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.serverId &&
     !!pickState.providerId &&
     trimmedRemoteDir.length > 0 &&
+    runHostReachable &&
     submitState === 'idle';
 
   const reportCreationError = (error: AgentOnboardingError) => {
@@ -608,6 +617,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
                 : 'This server runs on this computer, so its agents run here too.'}
             </p>
           )}
+          {isRemoteRun && <HostReachabilityNotice sshHost={runHost} />}
           {isRemoteRun && (
             <div className="flex items-center gap-2">
               <Input

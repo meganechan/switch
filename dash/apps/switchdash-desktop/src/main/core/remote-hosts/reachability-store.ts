@@ -47,9 +47,7 @@ export async function getPersistedReachability(
   return row ? toRecord(row) : null;
 }
 
-export async function savePersistedReachability(
-  record: PersistedHostReachability
-): Promise<void> {
+export async function savePersistedReachability(record: PersistedHostReachability): Promise<void> {
   const values = {
     sshHost: record.sshHost,
     status: record.status,

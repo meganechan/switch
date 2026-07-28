@@ -23,10 +23,7 @@ import {
   getRemoteSwitchSetupService,
   type RemoteSwitchSetupService,
 } from '@main/core/switch-setup/remote-switch-setup';
-import {
-  hostBlockedReason,
-  type HostReachability,
-} from '@shared/core/remote-hosts/reachability';
+import { hostBlockedReason, type HostReachability } from '@shared/core/remote-hosts/reachability';
 import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';

@@ -71,7 +71,10 @@ export class HostUnreachableError extends Error {
   }
 }
 
-export type HostReachabilityChange = { previous: HostReachabilityStatus; current: HostReachability };
+export type HostReachabilityChange = {
+  previous: HostReachabilityStatus;
+  current: HostReachability;
+};
 
 /**
  * The single source of truth for whether a remote SSH host can be reached.

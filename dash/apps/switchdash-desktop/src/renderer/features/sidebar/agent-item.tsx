@@ -3,6 +3,7 @@ import {
   Bot,
   ChevronRight,
   ExternalLink,
+  PlugZap,
   Plus,
   RotateCcw,
   Server,
@@ -15,6 +16,7 @@ import {
   getLocationStore,
   locationViewKind,
 } from '@renderer/features/locations/stores/location-selectors';
+import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { hasSessionError } from '@renderer/features/sessions/stores/session-selectors';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
@@ -100,6 +102,10 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
 
   if (!location) return null;
 
+  const sshHost = location.data?.sshHost ?? null;
+  const hostReachability = sshHost ? hostReachabilityStore.get(sshHost) : null;
+  const hostUnreachable = hostReachabilityStore.isBlocked(sshHost);
+
   const iconClass =
     'absolute h-4 w-4 opacity-100 transition-opacity duration-150 group-hover/row:opacity-0';
   const gatewayUrl =
@@ -151,11 +157,32 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
                 {location.data?.sshHost != null && (
                   <Tooltip>
                     <TooltipTrigger>
-                      <Server className="h-3.5 w-3.5 shrink-0 text-foreground-muted" />
+                      <Server
+                        className={cn(
+                          'h-3.5 w-3.5 shrink-0',
+                          hostUnreachable ? 'text-foreground-warning' : 'text-foreground-muted'
+                        )}
+                      />
                     </TooltipTrigger>
                     <TooltipContent>
                       Runs remotely on {location.data.sshHost}
                       {location.data.dir ? ` · ${location.data.dir}` : ''}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+                {/* The host being down is why this agent is idle, so say so on
+                    the row itself — previously you had to select the agent to
+                    discover its host was failing to connect (CHOO-1682). */}
+                {hostUnreachable && hostReachability && (
+                  <Tooltip>
+                    <TooltipTrigger>
+                      <PlugZap className="h-3.5 w-3.5 shrink-0 text-foreground-warning" />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {hostReachability.status === 'suspended'
+                        ? `SSH authentication to ${hostReachability.sshHost} failed — work is paused until you retry`
+                        : `Host ${hostReachability.sshHost} is unreachable — work is paused`}
+                      {hostReachability.lastError ? ` · ${hostReachability.lastError}` : ''}
                     </TooltipContent>
                   </Tooltip>
                 )}
