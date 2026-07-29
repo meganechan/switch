@@ -4,6 +4,7 @@ import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/swi
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { rpc } from '@renderer/lib/ipc';
+import { appState } from '@renderer/lib/stores/app-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import { SidebarItemMiniButton, SidebarMenuRow } from './sidebar-primitives';
@@ -24,6 +25,28 @@ export function openRoomInGateway(roomKey: string): void {
   if (roomKey === UNASSIGNED_ROOM_KEY) return;
   const url = switchRoomsStore.gatewayRoomUrl(roomKey);
   if (url) void rpc.app.openExternal(url);
+}
+
+/** Show a room's conversation in the main panel (no-op for Unassigned, which
+ * is a bucket rather than a real room). */
+export function openRoomView(roomKey: string): void {
+  if (roomKey === UNASSIGNED_ROOM_KEY) return;
+  appState.navigation.navigate('room', { roomId: roomKey });
+}
+
+/**
+ * Whether a room row is the one currently open in the main panel, so it can
+ * carry the same selected styling as an agent or session row.
+ *
+ * Read from the navigation store rather than the `useParams` hook because the
+ * room rows are produced inside `.map()` callbacks, where a hook cannot be
+ * called. Observers re-render on navigation either way.
+ */
+export function isRoomViewActive(roomKey: string): boolean {
+  if (roomKey === UNASSIGNED_ROOM_KEY) return false;
+  if (appState.navigation.currentViewId !== 'room') return false;
+  const params = appState.navigation.viewParamsStore.room;
+  return (params as { roomId?: string } | undefined)?.roomId === roomKey;
 }
 
 /**
@@ -67,6 +90,8 @@ export function RoomRow({
   onToggle,
   onOpenGateway,
   onOpenChannel = null,
+  onSelect = null,
+  isActive = false,
   depth = 0,
   bridgeType = null,
 }: {
@@ -75,6 +100,11 @@ export function RoomRow({
   expanded: boolean;
   onToggle: () => void;
   onOpenGateway: () => void;
+  /** Open the room's conversation in the main panel. Null for rows that have
+   * no room behind them (Unassigned), which stay expand-only. */
+  onSelect?: (() => void) | null;
+  /** True when this room's conversation is the view currently open. */
+  isActive?: boolean;
   /** Open the room's channel in the messaging app, or null when there is no
    * native deeplink (room not bridged / link unknown). */
   onOpenChannel?: (() => void) | null;
@@ -87,9 +117,10 @@ export function RoomRow({
   return (
     <SidebarMenuRow
       className="group/room flex h-8 items-center gap-1 px-1"
+      isActive={isActive}
       style={depthIndent(depth)}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onToggle}
+      onClick={onSelect ?? onToggle}
     >
       <SidebarItemMiniButton
         type="button"
