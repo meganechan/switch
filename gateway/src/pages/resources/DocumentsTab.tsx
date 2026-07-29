@@ -1,5 +1,5 @@
 import { Alert, Box, CircularProgress } from "@mui/material";
-import type { GridColDef } from "@mui/x-data-grid-pro";
+import type { GridColDef } from "@mui/x-data-grid";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import DataTable from "../../components/DataTable";
@@ -7,6 +7,7 @@ import { AccessChip } from "../../components/AccessControls";
 import type { DocumentSummary } from "../../data/api";
 import { useDocuments } from "../../data/hooks";
 import ResourceFiltersBar from "./ResourceFiltersBar";
+import { formatDate } from "../../theme/hootFormat";
 
 interface Props {
   refreshKey: number;
@@ -62,7 +63,12 @@ export default function DocumentsTab({ refreshKey }: Props) {
         width: 90,
         type: "number",
       },
-      { field: "created_at", headerName: "Created", width: 180 },
+      {
+        field: "created_at",
+        headerName: "Created",
+        width: 116,
+        valueFormatter: (value) => formatDate(value as string),
+      },
     ],
     [],
   );
