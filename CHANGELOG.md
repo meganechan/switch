@@ -130,6 +130,20 @@ below:
 
 ### [Unreleased]
 
+### [0.15.0] - 2026-07-29
+
+#### Added
+- Built-in chat: switchdash renders each room's default bridge conversation
+  inline (Mattermost) with per-room embed resolution, a chromeless guest view,
+  theming, and link/deeplink routing; Slack rooms get a deeplink and agent-only
+  rooms a stated reason (CHOO-1674, #84).
+
+#### Fixed
+- Gate remote managed servers on host reachability, so an unreachable host no
+  longer shows a stale green "Running" card or a spinning sign-in — the server
+  page shows a "host unreachable" state and disables actions until it recovers
+  (CHOO-1780, #85).
+
 ### [0.14.3] - 2026-07-28
 
 #### Fixed
