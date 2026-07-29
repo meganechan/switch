@@ -21,6 +21,19 @@ below:
 
 ### [Unreleased]
 
+### [0.9.0] - 2026-07-29
+
+#### Added
+- Every room now gets a collaboration bridge by default: a bridge can be marked
+  default and is used when a room names none, with `internal_only` as the
+  explicit opt-out; a bundled Mattermost is provisioned across compose and Helm
+  (CHOO-1674, #84).
+
+#### Changed
+- Restyle the Switch Gateway web UI onto the Hoot design system — new light/dark
+  theme, icon-rail shell, and consistent formatting conventions; nav
+  destinations unchanged (CHOO-1782, #87).
+
 ### [0.8.1] - 2026-07-24
 
 #### Fixed
