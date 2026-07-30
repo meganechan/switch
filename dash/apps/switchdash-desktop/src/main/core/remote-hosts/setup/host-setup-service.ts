@@ -7,13 +7,14 @@
  * per-host lifecycle (build, resume, run, skip, discard).
  */
 
-import { HostDependencyManager } from '@switchdash/core/deps/runtime';
+import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
+import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
 import {
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
 } from '@main/core/dependencies/remote-dependency-manager';
-import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
 import { getRemoteSwitchSetupService } from '@main/core/switch-setup/remote-switch-setup';
+import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import {
   hostSetupPlanEventChannel,
@@ -21,9 +22,8 @@ import {
   type HostSetupPlan,
   type HostSetupStep,
 } from '@shared/core/remote-hosts/setup';
-import { events } from '@main/lib/events';
-import { hostReachabilityService } from '../production-host-reachability';
 import { probeGhAuthStatus } from '../gh-auth';
+import { hostReachabilityService } from '../production-host-reachability';
 import { HostSetupRunner, type StepCheckResult, type StepInstallResult } from './host-setup-runner';
 import {
   agentPluginStepId,

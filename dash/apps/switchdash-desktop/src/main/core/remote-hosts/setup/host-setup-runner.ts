@@ -39,9 +39,7 @@ export type StepCheckResult = {
 };
 
 /** Outcome of installing one step. */
-export type StepInstallResult =
-  | { ok: true }
-  | { ok: false; error: string; output?: string | null };
+export type StepInstallResult = { ok: true } | { ok: false; error: string; output?: string | null };
 
 export type HostSetupRunnerDeps = {
   sshHost: string;
@@ -275,6 +273,13 @@ function findStep(plan: HostSetupPlan, stepId: string): HostSetupStep {
 
 /** Why a step cannot be advanced automatically — stated in terms of what we saw. */
 function describeUnactionable(step: HostSetupStep): string {
+  // Not a failure of ours to fix: signing in to GitHub is a device flow the
+  // user drives in a terminal. Say what they need to do rather than reporting
+  // it as a missing install command.
+  if (step.kind === 'gh-auth') {
+    return 'Signing in to GitHub needs a one-time code you enter yourself. Use Sign in to start it.';
+  }
+
   switch (step.outcome) {
     case 'not-running':
       return `${step.name} is installed but not running. Start it on the host, then retry.`;

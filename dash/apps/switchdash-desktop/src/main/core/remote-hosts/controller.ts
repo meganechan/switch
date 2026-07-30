@@ -6,29 +6,22 @@ import type {
   DependencyUninstallResult,
   DependencyUpdateResult,
 } from '@switchdash/core/deps/runtime';
-import { isTransportFailure } from '@switchdash/core/exec';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
 import {
   evictRemoteDependencyManager,
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
 } from '@main/core/dependencies/remote-dependency-manager';
-import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { openSsh2Pty } from '@main/core/pty/ssh2-pty';
-import { ensureSshConnected, forceSshReconnect } from '@main/core/ssh/connect/connect-agent-ssh';
-import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
+import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import { buildRemoteShellCommand } from '@main/core/ssh/lifecycle/remote-shell-profile';
-import {
-  getRemoteSwitchSetupService,
-  type RemoteSwitchSetupService,
-} from '@main/core/switch-setup/remote-switch-setup';
+import { getRemoteSwitchSetupService } from '@main/core/switch-setup/remote-switch-setup';
 import { hostBlockedReason, type HostReachability } from '@shared/core/remote-hosts/reachability';
-import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
+import type { HostSetupPlan } from '@shared/core/remote-hosts/setup';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';
-import type { HostSetupPlan } from '@shared/core/remote-hosts/setup';
 import { probeGhAuthStatus, type GhAuthStatus } from './gh-auth';
 import { listSshConfigHosts } from './list-ssh-config-hosts';
 import { hostReachabilityService } from './production-host-reachability';
@@ -65,20 +58,6 @@ export type RemoteDependencyView = {
 };
 
 export type TestConnectionResult = { ok: true } | { ok: false; message: string };
-
-/** Live status of a host's pooled SSH connection, for the connection badge. */
-export type HostConnectionStatus = {
-  state: ConnectionState;
-  health: SshHealthState;
-};
-
-function hostConnectionStatus(sshHost: string): HostConnectionStatus {
-  const connectionId = sshConnectionIdForHost(sshHost);
-  return {
-    state: sshConnectionManager.getConnectionState(connectionId),
-    health: sshConnectionManager.getAllHealthStates()[connectionId] ?? { status: 'ok' },
-  };
-}
 
 /**
  * Ad-hoc reachability check. Routed through the reachability service rather
@@ -118,74 +97,6 @@ async function probeDeps(sshHost: string): Promise<RemoteDependencyView[]> {
   }
 
   return views;
-}
-
-/**
- * Whether a remote host is set up enough to run Switch agents, and which agent
- * types are actually usable on it. A host is `ready` when its core tooling is in
- * place (git, tmux, node installed and gh authenticated) AND at least one agent
- * type has BOTH its CLI and the Switch connector plugin installed.
- */
-export type HostSetupStatus = {
-  sshHost: string;
-  reachable: boolean;
-  coreReady: boolean;
-  /** Agent-type ids with both CLI and Switch plugin installed on this host. */
-  availableAgentIds: string[];
-  ready: boolean;
-  /** Human-readable outstanding items, for surfacing why a host isn't ready. */
-  issues: string[];
-};
-
-async function getHostSetup(sshHost: string): Promise<HostSetupStatus> {
-  let views: RemoteDependencyView[];
-  let plugins: Awaited<ReturnType<RemoteSwitchSetupService['listAgentTypeStatuses']>>;
-  try {
-    views = await probeDeps(sshHost);
-    const service = await getRemoteSwitchSetupService(sshHost);
-    plugins = await service.listAgentTypeStatuses();
-  } catch (error) {
-    return {
-      sshHost,
-      reachable: false,
-      coreReady: false,
-      availableAgentIds: [],
-      ready: false,
-      issues: [error instanceof Error ? error.message : 'Host unreachable'],
-    };
-  }
-
-  const issues: string[] = [];
-  for (const dep of views.filter((v) => v.category === 'core')) {
-    if (dep.id === 'gh') {
-      if (dep.status !== 'available') issues.push('GitHub CLI not installed');
-      else if (dep.ghAuth && !dep.ghAuth.authenticated) issues.push('GitHub CLI not authenticated');
-    } else if (dep.status !== 'available') {
-      issues.push(`${dep.name} not installed`);
-    }
-  }
-  const coreReady = issues.length === 0;
-
-  // An agent is usable only with BOTH its CLI and the Switch plugin present.
-  const cliInstalled = new Set(
-    views.filter((v) => v.category === 'agent' && v.status === 'available').map((v) => v.id)
-  );
-  const availableAgentIds = plugins
-    .filter((p) => p.supported && p.installed && cliInstalled.has(p.agentId))
-    .map((p) => p.agentId);
-
-  if (availableAgentIds.length === 0) {
-    issues.push('No agent type has both its CLI and the Switch plugin installed');
-  }
-
-  return {
-    sshHost,
-    reachable: true,
-    coreReady,
-    availableAgentIds,
-    ready: coreReady && availableAgentIds.length > 0,
-    issues,
-  };
 }
 
 /**
@@ -229,10 +140,6 @@ export const remoteHostsController = createRPCController({
 
   testConnection: (sshHost: string): Promise<TestConnectionResult> => testConnection(sshHost),
 
-  /** Live state + health of the host's pooled SSH connection. */
-  getConnectionStatus: (sshHost: string): Promise<HostConnectionStatus> =>
-    Promise.resolve(hostConnectionStatus(sshHost)),
-
   /** Modeled reachability for one host — the state the UI gates its display on. */
   getReachability: (sshHost: string): Promise<HostReachability> =>
     Promise.resolve(hostReachabilityService.get(sshHost)),
@@ -249,22 +156,6 @@ export const remoteHostsController = createRPCController({
    */
   retryHost: (sshHost: string): Promise<HostReachability> =>
     hostReachabilityService.checkNow(sshHost),
-
-  /**
-   * Force a full transport rebuild for the host's pooled connection — the
-   * manual recovery path for a wedged or given-up connection. Returns the
-   * post-rebuild status.
-   */
-  reconnectHost: async (sshHost: string): Promise<HostConnectionStatus> => {
-    try {
-      await forceSshReconnect(sshConnectionIdForHost(sshHost), sshHost);
-    } catch (error) {
-      hostReachabilityService.reportFailure(sshHost, error);
-      throw error;
-    }
-    hostReachabilityService.reportSuccess(sshHost);
-    return hostConnectionStatus(sshHost);
-  },
 
   /** Verify reachability, then onboard (or rename) the host. */
   onboardHost: async (params: { sshHost: string; name: string }): Promise<RemoteHost> => {
@@ -320,9 +211,6 @@ export const remoteHostsController = createRPCController({
     detectSwitchAgentRemote(params.sshHost, params.remoteRepoDir),
 
   probeDeps: (sshHost: string): Promise<RemoteDependencyView[]> => probeDeps(sshHost),
-
-  /** Whether a host is set up to run agents, and which agent types are usable on it. */
-  getHostSetup: (sshHost: string): Promise<HostSetupStatus> => getHostSetup(sshHost),
 
   /** Begin an interactive `gh auth login` PTY session on the host; returns its pty session id. */
   startGhAuth: (params: { sshHost: string }): Promise<{ sessionId: string }> =>

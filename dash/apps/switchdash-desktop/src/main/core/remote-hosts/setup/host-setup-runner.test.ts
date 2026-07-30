@@ -372,7 +372,10 @@ describe('plan helpers', () => {
     const { isPlanComplete } = await import('@shared/core/remote-hosts/setup');
     expect(
       isPlanComplete(
-        plan([step('node', { state: 'satisfied' }), step('gh', { optional: true, state: 'failed' })])
+        plan([
+          step('node', { state: 'satisfied' }),
+          step('gh', { optional: true, state: 'failed' }),
+        ])
       )
     ).toBe(true);
   });

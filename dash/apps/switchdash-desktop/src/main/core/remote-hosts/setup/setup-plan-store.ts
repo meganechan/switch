@@ -29,12 +29,7 @@ const STEP_STATES: HostSetupStepState[] = [
   'skipped',
   'blocked',
 ];
-const STEP_KINDS: HostSetupStepKind[] = [
-  'core-dependency',
-  'agent-cli',
-  'agent-plugin',
-  'gh-auth',
-];
+const STEP_KINDS: HostSetupStepKind[] = ['core-dependency', 'agent-cli', 'agent-plugin', 'gh-auth'];
 const OUTCOMES: DependencyCheckOutcome[] = [
   'satisfied',
   'missing',
@@ -78,8 +73,7 @@ function toStep(raw: unknown, sshHost: string): HostSetupStep {
     dependsOn: Array.isArray(value.dependsOn)
       ? value.dependsOn.filter((id): id is string => typeof id === 'string')
       : [],
-    updatedAt:
-      typeof value.updatedAt === 'string' ? value.updatedAt : new Date(0).toISOString(),
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : new Date(0).toISOString(),
   };
 }
 

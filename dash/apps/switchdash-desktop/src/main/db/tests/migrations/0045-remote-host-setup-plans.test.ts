@@ -37,9 +37,7 @@ describe('migration 0045: remote host setup plans', () => {
   it('defaults a new plan to idle', async () => {
     fixture = await openFixture('empty');
 
-    await fixture.db
-      .insert(remoteHostSetupPlans)
-      .values({ sshHost: 'dev-vm', steps: '[]' });
+    await fixture.db.insert(remoteHostSetupPlans).values({ sshHost: 'dev-vm', steps: '[]' });
 
     const [row] = await fixture.db
       .select()
