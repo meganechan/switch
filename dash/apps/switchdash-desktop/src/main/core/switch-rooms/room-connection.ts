@@ -5,7 +5,7 @@ import type { InjectionSink } from './injection-sink';
 import type { SessionControl } from './session-control';
 import {
   formatEventForInjection,
-  formatImageAttachmentAnnotation,
+  formatAttachmentAnnotation,
   type AgentBridgeEventResponse,
   type AttachmentRef,
   type CommandPayload,
@@ -530,15 +530,17 @@ export class RoomConnection {
           if (text) {
             let annotated = text;
             if (event.type === 'message') {
-              // Materialise image attachments to local files and tell the agent
-              // they are there — parity with the connector channel, which the
-              // pollers otherwise lacked. Best-effort: a failed download is
-              // logged and omitted, never blocking the message.
-              const imagePaths = await this.downloadImageAttachments(
+              // Materialise attachments of ANY type to local files and tell the
+              // agent they are there — parity with the connector channel, which
+              // the pollers otherwise lacked. A download that fails is named in
+              // the annotation rather than dropped, so the agent is never left
+              // believing it saw everything.
+              const { imagePaths, filePaths, failed } = await this.downloadAttachments(
                 event.payload as MessagePayload
               );
-              if (imagePaths.length > 0) {
-                annotated = `${annotated}\n${formatImageAttachmentAnnotation(imagePaths)}`;
+              const annotation = formatAttachmentAnnotation(imagePaths, filePaths, failed);
+              if (annotation) {
+                annotated = `${annotated}\n${annotation}`;
               }
             }
             const body =
@@ -562,23 +564,34 @@ export class RoomConnection {
   }
 
   /**
-   * Download a message's image attachments to local files under `mediaDir`,
-   * returning their paths. Mirrors the connector channel: filter by an
-   * `image/*` mimetype, fetch the bytes from the agent bridge (which proxies
-   * the Matrix media repo), and write them locally so the agent can Read them.
-   * Best-effort — a failed download is logged and skipped, never thrown, so it
-   * cannot break event delivery.
+   * Download a message's attachments — of any type — to local files under
+   * `mediaDir`. Mirrors the connector channel: fetch the bytes from the agent
+   * bridge (which proxies the Matrix media repo) and write them locally so the
+   * agent can Read them.
+   *
+   * Images and other files are returned separately so the annotation can
+   * describe each appropriately. A download that fails returns its filename in
+   * `failed` instead of being dropped: it is surfaced to the agent, and it
+   * still never throws, so it cannot break event delivery.
    */
-  private async downloadImageAttachments(msg: MessagePayload): Promise<string[]> {
+  private async downloadAttachments(
+    msg: MessagePayload
+  ): Promise<{ imagePaths: string[]; filePaths: string[]; failed: string[] }> {
     const attachments = msg.attachments ?? [];
-    const paths: string[] = [];
+    const imagePaths: string[] = [];
+    const filePaths: string[] = [];
+    const failed: string[] = [];
     for (let i = 0; i < attachments.length; i++) {
       const att = attachments[i];
-      if (!att.mimetype.startsWith('image/')) continue;
       const localPath = await this.fetchAttachmentToFile(att, msg.message_id, i);
-      if (localPath) paths.push(localPath);
+      if (!localPath) {
+        failed.push(att.filename);
+        continue;
+      }
+      if (att.mimetype.startsWith('image/')) imagePaths.push(localPath);
+      else filePaths.push(localPath);
     }
-    return paths;
+    return { imagePaths, filePaths, failed };
   }
 
   private async fetchAttachmentToFile(
