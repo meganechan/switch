@@ -21,6 +21,15 @@ below:
 
 ### [Unreleased]
 
+### [0.10.0] - 2026-07-30
+
+#### Added
+- Full attachment support — any file type and multiple files per message, in both
+  directions across Slack, Mattermost, and Discord. Non-image files are relayed
+  instead of silently dropped, multi-file messages are coalesced into a single
+  platform post, and the 20MB size cap is now enforced inbound too; oversize or
+  failed files are disclosed in the room rather than dropped (CHOO-1802, #93).
+
 ### [0.9.0] - 2026-07-29
 
 #### Added
