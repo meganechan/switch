@@ -200,3 +200,96 @@ async def test_incomplete_group_flushes_with_disclosed_notice() -> None:
     # No leak: the buffer and its timer are gone once flushed.
     assert client._attachment_groups == {}
     assert client._attachment_group_timers == {}
+
+
+async def test_group_is_anchored_on_part_zero_not_the_completing_part() -> None:
+    """The coalesced message must carry part 0's event id, so a reply threads
+    off the canonical first event rather than whichever part landed last."""
+    client = _fake_client()
+    # Part 0 arrives FIRST, so a later part completes the group — otherwise the
+    # completing event happens to be part 0 and the assertion proves nothing.
+    for index, name in [(0, "a.png"), (1, "b.md"), (2, "c.csv")]:
+        await AgentClient.on_media(
+            client,
+            _room(),
+            _media_event(
+                body="three" if index == 0 else name,
+                filename=name if index == 0 else None,
+                event_id=f"$part-{index}",
+                group={"id": "grp-anchor", "index": index, "total": 3},
+            ),
+        )
+
+    assert len(client.queue.events) == 1
+    # Part 2 completed the group, but part 0 anchors the payload.
+    assert client.queue.events[0].payload.message_id == "$part-0"
+
+
+async def test_incomplete_group_is_anchored_on_part_zero() -> None:
+    original = ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS
+    ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = 0.01
+    try:
+        client = _fake_client()
+        for index, name in [(0, "a.png"), (2, "c.csv")]:
+            await AgentClient.on_media(
+                client,
+                _room(),
+                _media_event(
+                    body="anchored" if index == 0 else name,
+                    filename=name if index == 0 else None,
+                    event_id=f"$part-{index}",
+                    group={"id": "grp-anchor-2", "index": index, "total": 3},
+                ),
+            )
+        await asyncio.sleep(0.15)
+    finally:
+        ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = original
+
+    assert len(client.queue.events) == 1
+    assert client.queue.events[0].payload.message_id == "$part-0"
+
+
+async def test_group_timeout_bounds_the_group_not_the_gap_between_parts() -> None:
+    """The safety-net timer is armed once per group. A batch dribbling in just
+    under the timeout must not be able to hold the buffer open indefinitely."""
+    original = ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS
+    ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = 0.12
+    try:
+        client = _fake_client()
+        await AgentClient.on_media(
+            client,
+            _room(),
+            _media_event(
+                body="slow batch",
+                filename="a.png",
+                event_id="$part-0",
+                group={"id": "grp-slow", "index": 0, "total": 4},
+            ),
+        )
+        first_timer = client._attachment_group_timers["grp-slow"]
+
+        # Parts keep trickling in below the deadline; the timer must NOT be
+        # pushed back by each arrival.
+        for index, name in [(1, "b.md"), (2, "c.csv")]:
+            await asyncio.sleep(0.05)
+            await AgentClient.on_media(
+                client,
+                _room(),
+                _media_event(
+                    body=name,
+                    event_id=f"$part-{index}",
+                    group={"id": "grp-slow", "index": index, "total": 4},
+                ),
+            )
+            assert client._attachment_group_timers["grp-slow"] is first_timer
+
+        await asyncio.sleep(0.15)
+    finally:
+        ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = original
+
+    # Fired on the group's own deadline rather than being extended forever.
+    assert len(client.queue.events) == 1
+    payload = client.queue.events[0].payload
+    assert "incomplete attachment group: 3 of 4" in payload.body
+    assert client._attachment_groups == {}
+    assert client._attachment_group_timers == {}

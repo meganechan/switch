@@ -102,6 +102,10 @@ class _PendingAttachmentGroup:
     total: int
     parts: dict[int, AttachmentRef] = field(default_factory=dict)
     body: str = ""
+    # The index-0 event, kept so a group that has to be flushed incomplete is
+    # still anchored on its canonical first part (message_id / timestamp /
+    # sender) rather than on whichever part happened to arrive last.
+    first_event: RoomMessageMedia | None = None
 
 
 _UNAVAILABLE_MESSAGES = {
@@ -430,6 +434,7 @@ class AgentClient(ClientBase[ClientConfig]):
         pending.parts[index] = attachment
         if index == 0:
             pending.body = event.body
+            pending.first_event = event
         if len(pending.parts) < total:
             self._schedule_attachment_group_flush(
                 group_id, room, event, meta, is_addressed, sender_name, thread_id
@@ -438,9 +443,11 @@ class AgentClient(ClientBase[ClientConfig]):
 
         self._cancel_attachment_group_flush(group_id)
         self._attachment_groups.pop(group_id, None)
+        # Anchor the coalesced message on part 0, not on whichever part
+        # happened to complete the group, so message_id / timestamp are stable.
         await self._emit_media(
             room,
-            event,
+            pending.first_event or event,
             meta,
             is_addressed,
             sender_name,
@@ -459,14 +466,19 @@ class AgentClient(ClientBase[ClientConfig]):
         sender_name: str,
         thread_id: str | None,
     ) -> None:
-        """(Re)arm the safety-net timer for an incomplete attachment group.
+        """Arm the safety-net timer for an incomplete attachment group.
 
         The group should normally complete within milliseconds — every event is
         sent back-to-back by one sender. The timer exists so a group that never
         completes (a failed send mid-batch, a dropped event) surfaces what did
         arrive, clearly flagged, instead of being buffered forever.
+
+        Armed once per group, NOT re-armed per part: the deadline bounds the
+        whole group, so a batch dribbling in just under the timeout can't hold
+        the buffer open indefinitely.
         """
-        self._cancel_attachment_group_flush(group_id)
+        if group_id in self._attachment_group_timers:
+            return
         self._attachment_group_timers[group_id] = asyncio.get_running_loop().call_later(
             ATTACHMENT_GROUP_TIMEOUT_SECONDS,
             lambda: asyncio.create_task(
@@ -509,9 +521,12 @@ class AgentClient(ClientBase[ClientConfig]):
             f"[incomplete attachment group: {received} of {pending.total} "
             f"files arrived]"
         )
+        # Anchor on part 0 when we have it, so the payload's message_id matches
+        # the completed-group case and replies thread off the canonical event.
+        anchor = pending.first_event or event
         await self._emit_media(
             room,
-            event,
+            anchor,
             meta,
             is_addressed,
             sender_name,

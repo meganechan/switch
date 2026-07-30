@@ -1143,13 +1143,17 @@ class BridgeCore:
         sender_name: str,
         thread_root_ref: str | None,
     ) -> None:
-        """(Re)arm the safety net for an incomplete outbound attachment group.
+        """Arm the safety net for an incomplete outbound attachment group.
 
         A group normally completes immediately — the sender posts its events
         back-to-back. This timer guarantees that a batch that never completes
         still reaches the platform, flagged, instead of being held forever.
+
+        Armed once per group, NOT re-armed per part, so the deadline bounds the
+        whole group rather than the gap between parts.
         """
-        self._cancel_outbound_group_flush(group_id)
+        if group_id in self._outbound_group_timers:
+            return
         self._outbound_group_timers[group_id] = asyncio.get_running_loop().call_later(
             OUTBOUND_GROUP_TIMEOUT_SECONDS,
             lambda: asyncio.create_task(

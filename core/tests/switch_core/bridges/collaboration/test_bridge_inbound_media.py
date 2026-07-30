@@ -20,9 +20,7 @@ class _FakePuppet:
         self.messages: list[dict[str, Any]] = []
 
     async def upload_media(self, data: bytes, mimetype: str, filename: str) -> str:
-        self.uploads.append(
-            {"data": data, "mimetype": mimetype, "filename": filename}
-        )
+        self.uploads.append({"data": data, "mimetype": mimetype, "filename": filename})
         return f"mxc://s/{filename}"
 
     async def send_media(

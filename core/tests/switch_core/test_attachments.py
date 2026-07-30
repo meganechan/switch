@@ -59,3 +59,25 @@ def test_malformed_marker_degrades_to_ungrouped(marker: dict[str, Any]) -> None:
     # one odd event can't stall a receiver's buffer waiting for parts that
     # will never arrive.
     assert parse_attachment_group(_content(marker)) is None
+
+
+def test_bool_index_or_total_is_rejected() -> None:
+    """bool is a subclass of int — a bool marker is malformed, not index 0/1."""
+    assert (
+        parse_attachment_group(
+            {ATTACHMENT_GROUP_KEY: {"id": "g", "index": False, "total": True}}
+        )
+        is None
+    )
+    assert (
+        parse_attachment_group(
+            {ATTACHMENT_GROUP_KEY: {"id": "g", "index": True, "total": 3}}
+        )
+        is None
+    )
+    assert (
+        parse_attachment_group(
+            {ATTACHMENT_GROUP_KEY: {"id": "g", "index": 0, "total": True}}
+        )
+        is None
+    )

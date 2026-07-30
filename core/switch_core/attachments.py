@@ -30,6 +30,10 @@ def parse_attachment_group(
     total = raw.get("total")
     if not isinstance(group_id, str) or not group_id:
         return None
+    # bool is a subclass of int; a bool here means a malformed marker, not an
+    # index of 0/1.
+    if isinstance(index, bool) or isinstance(total, bool):
+        return None
     if not isinstance(index, int) or not isinstance(total, int):
         return None
     if total < 1 or index < 0 or index >= total:
