@@ -309,6 +309,13 @@
       "when": 1785224611278,
       "tag": "0043_furry_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "6",
+      "when": 1785224671278,
+      "tag": "0044_session_room_connections",
+      "breakpoints": true
     }
   ]
 }

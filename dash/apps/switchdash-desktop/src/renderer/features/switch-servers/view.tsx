@@ -190,11 +190,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
 
         {server.managed &&
           (server.managementKind === 'remote' && server.sshHost ? (
-            <RemoteServerControls
-              sshHost={server.sshHost}
-              serverId={server.id}
-              name={server.name}
-            />
+            <RemoteServerControls sshHost={server.sshHost} name={server.name} />
           ) : (
             <LocalServerControls />
           ))}

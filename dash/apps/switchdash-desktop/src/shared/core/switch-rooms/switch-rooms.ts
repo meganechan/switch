@@ -9,6 +9,9 @@ export interface SessionRoomConnection {
   sessionId: string;
   /** The Switch room the session is currently connected to. */
   roomId: string;
-  /** The Switch agent id that connected (from the agent's SWITCH_AGENT_ID). */
-  agentId: string;
+  /** The Switch agent id that connected (from the agent's SWITCH_AGENT_ID).
+   * Null when a restored connection predates the identity being recorded — the
+   * field is for display, so an unknown one is reported as unknown rather than
+   * invented. */
+  agentId: string | null;
 }

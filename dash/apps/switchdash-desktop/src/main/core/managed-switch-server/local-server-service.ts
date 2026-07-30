@@ -1,3 +1,4 @@
+import { deleteAgentsForServer } from '@main/core/switch-servers/delete-server-agents';
 import { getManagedServer } from '@main/core/switch-servers/servers-store';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
@@ -123,14 +124,20 @@ class LocalServerService {
   }
 
   /** Destroy the stack AND its data volumes, and drop the stored secrets so the
-   * next start is a clean install. Irreversible — the caller must confirm. The
-   * caller (renderer) removes the managed server's agents first, since their
-   * server-side identity is wiped here. */
+   * next start is a clean install. Irreversible — the caller must confirm.
+   *
+   * The stack's agents are deleted first, here rather than in the caller: the
+   * wipe destroys their server-side identity, and an agent that outlives it
+   * keeps a dead endpoint and a token for nobody. Doing it behind the reset is
+   * what stops a second caller from forgetting. */
   async reset(): Promise<void> {
     if (this.busy) throw new Error('A local-server operation is already in progress.');
     this.busy = true;
     const host: ServerHost = new LocalServerHost();
     try {
+      this.setStatus({ phase: 'stopping', message: 'Removing agents…' });
+      const server = await getManagedServer();
+      if (server) await deleteAgentsForServer(server.id);
       this.setStatus({ phase: 'stopping', message: 'Destroying containers and data…' });
       await resetStack(host);
       this.setStatus({ phase: 'stopped', message: null, error: null });

@@ -24,12 +24,29 @@ export async function restoreSwitchRoomSessions(): Promise<void> {
 
   const stale: string[] = [];
   let launched = 0;
+  let orphaned = 0;
 
   for (const sessionId of sessionIds) {
     try {
       const loaded = await loadSessionWithAgent(sessionId);
       if (!loaded) {
         stale.push(sessionId);
+        continue;
+      }
+
+      // An agent whose server has been removed still carries that server's
+      // endpoint and token, both of which now point at nothing. Launching it
+      // would spawn an agent process that can never reach its room, so say so
+      // rather than starting a poller that fails forever. The session is left
+      // intact and can still be opened by hand.
+      if (loaded.serverId === null) {
+        orphaned += 1;
+        log.warn('restoreSwitchRoomSessions: agent has no Switch server; not restoring session', {
+          event: 'switch_room_restore_skipped',
+          reason: 'agent_server_removed',
+          sessionId,
+          agentName: loaded.name,
+        });
         continue;
       }
 
@@ -67,5 +84,6 @@ export async function restoreSwitchRoomSessions(): Promise<void> {
   log.info('restoreSwitchRoomSessions: launched room-connected sessions at startup', {
     launched,
     pruned: stale.length,
+    orphaned,
   });
 }

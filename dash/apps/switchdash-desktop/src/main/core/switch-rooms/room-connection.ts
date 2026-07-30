@@ -35,8 +35,21 @@ const MEDIA_REQUEST_TIMEOUT_MS = 30_000;
 // past its own timeout, or the loop otherwise stopped making progress): abort the
 // in-flight renew to force an immediate fresh attempt, and warn loudly so a
 // silently-dropped room is visible rather than mysterious.
+//
+// "Wedged" specifically means *not making progress*. A renew that fails fast —
+// a refused connection to an endpoint that is simply gone — is progress: the
+// loop is running, retrying, and reporting for itself. Firing the watchdog then
+// would abort a request that is not in flight and warn about a stall that is not
+// happening, which is how a single dead endpoint used to produce a third of a
+// warning line per second, forever.
 const RENEW_WATCHDOG_INTERVAL_MS = 2_000;
 const RENEW_STALE_THRESHOLD_MS = 8_000;
+// Backoff for the renew loops. Renews are a heartbeat, so the healthy cadence is
+// fixed and short; failures back off geometrically up to this cap. Once the
+// heartbeat has missed its TTL the session is already dropped server-side, so
+// retrying every 2s buys nothing but noise — `renew` is an upsert, so the
+// session re-establishes on the first success whenever that comes.
+const RENEW_MAX_BACKOFF_MS = 30_000;
 // Safety net for the dialog gate: if a blocking prompt (permission/elicitation)
 // never reports resolution, release the gate after this long so queued messages
 // can't get permanently stuck. Normal turns are never gated.
@@ -225,6 +238,9 @@ export class RoomConnection {
   private humanGateTimer: ReturnType<typeof setTimeout> | null = null;
   /** Monotonic timestamp of the last renew that succeeded — drives the watchdog. */
   private lastRenewOkAt = 0;
+  /** Consecutive connection-renew failures; 0 while healthy. Tells the watchdog
+   * a loop that is failing loudly apart from one that has gone quiet. */
+  private renewFailures = 0;
   /** Aborts just the in-flight renew request (independent of the loop's own
    * per-request timeout) so the watchdog can force an immediate retry. */
   private renewRequestAbort: AbortController | null = null;
@@ -415,22 +431,74 @@ export class RoomConnection {
   private async connectionRenewLoop(): Promise<void> {
     // Seed the watchdog clock so a wedge before the first success is still caught.
     this.lastRenewOkAt = Date.now();
-    while (!this.abort.signal.aborted) {
+    await this.renewLoop('connection', CONNECTION_RENEW_INTERVAL_MS, async () => {
       const requestAbort = new AbortController();
       this.renewRequestAbort = requestAbort;
       try {
         await this.postConnectionRenew(requestAbort);
         this.lastRenewOkAt = Date.now();
-      } catch (error) {
-        if (this.abort.signal.aborted) return;
-        this.log.warn('RoomConnection: connection renew error', {
-          roomId: this.roomId,
-          error: String(error),
-        });
       } finally {
         if (this.renewRequestAbort === requestAbort) this.renewRequestAbort = null;
       }
-      await new Promise((r) => setTimeout(r, CONNECTION_RENEW_INTERVAL_MS));
+    });
+  }
+
+  /**
+   * Drive one renew heartbeat until the connection stops.
+   *
+   * While renews succeed the cadence is fixed — this is a liveness signal and the
+   * server drops the session without it. While they fail it backs off to
+   * RENEW_MAX_BACKOFF_MS, and reports on a curve rather than per attempt: the
+   * first failure, then at exponentially sparser counts, then a line when it
+   * recovers. An endpoint that is permanently gone therefore costs a handful of
+   * lines rather than one every couple of seconds for the life of the app, while
+   * a failure that matters is still reported the moment it happens.
+   */
+  private async renewLoop(
+    kind: 'connection' | 'lease',
+    intervalMs: number,
+    attempt: () => Promise<void>
+  ): Promise<void> {
+    let failures = 0;
+    let failingSince = 0;
+
+    while (!this.abort.signal.aborted) {
+      try {
+        await attempt();
+        if (failures > 0) {
+          this.log.warn(`RoomConnection: ${kind} renew recovered`, {
+            event: 'room_renew_recovered',
+            roomId: this.roomId,
+            failures,
+            outageMs: Date.now() - failingSince,
+          });
+        }
+        failures = 0;
+        if (kind === 'connection') this.renewFailures = 0;
+      } catch (error) {
+        if (this.abort.signal.aborted) return;
+        if (failures === 0) failingSince = Date.now();
+        failures += 1;
+        if (kind === 'connection') this.renewFailures = failures;
+        // Powers of two: 1st, 2nd, 4th, 8th … failure. Dense enough to catch a
+        // blip as it starts, sparse enough that an outage cannot flood the log.
+        if ((failures & (failures - 1)) === 0) {
+          this.log.warn(`RoomConnection: ${kind} renew error`, {
+            event: 'room_renew_failed',
+            roomId: this.roomId,
+            endpoint: this.creds.apiEndpoint,
+            failures,
+            failingForMs: Date.now() - failingSince,
+            error: String(error),
+          });
+        }
+      }
+
+      const delay =
+        failures === 0
+          ? intervalMs
+          : Math.min(intervalMs * 2 ** (failures - 1), RENEW_MAX_BACKOFF_MS);
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
 
@@ -448,18 +516,7 @@ export class RoomConnection {
    * role auto-release shortly after the connection stops.
    */
   private async leaseRenewLoop(): Promise<void> {
-    while (!this.abort.signal.aborted) {
-      try {
-        await this.postLeaseRenew();
-      } catch (error) {
-        if (this.abort.signal.aborted) return;
-        this.log.warn('RoomConnection: lease renew error', {
-          roomId: this.roomId,
-          error: String(error),
-        });
-      }
-      await new Promise((r) => setTimeout(r, LEASE_RENEW_INTERVAL_MS));
-    }
+    await this.renewLoop('lease', LEASE_RENEW_INTERVAL_MS, () => this.postLeaseRenew());
   }
 
   /**
@@ -467,12 +524,19 @@ export class RoomConnection {
    * within RENEW_STALE_THRESHOLD_MS. Abort the in-flight request so the loop
    * retries immediately instead of waiting out a stall, and warn loudly: a
    * silently-dropped room should be visible, not mysterious.
+   *
+   * A loop that is failing outright is not stalled: it is looping, backing off
+   * and reporting on its own schedule, and there is no in-flight request to
+   * abort. Leave it to speak for itself — this watchdog exists for the case it
+   * cannot report, where a request neither returns nor rejects.
    */
   private checkRenewStale(): void {
     if (this.abort.signal.aborted) return;
+    if (this.renewFailures > 0) return;
     const staleMs = Date.now() - this.lastRenewOkAt;
     if (staleMs <= RENEW_STALE_THRESHOLD_MS) return;
     this.log.warn('RoomConnection: renew stale — forcing retry', {
+      event: 'room_renew_stalled',
       roomId: this.roomId,
       staleMs,
     });

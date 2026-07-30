@@ -1,6 +1,5 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
-import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { events, rpc } from '@renderer/lib/ipc';
 import type { DockerAvailability } from '@shared/core/managed-switch-server/managed-switch-server';
@@ -163,35 +162,23 @@ export class RemoteServerStore {
     }
   }
 
-  async reset(sshHost: string, serverId: string): Promise<void> {
+  async reset(sshHost: string): Promise<void> {
     runInAction(() => {
       this.busyHosts.add(sshHost);
       this.error = null;
     });
     try {
-      // Remove the server's agents first (their server-side identity is wiped by
-      // the reset), then destroy the stack.
-      await this.removeManagedAgents(serverId);
+      // The reset deletes the stack's agents itself — their server-side
+      // identity dies with it — so this only has to refresh what the deletion
+      // changed underneath the UI.
       await rpc.remoteSwitchServer.reset(sshHost);
+      await agentsStore.load();
       await switchServersStore.init();
     } catch (cause) {
       this.setError(cause);
     } finally {
       runInAction(() => this.busyHosts.delete(sshHost));
     }
-  }
-
-  private async removeManagedAgents(serverId: string): Promise<void> {
-    await agentsStore.load();
-    const locationIds = new Set<string>();
-    for (const [locationId, agents] of agentsStore.byLocation) {
-      if (agents.some((a) => a.serverId === serverId)) locationIds.add(locationId);
-    }
-    const manager = getLocationManagerStore();
-    for (const locationId of locationIds) {
-      await manager.removeLocation(locationId);
-    }
-    await agentsStore.load();
   }
 
   private setError(cause: unknown): void {

@@ -1,6 +1,10 @@
 import type { HostReachabilityChange } from '@main/core/remote-hosts/host-reachability-service';
 import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
-import { listManagedServers } from '@main/core/switch-servers/servers-store';
+import { deleteAgentsForServer } from '@main/core/switch-servers/delete-server-agents';
+import {
+  getRemoteManagedServer,
+  listManagedServers,
+} from '@main/core/switch-servers/servers-store';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { COMPATIBLE_SWITCH_VERSION } from '@shared/app-identity';
@@ -206,8 +210,11 @@ class RemoteServerService {
     }
   }
 
-  /** Destroy the remote stack, its data volumes, and stored secrets. The caller
-   * removes the server's agents first (their server-side identity is wiped). */
+  /** Destroy the remote stack, its data volumes, and stored secrets.
+   *
+   * The stack's agents are deleted first, here rather than in the caller — the
+   * wipe destroys their server-side identity, so leaving them behind strands a
+   * dead endpoint and a token for nobody (see {@link deleteAgentsForServer}). */
   async reset(sshHost: string): Promise<void> {
     if (this.busy.has(sshHost))
       throw new Error(`An operation is already in progress for ${sshHost}.`);
@@ -215,6 +222,9 @@ class RemoteServerService {
     this.busy.add(sshHost);
     const host = this.hosts.get(sshHost) ?? (await createRemoteServerHost(sshHost));
     try {
+      this.setStatus(sshHost, { phase: 'stopping', message: 'Removing agents…' });
+      const server = await getRemoteManagedServer(sshHost);
+      if (server) await deleteAgentsForServer(server.id);
       this.setStatus(sshHost, { phase: 'stopping', message: 'Destroying containers and data…' });
       await resetStack(host);
       this.setStatus(sshHost, { phase: 'stopped', message: null, error: null });

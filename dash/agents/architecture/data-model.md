@@ -32,8 +32,15 @@ The schema is defined in `apps/switchdash-desktop/src/main/db/schema.ts`.
 project   (directory on disk)
   └─ agent     (Switch identity; one provider each; many per dir)
        └─ session   (a run/instantiation; was "conversation")
-            └─ message
+            ├─ message
+            └─ session_room_connection   (0..1 — the Switch room it is attending)
 ```
+
+A session's room connection is a row keyed by `session_id` with
+`ON DELETE CASCADE`, so it cannot outlive the session (or the agent above it).
+It was previously a JSON blob in `app_settings`, which referenced nothing and so
+survived both — leaving switchdash restoring sessions, on every launch, for
+agents whose Switch server had been destroyed.
 
 ## What we deliberately dropped from upstream, and why
 

@@ -573,4 +573,110 @@ describe('RoomConnection', () => {
     expect((leaseCalls[0][1] as RequestInit).method).toBe('POST');
     conn.stop();
   });
+
+  /**
+   * An endpoint that is simply gone — a managed server's port after the stack
+   * was destroyed — used to produce an unbounded stream of warnings: two renew
+   * loops retrying every 2s with no backoff, plus a watchdog announcing the
+   * staleness they were already reporting.
+   */
+  describe('renew against a dead endpoint', () => {
+    /** Fails every renew; parks the poll loop so only renews are under test. */
+    function makeFailingFetch(shouldFail: () => boolean) {
+      return vi.fn(async (url: string) => {
+        const u = String(url);
+        if (u.includes('/renew')) {
+          if (shouldFail()) throw new TypeError('fetch failed');
+          return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+        }
+        if (u.includes('/events')) return new Promise(() => {});
+        return { ok: true, status: 200, json: async () => ({}), text: async () => '' };
+      });
+    }
+
+    function connectWith(fetchMock: ReturnType<typeof makeFailingFetch>) {
+      vi.stubGlobal('fetch', fetchMock);
+      const conn = new RoomConnection({
+        creds,
+        roomId: 'room-1',
+        roomName: 'Room One',
+        sessionId: 'session-1',
+        sink: { acquire: () => ({ write: vi.fn() }) },
+        injector,
+        control,
+        deeplinkScheme: 'switchdash',
+        isHumanTyping: () => false,
+        mediaDir,
+        log: silentLog,
+      });
+      conn.start();
+      return conn;
+    }
+
+    function warnings(match: string): unknown[][] {
+      return silentLog.warn.mock.calls.filter((call) => String(call[0]).includes(match));
+    }
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('backs off instead of retrying every two seconds forever', async () => {
+      vi.useFakeTimers();
+      const fetchMock = makeFailingFetch(() => true);
+      const conn = connectWith(fetchMock);
+
+      await vi.advanceTimersByTimeAsync(120_000);
+      const attempts = fetchMock.mock.calls.filter((c) =>
+        String(c[0]).includes('/connection/renew')
+      ).length;
+
+      // Unbounded retries at the 2s heartbeat would be ~60 in two minutes; with
+      // the backoff capped at 30s it settles near a tenth of that.
+      expect(attempts).toBeLessThan(15);
+      conn.stop();
+    });
+
+    it('reports the outage on a curve rather than once per attempt', async () => {
+      vi.useFakeTimers();
+      const conn = connectWith(makeFailingFetch(() => true));
+
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      const reported = warnings('connection renew error');
+      expect(reported.length).toBeGreaterThan(0);
+      expect(reported.length).toBeLessThan(8);
+      // The first failure is always reported, with the endpoint that failed.
+      expect(reported[0][1]).toMatchObject({
+        endpoint: 'https://switch.test',
+        failures: 1,
+      });
+      conn.stop();
+    });
+
+    it('stays quiet about staleness while the loop is failing loudly', async () => {
+      vi.useFakeTimers();
+      const conn = connectWith(makeFailingFetch(() => true));
+
+      await vi.advanceTimersByTimeAsync(120_000);
+
+      expect(warnings('renew stale')).toHaveLength(0);
+      conn.stop();
+    });
+
+    it('says so when the endpoint comes back', async () => {
+      vi.useFakeTimers();
+      let failing = true;
+      const conn = connectWith(makeFailingFetch(() => failing));
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      failing = false;
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      const recovered = warnings('connection renew recovered');
+      expect(recovered).toHaveLength(1);
+      expect(recovered[0][1]).toMatchObject({ event: 'room_renew_recovered' });
+      conn.stop();
+    });
+  });
 });
