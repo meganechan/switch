@@ -139,6 +139,14 @@ below:
 
 ### [Unreleased]
 
+### [0.15.1] - 2026-07-30
+
+#### Fixed
+- Surface non-image attachments to dash-managed sessions: switchdash's own
+  session-notification builder now downloads and annotates any file type (not
+  just images) and names failed downloads, so agents running under switchdash
+  are actually told about files posted in a room (CHOO-1802, #94).
+
 ### [0.15.0] - 2026-07-29
 
 #### Added
