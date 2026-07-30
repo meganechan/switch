@@ -139,6 +139,25 @@ below:
 
 ### [Unreleased]
 
+### [0.15.2] - 2026-07-30
+
+#### Added
+- Logging & diagnostics foundation across main, renderer, and the remote
+  sidecar: structured, session-scoped entries with a per-launch run id; file
+  logging defaulting to `info` (was `warn`); PII redacted only on export (not in
+  the local log) so local logs are debuggable while exported logs stay as safe
+  as before; on-demand sidecar log capture folded into bug reports; and
+  boot/exit + enumerated error markers to pinpoint crashes and launch failures
+  (CHOO-1683, #83).
+
+#### Fixed
+- Stop a destroyed managed server's agents from polling forever: resetting a
+  managed server now deletes its agents (the cascade lives behind the reset in
+  the main process), room connections are keyed per session with
+  `ON DELETE CASCADE` so orphaned entries are unrepresentable, and the boot
+  sweep refuses to restore sessions for orphaned agents instead of hammering a
+  dead endpoint (CHOO-1802 follow-up, #95).
+
 ### [0.15.1] - 2026-07-30
 
 #### Fixed
