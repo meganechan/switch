@@ -52,7 +52,14 @@ async function buildLauncher(params: AgentSidecarParams): Promise<RemoteSidecarL
       launchSpec,
       credsSlug: params.credsSlug,
     },
-    log,
+    // Bound once here so every line the launcher writes names the agent it is
+    // acting for. Sidecar work runs off watchers rather than an RPC call, so
+    // there is no ambient scope for it to inherit.
+    log: log.child({
+      component: 'sidecar-launcher',
+      agentSlug: params.credsSlug,
+      agentName: params.agentName ?? undefined,
+    }),
   });
 }
 

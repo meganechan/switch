@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type BetterSqlite3 from 'better-sqlite3';
+import { log } from '@main/lib/logger';
 import journal from '@root/drizzle/meta/_journal.json';
 
 // Vite bundles all migration SQL files at build time — no runtime path resolution needed.
@@ -13,6 +14,10 @@ const sqlFiles = import.meta.glob('@root/drizzle/*.sql', {
 type JournalEntry = { idx: number; when: number; tag: string; breakpoints: boolean };
 
 function runBundledMigrations(connection: BetterSqlite3.Database): void {
+  const migrationLog = log.child({ component: 'db-migration' });
+  const startedAt = Date.now();
+  const applied: string[] = [];
+
   connection.exec(`
     CREATE TABLE IF NOT EXISTS __drizzle_migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,6 +38,8 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
   // (outside the migration transaction) and restore it afterwards.
   connection.pragma('foreign_keys = OFF');
   try {
+    // A failed migration is unrecoverable and cannot be reconstructed after the
+    // fact, so which one was being applied is recorded as it happens.
     connection.transaction(() => {
       for (const entry of (journal as { entries: JournalEntry[] }).entries) {
         if (entry.when <= lastTimestamp) continue;
@@ -51,8 +58,26 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
         connection
           .prepare('INSERT INTO __drizzle_migrations (hash, created_at) VALUES (?, ?)')
           .run(hash, entry.when);
+        applied.push(entry.tag);
       }
     })();
+
+    if (applied.length) {
+      migrationLog.info('Applied database migrations', {
+        event: 'db_migration_applied',
+        migrations: applied,
+        durationMs: Date.now() - startedAt,
+      });
+    }
+  } catch (error) {
+    migrationLog.error('Database migration failed', {
+      event: 'db_migration_failed',
+      applied,
+      failedAfter: applied.at(-1) ?? '(none)',
+      durationMs: Date.now() - startedAt,
+      error: String(error),
+    });
+    throw error;
   } finally {
     connection.pragma('foreign_keys = ON');
   }

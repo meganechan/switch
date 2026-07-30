@@ -176,6 +176,24 @@ class SwitchRoomService implements IDisposable {
     });
   }
 
+  /**
+   * The room fields a log entry can borrow from a session id.
+   *
+   * Synchronous and in-memory on purpose: this runs on the logging write path,
+   * where an awaited lookup would be a deadlock waiting for shutdown.
+   */
+  describeSessionForLog(
+    sessionId: string
+  ): { roomId?: string; roomName?: string; agentId?: string } | undefined {
+    const connection = this.connections.get(sessionId);
+    if (!connection) return undefined;
+    return {
+      roomId: connection.roomId ?? undefined,
+      roomName: connection.roomName ?? undefined,
+      agentId: connection.agentId ?? undefined,
+    };
+  }
+
   /** The current set of live session→room connections. */
   getConnections(): SessionRoomConnection[] {
     return [...this.connections.values()].map(({ sessionId, roomId, agentId }) => ({

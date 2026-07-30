@@ -1,4 +1,5 @@
 import type { SessionRow } from '@main/db/schema';
+import { noteAgentName, noteSessionTitle } from '@main/lib/log-name-cache';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import type { AgentStatus } from '@shared/core/providers/agentEvents';
 import type { Session, SessionLifecycleStatus } from '@shared/core/sessions/sessions';
@@ -15,6 +16,11 @@ export function mapSessionRowToSession(
   providerId: AgentProviderId,
   agentName: string
 ): Session {
+  // Single chokepoint for session rows, so the log sink can put a title next to
+  // a session id without a query on the write path.
+  noteSessionTitle(row.id, row.title);
+  noteAgentName(row.agentId, agentName);
+
   const config = row.config ?? {};
   return {
     id: row.id,

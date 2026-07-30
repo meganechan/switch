@@ -29,18 +29,22 @@ import {
 import { locationFileIndexService } from './core/search/location-file-index-service';
 import { searchService } from './core/search/search-service';
 import { appSettingsService } from './core/settings/settings-service';
+import { registerSidecarDiagnostics } from './core/sidecar/sidecar-diagnostics';
 import { sshConnectionManager } from './core/ssh/lifecycle/production-ssh-connection-manager';
 import { autoSessionWatcher } from './core/switch-rooms/auto-session-watcher';
 import { restoreSwitchRoomSessions } from './core/switch-rooms/restore-sessions';
 import { updateService } from './core/updates/update-service';
 import { viewStateService } from './core/view-state/view-state-service';
 import { initializeDatabase } from './db/initialize';
+import { logAppExit, logAppStart, registerAppDiagnostics } from './lib/app-diagnostics';
 import {
   initializeFileLogger,
   registerProcessErrorLogging,
   registerRendererLogHandler,
 } from './lib/file-logger';
+import { registerLogEnrichment } from './lib/log-enrichment';
 import { log } from './lib/logger';
+import { withRPCLogContext } from './lib/rpc-logging';
 import { rpcRouter } from './rpc';
 import { resolveUserEnv } from './utils/userEnv';
 
@@ -56,8 +60,12 @@ registerAppScheme();
 setupDeeplinks();
 
 initializeFileLogger();
+registerLogEnrichment();
+registerAppDiagnostics();
+registerSidecarDiagnostics();
 registerProcessErrorLogging(log);
 registerRendererLogHandler(ipcMain);
+logAppStart();
 
 app.on('second-instance', () => {
   const win = BrowserWindow.getAllWindows()[0];
@@ -134,7 +142,7 @@ void app.whenReady().then(async () => {
     log.error('Failed to start agent event service:', e);
   });
 
-  registerRPCRouter(rpcRouter, ipcMain);
+  registerRPCRouter(rpcRouter, ipcMain, withRPCLogContext);
 
   void reconcileResourceSampler();
 
@@ -217,6 +225,7 @@ void app.whenReady().then(async () => {
 
 app.on('before-quit', (event) => {
   event.preventDefault();
+  logAppExit('before-quit');
   agentHookService.dispose();
   stopResourceSampler();
   localServerService.dispose();

@@ -25,6 +25,7 @@ import { switchNotificationPoller } from '@main/core/switch-rooms/switch-notific
 import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
 import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
+import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { makePtyId } from '@shared/core/pty/ptyId';
@@ -97,7 +98,17 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
     isResuming: boolean = false,
     initialPrompt?: string
   ): Promise<void> {
-    return this.startInternal(session, initialSize, isResuming, initialPrompt, false);
+    // Establishes the scope the PTY spawn and everything else below inherits,
+    // so those lines name their session without being handed its id.
+    return runWithLogContext(
+      {
+        component: 'local-agent-runtime',
+        sessionId: this.sessionId,
+        agentId: session.agentId,
+        agentName: session.agentName ?? undefined,
+      },
+      () => this.startInternal(session, initialSize, isResuming, initialPrompt, false)
+    );
   }
 
   private async startInternal(
