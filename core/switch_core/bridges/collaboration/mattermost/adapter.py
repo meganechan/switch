@@ -20,6 +20,7 @@ from mattermostdriver.exceptions import NoAccessTokenProvided
 from switch_core.bridges.collaboration.adapter import CollaborationAdapter
 from switch_core.bridges.collaboration.models import (
     Attachment,
+    AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
     InboundAgentJoin,
@@ -27,6 +28,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 
 logger = logging.getLogger(__name__)
@@ -267,6 +269,87 @@ class MattermostAdapter(CollaborationAdapter):
             logger.error(
                 "Failed to post attachment '%s' to Mattermost channel %s: %s",
                 filename,
+                channel_id,
+                e,
+            )
+            return None
+
+    async def send_attachments(
+        self,
+        channel_id: str,
+        sender_name: str,
+        files: list[OutboundAttachment],
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Upload several files and attach them all to ONE post — Mattermost
+        posts natively carry a list of file ids."""
+        if not files:
+            return None
+        if len(files) == 1:
+            file = files[0]
+            return await self.send_attachment(
+                channel_id,
+                sender_name,
+                file.filename,
+                file.mimetype,
+                file.data,
+                caption,
+                thread_root_id,
+            )
+        loop = self._main_loop
+        if loop is None:
+            logger.error("Cannot send attachments: event loop not initialized")
+            return None
+        driver = self._bot_drivers.get(sender_name)
+        if not driver:
+            logger.error("No Mattermost driver found for sender '%s'", sender_name)
+            if not self._admin_driver:
+                return None
+            driver = self._admin_driver
+
+        def _upload_all() -> list[str]:
+            ids: list[str] = []
+            for file in files:
+                result = driver.files.upload_file(
+                    channel_id,
+                    files={
+                        "files": (file.filename, io.BytesIO(file.data), file.mimetype)
+                    },
+                )
+                ids.extend(info["id"] for info in result.get("file_infos", []))
+            return ids
+
+        try:
+            file_ids = await loop.run_in_executor(None, _upload_all)
+        except Exception as e:
+            logger.error(
+                "Failed to upload %d attachments to Mattermost channel %s: %s",
+                len(files),
+                channel_id,
+                e,
+            )
+            file_ids = []
+        if not file_ids:
+            return await super().send_attachments(
+                channel_id, sender_name, files, caption, thread_root_id
+            )
+
+        post: dict[str, object] = {
+            "channel_id": channel_id,
+            "message": self.translate_outbound(caption) if caption else "",
+            "file_ids": file_ids,
+        }
+        if thread_root_id is not None:
+            post["root_id"] = thread_root_id
+        try:
+            result = await loop.run_in_executor(None, driver.posts.create_post, post)
+            post_id: str = result.get("id", "")
+            return post_id or None
+        except Exception as e:
+            logger.error(
+                "Failed to post %d attachments to Mattermost channel %s: %s",
+                len(files),
                 channel_id,
                 e,
             )
@@ -1015,7 +1098,7 @@ class MattermostAdapter(CollaborationAdapter):
             return
 
         if self._on_message:
-            attachments = await self._fetch_image_attachments(
+            attachments, attachment_failures = await self._fetch_attachments(
                 post.get("file_ids", []), ws_loop
             )
             inbound = InboundMessage(
@@ -1029,50 +1112,74 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name=agent_name,
                 channel_name=channel_name,
                 attachments=attachments,
+                attachment_failures=attachment_failures,
             )
             coro = self._on_message(inbound)
             self._dispatch(coro, loop)  # type: ignore[arg-type]
 
-    async def _fetch_image_attachments(
+    async def _fetch_attachments(
         self, file_ids: list[str], loop: asyncio.AbstractEventLoop
-    ) -> list[Attachment]:
-        """Download image attachments for a post's file ids.
+    ) -> tuple[list[Attachment], list[AttachmentFailure]]:
+        """Download every attachment for a post's file ids, whatever the type.
 
-        Non-image files are skipped (images-only for now). Metadata and bytes
-        are fetched via the admin driver off the websocket loop. A single file
-        that fails to download is logged and skipped rather than dropping the
-        whole message.
+        Metadata and bytes are fetched via the admin driver off the websocket
+        loop. Returns the downloaded attachments and, separately, the ones that
+        could not be relayed (oversize, download failure) so the bridge can
+        disclose them in the room rather than dropping them silently.
         """
         if not file_ids or self._admin_driver is None:
-            return []
+            return [], []
 
         driver = self._admin_driver
         attachments: list[Attachment] = []
+        failures: list[AttachmentFailure] = []
         for file_id in file_ids:
+            filename = file_id
             try:
                 meta = await loop.run_in_executor(
                     None, driver.files.get_file_metadata, file_id
                 )
-                mimetype = str(meta.get("mime_type", ""))
-                if not mimetype.startswith("image/"):
-                    logger.debug(
-                        "[MM-INBOUND] skipping non-image attachment %s (%s)",
-                        file_id,
-                        mimetype or "unknown",
+                mimetype = str(meta.get("mime_type", "")) or "application/octet-stream"
+                filename = str(meta.get("name", file_id))
+                size = meta.get("size")
+                if isinstance(size, int) and size > self._max_attachment_bytes:
+                    logger.warning(
+                        "[MM-INBOUND] attachment %s is %d bytes, over the %d cap",
+                        filename,
+                        size,
+                        self._max_attachment_bytes,
+                    )
+                    failures.append(
+                        AttachmentFailure(
+                            filename=filename,
+                            reason=f"{size} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                        )
                     )
                     continue
-                filename = str(meta.get("name", file_id))
                 resp = await loop.run_in_executor(None, driver.files.get_file, file_id)
                 data: bytes = resp.content
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "[MM-INBOUND] failed to download attachment %s", file_id
+                )
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename, reason=f"download failed: {exc}"
+                    )
+                )
+                continue
+            if len(data) > self._max_attachment_bytes:
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{len(data)} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
                 )
                 continue
             attachments.append(
                 Attachment(filename=filename, mimetype=mimetype, data=data)
             )
-        return attachments
+        return attachments, failures
 
     async def _handle_user_added(self, event: dict[str, Any]) -> None:
         data: dict[str, Any] = event.get("data", {})

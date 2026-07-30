@@ -416,10 +416,12 @@ class _FakeFile:
         content_type: str | None,
         data: bytes = b"x",
         fail: bool = False,
+        size: int | None = None,
     ) -> None:
         self.id = 1
         self.filename = filename
         self.content_type = content_type
+        self.size = size if size is not None else len(data)
         self._data = data
         self._fail = fail
 
@@ -429,14 +431,14 @@ class _FakeFile:
         return self._data
 
 
-def test_image_attachments_downloaded_others_skipped() -> None:
+def test_attachments_of_every_type_downloaded() -> None:
     adapter = _adapter()
     captured = _capture_messages(adapter)
     files = [
         _FakeFile("shot.png", "image/png", b"png-bytes"),
-        _FakeFile("notes.pdf", "application/pdf"),
-        _FakeFile("broken.jpg", "image/jpeg", fail=True),
-        _FakeFile("unknown.bin", None),
+        _FakeFile("notes.pdf", "application/pdf", b"%PDF"),
+        _FakeFile("readme.md", "text/markdown", b"# hi"),
+        _FakeFile("unknown.bin", None, b"raw"),
     ]
 
     _run(
@@ -446,10 +448,58 @@ def test_image_attachments_downloaded_others_skipped() -> None:
     )
 
     atts = captured[0].attachments
-    assert len(atts) == 1
-    assert atts[0].filename == "shot.png"
-    assert atts[0].mimetype == "image/png"
+    assert [a.filename for a in atts] == [
+        "shot.png",
+        "notes.pdf",
+        "readme.md",
+        "unknown.bin",
+    ]
     assert atts[0].data == b"png-bytes"
+    assert atts[2].mimetype == "text/markdown"
+    # A file Discord reports no content type for still comes through.
+    assert atts[3].mimetype == "application/octet-stream"
+    assert captured[0].attachment_failures == []
+
+
+def test_failed_download_reported_as_failure_not_dropped() -> None:
+    adapter = _adapter()
+    captured = _capture_messages(adapter)
+    files = [
+        _FakeFile("good.md", "text/markdown", b"# hi"),
+        _FakeFile("broken.jpg", "image/jpeg", fail=True),
+    ]
+
+    _run(
+        adapter._handle_message(
+            _gateway_message(channel=_FakeChannel(), attachments=files)
+        )
+    )
+
+    assert [a.filename for a in captured[0].attachments] == ["good.md"]
+    failures = captured[0].attachment_failures
+    assert [f.filename for f in failures] == ["broken.jpg"]
+    assert failures[0].reason
+
+
+def test_oversize_attachment_reported_as_failure() -> None:
+    adapter = _adapter()
+    adapter.set_max_attachment_bytes(10)
+    captured = _capture_messages(adapter)
+    files = [
+        _FakeFile("small.md", "text/markdown", b"# hi"),
+        _FakeFile("huge.bin", "application/octet-stream", b"x", size=100),
+    ]
+
+    _run(
+        adapter._handle_message(
+            _gateway_message(channel=_FakeChannel(), attachments=files)
+        )
+    )
+
+    assert [a.filename for a in captured[0].attachments] == ["small.md"]
+    failures = captured[0].attachment_failures
+    assert [f.filename for f in failures] == ["huge.bin"]
+    assert "exceeds" in failures[0].reason
 
 
 # ── Outbound messaging ───────────────────────────────────────────────────────

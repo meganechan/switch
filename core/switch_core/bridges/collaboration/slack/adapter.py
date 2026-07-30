@@ -17,6 +17,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from switch_core.bridges.collaboration.adapter import CollaborationAdapter
 from switch_core.bridges.collaboration.models import (
     Attachment,
+    AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
     InboundAgentJoin,
@@ -24,6 +25,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 
 logger = logging.getLogger(__name__)
@@ -277,6 +279,71 @@ class SlackAdapter(CollaborationAdapter):
                 data,
                 caption,
                 thread_root_id,
+            )
+
+        ts = self._extract_share_ts(result.get("files") or [], channel_id)
+        return f"{channel_id}:{ts}" if ts else None
+
+    async def send_attachments(
+        self,
+        channel_id: str,
+        sender_name: str,
+        files: list[OutboundAttachment],
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Upload several files as ONE Slack post via files_upload_v2's
+        `file_uploads` list, so N files share a single message and comment."""
+        if not files:
+            return None
+        if len(files) == 1:
+            file = files[0]
+            return await self.send_attachment(
+                channel_id,
+                sender_name,
+                file.filename,
+                file.mimetype,
+                file.data,
+                caption,
+                thread_root_id,
+            )
+        if not self._web_client:
+            logger.error("Cannot send attachments: Slack client not connected")
+            return None
+
+        thread_ts: str | None = None
+        if thread_root_id:
+            thread_ts = (
+                self._parse_message_ref(thread_root_id)[1]
+                if ":" in thread_root_id
+                else thread_root_id
+            )
+
+        names = ", ".join(f"`{file.filename}`" for file in files)
+        comment = (
+            f"*{sender_name}*: {self.translate_outbound(caption)}"
+            if caption
+            else f"*{sender_name}* sent {names}"
+        )
+
+        try:
+            result = await self._web_client.files_upload_v2(
+                channel=channel_id,
+                file_uploads=[
+                    {"file": file.data, "filename": file.filename} for file in files
+                ],
+                initial_comment=comment,
+                thread_ts=thread_ts,
+            )
+        except SlackApiError as e:
+            logger.error(
+                "Failed to upload %d attachments to Slack channel %s: %s",
+                len(files),
+                channel_id,
+                e,
+            )
+            return await super().send_attachments(
+                channel_id, sender_name, files, caption, thread_root_id
             )
 
         ts = self._extract_share_ts(result.get("files") or [], channel_id)
@@ -775,7 +842,7 @@ class SlackAdapter(CollaborationAdapter):
             return
 
         if self._on_message:
-            attachments = await self._fetch_image_attachments(
+            attachments, attachment_failures = await self._fetch_attachments(
                 event.get("files", []) or []  # type: ignore[arg-type]
             )
             self_mention = bool(self._bot_user_id) and f"<@{self._bot_user_id}>" in text
@@ -790,6 +857,7 @@ class SlackAdapter(CollaborationAdapter):
                     root_id=root_id,
                     channel_name=channel_name,
                     attachments=attachments,
+                    attachment_failures=attachment_failures,
                     self_mention_token=self._bot_user_id if self_mention else None,
                 )
             )
@@ -873,41 +941,70 @@ class SlackAdapter(CollaborationAdapter):
 
     # ── Attachments ──────────────────────────────────────────────────────────
 
-    async def _fetch_image_attachments(
+    async def _fetch_attachments(
         self, files: list[dict[str, object]]
-    ) -> list[Attachment]:
-        """Download image attachments from a Slack message's `files`.
+    ) -> tuple[list[Attachment], list[AttachmentFailure]]:
+        """Download every attachment from a Slack message's `files`, whatever
+        the type.
 
-        Non-image files are skipped (images-only for now, mirroring Mattermost).
-        A single file that fails to download is logged and skipped rather than
-        dropping the whole message.
+        Returns the successfully downloaded attachments and, separately, the
+        ones that could not be relayed. A file that is oversize or fails to
+        download is reported as a failure so the bridge can disclose it in the
+        room — never dropped silently.
         """
         attachments: list[Attachment] = []
+        failures: list[AttachmentFailure] = []
         for file in files:
-            mimetype = str(file.get("mimetype", ""))
-            if not mimetype.startswith("image/"):
-                logger.debug(
-                    "Skipping non-image Slack attachment %s (%s)",
-                    file.get("id", "?"),
-                    mimetype or "unknown",
-                )
-                continue
+            mimetype = str(file.get("mimetype", "")) or "application/octet-stream"
+            filename = str(file.get("name") or file.get("id") or "file")
             url = str(file.get("url_private_download") or file.get("url_private") or "")
             if not url:
                 logger.warning(
-                    "Slack image attachment %s has no download url", file.get("id", "?")
+                    "Slack attachment %s has no download url", file.get("id", "?")
+                )
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename, reason="no download url from Slack"
+                    )
                 )
                 continue
-            filename = str(file.get("name") or file.get("id") or "image")
+            size = file.get("size")
+            if isinstance(size, int) and size > self._max_attachment_bytes:
+                logger.warning(
+                    "Slack attachment %s is %d bytes, over the %d cap",
+                    filename,
+                    size,
+                    self._max_attachment_bytes,
+                )
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{size} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
+                )
+                continue
             try:
                 data = await self._download_file(url)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to download Slack attachment %s", filename)
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename, reason=f"download failed: {exc}"
+                    )
+                )
+                continue
+            if len(data) > self._max_attachment_bytes:
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{len(data)} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
+                )
                 continue
             attachments.append(
                 Attachment(filename=filename, mimetype=mimetype, data=data)
             )
-        return attachments
+        return attachments, failures
 
     async def _download_file(self, url: str) -> bytes:
         """Fetch a Slack private file URL with the bot token, returning bytes."""

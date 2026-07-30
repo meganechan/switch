@@ -194,9 +194,11 @@ const mcp = new Server(
       '3. Respond by calling post_message (or send_targeted_message if addressing a specific agent).',
       '',
       'If a message event has an image_path attribute, the sender attached one or more images. Each path is a local file already downloaded for you (comma-separated if several) — Read it to see the image before responding.',
+      'If it has a file_path attribute, the sender attached one or more non-image files (.md, .csv, .pdf, logs, code — comma-separated if several), already downloaded for you. Read them before responding.',
+      'A failed_attachments attribute lists files the sender attached that could NOT be retrieved. Do not pretend you saw them — say so.',
       '',
-      'To view an image that appears in read_context history but did NOT arrive with an image_path (e.g. an unaddressed image posted earlier), call the download_attachment tool with the attachment\'s mxc (from the read_context attachments field). It writes the file locally and returns the path — then Read that path.',
-      'To send an image (or other file) into the room, call the send_attachment tool with the local file path and an optional caption/thread_id. It posts as a native room attachment and bridged platforms (Slack, Mattermost) receive it as a real file upload.',
+      'To view a file that appears in read_context history but did NOT arrive with an image_path/file_path (e.g. an unaddressed file posted earlier), call the download_attachment tool with the attachment\'s mxc (from the read_context attachments field). It writes the file locally and returns the path — then Read that path.',
+      'To send files into the room, call the send_attachment tool with `path` (one file) or `paths` (several, delivered as ONE message) plus an optional caption/thread_id. Any file type works. They post as native room attachments and bridged platforms (Slack, Mattermost) receive them as real file uploads.',
       '',
       'When you receive a task_delegate event (only delivered if your integration profile has can_accept=true):',
       '1. Call accept_task with the task_id to move it to ongoing.',
@@ -222,8 +224,9 @@ const DOWNLOAD_ATTACHMENT_TOOL = {
   description:
     "Download a room attachment (by its mxc:// URI, as returned in an " +
     "attachment's `mxc` field from read_context) to a local file and return " +
-    "the path. Use this to view an image from history that did not arrive " +
-    'with an image_path. Operates on the currently connected room unless ' +
+    "the path. Works for any file type. Use this to view a file from history " +
+    'that did not arrive with an image_path/file_path. Operates on the ' +
+    'currently connected room unless ' +
     'room_id is given.',
   inputSchema: {
     type: 'object',
@@ -254,16 +257,27 @@ const DOWNLOAD_ATTACHMENT_TOOL = {
 const SEND_ATTACHMENT_TOOL = {
   name: 'send_attachment',
   description:
-    'Send a local file (e.g. an image) into the connected Switch room as an ' +
-    'attachment. It enters the room as a native image/file event and bridged ' +
-    'platforms (Slack, Mattermost) receive it as a real file upload. ' +
-    'Operates on the currently connected room unless room_id is given.',
+    'Send one or more local files of ANY type (image, .md, .csv, .pdf, log, ' +
+    'code) into the connected Switch room as attachments. They enter the room ' +
+    'as native image/file events and bridged platforms (Slack, Mattermost) ' +
+    'receive them as real file uploads. Several files sent in one call arrive ' +
+    'as ONE message carrying all of them. Pass `path` for a single file or ' +
+    '`paths` for several. Oversize or unreadable files fail the whole call — ' +
+    'nothing is sent silently. Operates on the currently connected room unless ' +
+    'room_id is given.',
   inputSchema: {
     type: 'object',
     properties: {
       path: {
         type: 'string',
         description: 'Absolute path of the local file to send.',
+      },
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        description:
+          'Absolute paths of several local files to send as one message. ' +
+          'Use instead of `path` for a multi-attachment message.',
       },
       caption: {
         type: 'string',
@@ -281,7 +295,6 @@ const SEND_ATTACHMENT_TOOL = {
           'Optional Switch room id. Defaults to the currently polling room.',
       },
     },
-    required: ['path'],
   },
 }
 
@@ -334,8 +347,9 @@ async function handleDownloadAttachment(rawArgs: Record<string, unknown>) {
   }
 }
 
-// Minimal extension → mimetype map for common attachment types; anything else
-// goes up as application/octet-stream and enters the room as an m.file.
+// Extension → mimetype map. Anything unlisted goes up as
+// application/octet-stream, which still relays fine — the mapping exists to
+// preserve type fidelity so platforms render/preview the file properly.
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
@@ -346,18 +360,54 @@ const MIME_BY_EXT: Record<string, string> = {
   '.bmp': 'image/bmp',
   '.pdf': 'application/pdf',
   '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.csv': 'text/csv',
+  '.tsv': 'text/tab-separated-values',
+  '.log': 'text/plain',
+  '.json': 'application/json',
+  '.yaml': 'application/yaml',
+  '.yml': 'application/yaml',
+  '.toml': 'application/toml',
+  '.xml': 'application/xml',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
+  '.mjs': 'text/javascript',
+  '.ts': 'text/x-typescript',
+  '.tsx': 'text/x-typescript',
+  '.jsx': 'text/javascript',
+  '.py': 'text/x-python',
+  '.rs': 'text/x-rust',
+  '.go': 'text/x-go',
+  '.java': 'text/x-java',
+  '.c': 'text/x-c',
+  '.h': 'text/x-c',
+  '.cpp': 'text/x-c++',
+  '.sh': 'application/x-sh',
+  '.sql': 'application/sql',
+  '.zip': 'application/zip',
+  '.gz': 'application/gzip',
+  '.tar': 'application/x-tar',
 }
 
 async function handleSendAttachment(rawArgs: Record<string, unknown>) {
   const args = rawArgs as {
     path?: string
+    paths?: unknown
     caption?: string
     thread_id?: string
     room_id?: string
   }
-  const filePath = typeof args.path === 'string' ? args.path : ''
-  if (!filePath) {
-    return { isError: true, content: [{ type: 'text', text: 'path is required' }] }
+  const filePaths: string[] = []
+  if (typeof args.path === 'string' && args.path) filePaths.push(args.path)
+  if (Array.isArray(args.paths)) {
+    for (const p of args.paths) if (typeof p === 'string' && p) filePaths.push(p)
+  }
+  if (filePaths.length === 0) {
+    return {
+      isError: true,
+      content: [{ type: 'text', text: 'path (or paths) is required' }],
+    }
   }
   const roomId = args.room_id ?? pollingRoomId
   if (!roomId) {
@@ -372,20 +422,31 @@ async function handleSendAttachment(rawArgs: Record<string, unknown>) {
     }
   }
 
-  let bytes: Buffer
-  try {
-    bytes = fs.readFileSync(filePath)
-  } catch (err) {
-    return {
-      isError: true,
-      content: [{ type: 'text', text: `Cannot read ${filePath}: ${err}` }],
+  // Read every file up front: one unreadable path fails the whole call rather
+  // than posting a partial message.
+  const files: { name: string; bytes: Buffer; mimetype: string }[] = []
+  for (const filePath of filePaths) {
+    let bytes: Buffer
+    try {
+      bytes = fs.readFileSync(filePath)
+    } catch (err) {
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `Cannot read ${filePath}: ${err}` }],
+      }
     }
+    files.push({
+      name: path.basename(filePath),
+      bytes,
+      mimetype:
+        MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    })
   }
 
-  const filename = path.basename(filePath)
-  const mimetype = MIME_BY_EXT[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream'
   const form = new FormData()
-  form.append('file', new Blob([bytes], { type: mimetype }), filename)
+  for (const file of files) {
+    form.append('files', new Blob([file.bytes], { type: file.mimetype }), file.name)
+  }
   if (typeof args.caption === 'string' && args.caption) form.append('caption', args.caption)
   if (typeof args.thread_id === 'string' && args.thread_id) form.append('thread_id', args.thread_id)
 
@@ -399,11 +460,14 @@ async function handleSendAttachment(rawArgs: Record<string, unknown>) {
       throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
     }
     const data = (await resp.json()) as { event_id?: string }
+    const names = files.map((f) => f.name).join(', ')
     return {
       content: [
         {
           type: 'text',
-          text: `Sent ${filename} to the room (event_id: ${data.event_id ?? 'unknown'}).`,
+          text:
+            `Sent ${files.length === 1 ? names : `${files.length} files (${names})`} ` +
+            `to the room (event_id: ${data.event_id ?? 'unknown'}).`,
         },
       ],
     }
@@ -690,15 +754,23 @@ async function handleEvent(event: AgentEvent) {
     // where the agent finishes without replying.
     void setTyping(room_id, true)
 
-    // Materialise image attachments to local files so Claude can Read them.
-    // image_path is the attribute the channel instructions tell Claude to read.
+    // Materialise every attachment to a local file so Claude can Read it,
+    // whatever the type. Images are surfaced as image_path (Claude renders
+    // them); everything else as file_path. A download that fails is reported
+    // as failed_attachment rather than being dropped quietly.
     const imagePaths: string[] = []
+    const filePaths: string[] = []
+    const failedAttachments: string[] = []
     const attachments = msg.attachments ?? []
     for (let i = 0; i < attachments.length; i++) {
       const att = attachments[i]
-      if (!att.mimetype.startsWith('image/')) continue
       const localPath = await downloadAttachment(room_id, att, msg.message_id, i)
-      if (localPath) imagePaths.push(localPath)
+      if (!localPath) {
+        failedAttachments.push(att.filename)
+        continue
+      }
+      if (att.mimetype.startsWith('image/')) imagePaths.push(localPath)
+      else filePaths.push(localPath)
     }
 
     const ts = new Date(msg.timestamp).toISOString()
@@ -714,6 +786,10 @@ async function handleEvent(event: AgentEvent) {
         // Lets an addressed agent reply back into the same thread.
         ...(msg.thread_id ? { thread_id: msg.thread_id } : {}),
         ...(imagePaths.length ? { image_path: imagePaths.join(',') } : {}),
+        ...(filePaths.length ? { file_path: filePaths.join(',') } : {}),
+        ...(failedAttachments.length
+          ? { failed_attachments: failedAttachments.join(',') }
+          : {}),
       },
     )
     return

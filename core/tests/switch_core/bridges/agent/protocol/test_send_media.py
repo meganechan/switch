@@ -28,6 +28,7 @@ class _FakeClient:
         msgtype: str,
         caption: str | None = None,
         thread_root_id: str | None = None,
+        group: dict[str, object] | None = None,
     ) -> str | None:
         self.sends.append(
             {
@@ -39,9 +40,10 @@ class _FakeClient:
                 "msgtype": msgtype,
                 "caption": caption,
                 "thread_root_id": thread_root_id,
+                "group": group,
             }
         )
-        return "$media-event"
+        return f"$media-event-{len(self.sends)}"
 
 
 def _build_service(client: _FakeClient, *, max_bytes: int = 100) -> ProtocolService:
@@ -70,16 +72,26 @@ async def test_send_media_uploads_and_posts_image() -> None:
     svc = _build_service(client)
 
     result = await svc.send_media(
-        "agent-1", "room-1", b"png-bytes", filename="cat.png", mimetype="image/png"
+        "agent-1", "room-1", [(b"png-bytes", "cat.png", "image/png")]
     )
 
-    assert result == {"event_id": "$media-event", "mxc": "mxc://s/uploaded"}
+    assert result["event_id"] == "$media-event-1"
+    assert result["mxc"] == "mxc://s/uploaded"
+    assert result["attachments"] == [
+        {
+            "event_id": "$media-event-1",
+            "mxc": "mxc://s/uploaded",
+            "filename": "cat.png",
+        }
+    ]
     assert client.uploads == [(b"png-bytes", "image/png", "cat.png")]
     sent = client.sends[0]
     assert sent["room_id"] == "!room"
     assert sent["msgtype"] == "m.image"
     assert sent["caption"] is None
     assert sent["thread_root_id"] is None
+    # A lone attachment carries no group marker.
+    assert sent["group"] is None
 
 
 async def test_send_media_caption_and_thread() -> None:
@@ -89,9 +101,7 @@ async def test_send_media_caption_and_thread() -> None:
     await svc.send_media(
         "agent-1",
         "room-1",
-        b"x",
-        filename="cat.png",
-        mimetype="image/png",
+        [(b"x", "cat.png", "image/png")],
         caption="look",
         thread_id="$mid-thread",
     )
@@ -105,9 +115,7 @@ async def test_send_media_non_image_is_file_msgtype() -> None:
     client = _FakeClient()
     svc = _build_service(client)
 
-    await svc.send_media(
-        "agent-1", "room-1", b"%PDF", filename="doc.pdf", mimetype="application/pdf"
-    )
+    await svc.send_media("agent-1", "room-1", [(b"%PDF", "doc.pdf", "application/pdf")])
 
     assert client.sends[0]["msgtype"] == "m.file"
 
@@ -117,9 +125,7 @@ async def test_send_media_oversize_raises() -> None:
     svc = _build_service(client, max_bytes=3)
 
     with pytest.raises(ValueError, match="over the 3-byte limit"):
-        await svc.send_media(
-            "agent-1", "room-1", b"toolarge", filename="c.png", mimetype="image/png"
-        )
+        await svc.send_media("agent-1", "room-1", [(b"toolarge", "c.png", "image/png")])
     assert client.uploads == []
 
 
@@ -128,6 +134,69 @@ async def test_send_media_empty_raises() -> None:
     svc = _build_service(client)
 
     with pytest.raises(ValueError, match="empty"):
+        await svc.send_media("agent-1", "room-1", [(b"", "c.png", "image/png")])
+
+
+async def test_send_media_multiple_files_share_a_group_marker() -> None:
+    client = _FakeClient()
+    svc = _build_service(client)
+
+    result = await svc.send_media(
+        "agent-1",
+        "room-1",
+        [
+            (b"png-bytes", "cat.png", "image/png"),
+            (b"# notes", "notes.md", "text/markdown"),
+            (b"a,b", "data.csv", "text/csv"),
+        ],
+        caption="three files",
+    )
+
+    assert len(client.sends) == 3
+    groups = [sent["group"] for sent in client.sends]
+    assert {g["id"] for g in groups} == {groups[0]["id"]}, "all parts share one id"
+    assert [g["index"] for g in groups] == [0, 1, 2]
+    assert all(g["total"] == 3 for g in groups)
+    # Caption rides on the first part only, mirroring the inbound convention.
+    assert client.sends[0]["caption"] == "three files"
+    assert client.sends[1]["caption"] is None
+    assert client.sends[2]["caption"] is None
+    # Non-image files keep their own msgtype within the group.
+    assert [sent["msgtype"] for sent in client.sends] == [
+        "m.image",
+        "m.file",
+        "m.file",
+    ]
+    assert [a["filename"] for a in result["attachments"]] == [
+        "cat.png",
+        "notes.md",
+        "data.csv",
+    ]
+
+
+async def test_send_media_rejects_whole_batch_when_one_file_is_oversize() -> None:
+    """A bad file in the batch must abort everything — never a half-posted
+    message with the good files and a silently missing one."""
+    client = _FakeClient()
+    svc = _build_service(client, max_bytes=5)
+
+    with pytest.raises(ValueError, match="over the 5-byte limit"):
         await svc.send_media(
-            "agent-1", "room-1", b"", filename="c.png", mimetype="image/png"
+            "agent-1",
+            "room-1",
+            [
+                (b"ok", "small.md", "text/markdown"),
+                (b"way-too-large", "big.bin", "application/octet-stream"),
+            ],
         )
+
+    assert client.uploads == []
+    assert client.sends == []
+
+
+async def test_send_media_rejects_empty_batch() -> None:
+    client = _FakeClient()
+    svc = _build_service(client)
+
+    with pytest.raises(ValueError, match="no attachments"):
+        await svc.send_media("agent-1", "room-1", [])

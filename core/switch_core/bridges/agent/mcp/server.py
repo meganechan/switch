@@ -489,9 +489,10 @@ async def read_context(
     reply into that thread.
 
     `attachments` is a (usually empty) list of files on the message, each
-    {"filename", "mimetype", "size", "mxc", "msgtype"}. To actually view an
-    image attachment, pass its `mxc` to the channel's `download_attachment`
-    tool, which fetches it to a local file you can read.
+    {"filename", "mimetype", "size", "mxc", "msgtype"}. Any file type can
+    appear, and a message may carry several. To actually view one, pass its
+    `mxc` to the channel's `download_attachment` tool, which fetches it to a
+    local file you can read.
 
     Args:
         limit: Maximum number of messages to scan (default 50), grouped into

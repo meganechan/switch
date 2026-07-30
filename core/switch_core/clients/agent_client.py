@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import re
+from dataclasses import dataclass, field
 from typing import Literal
 
 from nio import (
@@ -15,6 +17,7 @@ from nio import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from switch_core.addressing import SenderKind, can_address, parse_policy
+from switch_core.attachments import parse_attachment_group
 from switch_core.bridges.agent.commands import (
     AGENT_GREETINGS,
     COMMANDS_BY_NAME,
@@ -84,6 +87,22 @@ logger = logging.getLogger(__name__)
 # "no session" replies forever. Riding as a field on the plain
 # m.room.message keeps the reply rendering normally for humans.
 AUTO_REPLY_FLAG = "com.switch.auto_reply"
+
+# How long to hold an incomplete multi-attachment group before delivering the
+# parts that did arrive, flagged as incomplete. Groups normally complete in
+# milliseconds (one sender, back-to-back events); this is a safety net so a
+# broken batch surfaces rather than being buffered indefinitely.
+ATTACHMENT_GROUP_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass
+class _PendingAttachmentGroup:
+    """Parts of a multi-attachment message seen so far, keyed by group index."""
+
+    total: int
+    parts: dict[int, AttachmentRef] = field(default_factory=dict)
+    body: str = ""
+
 
 _UNAVAILABLE_MESSAGES = {
     "always_on": (
@@ -186,6 +205,11 @@ class AgentClient(ClientBase[ClientConfig]):
         )
         self._agent: Agent | None = None
         self._room_meta: dict[str, RoomMeta | None] = {}
+        # In-flight multi-attachment groups, by group id, with their safety-net
+        # timers. Both are cleared when a group completes or times out, so a
+        # never-completed group cannot leak.
+        self._attachment_groups: dict[str, _PendingAttachmentGroup] = {}
+        self._attachment_group_timers: dict[str, asyncio.TimerHandle] = {}
 
     @property
     def agent(self) -> Agent:
@@ -381,6 +405,132 @@ class AgentClient(ClientBase[ClientConfig]):
         if relates.get("rel_type") == "m.thread":
             thread_id = relates.get("event_id")
 
+        # Several files posted as one message arrive as separate Matrix events
+        # sharing a group marker (Matrix has no multi-attachment event). Hold
+        # them until the group is complete, then emit ONE payload carrying all
+        # of them, so the agent sees one message with N attachments.
+        group = parse_attachment_group(content)
+        if group is None:
+            await self._emit_media(
+                room,
+                event,
+                meta,
+                is_addressed,
+                sender_name,
+                thread_id,
+                [attachment],
+                event.body,
+            )
+            return
+
+        group_id, index, total = group
+        pending = self._attachment_groups.setdefault(
+            group_id, _PendingAttachmentGroup(total=total)
+        )
+        pending.parts[index] = attachment
+        if index == 0:
+            pending.body = event.body
+        if len(pending.parts) < total:
+            self._schedule_attachment_group_flush(
+                group_id, room, event, meta, is_addressed, sender_name, thread_id
+            )
+            return
+
+        self._cancel_attachment_group_flush(group_id)
+        self._attachment_groups.pop(group_id, None)
+        await self._emit_media(
+            room,
+            event,
+            meta,
+            is_addressed,
+            sender_name,
+            thread_id,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            pending.body or event.body,
+        )
+
+    def _schedule_attachment_group_flush(
+        self,
+        group_id: str,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+    ) -> None:
+        """(Re)arm the safety-net timer for an incomplete attachment group.
+
+        The group should normally complete within milliseconds — every event is
+        sent back-to-back by one sender. The timer exists so a group that never
+        completes (a failed send mid-batch, a dropped event) surfaces what did
+        arrive, clearly flagged, instead of being buffered forever.
+        """
+        self._cancel_attachment_group_flush(group_id)
+        self._attachment_group_timers[group_id] = asyncio.get_running_loop().call_later(
+            ATTACHMENT_GROUP_TIMEOUT_SECONDS,
+            lambda: asyncio.create_task(
+                self._flush_incomplete_attachment_group(
+                    group_id, room, event, meta, is_addressed, sender_name, thread_id
+                )
+            ),
+        )
+
+    def _cancel_attachment_group_flush(self, group_id: str) -> None:
+        timer = self._attachment_group_timers.pop(group_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    async def _flush_incomplete_attachment_group(
+        self,
+        group_id: str,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+    ) -> None:
+        self._attachment_group_timers.pop(group_id, None)
+        pending = self._attachment_groups.pop(group_id, None)
+        if pending is None:
+            return
+        received = len(pending.parts)
+        logger.error(
+            "Attachment group %s incomplete: %d of %d parts arrived within %ss; "
+            "delivering what arrived",
+            group_id,
+            received,
+            pending.total,
+            ATTACHMENT_GROUP_TIMEOUT_SECONDS,
+        )
+        body = pending.body or event.body
+        notice = (
+            f"[incomplete attachment group: {received} of {pending.total} "
+            f"files arrived]"
+        )
+        await self._emit_media(
+            room,
+            event,
+            meta,
+            is_addressed,
+            sender_name,
+            thread_id,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            f"{body}\n{notice}" if body else notice,
+        )
+
+    async def _emit_media(
+        self,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+        attachments: list[AttachmentRef],
+        body: str,
+    ) -> None:
         reply_thread_root = thread_id if thread_id is not None else event.event_id
         is_addressed = await self._gate_addressed(
             room, event, meta, reply_thread_root, is_addressed
@@ -396,10 +546,10 @@ class AgentClient(ClientBase[ClientConfig]):
                 sender=event.sender,
                 sender_name=sender_name,
                 message_id=event.event_id,
-                body=event.body,
+                body=body,
                 timestamp=event.server_timestamp,
                 thread_id=thread_id,
-                attachments=[attachment],
+                attachments=attachments,
             ),
         )
 

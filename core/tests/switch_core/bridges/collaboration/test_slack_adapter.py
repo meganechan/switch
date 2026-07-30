@@ -90,8 +90,9 @@ def test_fetch_downloads_image_attachment() -> None:
             "url_private_download": "https://files.slack.com/cat.png",
         }
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
+    assert failures == []
     assert len(attachments) == 1
     assert attachments[0].filename == "cat.png"
     assert attachments[0].mimetype == "image/png"
@@ -99,32 +100,36 @@ def test_fetch_downloads_image_attachment() -> None:
     assert downloaded == ["https://files.slack.com/cat.png"]
 
 
-def test_fetch_skips_non_image_without_downloading() -> None:
+def test_fetch_downloads_non_image_attachment() -> None:
     adapter = _adapter()
     downloaded: list[str] = []
 
     async def fake_download(url: str) -> bytes:
         downloaded.append(url)
-        return b"x"
+        return b"# notes"
 
     adapter._download_file = fake_download  # type: ignore[assignment]
 
     files = [
         {
             "id": "F1",
-            "name": "doc.pdf",
-            "mimetype": "application/pdf",
-            "url_private_download": "https://files.slack.com/doc.pdf",
+            "name": "notes.md",
+            "mimetype": "text/markdown",
+            "url_private_download": "https://files.slack.com/notes.md",
         }
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
-    # Non-image is skipped entirely — and we never download its bytes.
-    assert attachments == []
-    assert downloaded == []
+    # Every file type is relayed now — not just images.
+    assert failures == []
+    assert len(attachments) == 1
+    assert attachments[0].filename == "notes.md"
+    assert attachments[0].mimetype == "text/markdown"
+    assert attachments[0].data == b"# notes"
+    assert downloaded == ["https://files.slack.com/notes.md"]
 
 
-def test_fetch_failed_download_skips_only_that_file() -> None:
+def test_fetch_failed_download_reported_as_failure() -> None:
     adapter = _adapter()
 
     async def fake_download(url: str) -> bytes:
@@ -148,14 +153,81 @@ def test_fetch_failed_download_skips_only_that_file() -> None:
             "url_private": "https://files.slack.com/good.jpg",
         },
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
+    # The good file still comes through; the bad one is disclosed, not dropped.
     assert [a.filename for a in attachments] == ["good.jpg"]
+    assert [f.filename for f in failures] == ["bad.png"]
+    assert failures[0].reason
+
+
+def test_fetch_oversize_file_reported_without_downloading() -> None:
+    adapter = _adapter()
+    downloaded: list[str] = []
+
+    async def fake_download(url: str) -> bytes:
+        downloaded.append(url)
+        return b"x" * 100
+
+    adapter._download_file = fake_download  # type: ignore[assignment]
+    adapter.set_max_attachment_bytes(10)
+
+    files = [
+        {
+            "id": "F1",
+            "name": "huge.bin",
+            "mimetype": "application/octet-stream",
+            "size": 100,
+            "url_private_download": "https://files.slack.com/huge.bin",
+        }
+    ]
+    attachments, failures = _run(adapter._fetch_attachments(files))
+
+    # Slack reports the size up front, so we never spend the download.
+    assert attachments == []
+    assert downloaded == []
+    assert [f.filename for f in failures] == ["huge.bin"]
+    assert failures[0].reason
+
+
+def test_fetch_multiple_files_all_returned() -> None:
+    adapter = _adapter()
+
+    async def fake_download(url: str) -> bytes:
+        return url.rsplit("/", 1)[-1].encode()
+
+    adapter._download_file = fake_download  # type: ignore[assignment]
+
+    files = [
+        {
+            "id": "F1",
+            "name": "cat.png",
+            "mimetype": "image/png",
+            "url_private": "https://files.slack.com/cat.png",
+        },
+        {
+            "id": "F2",
+            "name": "notes.md",
+            "mimetype": "text/markdown",
+            "url_private": "https://files.slack.com/notes.md",
+        },
+        {
+            "id": "F3",
+            "name": "doc.pdf",
+            "mimetype": "application/pdf",
+            "url_private": "https://files.slack.com/doc.pdf",
+        },
+    ]
+    attachments, failures = _run(adapter._fetch_attachments(files))
+
+    assert failures == []
+    assert [a.filename for a in attachments] == ["cat.png", "notes.md", "doc.pdf"]
+    assert [a.data for a in attachments] == [b"cat.png", b"notes.md", b"doc.pdf"]
 
 
 def test_fetch_no_files_returns_empty() -> None:
     adapter = _adapter()
-    assert _run(adapter._fetch_image_attachments([])) == []
+    assert _run(adapter._fetch_attachments([])) == ([], [])
 
 
 # ── Inbound threading ────────────────────────────────────────────────────────

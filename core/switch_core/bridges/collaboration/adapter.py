@@ -10,6 +10,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 
 
@@ -22,6 +23,14 @@ class CollaborationAdapter(ABC):
         )
         self._on_user_joined: Callable[[InboundUserJoin], Awaitable[None]] | None = None
         self._on_app_joined: Callable[[InboundAppJoin], Awaitable[None]] | None = None
+        # Inbound attachment size ceiling, set by the lifecycle service from
+        # config.agent_media_max_bytes. Adapters check a platform-reported file
+        # size against this before downloading so an oversize file is rejected
+        # loudly instead of being pulled down and discarded.
+        self._max_attachment_bytes = 20 * 1024 * 1024
+
+    def set_max_attachment_bytes(self, max_bytes: int) -> None:
+        self._max_attachment_bytes = max_bytes
 
     @abstractmethod
     async def start(
@@ -91,16 +100,45 @@ class CollaborationAdapter(ABC):
         """Relay a file attachment to the external channel as `sender_name`,
         returning the platform message ref (like send_message).
 
-        Platforms with a file API override this to upload the bytes natively.
-        This default is the disclosed degradation for adapters without native
-        support: a text message that names the attachment instead of silently
-        dropping it.
+        Platforms with a file API override this to upload the bytes natively,
+        for any mimetype. This default is the disclosed degradation for adapters
+        without native support: a text message that names the attachment instead
+        of silently dropping it.
         """
         note = f"_sent an attachment that couldn't be relayed: {filename}_"
         body = f"{caption}\n{note}" if caption else note
         return await self.send_message(
             channel_id, sender_name, self.translate_outbound(body), thread_root_id
         )
+
+    async def send_attachments(
+        self,
+        channel_id: str,
+        sender_name: str,
+        files: list[OutboundAttachment],
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Relay several files as a SINGLE post on the external platform.
+
+        Adapters whose platform can attach multiple files to one message
+        override this. The default posts them one at a time — correct, but the
+        files land as separate messages rather than one.
+        """
+        message_ref: str | None = None
+        for index, file in enumerate(files):
+            ref = await self.send_attachment(
+                channel_id,
+                sender_name,
+                file.filename,
+                file.mimetype,
+                file.data,
+                caption=caption if index == 0 else None,
+                thread_root_id=thread_root_id,
+            )
+            if index == 0:
+                message_ref = ref
+        return message_ref
 
     @abstractmethod
     async def update_message(
