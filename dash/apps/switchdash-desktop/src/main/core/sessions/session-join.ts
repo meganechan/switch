@@ -10,6 +10,10 @@ export type SessionWithAgent = {
   /** The owning agent's `name` — the session's identity source. The creds slug
    * and `--agent` launch name derive from it, read live, not from a frozen tag. */
   name: string;
+  /** The registered Switch server the agent belongs to; null once that server
+   * has been removed, which leaves the agent's endpoint and token pointing at
+   * something that no longer exists. */
+  serverId: string | null;
 };
 
 /**
@@ -25,6 +29,7 @@ export async function loadSessionWithAgent(
       locationId: agents.locationId,
       providerId: agents.providerId,
       name: agents.name,
+      serverId: agents.serverId,
     })
     .from(sessions)
     .innerJoin(agents, eq(sessions.agentId, agents.id))
@@ -36,5 +41,6 @@ export async function loadSessionWithAgent(
     locationId: joined.locationId,
     providerId: joined.providerId,
     name: joined.name,
+    serverId: joined.serverId,
   };
 }

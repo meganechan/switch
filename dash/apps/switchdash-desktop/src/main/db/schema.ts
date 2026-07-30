@@ -255,6 +255,33 @@ export const sessions = sqliteTable(
   })
 );
 
+/**
+ * The Switch room a session is attending, durable across restarts so a resumed
+ * session re-polls its room without waiting for the agent to call
+ * `connect_to_room` again.
+ *
+ * Keyed by session and cascaded from it: a session (or the agent above it)
+ * going away takes its room connection with it. That cascade is the point of
+ * the table — the previous storage, a single JSON blob in `app_settings`,
+ * referenced nothing and so outlived the sessions it described, resurrecting
+ * pollers for agents whose Switch server had been destroyed.
+ *
+ * `switchAgentId` is the identity on the Switch side (an agent's
+ * `SWITCH_AGENT_ID`), not `agents.id` — it is reported by the connecting agent
+ * and carried for display, so it is deliberately not a foreign key.
+ */
+export const sessionRoomConnections = sqliteTable('session_room_connections', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  roomId: text('room_id').notNull(),
+  roomName: text('room_name'),
+  switchAgentId: text('switch_agent_id'),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const messages = sqliteTable(
   'messages',
   {

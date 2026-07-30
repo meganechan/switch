@@ -5,6 +5,8 @@ import { agentSettingsPath, subagentSettingsPath } from '@main/core/agents/switc
 import { getLocationById } from '@main/core/locations/store';
 import { isHumanInputRecent } from '@main/core/pty/human-activity';
 import { loadSessionWithAgent } from '@main/core/sessions/session-join';
+import { runWithLogContext } from '@main/lib/log-context';
+import { noteAgentName, noteSessionTitle } from '@main/lib/log-name-cache';
 import { log } from '@main/lib/logger';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
@@ -118,6 +120,11 @@ class SwitchNotificationPoller {
       return;
     }
 
+    // Names for the ids these logs carry. The poller holds the joined row
+    // already, so hand them over rather than making the log path look them up.
+    noteSessionTitle(ctx.sessionId, loaded.row.title);
+    noteAgentName(creds.agentId, slug);
+
     const ptySessionId = makeAgentPtySessionId(location.id, ctx.sessionId);
     const connection = new RoomConnection({
       creds,
@@ -141,7 +148,19 @@ class SwitchNotificationPoller {
       agentId: creds.agentId,
     });
 
-    connection.start();
+    // Open the scope the connection's loops inherit. They outlive this call and
+    // log from timers, so without it their lines could only ever name the room —
+    // which is exactly how a failing connection became hard to trace back to the
+    // session and agent behind it.
+    runWithLogContext(
+      {
+        component: 'room-connection',
+        sessionId: ctx.sessionId,
+        agentId: creds.agentId,
+        agentName: slug,
+      },
+      () => connection.start()
+    );
   }
 
   /**

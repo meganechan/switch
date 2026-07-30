@@ -25,11 +25,9 @@ const card = 'rounded-lg border border-border bg-card p-4';
  */
 export const RemoteServerControls = observer(function RemoteServerControls({
   sshHost,
-  serverId,
   name,
 }: {
   sshHost: string;
-  serverId: string;
   /** The registered server's name, reused when restarting so the record's name
    * is preserved (not blanked). */
   name: string;
@@ -142,7 +140,7 @@ export const RemoteServerControls = observer(function RemoteServerControls({
         disabled={transitioning}
         onConfirm={() => {
           setResetOpen(false);
-          void store.reset(sshHost, serverId);
+          void store.reset(sshHost);
         }}
       />
     </div>

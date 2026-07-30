@@ -1,11 +1,14 @@
 import type { IDisposable } from '@switchdash/shared';
-import { eq } from 'drizzle-orm';
-import { db } from '@main/db/client';
-import { appSettings } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { SessionRoomConnection } from '@shared/core/switch-rooms/switch-rooms';
 import { sessionRoomChangedChannel } from '@shared/core/switch-rooms/switchRoomEvents';
+import {
+  forgetRoomConnections,
+  getPersistedRoomConnection,
+  listPersistedRoomSessionIds,
+  persistRoomConnection,
+} from './session-room-store';
 import { switchNotificationPoller } from './switch-notification-poller';
 
 export type SessionRoomContext = {
@@ -19,11 +22,6 @@ type ConnectionState = SessionRoomConnection & {
   providerId: string;
   ptyId: string;
 };
-
-/** Persisted across app restarts so a resumed session re-polls its room. */
-type PersistedConnection = { roomId: string; agentId: string; roomName: string | null };
-
-const PERSIST_KEY = 'switchRoomConnections';
 
 /**
  * Tracks which Switch room each live switchdash session is connected to.
@@ -49,7 +47,7 @@ class SwitchRoomService implements IDisposable {
   setSessionRoom(
     ctx: SessionRoomContext,
     roomId: string,
-    agentId: string,
+    agentId: string | null,
     roomName: string | null
   ): void {
     const previous = this.connections.get(ctx.sessionId);
@@ -66,7 +64,11 @@ class SwitchRoomService implements IDisposable {
 
     // Persist so a resumed session re-polls this room after an app restart,
     // even though the connect_to_room hook only fires on a live tool call.
-    void this.persistConnection(ctx.sessionId, { roomId, agentId, roomName }).catch((error) => {
+    void persistRoomConnection(ctx.sessionId, {
+      roomId,
+      roomName,
+      switchAgentId: agentId,
+    }).catch((error) => {
       log.warn('SwitchRoomService: failed to persist connection', {
         sessionId: ctx.sessionId,
         error: String(error),
@@ -92,7 +94,7 @@ class SwitchRoomService implements IDisposable {
    * Mirror the room a remote session is attending, as reported by the on-VM
    * sidecar's `/sessions` snapshot. Unlike setSessionRoom (the local
    * connect_to_room hook path) this records the association for DISPLAY only: it
-   * does not persist to the restore blob and does not start switchdash's
+   * does not persist the connection and does not start switchdash's
    * notification poller — the sidecar owns polling and injection on the VM, and
    * the reconciler re-derives the room from the live snapshot every tick, so
    * there is nothing to restore across restarts. The unchanged-guard keeps the
@@ -132,7 +134,7 @@ class SwitchRoomService implements IDisposable {
    * connect_to_room again. No-op when the session has no persisted room.
    */
   async restorePoller(ctx: SessionRoomContext): Promise<void> {
-    const persisted = await this.getPersisted(ctx.sessionId);
+    const persisted = await getPersistedRoomConnection(ctx.sessionId);
     if (!persisted) return;
 
     log.info('SwitchRoomService: restoring room poller for resumed session', {
@@ -140,27 +142,18 @@ class SwitchRoomService implements IDisposable {
       roomId: persisted.roomId,
     });
 
-    this.setSessionRoom(ctx, persisted.roomId, persisted.agentId, persisted.roomName);
+    this.setSessionRoom(ctx, persisted.roomId, persisted.switchAgentId, persisted.roomName);
     switchNotificationPoller.connect(ctx, persisted.roomId, persisted.roomName);
   }
 
   /** Session ids that had a live room connection before the last shutdown. */
   async listPersistedSessionIds(): Promise<string[]> {
-    return Object.keys(await this.readPersisted());
+    return listPersistedRoomSessionIds();
   }
 
-  /** Forget persisted connections whose sessions no longer exist. */
+  /** Forget persisted connections for sessions that can no longer be restored. */
   async prunePersisted(sessionIds: string[]): Promise<void> {
-    if (sessionIds.length === 0) return;
-    const map = await this.readPersisted();
-    let changed = false;
-    for (const id of sessionIds) {
-      if (id in map) {
-        delete map[id];
-        changed = true;
-      }
-    }
-    if (changed) await this.writePersisted(map);
+    await forgetRoomConnections(sessionIds);
   }
 
   /** Drop a session's connection (on room switch-away or session exit). */
@@ -201,41 +194,6 @@ class SwitchRoomService implements IDisposable {
       roomId,
       agentId,
     }));
-  }
-
-  private async getPersisted(sessionId: string): Promise<PersistedConnection | null> {
-    const map = await this.readPersisted();
-    return map[sessionId] ?? null;
-  }
-
-  private async readPersisted(): Promise<Record<string, PersistedConnection>> {
-    const [row] = await db
-      .select({ value: appSettings.value })
-      .from(appSettings)
-      .where(eq(appSettings.key, PERSIST_KEY));
-    if (!row) return {};
-    try {
-      return JSON.parse(row.value) as Record<string, PersistedConnection>;
-    } catch {
-      return {};
-    }
-  }
-
-  private async persistConnection(
-    sessionId: string,
-    connection: PersistedConnection
-  ): Promise<void> {
-    const map = await this.readPersisted();
-    map[sessionId] = connection;
-    await this.writePersisted(map);
-  }
-
-  private async writePersisted(map: Record<string, PersistedConnection>): Promise<void> {
-    const serialized = JSON.stringify(map);
-    await db
-      .insert(appSettings)
-      .values({ key: PERSIST_KEY, value: serialized })
-      .onConflictDoUpdate({ target: appSettings.key, set: { value: serialized } });
   }
 
   dispose(): void {
