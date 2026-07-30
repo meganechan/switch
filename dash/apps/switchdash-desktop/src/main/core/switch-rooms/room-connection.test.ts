@@ -178,13 +178,16 @@ describe('RoomConnection', () => {
     fs.rmSync(mediaDir, { recursive: true, force: true });
   });
 
-  it('does not annotate or download non-image attachments', async () => {
+  it('downloads and annotates non-image attachments', async () => {
+    fs.rmSync(mediaDir, { recursive: true, force: true });
     const target: InjectionTarget = { write: vi.fn() };
+    // A structural-biology file: an arbitrary mimetype the app has never heard
+    // of must still reach the agent.
     const attachment: AttachmentRef = {
-      filename: 'notes.pdf',
-      mimetype: 'application/pdf',
+      filename: 'tyk2_ejm_31_minimized.pdb',
+      mimetype: 'chemical/x-pdb',
       size: 3,
-      mxc: 'mxc://switch.test/pdf',
+      mxc: 'mxc://switch.test/pdb',
       msgtype: 'm.file',
     };
     const { conn, fetchMock } = connect({ acquire: () => target }, [
@@ -193,11 +196,57 @@ describe('RoomConnection', () => {
 
     await flush();
 
-    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('/media')).length).toBe(0);
+    const mediaCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/media'));
+    expect(mediaCalls.length).toBe(1);
+    expect(String(mediaCalls[0][0])).toContain(encodeURIComponent(attachment.mxc));
+
     const injected = vi.mocked(target.write).mock.calls.map((c) => c[0])[0];
-    expect(injected).not.toContain('attached');
+    expect(injected).toContain('1 file attached');
+    expect(injected).toContain(mediaDir);
 
     conn.stop();
+    fs.rmSync(mediaDir, { recursive: true, force: true });
+  });
+
+  it('annotates images and other files separately in one message', async () => {
+    fs.rmSync(mediaDir, { recursive: true, force: true });
+    const target: InjectionTarget = { write: vi.fn() };
+    const attachments: AttachmentRef[] = [
+      {
+        filename: 'shot.png',
+        mimetype: 'image/png',
+        size: 3,
+        mxc: 'mxc://switch.test/png',
+        msgtype: 'm.image',
+      },
+      {
+        filename: 'notes.md',
+        mimetype: 'text/markdown',
+        size: 3,
+        mxc: 'mxc://switch.test/md',
+        msgtype: 'm.file',
+      },
+      {
+        filename: 'data.csv',
+        mimetype: 'text/csv',
+        size: 3,
+        mxc: 'mxc://switch.test/csv',
+        msgtype: 'm.file',
+      },
+    ];
+    const { conn, fetchMock } = connect({ acquire: () => target }, [
+      messageEvent(true, null, attachments),
+    ]);
+
+    await flush();
+
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('/media')).length).toBe(3);
+    const injected = vi.mocked(target.write).mock.calls.map((c) => c[0])[0];
+    expect(injected).toContain('1 image attached');
+    expect(injected).toContain('2 files attached');
+
+    conn.stop();
+    fs.rmSync(mediaDir, { recursive: true, force: true });
   });
 
   it('does not inject unaddressed chatter', async () => {
