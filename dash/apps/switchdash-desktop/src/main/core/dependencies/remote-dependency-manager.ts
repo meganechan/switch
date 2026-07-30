@@ -62,6 +62,15 @@ async function buildRemoteDependencyManager(sshHost: string): Promise<HostDepend
  * alias. Cached so repeated probe/install calls reuse one manager (and one
  * pooled SSH connection) per host.
  */
+/**
+ * Forget a host's cached manager. Called when a host is removed: the cache is
+ * keyed by alias, so without this a re-onboarded alias would reuse a manager
+ * bound to the previous connection and its stale probe results.
+ */
+export function evictRemoteDependencyManager(sshHost: string): void {
+  managerCache.delete(sshHost);
+}
+
 export function getRemoteDependencyManager(sshHost: string): Promise<HostDependencyManager> {
   const existing = managerCache.get(sshHost);
   if (existing) return existing;

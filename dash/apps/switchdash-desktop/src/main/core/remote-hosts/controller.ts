@@ -9,6 +9,7 @@ import type {
 import { isTransportFailure } from '@switchdash/core/exec';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
 import {
+  evictRemoteDependencyManager,
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
 } from '@main/core/dependencies/remote-dependency-manager';
@@ -27,9 +28,21 @@ import { hostBlockedReason, type HostReachability } from '@shared/core/remote-ho
 import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';
+import type { HostSetupPlan } from '@shared/core/remote-hosts/setup';
+import { probeGhAuthStatus, type GhAuthStatus } from './gh-auth';
 import { listSshConfigHosts } from './list-ssh-config-hosts';
 import { hostReachabilityService } from './production-host-reachability';
+import { deletePersistedReachability } from './reachability-store';
+import {
+  discardSetupPlan,
+  ensureSetupPlan,
+  readSetupPlan,
+  runSetup,
+  skipSetupStep,
+} from './setup/host-setup-service';
 import { listRemoteHosts, removeRemoteHost, upsertRemoteHost, type RemoteHost } from './store';
+
+export type { GhAuthStatus };
 
 /** A single dependency's status on a remote host, enriched for the UI. */
 export type RemoteDependencyView = {
@@ -51,8 +64,6 @@ export type RemoteDependencyView = {
   ghAuth?: GhAuthStatus;
 };
 
-export type GhAuthStatus = { authenticated: boolean; account: string | null };
-
 export type TestConnectionResult = { ok: true } | { ok: false; message: string };
 
 /** Live status of a host's pooled SSH connection, for the connection badge. */
@@ -67,28 +78,6 @@ function hostConnectionStatus(sshHost: string): HostConnectionStatus {
     state: sshConnectionManager.getConnectionState(connectionId),
     health: sshConnectionManager.getAllHealthStates()[connectionId] ?? { status: 'ok' },
   };
-}
-
-/** Matches the account line of `gh auth status` across gh versions ("account NAME" / "as NAME"). */
-const GH_AUTH_ACCOUNT_RE = /Logged in to \S+ (?:account|as) (\S+)/;
-
-/**
- * Check whether `gh` is authenticated on a remote host via `gh auth status`.
- * Exit 0 means authenticated; a non-zero exit (which SshExecutionContext
- * throws on) means not logged in. A transport failure propagates — a dead
- * connection is not evidence of a missing login.
- */
-async function probeGhAuth(sshHost: string): Promise<GhAuthStatus> {
-  const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
-  const ctx = new SshExecutionContext(proxy);
-  try {
-    const { stdout, stderr } = await ctx.exec('gh', ['auth', 'status']);
-    const account = GH_AUTH_ACCOUNT_RE.exec(`${stdout}\n${stderr}`)?.[1] ?? null;
-    return { authenticated: true, account };
-  } catch (error) {
-    if (isTransportFailure(error)) throw error;
-    return { authenticated: false, account: null };
-  }
 }
 
 /**
@@ -125,7 +114,7 @@ async function probeDeps(sshHost: string): Promise<RemoteDependencyView[]> {
   // auth when the binary is present (probing gh auth without gh would just fail).
   const gh = views.find((v) => v.id === 'gh');
   if (gh && gh.status === 'available') {
-    gh.ghAuth = await probeGhAuth(sshHost);
+    gh.ghAuth = await probeGhAuthStatus(sshHost);
   }
 
   return views;
@@ -286,7 +275,38 @@ export const remoteHostsController = createRPCController({
     return upsertRemoteHost({ sshHost: params.sshHost, name: params.name });
   },
 
-  removeHost: (sshHost: string): Promise<void> => removeRemoteHost(sshHost),
+  /**
+   * Remove a host and everything keyed to it. Previously only the row was
+   * deleted, leaving an orphaned reachability record and a cached dependency
+   * manager bound to the old connection — so re-adding the same alias resumed
+   * against stale state.
+   */
+  removeHost: async (sshHost: string): Promise<void> => {
+    await removeRemoteHost(sshHost);
+    await discardSetupPlan(sshHost);
+    await deletePersistedReachability(sshHost);
+    evictRemoteDependencyManager(sshHost);
+  },
+
+  /** The host's persisted setup plan, or null if setup has never been run. */
+  getSetupPlan: (sshHost: string): Promise<HostSetupPlan | null> => readSetupPlan(sshHost),
+
+  /**
+   * Build or refresh the plan without running it — what the host page loads on
+   * open. Merges onto any persisted progress rather than discarding it.
+   */
+  prepareSetup: (sshHost: string): Promise<HostSetupPlan> => ensureSetupPlan(sshHost),
+
+  /**
+   * Run (or resume) setup. Steps are checked and installed one at a time and
+   * the run halts at the first required failure, holding its position so it can
+   * be resumed rather than restarted.
+   */
+  runSetup: (sshHost: string): Promise<HostSetupPlan> => runSetup(sshHost),
+
+  /** Move past a step the user has chosen not to fix, unblocking the rest. */
+  skipSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    skipSetupStep(params.sshHost, params.stepId),
 
   /**
    * Detect the Switch agent configured in a remote working directory (reads its
