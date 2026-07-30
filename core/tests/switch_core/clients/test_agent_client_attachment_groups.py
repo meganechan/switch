@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import asyncio
+from types import SimpleNamespace
+from typing import Any
+
+import nio
+
+import switch_core.clients.agent_client as ac
+from switch_core.clients.agent_client import AgentClient
+from switch_core.clients.room_meta import RoomMeta
+
+
+def _media_event(
+    *,
+    body: str,
+    filename: str | None = None,
+    mimetype: str = "image/png",
+    msgtype: str = "m.image",
+    group: dict[str, Any] | None = None,
+    event_id: str = "$evt",
+) -> nio.RoomMessageMedia:
+    content: dict[str, Any] = {
+        "msgtype": msgtype,
+        "body": body,
+        "url": "mxc://s/abc",
+        "info": {"mimetype": mimetype, "size": 5},
+        "sender_name": "alice",
+    }
+    if filename is not None:
+        content["filename"] = filename
+    if group is not None:
+        content["com.switch.attachment_group"] = group
+    cls = nio.RoomMessageImage if msgtype == "m.image" else nio.RoomMessageFile
+    return cls.from_dict(
+        {
+            "type": "m.room.message",
+            "event_id": event_id,
+            "sender": "@alice:s",
+            "origin_server_ts": 1700000000000,
+            "content": content,
+        }
+    )
+
+
+class _FakeQueue:
+    def __init__(self) -> None:
+        self.events: list[Any] = []
+
+    def enqueue(self, _agent_id: str, _room_id: str, event: Any) -> None:
+        self.events.append(event)
+
+
+def _fake_client() -> SimpleNamespace:
+    queue = _FakeQueue()
+    meta = RoomMeta(room_id="room-1", name="Room", bridge_id="bridge-1")
+
+    async def _resolve_room_meta(_matrix_room_id: str) -> RoomMeta:
+        return meta
+
+    async def _compute_addressed(_event: Any, _meta: RoomMeta) -> bool:
+        return True
+
+    async def _gate_addressed(
+        _room: Any, _event: Any, _meta: Any, _root: Any, is_addressed: bool
+    ) -> bool:
+        return is_addressed
+
+    ns = SimpleNamespace(
+        agent=SimpleNamespace(id="agent-1", name="agent-a"),
+        _event_queue=queue,
+        _attachment_groups={},
+        _attachment_group_timers={},
+        _resolve_room_meta=_resolve_room_meta,
+        _compute_addressed=_compute_addressed,
+        _gate_addressed=_gate_addressed,
+        queue=queue,
+    )
+    ns._emit_media = AgentClient._emit_media.__get__(ns)
+    ns._schedule_attachment_group_flush = (
+        AgentClient._schedule_attachment_group_flush.__get__(ns)
+    )
+    ns._cancel_attachment_group_flush = (
+        AgentClient._cancel_attachment_group_flush.__get__(ns)
+    )
+    ns._flush_incomplete_attachment_group = (
+        AgentClient._flush_incomplete_attachment_group.__get__(ns)
+    )
+    return ns
+
+
+def _room() -> SimpleNamespace:
+    return SimpleNamespace(room_id="!room:s")
+
+
+async def test_grouped_media_coalesces_into_one_event() -> None:
+    client = _fake_client()
+    parts = [
+        ("cat.png", "image/png", "m.image"),
+        ("notes.md", "text/markdown", "m.file"),
+        ("data.csv", "text/csv", "m.file"),
+    ]
+
+    for index, (name, mimetype, msgtype) in enumerate(parts):
+        await AgentClient.on_media(
+            client,
+            _room(),
+            _media_event(
+                body="three files" if index == 0 else name,
+                filename=name if index == 0 else None,
+                mimetype=mimetype,
+                msgtype=msgtype,
+                event_id=f"$part-{index}",
+                group={"id": "grp-1", "index": index, "total": 3},
+            ),
+        )
+        if index < 2:
+            assert client.queue.events == []
+
+    assert len(client.queue.events) == 1
+    payload = client.queue.events[0].payload
+    assert [a.filename for a in payload.attachments] == [
+        "cat.png",
+        "notes.md",
+        "data.csv",
+    ]
+    assert payload.body == "three files"
+    assert client._attachment_groups == {}
+    assert client._attachment_group_timers == {}
+
+
+async def test_grouped_media_coalesces_out_of_order() -> None:
+    client = _fake_client()
+    order = [1, 0, 2]
+    names = {0: "a.png", 1: "b.png", 2: "c.png"}
+
+    for index in order:
+        await AgentClient.on_media(
+            client,
+            _room(),
+            _media_event(
+                body="captioned" if index == 0 else names[index],
+                filename=names[index] if index == 0 else None,
+                event_id=f"$part-{index}",
+                group={"id": "grp-2", "index": index, "total": 3},
+            ),
+        )
+
+    assert len(client.queue.events) == 1
+    payload = client.queue.events[0].payload
+    # Sorted by group index, not arrival order.
+    assert [a.filename for a in payload.attachments] == ["a.png", "b.png", "c.png"]
+    assert payload.body == "captioned"
+    assert client._attachment_groups == {}
+    assert client._attachment_group_timers == {}
+
+
+async def test_ungrouped_media_emits_immediately() -> None:
+    client = _fake_client()
+
+    await AgentClient.on_media(
+        client, _room(), _media_event(body="cat.png", mimetype="image/png")
+    )
+
+    assert len(client.queue.events) == 1
+    payload = client.queue.events[0].payload
+    assert [a.filename for a in payload.attachments] == ["cat.png"]
+    assert payload.body == "cat.png"
+    assert client._attachment_groups == {}
+    assert client._attachment_group_timers == {}
+
+
+async def test_incomplete_group_flushes_with_disclosed_notice() -> None:
+    original = ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS
+    ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = 0.01
+    try:
+        client = _fake_client()
+        for index, name in [(0, "cat.png"), (1, "notes.md")]:
+            await AgentClient.on_media(
+                client,
+                _room(),
+                _media_event(
+                    body="two of three" if index == 0 else name,
+                    filename=name if index == 0 else None,
+                    event_id=f"$part-{index}",
+                    group={"id": "grp-3", "index": index, "total": 3},
+                ),
+            )
+        assert client.queue.events == []
+
+        await asyncio.sleep(0.15)
+    finally:
+        ac.ATTACHMENT_GROUP_TIMEOUT_SECONDS = original
+
+    assert len(client.queue.events) == 1
+    payload = client.queue.events[0].payload
+    assert [a.filename for a in payload.attachments] == ["cat.png", "notes.md"]
+    assert "two of three" in payload.body
+    assert "incomplete attachment group: 2 of 3" in payload.body
+    # No leak: the buffer and its timer are gone once flushed.
+    assert client._attachment_groups == {}
+    assert client._attachment_group_timers == {}
