@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -16,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from switch_core.aliases import AliasError, validate_alias_format
+from switch_core.attachments import parse_attachment_group
 from switch_core.bridges.collaboration.adapter import CollaborationAdapter
 from switch_core.bridges.collaboration.models import (
     ChannelType,
@@ -24,6 +27,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 from switch_core.clients.admin_messages import ADMIN_MARKER, AdminMessageType
 from switch_core.clients.client_base import ClientBase, ClientConfig
@@ -43,6 +47,21 @@ if TYPE_CHECKING:
     from switch_core.room_service import RoomService
 
 logger = logging.getLogger(__name__)
+
+# How long to hold an incomplete outbound attachment group before relaying the
+# parts that arrived, flagged as incomplete (see _schedule_outbound_group_flush).
+OUTBOUND_GROUP_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass
+class _PendingOutboundGroup:
+    """Files of a multi-attachment message seen so far, keyed by group index."""
+
+    total: int
+    parts: dict[int, OutboundAttachment] = field(default_factory=dict)
+    caption: str | None = None
+    first_event_id: str | None = None
+
 
 _LOBBY_DEPRECATION_NOTICE = (
     "👋 This isn't where you talk to agents — direct messages to the Switch "
@@ -112,6 +131,11 @@ class BridgeCore:
         # spawn a duplicate room. Handlers skip adoption while a channel is in
         # this set. See begin_provisioning / end_provisioning.
         self._provisioning_channels: set[str] = set()
+        # Outbound multi-attachment messages still assembling, with their
+        # safety-net timers. Cleared on completion or timeout so a group that
+        # never completes cannot leak.
+        self._outbound_groups: dict[str, _PendingOutboundGroup] = {}
+        self._outbound_group_timers: dict[str, asyncio.TimerHandle] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -382,6 +406,16 @@ class BridgeCore:
                     matrix_room_id,
                 )
 
+        # An attachment the platform offered but we could not relay must be
+        # visible in the room, not swallowed. Append it to the message body so
+        # both the agent and the humans see that a file went missing.
+        if msg.attachment_failures:
+            notes = "\n".join(
+                f"_attachment not relayed: {failure.filename} — {failure.reason}_"
+                for failure in msg.attachment_failures
+            )
+            content = f"{content}\n{notes}" if content.strip() else notes
+
         if not msg.attachments:
             event_id = await puppet.send_message(
                 matrix_room_id,
@@ -404,6 +438,11 @@ class BridgeCore:
         # event stands in for the post for threading / correlation purposes.
         caption = content if content.strip() else None
         first_event_id: str | None = None
+        total = len(msg.attachments)
+        # A platform post hands us all its files at once, so the group is known
+        # up front — no waiting on the receiving side to learn how many to
+        # expect. Matrix carries them as `total` events sharing this id.
+        group_id = str(uuid.uuid4()) if total > 1 else None
         for index, attachment in enumerate(msg.attachments):
             mxc = await puppet.upload_media(
                 attachment.data, attachment.mimetype, attachment.filename
@@ -420,6 +459,11 @@ class BridgeCore:
                 msgtype=msgtype,
                 caption=caption if index == 0 else None,
                 thread_root_id=thread_root_id,
+                group=(
+                    {"id": group_id, "index": index, "total": total}
+                    if group_id is not None
+                    else None
+                ),
             )
             if index == 0:
                 first_event_id = event_id
@@ -977,10 +1021,14 @@ class BridgeCore:
         Mirrors handle_outbound_message: puppet media is skipped (it originated
         on the platform), the caption convention is unpacked (a `filename` key
         means the body is a caption), and the relayed post is recorded in the
-        message map so replies thread both ways. Images relay natively via the
-        adapter's send_attachment; other file types get a disclosed text notice
-        (matching the images-only inbound path) rather than a silent drop.
-        `client` is the bridge's Matrix client, used to fetch the media bytes.
+        message map so replies thread both ways. Any file type relays natively
+        via the adapter; a file whose bytes can't be fetched or that exceeds the
+        relay cap gets a disclosed text notice rather than a silent drop.
+
+        A message carrying several files arrives as several Matrix events
+        sharing a group marker; they are buffered here and relayed as ONE
+        platform post. `client` is the bridge's Matrix client, used to fetch the
+        media bytes.
         """
         logger.debug(
             "[BRIDGE-OUT] matrix media event from=%s room=%s body=%s",
@@ -1026,8 +1074,17 @@ class BridgeCore:
         )
 
         message_ref: str | None
-        if event_content.get("msgtype") != "m.image":
-            note = f"_sent a file that isn't relayed yet: {filename}_"
+        data = await self._download_matrix_media(client, event.url, filename)
+        if data is None or len(data) > self._max_attachment_bytes:
+            if data is not None:
+                logger.warning(
+                    "[BRIDGE-OUT] attachment %s is %d bytes, over the "
+                    "%d-byte relay cap",
+                    filename,
+                    len(data),
+                    self._max_attachment_bytes,
+                )
+            note = f"_sent an attachment that couldn't be relayed: {filename}_"
             body = f"{caption}\n{note}" if caption else note
             message_ref = await self._adapter.send_message(
                 channel_id,
@@ -1036,39 +1093,128 @@ class BridgeCore:
                 thread_root_id=thread_root_ref,
             )
         else:
-            data = await self._download_matrix_media(client, event.url, filename)
-            if data is None or len(data) > self._max_attachment_bytes:
-                if data is not None:
-                    logger.warning(
-                        "[BRIDGE-OUT] attachment %s is %d bytes, over the "
-                        "%d-byte relay cap",
-                        filename,
-                        len(data),
-                        self._max_attachment_bytes,
+            # Part of a multi-file message? Hold it until the whole group has
+            # arrived, then relay all of it as one platform post.
+            group = parse_attachment_group(event_content)
+            if group is not None:
+                group_id, index, total = group
+                pending = self._outbound_groups.setdefault(
+                    group_id, _PendingOutboundGroup(total=total)
+                )
+                pending.parts[index] = OutboundAttachment(
+                    filename=filename, mimetype=mimetype, data=data
+                )
+                if index == 0:
+                    pending.caption = caption
+                    pending.first_event_id = event.event_id
+                if len(pending.parts) < total:
+                    self._schedule_outbound_group_flush(
+                        group_id, channel_id, sender_name, thread_root_ref
                     )
-                note = f"_sent an attachment that couldn't be relayed: {filename}_"
-                body = f"{caption}\n{note}" if caption else note
-                message_ref = await self._adapter.send_message(
-                    channel_id,
-                    sender_name,
-                    self._adapter.translate_outbound(body),
-                    thread_root_id=thread_root_ref,
+                    return
+                self._cancel_outbound_group_flush(group_id)
+                self._outbound_groups.pop(group_id, None)
+                await self._relay_outbound_group(
+                    pending, channel_id, sender_name, thread_root_ref
                 )
-            else:
-                message_ref = await self._adapter.send_attachment(
-                    channel_id,
-                    sender_name,
-                    filename,
-                    mimetype,
-                    data,
-                    caption=caption,
-                    thread_root_id=thread_root_ref,
-                )
+                return
+
+            message_ref = await self._adapter.send_attachment(
+                channel_id,
+                sender_name,
+                filename,
+                mimetype,
+                data,
+                caption=caption,
+                thread_root_id=thread_root_ref,
+            )
 
         if message_ref is not None:
             await self._record_message_map(
                 external_channel_id=channel_id,
                 matrix_event_id=event.event_id,
+                external_post_id=message_ref,
+            )
+
+    def _schedule_outbound_group_flush(
+        self,
+        group_id: str,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        """Arm the safety net for an incomplete outbound attachment group.
+
+        A group normally completes immediately — the sender posts its events
+        back-to-back. This timer guarantees that a batch that never completes
+        still reaches the platform, flagged, instead of being held forever.
+
+        Armed once per group, NOT re-armed per part, so the deadline bounds the
+        whole group rather than the gap between parts.
+        """
+        if group_id in self._outbound_group_timers:
+            return
+        self._outbound_group_timers[group_id] = asyncio.get_running_loop().call_later(
+            OUTBOUND_GROUP_TIMEOUT_SECONDS,
+            lambda: asyncio.create_task(
+                self._flush_incomplete_outbound_group(
+                    group_id, channel_id, sender_name, thread_root_ref
+                )
+            ),
+        )
+
+    def _cancel_outbound_group_flush(self, group_id: str) -> None:
+        timer = self._outbound_group_timers.pop(group_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    async def _flush_incomplete_outbound_group(
+        self,
+        group_id: str,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        self._outbound_group_timers.pop(group_id, None)
+        pending = self._outbound_groups.pop(group_id, None)
+        if pending is None:
+            return
+        received = len(pending.parts)
+        logger.error(
+            "[BRIDGE-OUT] attachment group %s incomplete: %d of %d parts arrived "
+            "within %ss; relaying what arrived",
+            group_id,
+            received,
+            pending.total,
+            OUTBOUND_GROUP_TIMEOUT_SECONDS,
+        )
+        notice = (
+            f"_incomplete attachment group: relaying {received} of "
+            f"{pending.total} files_"
+        )
+        pending.caption = f"{pending.caption}\n{notice}" if pending.caption else notice
+        await self._relay_outbound_group(
+            pending, channel_id, sender_name, thread_root_ref
+        )
+
+    async def _relay_outbound_group(
+        self,
+        pending: _PendingOutboundGroup,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        message_ref = await self._adapter.send_attachments(
+            channel_id,
+            sender_name,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            caption=pending.caption,
+            thread_root_id=thread_root_ref,
+        )
+        if message_ref is not None and pending.first_event_id is not None:
+            await self._record_message_map(
+                external_channel_id=channel_id,
+                matrix_event_id=pending.first_event_id,
                 external_post_id=message_ref,
             )
 

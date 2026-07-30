@@ -40,7 +40,7 @@ def _adapter_with_files(files: _FakeFiles) -> MattermostAdapter:
 def _fetch(adapter: MattermostAdapter, file_ids: list[str]):
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(adapter._fetch_image_attachments(file_ids, loop))
+        return loop.run_until_complete(adapter._fetch_attachments(file_ids, loop))
     finally:
         loop.close()
 
@@ -52,8 +52,9 @@ def test_downloads_image_attachment() -> None:
     )
     adapter = _adapter_with_files(files)
 
-    attachments = _fetch(adapter, ["f1"])
+    attachments, failures = _fetch(adapter, ["f1"])
 
+    assert failures == []
     assert len(attachments) == 1
     assert attachments[0].filename == "cat.png"
     assert attachments[0].mimetype == "image/png"
@@ -61,21 +62,25 @@ def test_downloads_image_attachment() -> None:
     assert files.get_file_calls == ["f1"]
 
 
-def test_skips_non_image_attachment() -> None:
+def test_downloads_non_image_attachment() -> None:
     files = _FakeFiles(
-        meta={"f1": {"mime_type": "application/pdf", "name": "doc.pdf", "size": 9}},
-        data={"f1": b"%PDF"},
+        meta={"f1": {"mime_type": "text/markdown", "name": "notes.md", "size": 7}},
+        data={"f1": b"# notes"},
     )
     adapter = _adapter_with_files(files)
 
-    attachments = _fetch(adapter, ["f1"])
+    attachments, failures = _fetch(adapter, ["f1"])
 
-    # Non-image is skipped entirely — and we never download its bytes.
-    assert attachments == []
-    assert files.get_file_calls == []
+    # Every file type is relayed now — not just images.
+    assert failures == []
+    assert len(attachments) == 1
+    assert attachments[0].filename == "notes.md"
+    assert attachments[0].mimetype == "text/markdown"
+    assert attachments[0].data == b"# notes"
+    assert files.get_file_calls == ["f1"]
 
 
-def test_failed_download_skips_only_that_file() -> None:
+def test_failed_download_reported_as_failure() -> None:
     class _ExplodingFiles(_FakeFiles):
         def get_file_metadata(self, file_id: str) -> dict[str, object]:
             if file_id == "bad":
@@ -88,14 +93,51 @@ def test_failed_download_skips_only_that_file() -> None:
     )
     adapter = _adapter_with_files(files)
 
-    attachments = _fetch(adapter, ["bad", "good"])
+    attachments, failures = _fetch(adapter, ["bad", "good"])
 
+    # The good file still comes through; the bad one is disclosed, not dropped.
     assert [a.filename for a in attachments] == ["ok.jpg"]
+    assert [f.filename for f in failures] == ["bad"]
+    assert failures[0].reason
+
+
+def test_oversize_attachment_reported_as_failure() -> None:
+    files = _FakeFiles(
+        meta={"f1": {"mime_type": "application/zip", "name": "huge.zip", "size": 100}},
+        data={"f1": b"x" * 100},
+    )
+    adapter = _adapter_with_files(files)
+    adapter.set_max_attachment_bytes(10)
+
+    attachments, failures = _fetch(adapter, ["f1"])
+
+    assert attachments == []
+    assert files.get_file_calls == []
+    assert [f.filename for f in failures] == ["huge.zip"]
+    assert failures[0].reason
+
+
+def test_multiple_files_all_returned() -> None:
+    files = _FakeFiles(
+        meta={
+            "f1": {"mime_type": "image/png", "name": "cat.png", "size": 3},
+            "f2": {"mime_type": "text/markdown", "name": "notes.md", "size": 7},
+            "f3": {"mime_type": "application/pdf", "name": "doc.pdf", "size": 4},
+        },
+        data={"f1": b"abc", "f2": b"# notes", "f3": b"%PDF"},
+    )
+    adapter = _adapter_with_files(files)
+
+    attachments, failures = _fetch(adapter, ["f1", "f2", "f3"])
+
+    assert failures == []
+    assert [a.filename for a in attachments] == ["cat.png", "notes.md", "doc.pdf"]
+    assert [a.data for a in attachments] == [b"abc", b"# notes", b"%PDF"]
 
 
 def test_no_file_ids_returns_empty() -> None:
     adapter = _adapter_with_files(_FakeFiles(meta={}, data={}))
-    assert _fetch(adapter, []) == []
+    assert _fetch(adapter, []) == ([], [])
 
 
 # ── Outbound attachments ─────────────────────────────────────────────────────

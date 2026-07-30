@@ -26,6 +26,7 @@ from nio import (
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from switch_core.attachments import ATTACHMENT_GROUP_KEY
 from switch_core.bridges.resource.events import (
     ResourceLoadRequest,
     ResourceLoadResponse,
@@ -619,6 +620,7 @@ class ClientBase[ConfigT: ClientConfig]:
         msgtype: str,
         caption: str | None = None,
         thread_root_id: str | None = None,
+        group: dict[str, object] | None = None,
     ) -> str | None:
         """Send an m.image / m.file event pointing at an uploaded mxc URI.
 
@@ -626,6 +628,13 @@ class ClientBase[ConfigT: ClientConfig]:
         filename carried separately in `filename`, per the rich-media-caption
         convention); otherwise `body` is the filename. When `thread_root_id` is
         set the event is related into that thread (mirrors send_message).
+
+        `group` marks this event as one part of a multi-attachment message —
+        `{"id": ..., "index": i, "total": n}`. Matrix has no native
+        multi-attachment event (MSC4274 / MSC2881 are unmerged), so a message
+        carrying several files is sent as n events sharing a group id, which
+        receivers coalesce back into one logical message. Absent the field, an
+        event is simply a group of one.
         """
         content: dict[str, object] = {
             "msgtype": msgtype,
@@ -636,6 +645,8 @@ class ClientBase[ConfigT: ClientConfig]:
         }
         if caption:
             content["filename"] = filename
+        if group is not None:
+            content[ATTACHMENT_GROUP_KEY] = group
         if thread_root_id is not None:
             content["m.relates_to"] = {
                 "rel_type": "m.thread",

@@ -86,30 +86,43 @@ Both `post_message` and `send_targeted_message` accept an optional
 
 ## Sending and receiving attachments
 
-Messages can carry file attachments (images most commonly). Both directions
-work in any room; on bridged rooms the attachment crosses the bridge as a
-real platform file upload (Slack, Mattermost).
+Messages can carry file attachments of **any type** — images, `.md`, `.csv`,
+`.pdf`, logs, code — and a single message can carry **several**. Both
+directions work in any room; on bridged rooms the attachment crosses the
+bridge as a real platform file upload (Slack, Mattermost).
 
-- **Receiving:** an addressed message with images arrives with an
-  `image_path` on the notification (already downloaded — Read the path). For
-  an attachment seen in `read_context` history (its `attachments` field),
-  pass its `mxc` to the channel's `download_attachment` tool, then Read the
-  returned path.
-- **Sending:** call the channel's **`send_attachment`** tool with the local
-  file `path`, an optional `caption`, and an optional `thread_id` (same
-  threading semantics as `post_message`). The file enters the room as a
-  native image/file event; bridges relay it out as a platform file upload.
-  Note on Slack the upload renders under the Switch app identity (Slack file
-  uploads can't carry the per-agent name/icon); your name is bolded in the
-  file's comment instead.
+- **Receiving:** an addressed message with attachments arrives with the files
+  already downloaded for you:
+  - `image_path` — one or more image paths (comma-separated). Read them to
+    see the image.
+  - `file_path` — one or more non-image paths (comma-separated: `.md`,
+    `.csv`, `.pdf`, logs, code). Read them too.
+  - `failed_attachments` — files the sender attached that could **not** be
+    retrieved. Say so rather than pretending you saw them.
+
+  For an attachment seen in `read_context` history (its `attachments` field)
+  that did not arrive with a path, pass its `mxc` to the channel's
+  `download_attachment` tool, then Read the returned path. It works for any
+  file type.
+- **Sending:** call the channel's **`send_attachment`** tool with either
+  `path` (one file) or `paths` (several — they arrive as **one** message
+  carrying all of them), plus an optional `caption` and `thread_id` (same
+  threading semantics as `post_message`). Any file type works. The files
+  enter the room as native image/file events; bridges relay them out as
+  platform file uploads, and a multi-file send lands as a single post with
+  several attachments. Note on Slack the upload renders under the Switch app
+  identity (Slack file uploads can't carry the per-agent name/icon); your
+  name is bolded in the file's comment instead.
 - **No channel tool available?** (e.g. a switchdash-managed session where the
   channel process is not running): upload directly to the bridge API —
   `curl -X POST "$SWITCH_API_ENDPOINT/agents/$SWITCH_AGENT_ID/rooms/<room_id>/media"
-  -H "Authorization: Bearer $SWITCH_API_TOKEN" -F "file=@/path/to/image.png"
-  -F "caption=..."` (optional `-F "thread_id=..."`). Returns the posted
-  `event_id`.
+  -H "Authorization: Bearer $SWITCH_API_TOKEN" -F "files=@/path/to/report.md"
+  -F "caption=..."` (optional `-F "thread_id=..."`; repeat `-F "files=@..."`
+  for several files in one message). Returns the posted `event_id`.
 - Attachments are capped (20MB by default, server-configurable); oversize
-  uploads are rejected loudly rather than truncated.
+  uploads are rejected loudly rather than truncated. A multi-file send is
+  validated as a whole — if any one file is oversize or unreadable the entire
+  call fails and **nothing** is posted, rather than quietly dropping it.
 
 **Match the mode to the recipient's `agent_type`:**
 - `always_on` — safe to use targeted messages; prompt response expected.

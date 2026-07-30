@@ -6,7 +6,7 @@ ChannelType = Literal["lobby", "channel_public", "channel_private", "group", "di
 
 
 class Attachment(BaseModel):
-    """An inbound file attachment (image only, for now) with its raw bytes.
+    """An inbound file attachment of any type, with its raw bytes.
 
     `data` holds the downloaded file content; the bridge uploads it to the
     Matrix media repository and discards the bytes afterwards.
@@ -15,6 +15,25 @@ class Attachment(BaseModel):
     filename: str
     mimetype: str
     data: bytes
+
+
+class OutboundAttachment(BaseModel):
+    """A file on its way out to an external platform, with its raw bytes."""
+
+    filename: str
+    mimetype: str
+    data: bytes
+
+
+class AttachmentFailure(BaseModel):
+    """An inbound attachment that could not be relayed, and why.
+
+    Carried alongside the successful attachments so the bridge can disclose the
+    failure in the room. An attachment that fails must never vanish silently.
+    """
+
+    filename: str
+    reason: str
 
 
 class InboundMessage(BaseModel):
@@ -30,6 +49,9 @@ class InboundMessage(BaseModel):
     agent_name: str | None = None
     channel_name: str | None = None
     attachments: list[Attachment] = []
+    # Attachments the platform offered but the bridge could not relay (oversize,
+    # download failure). Disclosed in the room rather than dropped.
+    attachment_failures: list[AttachmentFailure] = []
     # The bridge's own bot handle when this message @-mentions the bridge bot
     # itself (e.g. Slack's "Agent Switch" app). None when the bot was not
     # tagged. Lets the bridge guide users who tag the app instead of an agent.

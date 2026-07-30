@@ -428,27 +428,45 @@ async def download_media(
 async def upload_media(
     agent_id: str,
     room_id: str,
-    file: UploadFile,
     agent: Annotated[Agent, Depends(get_agent_from_scope)],
     protocol: Annotated[ProtocolService, Depends(get_protocol)],
+    file: UploadFile | None = None,
+    files: list[UploadFile] | None = None,
     caption: Annotated[str | None, Form()] = None,
     thread_id: Annotated[str | None, Form()] = None,
 ) -> dict[str, object]:
-    """Post an attachment to a room as the agent (multipart upload).
+    """Post one or more attachments to a room as the agent (multipart upload).
 
     The inverse of the GET media endpoint: the local channel (or any connector
-    holding the bridge API token) sends the file's bytes here; they are
-    uploaded to the Matrix media repo and posted to the room as an
-    m.image / m.file event, with optional caption and threading.
+    holding the bridge API token) sends the files' bytes here; they are
+    uploaded to the Matrix media repo and posted to the room as
+    m.image / m.file events, with optional caption and threading.
+
+    Accepts either a single `file` part or repeated `files` parts. Several
+    files become one logical message (they share an attachment-group marker).
+    Validation is all-or-nothing: if any file is empty or oversize the whole
+    request fails with 400 and nothing is posted.
     """
-    data = await file.read()
+    uploads = list(files or [])
+    if file is not None:
+        uploads.insert(0, file)
+    if not uploads:
+        raise HTTPException(
+            status_code=400, detail="no file provided (expected 'file' or 'files')"
+        )
+    payload = [
+        (
+            await upload.read(),
+            upload.filename or "attachment",
+            upload.content_type or "application/octet-stream",
+        )
+        for upload in uploads
+    ]
     try:
         result = await protocol.send_media(
             agent.id,
             room_id,
-            data,
-            filename=file.filename or "attachment",
-            mimetype=file.content_type or "application/octet-stream",
+            payload,
             caption=caption,
             thread_id=thread_id,
         )

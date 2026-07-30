@@ -4,6 +4,7 @@ import hashlib
 import logging
 import re
 import secrets
+import uuid
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -759,30 +760,40 @@ class ProtocolService:
         self,
         agent_id: str,
         room_id: str,
-        data: bytes,
-        filename: str,
-        mimetype: str,
+        files: list[tuple[bytes, str, str]],
         caption: str | None = None,
         thread_id: str | None = None,
-    ) -> dict[str, str]:
-        """Upload bytes to the Matrix media repository and post them to a room
-        as an m.image / m.file event. Returns {"event_id": ..., "mxc": ...}.
+    ) -> dict[str, object]:
+        """Upload one or more files to the Matrix media repository and post them
+        to a room as m.image / m.file events. `files` is a list of
+        (data, filename, mimetype). Returns
+        {"event_id": <first>, "mxc": <first>, "attachments": [{event_id, mxc,
+        filename}, ...]}.
 
-        Membership in `room_id` is required, mirroring download_media. The
-        payload is capped by config.agent_media_max_bytes — an oversize upload
-        raises rather than being truncated. When `caption` is set it becomes
-        the event body (the filename rides in the `filename` field, per the
-        caption convention the bridges already use inbound). When `thread_id`
-        is set the event is posted into that thread (normalised to its root).
+        Membership in `room_id` is required, mirroring download_media. Every
+        file is validated (non-empty, within config.agent_media_max_bytes)
+        BEFORE anything is sent, so a bad file in the batch fails the whole call
+        rather than leaving a half-posted message in the room. When `caption` is
+        set it becomes the body of the first event (the filename rides in the
+        `filename` field, per the caption convention the bridges already use
+        inbound). When `thread_id` is set the events are posted into that thread
+        (normalised to its root).
+
+        With more than one file the events share an attachment-group marker so
+        receivers can coalesce them into one logical message — Matrix itself has
+        no multi-attachment event.
         """
-        if not data:
-            raise ValueError("attachment is empty")
+        if not files:
+            raise ValueError("no attachments provided")
         max_bytes = self.config.agent_media_max_bytes
-        if len(data) > max_bytes:
-            raise ValueError(
-                f"attachment '{filename}' is {len(data)} bytes, over the "
-                f"{max_bytes}-byte limit (AGENT_MEDIA_MAX_BYTES)"
-            )
+        for data, filename, _mimetype in files:
+            if not data:
+                raise ValueError(f"attachment '{filename}' is empty")
+            if len(data) > max_bytes:
+                raise ValueError(
+                    f"attachment '{filename}' is {len(data)} bytes, over the "
+                    f"{max_bytes}-byte limit (AGENT_MEDIA_MAX_BYTES)"
+                )
         room = await self.require_room_member(agent_id, room_id)
         client = self.client_lifecycle.get_by_agent_id(agent_id)
         if client is None:
@@ -792,27 +803,44 @@ class ProtocolService:
             thread_root_id = await self._resolve_thread_root(
                 client, room.matrix_room_id, thread_id
             )
-        mxc = await client.upload_media(data, mimetype, filename)
-        msgtype = "m.image" if mimetype.startswith("image/") else "m.file"
-        event_id = await client.send_media(
-            room.matrix_room_id,
-            mxc,
-            filename,
-            mimetype,
-            len(data),
-            msgtype=msgtype,
-            caption=caption if caption and caption.strip() else None,
-            thread_root_id=thread_root_id,
-        )
-        if event_id is None:
-            raise ValueError("Failed to send media message")
+
+        total = len(files)
+        group_id = str(uuid.uuid4()) if total > 1 else None
+        posted: list[dict[str, str]] = []
+        for index, (data, filename, mimetype) in enumerate(files):
+            mxc = await client.upload_media(data, mimetype, filename)
+            msgtype = "m.image" if mimetype.startswith("image/") else "m.file"
+            event_id = await client.send_media(
+                room.matrix_room_id,
+                mxc,
+                filename,
+                mimetype,
+                len(data),
+                msgtype=msgtype,
+                caption=(
+                    caption if index == 0 and caption and caption.strip() else None
+                ),
+                thread_root_id=thread_root_id,
+                group=(
+                    {"id": group_id, "index": index, "total": total}
+                    if group_id is not None
+                    else None
+                ),
+            )
+            if event_id is None:
+                raise ValueError(f"Failed to send media message for '{filename}'")
+            posted.append({"event_id": event_id, "mxc": mxc, "filename": filename})
         try:
             await self.set_typing(agent_id, room_id, False)
         except Exception:
             logger.warning(
                 "Failed to clear typing indicator for room %s", room_id, exc_info=True
             )
-        return {"event_id": event_id, "mxc": mxc}
+        return {
+            "event_id": posted[0]["event_id"],
+            "mxc": posted[0]["mxc"],
+            "attachments": posted,
+        }
 
     async def send_targeted_message(
         self,
