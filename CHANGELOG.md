@@ -139,6 +139,16 @@ below:
 
 ### [Unreleased]
 
+### [0.15.3] - 2026-07-31
+
+#### Fixed
+- Unbreak remote hosts with `IdentitiesOnly` or restricted agent forwarding: the
+  `IdentitiesOnly` key-filter now extends ssh2's `BaseAgent` so it's no longer
+  silently discarded (which had broken auth for keychain-only keys and failed
+  connects under `ForwardAgent yes`), and a host that refuses agent forwarding
+  now degrades to "everything except forwarding" — with a warning — instead of
+  failing every command (#98).
+
 ### [0.15.2] - 2026-07-30
 
 #### Added
