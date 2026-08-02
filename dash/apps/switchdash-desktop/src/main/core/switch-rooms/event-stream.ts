@@ -1,5 +1,5 @@
-import type { AgentBridgeEvent } from './switch-event-format';
 import type { SwitchCredentials } from './room-connection';
+import type { AgentBridgeEvent } from './switch-event-format';
 
 /**
  * The agent bridge's push transport (CHOO-1857), client side.
@@ -274,13 +274,38 @@ export class SwitchEventStream {
    *
    * A 404 or 409 means we are not receiving — the connection expired, or it has
    * no stream attached. Both are recovered by reopening, which resumes from the
-   * cursor. Failing quietly here is the one thing that must not happen: a
-   * client that has stopped receiving while believing it is connected is
-   * exactly the bug this transport exists to remove.
+   * cursor. Failing quietly here is the one thing that must not happen: a client
+   * that has stopped receiving while believing it is connected is exactly the
+   * bug this transport exists to remove.
+   *
+   * While beats succeed the cadence is fixed and short — the server declares the
+   * connection dead without them. While they fail it backs off, because a beat
+   * that has already missed the TTL cannot save the connection: reopening the
+   * stream is what re-establishes it, and that loop is doing its own retrying.
+   * Hammering a dead endpoint every two seconds forever is what this avoids —
+   * an endpoint that is simply gone (a managed server's port after the stack was
+   * destroyed) should cost a trickle of requests and a handful of log lines, not
+   * a permanent stream of both.
    */
   private async beatLoop(): Promise<void> {
     const { log, signal, connectionId } = this.deps;
     let failures = 0;
+    let backoff = BEAT_INTERVAL_MS;
+
+    const fail = (error: unknown): void => {
+      failures += 1;
+      // Report the first failure, then on a curve: powers of two, so a
+      // permanent outage costs a handful of lines rather than one per beat.
+      if ((failures & (failures - 1)) === 0) {
+        log.warn('SwitchEventStream: heartbeat failed', {
+          event: 'switch_beat_failed',
+          endpoint: this.deps.creds.apiEndpoint,
+          failures,
+          error: String(error),
+        });
+      }
+      backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+    };
 
     while (!signal.aborted) {
       try {
@@ -289,35 +314,33 @@ export class SwitchEventStream {
           cursor: this.cursor,
         });
         if (resp.status === 404 || resp.status === 409) {
+          // Not an outage: the server answered. We are simply not attached, so
+          // reopen at the normal cadence rather than backing off.
           log.warn('SwitchEventStream: heartbeat rejected — reopening', {
             event: 'switch_beat_rejected',
             status: resp.status,
             connectionId,
           });
           this.reopen();
-        } else if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}`);
-        } else if (failures > 0) {
-          log.warn('SwitchEventStream: heartbeat recovered', {
-            event: 'switch_beat_recovered',
-            afterFailures: failures,
-          });
           failures = 0;
+          backoff = BEAT_INTERVAL_MS;
+        } else if (!resp.ok) {
+          fail(new Error(`HTTP ${resp.status}`));
+        } else {
+          if (failures > 0) {
+            log.warn('SwitchEventStream: heartbeat recovered', {
+              event: 'switch_beat_recovered',
+              afterFailures: failures,
+            });
+          }
+          failures = 0;
+          backoff = BEAT_INTERVAL_MS;
         }
       } catch (error) {
         if (signal.aborted) return;
-        failures += 1;
-        // Report the first failure, then on a curve: an endpoint that is simply
-        // gone should cost a handful of lines, not one every two seconds.
-        if (failures === 1 || (failures & (failures - 1)) === 0) {
-          log.warn('SwitchEventStream: heartbeat failed', {
-            event: 'switch_beat_failed',
-            consecutiveFailures: failures,
-            error: String(error),
-          });
-        }
+        fail(error);
       }
-      await new Promise((r) => setTimeout(r, BEAT_INTERVAL_MS));
+      await new Promise((r) => setTimeout(r, backoff));
     }
   }
 }

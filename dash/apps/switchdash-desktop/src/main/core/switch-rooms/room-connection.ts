@@ -1,10 +1,10 @@
-import * as fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
+import { SwitchEventStream } from './event-stream';
 import type { InjectionSink } from './injection-sink';
 import type { SessionControl } from './session-control';
-import { SwitchEventStream } from './event-stream';
 import {
   formatEventForInjection,
   formatAttachmentAnnotation,
@@ -430,7 +430,6 @@ export class RoomConnection {
       threadId: null,
     });
   }
-
 
   /**
    * Download a message's attachments — of any type — to local files under
