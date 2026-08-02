@@ -47,10 +47,16 @@ def claim_room_on_caller_connection(
     room *from Switch* rather than by reading the agent's tool result and
     hoping its shape never changes.
 
-    ``takeover`` because the overwhelmingly common case is the same agent
-    returning — after a restart, a reset, or a reconnect — and refusing would
-    lock it out of a room it is already a member of, on the strength of a
-    sibling connection that is usually already dead.
+    **Without takeover.** A dead connection is not a claimant at all —
+    ``claimant_of`` filters on liveness — so the only thing takeover could ever
+    win against is a connection that is genuinely alive and covering the room.
+    Usually that is a supervisor delivering for this very session, and taking
+    the slot from it stops delivery: the tool call succeeds, the agent believes
+    it is in the room, and nothing reaches it again.
+
+    That is not hypothetical. A session started before its supervisor learned to
+    share connections holds its own; when it reconnects, taking over would
+    silence the supervisor that is actually feeding it.
 
     Never fatal. The room binding is written before this runs, so a failure here
     costs delivery routing, not membership, and says so.
@@ -62,7 +68,7 @@ def claim_room_on_caller_connection(
         # binding row still stands and room-scoped calls resolve through it.
         return
     try:
-        protocol.connections.claim_room(connection, room_id, takeover=True)
+        protocol.connections.claim_room(connection, room_id)
     except ConnectionError_ as exc:
         logger.warning(
             "[CONNECT] agent=%s connection=%s could not claim room %s: %s",

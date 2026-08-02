@@ -398,6 +398,33 @@ class AutoSessionWatcher {
       return;
     }
 
+    // A session of ours is already attending this room, even though the server
+    // has not been told yet.
+    //
+    // In steady state the server answers this for us — it goes dark on a room a
+    // session's connection has claimed, so we never hear about it. That leaves
+    // two windows where only we can know: a session booting (the guard above),
+    // and one being restored after a restart, whose connection is open but has
+    // not yet claimed its room. Receiving an event for a room we are already
+    // covering means we are in one of those windows, not that the room is
+    // free — and spawning would give the user a second session beside a
+    // perfectly good one.
+    //
+    // Read from the live connection map rather than the persisted one: a stale
+    // row would block spawning forever, turning a duplicate session into an
+    // unreachable agent, which is both worse and far harder to notice.
+    const attending = switchRoomService
+      .getConnections()
+      .some((c) => c.roomId === roomId && c.agentId === watcher.creds.agentId);
+    if (attending) {
+      log.info('AutoSessionWatcher: a session of ours already attends this room', {
+        event: 'auto_session_spawn_skipped_session_present',
+        localAgentId: watcher.localAgentId,
+        roomId,
+      });
+      return;
+    }
+
     // Tell the poller where the session it is about to open should start
     // reading. We have already consumed this event — that is how we know to
     // spawn — so a session starting at head would come up having missed the

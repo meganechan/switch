@@ -44,7 +44,7 @@ vi.mock('@main/core/agent-hooks/dir-trust-service', () => ({
 // electron-compiled.
 vi.mock('@main/core/switch-rooms/switch-room-service', () => ({
   switchRoomService: {
-    restorePoller: vi.fn(() => Promise.resolve()),
+    restoreConnection: vi.fn(() => Promise.resolve()),
     clearSession: vi.fn(),
   },
 }));

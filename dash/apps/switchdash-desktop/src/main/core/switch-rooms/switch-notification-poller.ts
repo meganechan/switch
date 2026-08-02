@@ -96,13 +96,21 @@ class SwitchNotificationPoller {
     if (existing) {
       if (existing.room === roomId) return;
       if (existing.room === null) {
-        // Our connection is open but the server has not named a room yet.
-        // Trust the server rather than racing it: the claim is in flight and
-        // will arrive on the stream. Tearing down and rebuilding here is what
-        // would lose the session's place.
-        log.debug('SwitchNotificationPoller: hook named a room before the server did', {
-          sessionId: ctx.sessionId,
-          roomId,
+        // Our connection is open but holds no room. Claim it on the existing
+        // connection rather than tearing down and rebuilding — that keeps the
+        // session's place and its cursor.
+        //
+        // This is what a restored session needs. It is resumed, not started
+        // fresh, so it never re-runs its initial prompt and never calls
+        // connect_to_room: no claim is coming from the server, and waiting for
+        // one leaves the connection room-less forever, the session silent, and
+        // the watcher spawning a duplicate for the next message.
+        void existing.repointTo(roomId, roomName).catch((error) => {
+          log.warn('SwitchNotificationPoller: failed to claim the remembered room', {
+            sessionId: ctx.sessionId,
+            roomId,
+            error: String(error),
+          });
         });
         return;
       }

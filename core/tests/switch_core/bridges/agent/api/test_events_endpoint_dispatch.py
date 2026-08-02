@@ -34,6 +34,9 @@ class _Protocol:
         self.polled = True
         return []
 
+    async def require_room_member(self, agent_id: str, room_id: str) -> None:
+        return None
+
 
 def _agent() -> Any:
     return SimpleNamespace(id=AGENT_ID)
@@ -52,6 +55,7 @@ async def _call(protocol: _Protocol, **kw: Any) -> Any:
         "start_from": "head",
         "spawn_capable": False,
         "protocol_version": PROTOCOL_VERSION,
+        "rooms": None,
         "last_event_id": None,
     }
     params.update(kw)
@@ -161,3 +165,42 @@ def _event() -> Any:
             timestamp=0,
         ),
     )
+
+
+class TestDeclaringARoomAtOpenTakesOver:
+    """A supervisor opening a stream for a room it manages must win the slot.
+
+    The rule: the client doing the delivering owns the room. Naming a room on
+    the URL is a supervisor asserting ownership of a session it is about to
+    feed; a `connect_to_room` claim is cooperative and yields.
+
+    Without the takeover, a session started before its supervisor learned to
+    share connections keeps the slot, and the supervisor's restored stream 409s
+    and retries forever while the session sits silent.
+    """
+
+    async def test_an_incumbent_is_evicted_from_the_room(self) -> None:
+        protocol = _Protocol()
+        incumbent = protocol.connections.open(
+            agent_id=AGENT_ID,
+            connection_id="in-session-runtime",
+            scope="single",
+            delivery_filter="all",
+            spawn_capable=False,
+            cursor=0,
+            protocol_version=PROTOCOL_VERSION,
+        )
+        protocol.connections.claim_room(incumbent, "room-1")
+
+        resp = await _call(
+            protocol,
+            accept="text/event-stream",
+            connection_id="supervisor",
+            rooms="room-1",
+        )
+
+        assert isinstance(resp, StreamingResponse)
+        claimant = protocol.connections.claimant_of(AGENT_ID, "room-1")
+        assert claimant is not None
+        assert claimant.id == "supervisor"
+        assert "room-1" not in incumbent.rooms

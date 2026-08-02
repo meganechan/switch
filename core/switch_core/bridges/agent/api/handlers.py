@@ -737,7 +737,18 @@ async def _open_event_stream(
     for room_id in [r for r in (rooms or "").split(",") if r]:
         try:
             await protocol.require_room_member(agent.id, room_id)
-            protocol.connections.claim_room(conn, room_id)
+            # Declaring a room on the URL takes it over; a tool call does not.
+            #
+            # The client doing the delivering owns the slot. Naming a room here
+            # is a supervisor asserting ownership of a session it manages and
+            # is about to feed — a stream it opens must work, or the session it
+            # restored is silent. A `connect_to_room` claim is cooperative and
+            # yields to whoever is already covering the room.
+            #
+            # Without this, a session started before its supervisor learned to
+            # share connections keeps the slot, and the supervisor's restored
+            # stream 409s and retries forever.
+            protocol.connections.claim_room(conn, room_id, takeover=True)
         except (ValueError, PermissionError) as exc:
             protocol.connections.close(conn.id, "invalid room subscription")
             raise HTTPException(status_code=403, detail=str(exc)) from exc

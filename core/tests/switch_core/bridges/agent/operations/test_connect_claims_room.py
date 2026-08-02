@@ -73,15 +73,19 @@ def test_the_claim_wakes_the_stream_so_its_holder_is_told() -> None:
     assert conn.wake.is_set()
 
 
-def test_a_stale_sibling_does_not_lock_the_agent_out() -> None:
-    """The common case is the same agent returning after a restart or reset.
+def test_a_dead_sibling_does_not_lock_the_agent_out() -> None:
+    """The same agent returning after a restart must be able to re-enter.
 
-    Refusing would leave it unable to re-enter a room it is already a member
-    of, on the strength of a connection that is usually already dead.
+    Its previous connection is usually still registered but no longer beating.
+    That is not a claimant — `claimant_of` filters on liveness — so there is
+    nothing to take over and the claim simply succeeds.
     """
+    import time as _time
+
     registry = ConnectionRegistry()
-    stale = _open(registry, "stale")
-    registry.claim_room(stale, ROOM)
+    dead = _open(registry, "previous-life")
+    registry.claim_room(dead, ROOM)
+    dead.last_beat = _time.monotonic() - 3600
     _open(registry, CONN)
 
     claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
@@ -89,7 +93,30 @@ def test_a_stale_sibling_does_not_lock_the_agent_out() -> None:
     claimant = registry.claimant_of(AGENT, ROOM)
     assert claimant is not None
     assert claimant.id == CONN
-    assert ROOM not in stale.rooms
+
+
+def test_a_live_sibling_keeps_the_room() -> None:
+    """A tool call does not take a room off a connection that is delivering.
+
+    The only thing a takeover here could ever win against is a live connection
+    covering the room — typically a supervisor feeding this very session. Taking
+    the slot from it stops delivery *silently*: the call succeeds, the agent
+    believes it is in the room, and nothing reaches it again.
+
+    Ownership goes the other way: a supervisor declaring a room when it opens
+    its stream takes over; a `connect_to_room` yields.
+    """
+    registry = ConnectionRegistry()
+    supervisor = _open(registry, "supervisor")
+    registry.claim_room(supervisor, ROOM)
+    _open(registry, CONN)
+
+    claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    claimant = registry.claimant_of(AGENT, ROOM)
+    assert claimant is not None
+    assert claimant.id == "supervisor"
+    assert ROOM in supervisor.rooms
 
 
 def test_an_unknown_connection_is_not_an_error() -> None:

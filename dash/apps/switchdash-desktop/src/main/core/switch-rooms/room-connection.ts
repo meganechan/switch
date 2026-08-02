@@ -306,6 +306,34 @@ export class RoomConnection {
   }
 
   /**
+   * Claim a room we already know about, without waiting to be told.
+   *
+   * For a **restored** session. Normally the room arrives from the server,
+   * because the session's `connect_to_room` claims it on this connection — but
+   * a resumed session never calls the tool again: it does not re-run its
+   * initial prompt. Nothing is coming, and we are the only ones who remember
+   * which room it was in, so we assert it.
+   *
+   * Not a return to inferring rooms. This is the one case where the knowledge
+   * is genuinely ours: read back from our own persisted map for a session we
+   * are restarting. Everywhere else the server still decides.
+   */
+  async repointTo(roomId: string, roomName: string | null): Promise<void> {
+    if (this.roomId === roomId) return;
+    this.roomName = roomName;
+    this.log.debug('RoomConnection: claiming the remembered room for a restored session', {
+      event: 'room_connection_repoint',
+      sessionId: this.sessionId,
+      roomId,
+      previous: this.roomId,
+    });
+    // The server's acknowledgement comes back as `subscription_changed`, which
+    // sets `roomId` through the normal path — so there is still exactly one
+    // writer for it, and a claim that fails leaves us honestly room-less.
+    await this.stream?.repoint(roomId);
+  }
+
+  /**
    * Take the room the server says this connection covers.
    *
    * The server is the authority: the session's `connect_to_room` claimed the

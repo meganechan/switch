@@ -1041,3 +1041,102 @@ describe('a spawned session starts from its trigger', () => {
     conn.stop();
   });
 });
+
+/**
+ * A restored session claims the room we remembered for it.
+ *
+ * Normally the room arrives from the server, because the session's
+ * `connect_to_room` claims it on this connection. A resumed session never
+ * calls the tool again — it does not re-run its initial prompt — so nothing is
+ * coming. Waiting leaves the connection room-less forever: the session is
+ * silent, and the watcher spawns a duplicate for the next message.
+ */
+describe('repointing a restored session', () => {
+  it('claims the remembered room on the existing connection', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).includes('/events')) {
+        return {
+          ok: true,
+          status: 200,
+          body: new ReadableStream<Uint8Array>({ start() {} }),
+          text: async (): Promise<string> => '',
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async (): Promise<string> => '',
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const conn = new RoomConnection({
+      creds,
+      roomId: null,
+      roomName: null,
+      connectionId: 'conn-1',
+      sessionId: 'session-1',
+      sink: { acquire: () => ({ write: vi.fn() }) },
+      injector,
+      control,
+      deeplinkScheme: 'switchdash',
+      isHumanTyping: () => false,
+      mediaDir,
+      log: silentLog,
+    });
+    conn.start();
+    await flush();
+
+    await conn.repointTo('room-remembered', 'Remembered');
+
+    const subscribe = fetchMock.mock.calls.find((c) =>
+      String(c[0]).includes('/connection/subscribe')
+    );
+    expect(subscribe).toBeDefined();
+    expect(String((subscribe![1] as RequestInit).body)).toContain('room-remembered');
+    conn.stop();
+  });
+
+  it('does nothing when it already holds that room', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).includes('/events')) {
+        return {
+          ok: true,
+          status: 200,
+          body: new ReadableStream<Uint8Array>({ start() {} }),
+          text: async (): Promise<string> => '',
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async (): Promise<string> => '',
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const conn = new RoomConnection({
+      creds,
+      roomId: 'room-1',
+      roomName: 'Room One',
+      connectionId: 'conn-1',
+      sessionId: 'session-1',
+      sink: { acquire: () => ({ write: vi.fn() }) },
+      injector,
+      control,
+      deeplinkScheme: 'switchdash',
+      isHumanTyping: () => false,
+      mediaDir,
+      log: silentLog,
+    });
+    conn.start();
+    await flush();
+
+    await conn.repointTo('room-1', 'Room One');
+
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/connection/subscribe'))).toBe(
+      false
+    );
+    conn.stop();
+  });
+});

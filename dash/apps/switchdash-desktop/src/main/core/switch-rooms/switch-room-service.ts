@@ -164,16 +164,20 @@ class SwitchRoomService implements IDisposable {
   }
 
   /**
-   * Re-establish a session's room connection and poller from persisted state.
-   * Called when a session's PTY (re)launches — e.g. after an app restart — so
-   * the agent keeps receiving addressed room events without having to call
-   * connect_to_room again. No-op when the session has no persisted room.
+   * Re-establish a session's connection to its room from persisted state.
+   *
+   * Called when a session's PTY (re)launches — e.g. after an app restart. A
+   * resumed session does not re-run its initial prompt, so it never calls
+   * `connect_to_room` again: nobody else is going to say which room it was in,
+   * and without this it comes back connected to nothing.
+   *
+   * No-op when the session has no persisted room.
    */
-  async restorePoller(ctx: SessionRoomContext): Promise<void> {
+  async restoreConnection(ctx: SessionRoomContext): Promise<void> {
     const persisted = await getPersistedRoomConnection(ctx.sessionId);
     if (!persisted) return;
 
-    log.info('SwitchRoomService: restoring room poller for resumed session', {
+    log.info('SwitchRoomService: restoring the room connection for a resumed session', {
       sessionId: ctx.sessionId,
       roomId: persisted.roomId,
     });

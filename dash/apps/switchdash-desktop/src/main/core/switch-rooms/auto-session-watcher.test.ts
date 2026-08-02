@@ -14,6 +14,17 @@ vi.mock('@main/core/sessions/session-service', () => ({
 // spawnForRoom reads the agent to decide autoApprove; startForAgent / the loops
 // also touch this. Route it through a controllable mock so tests can set the
 // per-agent flag.
+const getConnections = vi.fn(() => [] as Array<{ roomId: string; agentId: string | null }>);
+vi.mock('./switch-room-service', () => ({
+  switchRoomService: {
+    getConnections: () => getConnections(),
+    onSessionRoomChanged: () => () => {},
+  },
+}));
+vi.mock('./switch-notification-poller', () => ({
+  switchNotificationPoller: { noteSpawnTrigger: vi.fn() },
+}));
+
 vi.mock('@main/core/agents/getAgentById', () => ({
   getAgentById: (...args: unknown[]) => getAgentById(...args),
 }));
@@ -49,6 +60,8 @@ function handle(watcher: ReturnType<typeof fakeWatcher>, roomId: string): void {
 describe('AutoSessionWatcher.handleNotification', () => {
   beforeEach(() => {
     createSession.mockReset();
+    getConnections.mockReset();
+    getConnections.mockReturnValue([]);
     getAgentById.mockReset();
     getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false });
     createSession.mockResolvedValue({ success: true, data: { session: { id: 'new' } } });
@@ -150,6 +163,45 @@ describe('AutoSessionWatcher.handleNotification', () => {
 
       handle(watcher, 'room-x');
       await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+    });
+  });
+
+  /**
+   * The restore window: switchdash has a session for this room, but its
+   * connection has not claimed the room yet — so the server still reports the
+   * room as unattended and delivers the event here.
+   *
+   * The server owns "who is in this room" once it has been told. Before that
+   * there are windows only switchdash can see: a session booting, and one being
+   * restored after a restart. Spawning in either gives the user a second
+   * session beside a working one.
+   */
+  describe('a session we already have', () => {
+    it('does not spawn when one of our sessions attends the room', async () => {
+      getConnections.mockReturnValue([{ roomId: 'room-x', agentId: CREDS.agentId }]);
+      const watcher = fakeWatcher();
+
+      handle(watcher, 'room-x');
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(createSession).not.toHaveBeenCalled();
+    });
+
+    it('still spawns when our session is in a different room', async () => {
+      getConnections.mockReturnValue([{ roomId: 'other-room', agentId: CREDS.agentId }]);
+      const watcher = fakeWatcher();
+
+      handle(watcher, 'room-x');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    });
+
+    it('still spawns when the room is attended by a different agent', async () => {
+      // Two agents can share a room; another agent's session is not ours.
+      getConnections.mockReturnValue([{ roomId: 'room-x', agentId: 'someone-else' }]);
+      const watcher = fakeWatcher();
+
+      handle(watcher, 'room-x');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
     });
   });
 });

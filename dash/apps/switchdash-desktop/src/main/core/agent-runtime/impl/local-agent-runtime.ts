@@ -300,7 +300,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       // resume polling that room — the connect_to_room hook only fires on a
       // live tool call, so a resumed session would otherwise go silent.
       void switchRoomService
-        .restorePoller({
+        .restoreConnection({
           sessionId: this.sessionId,
           providerId: session.providerId,
           ptyId,
