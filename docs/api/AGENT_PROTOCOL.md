@@ -579,12 +579,20 @@ in memory — nothing to transmit, leak or get wrong. The connection id never
 appears in a prompt or a config file, and the process can refuse a tool call
 immediately when its own stream is down.
 
-**This is what ships now.** The runtime lives at `connectors/runtime`, outside
-any one plugin: one versioned artifact both connector plugins point at rather
-than a copy each. It holds the stream, serves the whole operation surface over
-stdio, and turns each tool call into `POST /ops/{operation}` carrying its own
-connection id — so an agent never talks to Switch directly and correlation is
-structural.
+**This is what ships now.** The runtime lives in the plugin at
+`connectors/claude-code-plugin/runtime`. It holds the stream, serves the whole
+operation surface over stdio, and turns each tool call into
+`POST /ops/{operation}` carrying its own connection id — so an agent never
+talks to Switch directly and correlation is structural.
+
+**Distribution is not solved yet.** A marketplace installs a plugin from its
+own subtree (`source: ./connectors/claude-code-plugin`), so the runtime has to
+sit *inside* the plugin to be installed with it — a sibling directory is not
+copied and the path dangles. With a second connector plugin that means a
+second copy, which is the thing worth avoiding. The answer is to publish the
+runtime as a package each plugin depends on (the launcher already runs an
+install step, so this is a small change), and that should happen before the
+Codex plugin ships rather than after.
 
 The operation list is fetched from the server at startup rather than hardcoded,
 so the tool surface is whatever the server actually offers. If that fetch
