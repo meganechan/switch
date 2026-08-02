@@ -266,6 +266,23 @@ describe('RemoteAttachmentPool', () => {
     expect(a.attachCalls).toBe(1);
   });
 
+  it('attaches a session that is focused before its runtime is registered', async () => {
+    // The renderer reports focus on navigation, which can beat provisioning.
+    // Without the catch-up in register(), the click would open nothing.
+    pool.setFocused('a');
+    const a = add('a');
+
+    await vi.waitFor(() => expect(a.attached).toBe(true));
+  });
+
+  it('does not attach an unfocused session on registration', async () => {
+    pool.setFocused('other');
+    const a = add('a');
+
+    await Promise.resolve();
+    expect(a.attachCalls).toBe(0);
+  });
+
   it('keeps a live session attached when its runtime re-registers', async () => {
     const a = add('a');
     await pool.requestAttach('a', 'user');

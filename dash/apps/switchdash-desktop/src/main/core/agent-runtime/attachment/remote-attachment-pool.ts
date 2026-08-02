@@ -67,6 +67,17 @@ export class RemoteAttachmentPool {
       // A re-provisioned runtime for a live session keeps its state.
       state: existing?.state ?? (runtime.isAttached() ? 'attached' : 'detached'),
     });
+
+    // Focus can arrive before the runtime exists — the renderer reports it on
+    // navigation while provisioning is still running — and a `setFocused` for an
+    // unknown session has nothing to attach. Catch up here, or clicking a
+    // not-yet-provisioned session would leave its terminal closed with nothing
+    // to retry it.
+    if (sessionId === this.focusedSessionId && !runtime.isAttached()) {
+      void this.requestAttach(sessionId, 'focus').catch(() => {
+        // requestAttach already recorded and published the failure.
+      });
+    }
   }
 
   unregister(sessionId: string): void {
