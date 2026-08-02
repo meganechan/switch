@@ -363,7 +363,11 @@ async function loadOperations(): Promise<void> {
 async function callOperation(
   name: string,
   args: Record<string, unknown>,
-): Promise<{ isError?: boolean; content: { type: 'text'; text: string }[] }> {
+): Promise<{
+  isError?: boolean
+  content: { type: 'text'; text: string }[]
+  structuredContent?: Record<string, unknown>
+}> {
   try {
     const resp = await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/ops/${name}`, {
       method: 'POST',
@@ -380,16 +384,23 @@ async function callOperation(
       return { isError: true, content: [{ type: 'text', text: `${resp.status}: ${text}` }] }
     }
     const data = JSON.parse(text) as { result?: unknown }
+    const result = data.result ?? null
     return {
       content: [
         {
           type: 'text',
-          text:
-            typeof data.result === 'string'
-              ? data.result
-              : JSON.stringify(data.result ?? null, null, 2),
+          text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
         },
       ],
+      // Object results are also returned as structured content. The remote MCP
+      // server produced this for free (FastMCP derives it from the return
+      // type), and hosts read the tool's *fields* from it — switchdash's
+      // connect_to_room hook takes room_id and agent_id straight off the tool
+      // response. Text alone leaves them with a blob they cannot address, so
+      // the session silently never gets bound to its room.
+      ...(result !== null && typeof result === 'object' && !Array.isArray(result)
+        ? { structuredContent: result as Record<string, unknown> }
+        : {}),
     }
   } catch (err) {
     return { isError: true, content: [{ type: 'text', text: `${name} failed: ${err}` }] }
