@@ -717,7 +717,7 @@ class AgentClient(ClientBase[ClientConfig]):
             )
             bound_here = await self._agent_session_store.has_room_binding(
                 session, self.agent.id, meta.room_id
-            ) or self._connections.live_in_room(self.agent.id, meta.room_id)
+            ) or self._connections.has_session_in(self.agent.id, meta.room_id)
             names: list[str] = []
             holds_role_here = False
             other_room_ids = [rid for rid in room_ids if rid != meta.room_id]
@@ -817,7 +817,9 @@ class AgentClient(ClientBase[ClientConfig]):
         if connection_model == "always_on":
             if self._connections.is_live(self.agent.id):
                 return True
-        elif self._connections.live_in_room(self.agent.id, room_id):
+        elif self._connections.has_session_in(self.agent.id, room_id):
+            # A claimed room slot, not mere coverage: an `all`-scope watcher
+            # covering this room is not a session that can answer.
             return True
 
         heartbeat_room = None if connection_model == "always_on" else room_id

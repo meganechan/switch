@@ -77,10 +77,20 @@ async def compute_agent_statuses(
         session, addressable_ids, room_id
     )
 
+    # always_on has no separate notion of a session: any live connection is the
+    # agent being up, and its scope is room-agnostic.
     live_always_on |= connections.live_agents(always_on_ids)
-    live_auto_room |= connections.live_agents_in_room(auto_session_ids, room_id)
+    # For the session-shaped models, LIVE means a session is *attending* the
+    # room — a claimed room slot. An `all`-scope watcher covers rooms it has
+    # not yielded, which is the delivery rule, not presence: treating it as
+    # LIVE would report an agent as present in a room where nothing but a
+    # watcher is listening, suppressing both the "no session" reply and the
+    # auto_session promise to start one.
+    live_auto_room |= connections.agents_with_session_in(auto_session_ids, room_id)
+    live_addressable |= connections.agents_with_session_in(addressable_ids, room_id)
+    # …whereas watching is exactly "has any live connection": that is what the
+    # /watch/heartbeat loop used to assert, and what DORMANT means.
     watching_auto |= connections.live_agents(auto_session_ids)
-    live_addressable |= connections.live_agents_in_room(addressable_ids, room_id)
 
     statuses: dict[str, AgentStatus] = {}
     for agent in agents:

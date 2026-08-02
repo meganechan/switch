@@ -116,9 +116,7 @@ class TestPresenceIsAUnion:
         store = _FakeSessionStore(live_ids=set())
         registry = _registry(agent_id="addr", room="room-1")
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"addr": AgentStatus.LIVE}
 
@@ -127,9 +125,7 @@ class TestPresenceIsAUnion:
         store = _FakeSessionStore(live_ids=set())
         registry = _registry(agent_id="addr", room="other-room")
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"addr": AgentStatus.NO_SESSION}
 
@@ -144,10 +140,9 @@ class TestPresenceIsAUnion:
 
         assert statuses == {"addr": AgentStatus.LIVE}
 
-    async def test_an_all_scope_connection_covers_a_room_it_never_claimed(
-        self,
-    ) -> None:
-        # A supervising daemon is reachable in every room it has not yielded.
+    async def test_an_all_scope_connection_makes_an_always_on_agent_live(self) -> None:
+        # always_on has no separate session: the connection IS the agent being
+        # up, and its liveness is room-agnostic.
         agents = [_agent("daemon", "always_on")]
         store = _FakeSessionStore(live_ids=set())
         registry = _registry(agent_id="daemon", scope="all")
@@ -157,6 +152,39 @@ class TestPresenceIsAUnion:
         )
 
         assert statuses == {"daemon": AgentStatus.LIVE}
+
+    async def test_a_watcher_is_not_a_session(self) -> None:
+        """An `all`-scope watcher covering a room is not a session in it.
+
+        `covers()` is the delivery rule and deliberately includes the
+        all-scope fallback. Presence for a session-shaped agent asks something
+        narrower — is a session attending? — and only a claimed room slot
+        answers that. Reading coverage as presence reports the agent LIVE in a
+        room where nothing but a watcher is listening, which suppresses the
+        "no session" reply.
+        """
+        agents = [_agent("addr", "session_addressable")]
+        store = _FakeSessionStore(live_ids=set())
+        registry = _registry(agent_id="addr", scope="all")
+
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
+
+        assert statuses == {"addr": AgentStatus.NO_SESSION}
+
+    async def test_a_watcher_leaves_auto_session_dormant_not_live(self) -> None:
+        """The same distinction, where it matters most.
+
+        DORMANT is what licenses "Starting a session…". Reporting LIVE instead
+        means the room looks attended, the promise is never made, and the
+        message waits with nothing to answer it.
+        """
+        agents = [_agent("auto", "auto_session")]
+        store = _FakeSessionStore(live_ids=set())
+        registry = _registry(agent_id="auto", scope="all")
+
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
+
+        assert statuses == {"auto": AgentStatus.DORMANT}
 
     async def test_a_watching_connection_makes_auto_session_dormant_not_down(
         self,
@@ -171,9 +199,7 @@ class TestPresenceIsAUnion:
         # `single` scope, no room claimed: watching, covering nothing.
         registry = _registry(agent_id="auto")
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"auto": AgentStatus.DORMANT}
 
@@ -182,9 +208,7 @@ class TestPresenceIsAUnion:
         store = _FakeSessionStore(live_ids=set())
         registry = _registry(agent_id="auto", room="room-1")
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"auto": AgentStatus.LIVE}
 
@@ -194,9 +218,7 @@ class TestPresenceIsAUnion:
         store = _FakeSessionStore(live_ids={"passive"})
         registry = _registry(agent_id="passive", room="room-1")
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"passive": AgentStatus.AWAITING_MANUAL_POLL}
 
@@ -212,8 +234,6 @@ class TestPresenceIsAUnion:
         # Stop beating: past the TTL the connection stops counting.
         conn.last_beat = _time.monotonic() - 3600
 
-        statuses = await compute_agent_statuses(
-            None, agents, "room-1", store, registry
-        )
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"addr": AgentStatus.NO_SESSION}

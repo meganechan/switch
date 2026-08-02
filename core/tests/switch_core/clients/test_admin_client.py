@@ -20,6 +20,7 @@ def _no_connections() -> SimpleNamespace:
         live_agent_ids=lambda: set(),
         is_live=lambda _agent_id: False,
         live_in_room=lambda _agent_id, _room_id: False,
+        has_session_in=lambda _agent_id, _room_id: False,
         for_agent=lambda _agent_id: [],
     )
 
