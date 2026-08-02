@@ -197,7 +197,7 @@ const mcp = new Server(
       },
     },
     instructions: [
-      'Events from Switch rooms arrive as <channel source="switch-channel" room_id="..." event_type="..." ...>.',
+      'Events from Switch rooms arrive as <channel source="switch" room_id="..." event_type="..." ...>.',
       'Only addressed messages, room_join events, and task events are delivered — unaddressed room chatter is filtered out.',
       '',
       'A room_join event fires when a user or agent joins a room — but you are only notified for rooms where you are configured to receive join events (per-room, per-agent; off by default, set via the join_event_listeners option on create_room / update_room or the gateway). The meta carries member (their matrix id) and member_name (their display name). React if it is relevant — e.g. a welcome agent greets the new arrival and explains the room via post_message, or send_targeted_message to address them directly. Your own join does not produce a room_join event.',
