@@ -119,6 +119,7 @@ class ProtocolService:
         client_lifecycle: ClientLifecycleService,
         collab_lifecycle: CollaborationBridgeLifecycleService,
         event_buffer: EventBuffer,
+        connections: ConnectionRegistry,
         task_store: TaskStore,
         request_tracker: RequestTracker,
         resource_request_tracker: ResourceRequestTracker,
@@ -140,7 +141,11 @@ class ProtocolService:
         self.client_lifecycle = client_lifecycle
         self.collab_lifecycle = collab_lifecycle
         self.event_buffer = event_buffer
-        self.connections = ConnectionRegistry()
+        # Injected, not constructed: more than one ProtocolService exists in a
+        # running server, and a connection registered through one must be
+        # visible to all of them. Owning a registry here would split the live
+        # connection set in two.
+        self.connections = connections
         self.task_store = task_store
         self.request_tracker = request_tracker
         self.resource_request_tracker = resource_request_tracker

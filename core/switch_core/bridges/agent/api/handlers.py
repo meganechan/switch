@@ -631,6 +631,7 @@ async def poll_events(
     start_from: Annotated[str, Query()] = "head",
     spawn_capable: Annotated[bool, Query()] = False,
     protocol_version: Annotated[int, Query(alias="protocol")] = PROTOCOL_VERSION,
+    rooms: Annotated[str | None, Query()] = None,
     last_event_id: Annotated[str | None, Header(alias="last-event-id")] = None,
 ) -> EventResponse | Response:
     """Deliver the agent's events, as a push stream or a long poll.
@@ -641,7 +642,7 @@ async def poll_events(
     while both exist.
     """
     if accept and "text/event-stream" in accept:
-        return _open_event_stream(
+        return await _open_event_stream(
             agent=agent,
             protocol=protocol,
             connection_id=connection_id,
@@ -650,6 +651,7 @@ async def poll_events(
             start_from=start_from,
             spawn_capable=spawn_capable,
             protocol_version=protocol_version,
+            rooms=rooms,
             last_event_id=last_event_id,
         )
 
@@ -682,7 +684,7 @@ def _resolve_start_cursor(
         ) from exc
 
 
-def _open_event_stream(
+async def _open_event_stream(
     *,
     agent: Agent,
     protocol: ProtocolService,
@@ -692,6 +694,7 @@ def _open_event_stream(
     start_from: str,
     spawn_capable: bool,
     protocol_version: int,
+    rooms: str | None,
     last_event_id: str | None,
 ) -> StreamingResponse:
     if not connection_id:
@@ -725,6 +728,22 @@ def _open_event_stream(
         )
     except ConnectionError_ as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # Rooms are claimed before the stream starts, not after it opens. A client
+    # reconnecting already knows which room it was in; making it re-subscribe
+    # afterwards would race the catch-up, and buffered events for that room
+    # would be skipped as "not covered" and the cursor advanced past them —
+    # losing exactly the events resume exists to recover.
+    for room_id in [r for r in (rooms or "").split(",") if r]:
+        try:
+            await protocol.require_room_member(agent.id, room_id)
+            protocol.connections.claim_room(conn, room_id)
+        except (ValueError, PermissionError) as exc:
+            protocol.connections.close(conn.id, "invalid room subscription")
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ConnectionError_ as exc:
+            protocol.connections.close(conn.id, "room already claimed")
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     return StreamingResponse(
         event_stream(

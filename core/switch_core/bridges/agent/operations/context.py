@@ -59,11 +59,27 @@ def session_key() -> str | None:
 
 
 async def require_connected_room() -> str:
-    """The room this caller is bound to, or a clear error saying it is not."""
+    """The room this caller is bound to, or a clear error saying it is not.
+
+    The live connection is asked first: a connection that has claimed a room is
+    in it, whether or not anything was ever written to a table. The table is
+    consulted only for callers that predate connections (an MCP transport
+    session), and goes away with them.
+    """
     key = session_key()
     if not key:
         raise ValueError("Not connected to a room. Call connect_to_room first.")
+
     protocol = get_protocol()
+    connection = protocol.connections.get(key)
+    if connection is not None and connection.rooms:
+        if len(connection.rooms) > 1:
+            raise ValueError(
+                "This connection covers several rooms; the operation needs one "
+                "— pass the room explicitly or use a single-room connection."
+            )
+        return next(iter(connection.rooms))
+
     async with protocol.session_factory() as db:
         result = await protocol.agent_session_store.get_connected_room(db, key)
     if result is None:

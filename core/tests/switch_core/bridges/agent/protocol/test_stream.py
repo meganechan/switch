@@ -68,7 +68,7 @@ async def _take(stream, count: int, timeout: float = 2.0) -> list[tuple[str, dic
 def _open(registry: ConnectionRegistry, **kw: Any):
     params: dict[str, Any] = {
         "agent_id": AGENT,
-        "connection_id": "c1",
+        "connection_id": kw.pop("connection_id", "c1"),
         "scope": "single",
         "delivery_filter": "all",
         "spawn_capable": False,
@@ -293,3 +293,66 @@ async def test_two_connections_receive_the_same_event(scope: str) -> None:
 
     assert (await _take(a, 2))[1][1]["payload"]["body"] == "shared"
     assert (await _take(b, 2))[1][1]["payload"]["body"] == "shared"
+
+
+async def test_resume_replays_buffered_events_for_a_room_claimed_at_open() -> None:
+    """The reconnect case the whole design exists for.
+
+    A client that drops and comes back declares its room when it reopens. If
+    the room were only claimed after the stream started, catch-up would run
+    first, skip those events as "not covered", and advance the cursor past
+    them — losing exactly what resume is meant to recover.
+    """
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+
+    seen = buffer.enqueue(AGENT, ROOM_A, _message("before the drop"))
+    buffer.enqueue(AGENT, ROOM_A, _message("while disconnected"))
+
+    conn = _open(registry, connection_id="c-resumed", cursor=seen)
+    # Claimed before the stream is created, as the endpoint does.
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][0] == "message"
+    assert frames[1][1]["payload"]["body"] == "while disconnected"
+
+
+async def test_events_for_uncovered_rooms_do_not_block_the_cursor() -> None:
+    """Skipping is deliberate for rooms this connection does not cover."""
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    buffer.enqueue(AGENT, ROOM_B, _message("someone else's room", room=ROOM_B))
+    last = buffer.enqueue(AGENT, ROOM_A, _message("mine"))
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][1]["payload"]["body"] == "mine"
+    assert conn.cursor == last
+
+
+async def test_a_cursor_from_before_a_restart_is_reported_not_ignored() -> None:
+    """The buffer is in memory, so a restart resets the numbering.
+
+    A client that comes back with a cursor from the previous process would
+    otherwise sit quietly at a position that no longer means anything, looking
+    caught up while its history has a hole in it.
+    """
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    buffer.enqueue(AGENT, ROOM_A, _message("after the restart"))
+
+    conn = _open(registry, cursor=4812)  # from a previous life
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][0] == "gap"
+    assert "restarted" in frames[1][1]["reason"]

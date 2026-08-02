@@ -174,6 +174,9 @@ let heartbeatAbort: AbortController | null = null
 // trim what we have seen.
 let cursor = 0
 
+// Whether the currently open stream declared a room when it opened.
+let streamHasRoom = false
+
 // Unaddressed room messages are filtered out (never reach Claude as a
 // notification), so the agent silently falls behind on room chatter. We tally
 // how many we've dropped since the agent last read context and surface that
@@ -669,6 +672,10 @@ function startStream() {
           filter: 'all',
           start_from: cursor > 0 ? String(cursor) : 'head',
         })
+        // Declare the room when opening, not after: catch-up runs immediately,
+        // and a room subscribed afterwards would arrive too late for the
+        // buffered events this reconnect exists to recover.
+        if (pollingRoomId) params.set('rooms', pollingRoomId)
         const resp = await fetch(
           `${API_ENDPOINT}/agents/${AGENT_ID}/events?${params}`,
           {
@@ -819,6 +826,12 @@ function setConnectedRoom(target: string | null) {
     startStream()
     startHeartbeat()
     void subscribeRoom(target)
+    // If the stream was already open before this room was known, it opened
+    // without one; reopening picks the room up at open time.
+    if (streamAbort && !streamHasRoom) {
+      streamHasRoom = true
+      restartStream()
+    }
   }
 }
 
@@ -877,6 +890,11 @@ function startHeartbeat() {
       await new Promise(r => setTimeout(r, HEARTBEAT_INTERVAL_MS))
     }
   })()
+}
+
+function restartStream() {
+  stopStreamKeepingRoom()
+  startStream()
 }
 
 function stopStreamKeepingRoom() {

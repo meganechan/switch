@@ -12,6 +12,7 @@ from switch_core.bridges.agent.auth import BearerAuthMiddleware
 from switch_core.bridges.agent.deeplink import router as deeplink_router
 from switch_core.bridges.agent.dependencies import init_dependencies
 from switch_core.bridges.agent.mcp import create_mcp_app
+from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.request_tracker import RequestTracker
@@ -53,6 +54,10 @@ def create_agent_bridge_app(
     session_factory: object,
     config: SwitchConfig,
 ) -> tuple[FastAPI, ProtocolService]:
+    # One registry for the whole process: the live connection set is the source
+    # of truth for reachability, so every service must see the same one.
+    connections = ConnectionRegistry()
+
     init_dependencies(
         agent_store=agent_store,
         agent_session_store=agent_session_store,
@@ -61,6 +66,7 @@ def create_agent_bridge_app(
         client_lifecycle=client_lifecycle,
         collab_lifecycle=collab_lifecycle,
         event_buffer=event_buffer,
+        connections=connections,
         task_store=task_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,
@@ -80,6 +86,7 @@ def create_agent_bridge_app(
         client_lifecycle=client_lifecycle,
         collab_lifecycle=collab_lifecycle,
         event_buffer=event_buffer,
+        connections=connections,
         task_store=task_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,
