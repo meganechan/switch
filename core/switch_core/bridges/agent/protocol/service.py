@@ -1099,10 +1099,20 @@ class ProtocolService:
         stuck on the bridge. Each non-idle row is checked against the same
         liveness window `!status` uses; stale ones are collapsed to idle and a
         clear event is emitted.
+
+        Liveness is the same union every other reader takes (CHOO-1857): the
+        heartbeat rows for clients still polling, the live connections for
+        clients on the push transport. Checking only the rows made this sweep
+        clear the state of a perfectly live session on every pass — and because
+        the bridge deletes the "working on it…" message on idle and posts a new
+        one on the next update, the visible effect was the status message being
+        deleted and recreated on every refresh rather than edited in place.
         """
         async with self.session_factory() as session:
             rows = await self.agent_runtime_state_store.get_active(session)
         for row in rows:
+            if self.connections.has_session_in(row.agent_id, row.room_id):
+                continue
             async with self.session_factory() as session:
                 live = await self.agent_session_store.get_live_agent_ids(
                     session, [row.agent_id], row.room_id
