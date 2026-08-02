@@ -58,25 +58,11 @@ def list_operations() -> dict[str, dict[str, Any]]:
     """
     return {
         op.name: {
-            "description": op.description.split("\n")[0],
-            "parameters": _parameter_spec(op.fn),
+            "description": op.description,
+            "input_schema": op.input_schema,
         }
         for op in all_operations().values()
     }
-
-
-def _parameter_spec(fn: Any) -> dict[str, Any]:
-    """Parameter names, whether they are required, and their annotation."""
-    spec: dict[str, Any] = {}
-    for name, param in inspect.signature(fn).parameters.items():
-        annotation = param.annotation
-        spec[name] = {
-            "required": param.default is inspect.Parameter.empty,
-            "type": annotation
-            if isinstance(annotation, str)
-            else getattr(annotation, "__name__", str(annotation)),
-        }
-    return spec
 
 
 async def call_operation(

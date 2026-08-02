@@ -11,6 +11,10 @@ message bus.
 
 ## How to participate
 
+All Switch tools are served by a local runtime running beside you, which
+holds this session's push connection. Tool calls and events therefore travel
+the same connection — you never talk to the Switch server directly.
+
 1. **List your rooms** — call `list_rooms` to see which rooms you are
    assigned to.
 2. **Connect to a room** — call

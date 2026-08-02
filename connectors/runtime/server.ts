@@ -31,11 +31,12 @@ const AGENT_ID = process.env.SWITCH_AGENT_ID ?? ''
 
 // When this session is managed by switchdash, switchdash reads the agent
 // bridge itself and injects addressed messages into the PTY. Reads are no
-// longer destructive, so both could read without stealing from each other —
-// but the agent would be notified twice. Until switchdash moves onto the
-// connection protocol this channel opens no stream; it still renews liveness
-// and role leases.
-const DISABLE_POLL = process.env.SWITCH_CHANNEL_DISABLE_POLL === '1'
+// longer destructive, so both can read the same events without stealing from
+// each other — but the agent would be told twice. So we still hold the
+// connection (it is what correlates every tool call and proves this session is
+// reachable) and simply do not surface events as notifications.
+// Env var name kept for compatibility with switchdash releases in the wild.
+const SUPPRESS_NOTIFICATIONS = process.env.SWITCH_CHANNEL_DISABLE_POLL === '1'
 
 // Claude Code may spawn this server twice on startup: once before settings.env
 // expansion (vars literal as `${SWITCH_*}`) and once with real values. Reject
@@ -49,7 +50,7 @@ if (
   looksUnresolved(API_ENDPOINT) || looksUnresolved(API_TOKEN) || looksUnresolved(AGENT_ID)
 ) {
   process.stderr.write(
-    `switch-channel: missing or unresolved config — need SWITCH_API_ENDPOINT, SWITCH_API_TOKEN, and SWITCH_AGENT_ID\n` +
+    `switch: missing or unresolved config — need SWITCH_API_ENDPOINT, SWITCH_API_TOKEN, and SWITCH_AGENT_ID\n` +
     `  endpoint=${API_ENDPOINT || 'MISSING'}\n` +
     `  token=${API_TOKEN ? 'set' : 'MISSING'}\n` +
     `  agent_id=${AGENT_ID || 'MISSING'}\n` +
@@ -62,14 +63,14 @@ const SESSION_PPID = process.ppid
 const SESSION_DIR = path.join(os.homedir(), '.switch', 'sessions', String(SESSION_PPID))
 const PORT_FILE = path.join(SESSION_DIR, 'port')
 process.stderr.write(
-  `switch-channel: ppid=${SESSION_PPID} session_dir=${SESSION_DIR}\n`,
+  `switch: ppid=${SESSION_PPID} session_dir=${SESSION_DIR}\n`,
 )
 
 process.on('unhandledRejection', err => {
-  process.stderr.write(`switch-channel: unhandled rejection: ${err}\n`)
+  process.stderr.write(`switch: unhandled rejection: ${err}\n`)
 })
 process.on('uncaughtException', err => {
-  process.stderr.write(`switch-channel: uncaught exception: ${err}\n`)
+  process.stderr.write(`switch: uncaught exception: ${err}\n`)
 })
 
 // -- Types matching core/switch_core/bridges/agent/events.py ----------------------
@@ -167,7 +168,6 @@ let pollingRoomId: string | null = null
 let streamAbort: AbortController | null = null
 let leaseAbort: AbortController | null = null
 let heartbeatAbort: AbortController | null = null
-let connRenewAbort: AbortController | null = null
 
 // Highest sequence number processed. Sent back on reconnect (as Last-Event-ID)
 // to resume exactly where we stopped, and on every heartbeat so the server can
@@ -185,7 +185,7 @@ let missedSinceRead = 0
 // -- MCP server --------------------------------------------------------------
 
 const mcp = new Server(
-  { name: 'switch-channel', version: '0.0.1' },
+  { name: 'switch', version: '0.1.0' },
   {
     capabilities: {
       tools: {},
@@ -315,18 +315,115 @@ const SEND_ATTACHMENT_TOOL = {
   },
 }
 
+// -- Switch operations, served locally --------------------------------------
+//
+// The agent's whole tool surface is served from this process. Each tool is one
+// of Switch's operations, fetched from the server at startup so the two cannot
+// drift, and each call becomes POST /ops/{name} on THIS process's connection.
+//
+// That last part is the point: because the stream and the tool surface live in
+// the same process, a tool call is correlated to a connection structurally —
+// the connection id never has to travel through the agent or its config, and
+// cannot be forgotten, leaked, or attached to the wrong session.
+
+type SwitchOperation = {
+  name: string
+  description: string
+  input_schema: Record<string, unknown>
+}
+
+let operations: SwitchOperation[] = []
+
+async function loadOperations(): Promise<void> {
+  const resp = await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/ops`, {
+    headers: { Authorization: `Bearer ${API_TOKEN}` },
+  })
+  if (!resp.ok) {
+    // Without the operation list this process cannot serve the agent at all.
+    // Fail loudly at startup rather than presenting an empty tool surface that
+    // looks like "Switch has nothing to offer".
+    throw new Error(
+      `cannot load Switch operations: HTTP ${resp.status}: ${await resp.text()}`,
+    )
+  }
+  const data = (await resp.json()) as {
+    operations: Record<string, { description: string; input_schema: Record<string, unknown> }>
+  }
+  operations = Object.entries(data.operations).map(([name, op]) => ({
+    name,
+    description: op.description,
+    input_schema: op.input_schema,
+  }))
+  process.stderr.write(`switch: serving ${operations.length} operations locally\n`)
+}
+
+async function callOperation(
+  name: string,
+  args: Record<string, unknown>,
+): Promise<{ isError?: boolean; content: { type: 'text'; text: string }[] }> {
+  try {
+    const resp = await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/ops/${name}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        'Content-Type': 'application/json',
+        // Correlation, supplied by the process that owns the connection.
+        'X-Switch-Connection-Id': CONNECTION_ID,
+      },
+      body: JSON.stringify(args),
+    })
+    const text = await resp.text()
+    if (!resp.ok) {
+      return { isError: true, content: [{ type: 'text', text: `${resp.status}: ${text}` }] }
+    }
+    const data = JSON.parse(text) as { result?: unknown }
+    return {
+      content: [
+        {
+          type: 'text',
+          text:
+            typeof data.result === 'string'
+              ? data.result
+              : JSON.stringify(data.result ?? null, null, 2),
+        },
+      ],
+    }
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text', text: `${name} failed: ${err}` }] }
+  }
+}
+
 mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
-  tools: [DOWNLOAD_ATTACHMENT_TOOL, SEND_ATTACHMENT_TOOL],
+  tools: [
+    ...operations.map(op => ({
+      name: op.name,
+      description: op.description,
+      inputSchema: op.input_schema,
+    })),
+    DOWNLOAD_ATTACHMENT_TOOL,
+    SEND_ATTACHMENT_TOOL,
+  ],
 }))
 
 mcp.setRequestHandler(CallToolRequestSchema, async req => {
-  if (req.params.name === 'download_attachment') {
+  const name = req.params.name
+  if (name === 'download_attachment') {
     return handleDownloadAttachment(req.params.arguments ?? {})
   }
-  if (req.params.name === 'send_attachment') {
+  if (name === 'send_attachment') {
     return handleSendAttachment(req.params.arguments ?? {})
   }
-  throw new Error(`Unknown tool: ${req.params.name}`)
+  if (operations.some(op => op.name === name)) {
+    const result = await callOperation(name, req.params.arguments ?? {})
+    // connect_to_room binds the room to this connection; keep the local view
+    // in step so attachments and missed-counts target the right room.
+    if (name === 'connect_to_room' && !result.isError) {
+      const roomId = (req.params.arguments ?? {}).room_id
+      if (typeof roomId === 'string') setConnectedRoom(roomId)
+    }
+    return result
+  }
+  throw new Error(`Unknown tool: ${name}`)
 })
 
 async function handleDownloadAttachment(rawArgs: Record<string, unknown>) {
@@ -547,7 +644,7 @@ async function* readSse(
         try {
           yield { event, id, data: JSON.parse(dataLines.join('\n')) }
         } catch (err) {
-          process.stderr.write(`switch-channel: unparseable SSE frame: ${err}\n`)
+          process.stderr.write(`switch: unparseable SSE frame: ${err}\n`)
         }
       }
     }
@@ -590,7 +687,7 @@ function startStream() {
 
         backoff = 1000
         process.stderr.write(
-          `switch-channel: stream open (connection ${CONNECTION_ID}, cursor ${cursor})\n`,
+          `switch: stream open (connection ${CONNECTION_ID}, cursor ${cursor})\n`,
         )
 
         for await (const frame of readSse(resp.body, abort.signal)) {
@@ -600,7 +697,7 @@ function startStream() {
       } catch (err) {
         if (abort.signal.aborted) return
         process.stderr.write(
-          `switch-channel: stream error: ${err}, reconnecting in ${backoff / 1000}s\n`,
+          `switch: stream error: ${err}, reconnecting in ${backoff / 1000}s\n`,
         )
         await new Promise(r => setTimeout(r, backoff))
         backoff = Math.min(backoff * 2, 30000)
@@ -613,13 +710,13 @@ async function handleFrame(frame: ControlFrame): Promise<void> {
   switch (frame.event) {
     case 'connection_state':
       process.stderr.write(
-        `switch-channel: connection established (rooms=${JSON.stringify(frame.data.rooms)})\n`,
+        `switch: connection established (rooms=${JSON.stringify(frame.data.rooms)})\n`,
       )
       return
 
     case 'subscription_changed':
       process.stderr.write(
-        `switch-channel: subscription now ${JSON.stringify(frame.data.rooms)}\n`,
+        `switch: subscription now ${JSON.stringify(frame.data.rooms)}\n`,
       )
       return
 
@@ -627,7 +724,7 @@ async function handleFrame(frame: ControlFrame): Promise<void> {
       // Never silent: tell the agent it has a hole in its history rather than
       // letting it carry on as though the stream were complete.
       process.stderr.write(
-        `switch-channel: GAP — missed events before sequence ${frame.data.from_sequence}\n`,
+        `switch: GAP — missed events before sequence ${frame.data.from_sequence}\n`,
       )
       await emitNotification(
         'Some room events were missed and cannot be replayed. Call read_context ' +
@@ -642,11 +739,16 @@ async function handleFrame(frame: ControlFrame): Promise<void> {
 
     case 'evicted':
       process.stderr.write(
-        `switch-channel: evicted — ${frame.data.reason}\n`,
+        `switch: evicted — ${frame.data.reason}\n`,
       )
       return
 
     default:
+      if (SUPPRESS_NOTIFICATIONS) {
+        // Consumed, not surfaced: the cursor still advances, so resuming after
+        // a drop stays correct even though switchdash is doing the telling.
+        return
+      }
       await handleEvent(frame.data as unknown as AgentEvent)
   }
 }
@@ -671,11 +773,11 @@ async function subscribeRoom(roomId: string): Promise<void> {
       // room — usually a stale process. Surface it rather than carrying on
       // looking connected while receiving nothing.
       process.stderr.write(
-        `switch-channel: could not claim room ${roomId}: HTTP ${resp.status} ${await resp.text()}\n`,
+        `switch: could not claim room ${roomId}: HTTP ${resp.status} ${await resp.text()}\n`,
       )
     }
   } catch (err) {
-    process.stderr.write(`switch-channel: subscribe failed for ${roomId}: ${err}\n`)
+    process.stderr.write(`switch: subscribe failed for ${roomId}: ${err}\n`)
   }
 }
 
@@ -690,7 +792,7 @@ async function unsubscribeRoom(roomId: string): Promise<void> {
       body: JSON.stringify({ connection_id: CONNECTION_ID, room_id: roomId }),
     })
   } catch (err) {
-    process.stderr.write(`switch-channel: unsubscribe failed for ${roomId}: ${err}\n`)
+    process.stderr.write(`switch: unsubscribe failed for ${roomId}: ${err}\n`)
   }
 }
 
@@ -700,12 +802,8 @@ function setConnectedRoom(target: string | null) {
   const previous = pollingRoomId
 
   if (previous) {
-    process.stderr.write(`switch-channel: leaving room ${previous}\n`)
-    if (DISABLE_POLL) {
-      stopConnectionRenew()
-    } else {
-      void unsubscribeRoom(previous)
-    }
+    process.stderr.write(`switch: leaving room ${previous}\n`)
+    void unsubscribeRoom(previous)
     pollingRoomId = null
   }
 
@@ -713,20 +811,11 @@ function setConnectedRoom(target: string | null) {
     pollingRoomId = target
     missedSinceRead = 0
 
-    if (DISABLE_POLL) {
-      // switchdash reads this session's events itself and injects them into
-      // the PTY. Reads are no longer destructive, so both could stream without
-      // stealing from each other — but the agent would then be notified twice.
-      // Until switchdash moves onto the connection protocol, stay on the old
-      // room-scoped liveness renewal and open no stream here.
-      process.stderr.write(
-        `switch-channel: stream disabled (switchdash-managed) — renewing liveness only for room ${target}\n`,
-      )
-      startConnectionRenew(target)
-      return
-    }
-
-    process.stderr.write(`switch-channel: joining room ${target}\n`)
+    process.stderr.write(
+      `switch: joining room ${target}` +
+        (SUPPRESS_NOTIFICATIONS ? ' (notifications suppressed: switchdash-managed)' : '') +
+        '\n',
+    )
     startStream()
     startHeartbeat()
     void subscribeRoom(target)
@@ -775,7 +864,7 @@ function startHeartbeat() {
           // Either the stream is gone or the connection expired. Both mean we
           // are not receiving; reopening resumes from the cursor.
           process.stderr.write(
-            `switch-channel: heartbeat rejected (HTTP ${resp.status}) — reopening stream\n`,
+            `switch: heartbeat rejected (HTTP ${resp.status}) — reopening stream\n`,
           )
           stopStreamKeepingRoom()
           startStream()
@@ -783,7 +872,7 @@ function startHeartbeat() {
         }
       } catch (err) {
         if (abort.signal.aborted) return
-        process.stderr.write(`switch-channel: heartbeat error: ${err}\n`)
+        process.stderr.write(`switch: heartbeat error: ${err}\n`)
       }
       await new Promise(r => setTimeout(r, HEARTBEAT_INTERVAL_MS))
     }
@@ -794,46 +883,6 @@ function stopStreamKeepingRoom() {
   const room = pollingRoomId
   stopStream()
   pollingRoomId = room
-}
-
-// -- Legacy room-scoped liveness renewal -------------------------------------
-//
-// Only used for switchdash-managed sessions, which have not moved onto the
-// connection protocol yet. Removed once they have.
-
-const CONNECTION_RENEW_INTERVAL_MS = 2000
-
-function stopConnectionRenew() {
-  if (connRenewAbort) {
-    connRenewAbort.abort()
-    connRenewAbort = null
-  }
-}
-
-function startConnectionRenew(roomId: string) {
-  stopConnectionRenew()
-  const abort = new AbortController()
-  connRenewAbort = abort
-
-  void (async () => {
-    while (!abort.signal.aborted) {
-      try {
-        await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/connection/renew`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${API_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ room_id: roomId }),
-          signal: abort.signal,
-        })
-      } catch (err) {
-        if (abort.signal.aborted) return
-        process.stderr.write(`switch-channel: connection renew error: ${err}\n`)
-      }
-      await new Promise(r => setTimeout(r, CONNECTION_RENEW_INTERVAL_MS))
-    }
-  })()
 }
 
 // -- Role lease renewal ------------------------------------------------------
@@ -875,7 +924,7 @@ function startLeaseRenew() {
         }
       } catch (err) {
         if (abort.signal.aborted) return
-        process.stderr.write(`switch-channel: lease renew error: ${err}\n`)
+        process.stderr.write(`switch: lease renew error: ${err}\n`)
       }
       await new Promise(r => setTimeout(r, LEASE_RENEW_INTERVAL_MS))
     }
@@ -893,7 +942,7 @@ function unpublishPort() {
   try {
     fs.rmSync(SESSION_DIR, { recursive: true, force: true })
   } catch (err) {
-    process.stderr.write(`switch-channel: failed to clean up ${SESSION_DIR}: ${err}\n`)
+    process.stderr.write(`switch: failed to clean up ${SESSION_DIR}: ${err}\n`)
   }
 }
 
@@ -960,7 +1009,7 @@ function startHookListener() {
 
   publishPort(server.port)
   process.stderr.write(
-    `switch-channel: hook listener on http://127.0.0.1:${server.port} (published to ${PORT_FILE})\n`,
+    `switch: hook listener on http://127.0.0.1:${server.port} (published to ${PORT_FILE})\n`,
   )
 }
 
@@ -1136,7 +1185,7 @@ async function handleEvent(event: AgentEvent) {
     return
   }
 
-  process.stderr.write(`switch-channel: unknown event type: ${type}\n`)
+  process.stderr.write(`switch: unknown event type: ${type}\n`)
 }
 
 const MEDIA_DIR = path.join(SESSION_DIR, 'media')
@@ -1184,7 +1233,7 @@ async function downloadAttachment(
     const destName = `${messageId.replace(/[^a-zA-Z0-9]/g, '_')}-${index}-${sanitiseName(att.filename)}`
     return await fetchMediaToFile(roomId, att.mxc, destName)
   } catch (err) {
-    process.stderr.write(`switch-channel: attachment download error: ${err}\n`)
+    process.stderr.write(`switch: attachment download error: ${err}\n`)
     return null
   }
 }
@@ -1202,11 +1251,11 @@ async function setTyping(roomId: string, isTyping: boolean) {
     })
     if (!resp.ok) {
       process.stderr.write(
-        `switch-channel: set typing failed: HTTP ${resp.status}: ${await resp.text()}\n`,
+        `switch: set typing failed: HTTP ${resp.status}: ${await resp.text()}\n`,
       )
     }
   } catch (err) {
-    process.stderr.write(`switch-channel: set typing error: ${err}\n`)
+    process.stderr.write(`switch: set typing error: ${err}\n`)
   }
 }
 
@@ -1225,7 +1274,7 @@ async function emitNotification(content: string, meta: Record<string, string>) {
     method: 'notifications/claude/channel',
     params: { content: body, meta: enriched },
   }).catch(err => {
-    process.stderr.write(`switch-channel: failed to deliver event to Claude: ${err}\n`)
+    process.stderr.write(`switch: failed to deliver event to Claude: ${err}\n`)
   })
 }
 
@@ -1236,7 +1285,6 @@ const transport = new StdioServerTransport()
 transport.onclose = () => {
   stopStream()
   stopHeartbeat()
-  stopConnectionRenew()
   stopLeaseRenew()
   unpublishPort()
   process.exit(0)
@@ -1247,8 +1295,18 @@ transport.onclose = () => {
 // sibling would be a different ppid.
 unpublishPort()
 
+// Load the operation list before serving: a tool surface that is empty
+// because a fetch failed is worse than a process that refuses to start.
+await loadOperations()
+
 await mcp.connect(transport)
 
 startHookListener()
 
-process.stderr.write(`switch-channel: running (agent_id=${AGENT_ID})\n`)
+// The connection exists for the life of this process, not just while a room is
+// attached: it is what correlates every tool call, and what the server uses to
+// know this agent is reachable at all.
+startStream()
+startHeartbeat()
+
+process.stderr.write(`switch: running (agent_id=${AGENT_ID})\n`)

@@ -579,15 +579,21 @@ in memory — nothing to transmit, leak or get wrong. The connection id never
 appears in a prompt or a config file, and the process can refuse a tool call
 immediately when its own stream is down.
 
-This is close to what already ships: the channel process is already a local
-stdio MCP server that also holds the connection to Switch. The work is merging
-the two MCP servers the plugin currently registers (`switch`, remote HTTP; and
-`switch-channel`, local stdio) into one, and swapping poll for SSE.
+**This is what ships now.** The runtime lives at `connectors/runtime`, outside
+any one plugin: one versioned artifact both connector plugins point at rather
+than a copy each. It holds the stream, serves the whole operation surface over
+stdio, and turns each tool call into `POST /ops/{operation}` carrying its own
+connection id — so an agent never talks to Switch directly and correlation is
+structural.
 
-**Distribution.** One versioned artifact referenced by both connector plugins,
-not a copy per plugin. Two modes off the same code: *session* (child of the
-agent, `scope: single`) and *daemon* (long-lived, `scope: all`,
-`spawn_capable`).
+The operation list is fetched from the server at startup rather than hardcoded,
+so the tool surface is whatever the server actually offers. If that fetch
+fails the runtime refuses to start: an empty tool surface would look like
+"Switch has nothing to offer" rather than a broken connection.
+
+Planned second mode off the same code: *daemon* (long-lived, `scope: all`,
+`spawn_capable`) alongside today's *session* mode (child of the agent,
+`scope: single`).
 
 - **Claude Code** — plugin `.mcp.json` at the plugin root, `${CLAUDE_PLUGIN_ROOT}`
   for the path, `${VAR}` expansion for endpoint and token.

@@ -7,7 +7,7 @@ description: Set up the Switch connector — register this Claude Code instance 
 
 This skill registers the current Claude Code instance as a Switch agent and
 writes the resulting credentials into Claude Code settings so the `switch`
-MCP server and `switch-channel` background process can connect.
+local Switch runtime can connect.
 
 ## How the plugin reads config
 
@@ -386,7 +386,7 @@ Report to the user:
 - Which settings file was written.
 - That they need to **restart Claude Code** (or reload the session) for
   the new `env` block to take effect — the `switch` MCP server and
-  `switch-channel` process only read environment variables at startup,
+  Switch runtime only reads environment variables at startup,
   so an active session won't see the new values.
 
 Do **not** print the API token. It's now in the settings file; the user

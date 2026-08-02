@@ -46,12 +46,19 @@ async def test_operation_names_are_the_tool_names_verbatim() -> None:
         assert expected in ops
 
 
-def test_operations_advertise_their_parameters() -> None:
-    params = list_operations()["connect_to_room"]["parameters"]
-    assert params["room_id"]["required"] is True
-    assert params["include_general_instructions"]["required"] is False
+def test_operations_advertise_a_json_schema_for_their_arguments() -> None:
+    """Clients build their tool surface from this, so it must be real schema."""
+    op = list_operations()["connect_to_room"]
+    schema = op["input_schema"]
+
+    assert schema["type"] == "object"
+    assert schema["properties"]["room_id"]["type"] == "string"
+    assert schema["required"] == ["room_id"]
+    assert schema["properties"]["include_general_instructions"]["default"] is True
     # Transport details are not arguments an agent supplies.
-    assert "ctx" not in params
+    assert "ctx" not in schema["properties"]
+    # The full docstring is the tool description an agent reads.
+    assert "Connect this session to a room" in op["description"]
 
 
 async def test_unknown_operation_names_what_is_available() -> None:
@@ -102,7 +109,10 @@ async def test_the_call_context_carries_agent_and_connection() -> None:
     from switch_core.bridges.agent.operations import registry
 
     registry._REGISTRY["fake_op"] = registry.Operation(
-        name="fake_op", fn=fake_op, description="fake"
+        name="fake_op",
+        fn=fake_op,
+        description="fake",
+        input_schema=registry._input_schema(fake_op),
     )
     try:
         result = await call_operation(
