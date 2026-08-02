@@ -192,6 +192,18 @@ class SwitchNotificationPoller {
     // later session must not rewind to a message this one already handled.
     const startCursor = this.pendingStart.get(creds.agentId);
     this.pendingStart.delete(creds.agentId);
+    // The other end of the watcher's hand-off. If a spawned session comes up
+    // without the message that triggered it, these two lines say whether the
+    // cursor was handed over and honoured, or whether the session opened at
+    // head and read past its own trigger.
+    log.info('SwitchNotificationPoller: opening session connection', {
+      event: 'switch_session_connection_open',
+      sessionId: ctx.sessionId,
+      agentId: creds.agentId,
+      connectionId,
+      startFrom: startCursor ?? 'head',
+      roomId: roomId ?? '(await the server)',
+    });
     const connection = new RoomConnection({
       creds,
       roomId,

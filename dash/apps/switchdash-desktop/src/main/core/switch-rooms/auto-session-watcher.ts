@@ -8,9 +8,7 @@ import {
 } from '@main/core/agents/switch-settings-paths';
 import { getLocationById } from '@main/core/locations/store';
 import { sessionService } from '@main/core/sessions/session-service';
-import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
-import { sessionRoomChangedChannel } from '@shared/core/switch-rooms/switchRoomEvents';
 import {
   listAutoSessionAgentIds,
   listAutoSessionSubagents,
@@ -24,6 +22,7 @@ import {
   type SwitchAgentCredentials,
 } from './switch-credentials';
 import { switchNotificationPoller } from './switch-notification-poller';
+import { switchRoomService } from './switch-room-service';
 
 const SPAWN_MAX_ATTEMPTS = 3;
 const SPAWN_RETRY_DELAY_MS = 2000;
@@ -160,7 +159,13 @@ class AutoSessionWatcher {
    */
   private subscribeToRoomConnections(): void {
     if (this.roomChangeUnsub) return;
-    this.roomChangeUnsub = events.on(sessionRoomChangedChannel, ({ roomId, agentId }) => {
+    // An in-process subscription, NOT the `events` bus. In main, `events.emit`
+    // is webContents.send and `events.on` is ipcMain.on — opposite directions
+    // of the renderer bridge — so this listener never fired for a room
+    // connected in main. The guard was therefore only ever cleared by its 120s
+    // TTL, which is why a room whose session had already arrived kept
+    // reporting "a spawn is already in flight".
+    this.roomChangeUnsub = switchRoomService.onSessionRoomChanged(({ roomId, agentId }) => {
       if (!roomId || !agentId) return;
       for (const watcher of this.watchers.values()) {
         if (watcher.creds.agentId === agentId) this.clearInFlight(watcher, roomId);
@@ -400,6 +405,19 @@ class AutoSessionWatcher {
     if (sequence !== undefined) {
       switchNotificationPoller.noteSpawnTrigger(watcher.creds.agentId, sequence);
     }
+    // The two halves of the hand-off are logged at both ends, so a session that
+    // comes up without its triggering message can be diagnosed from the log
+    // alone: this line says which event the spawn is for and where the session
+    // should therefore start reading, and the poller's counterpart says where
+    // it actually started.
+    log.info('AutoSessionWatcher: spawning for event', {
+      event: 'auto_session_spawn_trigger',
+      localAgentId: watcher.localAgentId,
+      agentId: watcher.creds.agentId,
+      roomId,
+      triggerSequence: sequence ?? null,
+      sessionWillStartFrom: sequence === undefined ? 'head' : Math.max(sequence - 1, 0),
+    });
 
     const timer = setTimeout(() => watcher.inFlight.delete(roomId), INFLIGHT_TTL_MS);
     watcher.inFlight.set(roomId, timer);

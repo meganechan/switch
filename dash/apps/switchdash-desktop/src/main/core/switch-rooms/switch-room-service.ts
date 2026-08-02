@@ -38,6 +38,50 @@ type ConnectionState = SessionRoomConnection & {
  */
 class SwitchRoomService implements IDisposable {
   private readonly connections = new Map<string, ConnectionState>();
+  private readonly roomListeners = new Set<
+    (change: { sessionId: string; roomId: string | null; agentId: string | null }) => void
+  >();
+
+  /**
+   * Subscribe, **in this process**, to a session's room changing.
+   *
+   * Deliberately not the `events` bus. In main, `events.emit` is
+   * `webContents.send` and `events.on` is `ipcMain.on` — one direction each,
+   * renderer-bound. A main-process emit therefore never reaches a
+   * main-process listener, so anything in main that subscribed that way
+   * silently received nothing. AutoSessionWatcher did exactly that, and its
+   * per-room spawn guard was consequently never cleared on connect: it sat
+   * until the 120s TTL, blocking respawns for a room whose session had long
+   * since arrived.
+   *
+   * Returns an unsubscribe function.
+   */
+  onSessionRoomChanged(
+    listener: (change: { sessionId: string; roomId: string | null; agentId: string | null }) => void
+  ): () => void {
+    this.roomListeners.add(listener);
+    return () => this.roomListeners.delete(listener);
+  }
+
+  private notifyRoomChanged(change: {
+    sessionId: string;
+    roomId: string | null;
+    agentId: string | null;
+  }): void {
+    // To the renderer, for the UI…
+    events.emit(sessionRoomChangedChannel, change);
+    // …and to this process, for the logic that reacts to it.
+    for (const listener of this.roomListeners) {
+      try {
+        listener(change);
+      } catch (error) {
+        log.warn('SwitchRoomService: room-change listener failed', {
+          sessionId: change.sessionId,
+          error: String(error),
+        });
+      }
+    }
+  }
 
   /**
    * Record (or replace) the room a session is connected to. A session holds at
@@ -83,11 +127,7 @@ class SwitchRoomService implements IDisposable {
       agentId,
     });
 
-    events.emit(sessionRoomChangedChannel, {
-      sessionId: ctx.sessionId,
-      roomId,
-      agentId,
-    });
+    this.notifyRoomChanged({ sessionId: ctx.sessionId, roomId, agentId });
   }
 
   /**
@@ -120,11 +160,7 @@ class SwitchRoomService implements IDisposable {
       agentId,
     });
 
-    events.emit(sessionRoomChangedChannel, {
-      sessionId: ctx.sessionId,
-      roomId,
-      agentId,
-    });
+    this.notifyRoomChanged({ sessionId: ctx.sessionId, roomId, agentId });
   }
 
   /**
@@ -162,11 +198,7 @@ class SwitchRoomService implements IDisposable {
 
     log.info('SwitchRoomService: session disconnected from room', { sessionId });
 
-    events.emit(sessionRoomChangedChannel, {
-      sessionId,
-      roomId: null,
-      agentId: null,
-    });
+    this.notifyRoomChanged({ sessionId, roomId: null, agentId: null });
   }
 
   /**
