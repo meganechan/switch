@@ -22,12 +22,55 @@ from switch_core.bridges.agent.operations.context import (
     session_key,
 )
 from switch_core.bridges.agent.operations.registry import operation
+from switch_core.bridges.agent.protocol.connections import ConnectionError_
 from switch_core.bridges.agent.protocol.instructions import build_room_instructions
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.protocol.types import IntegrationProfile
 from switch_core.db.models import CollaborationBridge
 
 logger = logging.getLogger(__name__)
+
+
+def claim_room_on_caller_connection(
+    protocol: ProtocolService, agent_id: str, connection_id: str, room_id: str
+) -> None:
+    """Bind the room to the connection that asked to connect.
+
+    Connecting IS claiming the room slot. The caller identified itself with a
+    connection, so the room is bound to it here rather than left to a follow-up
+    subscribe the client has to remember — two steps that can disagree, where
+    forgetting the second means silently receiving nothing.
+
+    It also carries the fact to whoever holds that connection's stream. When a
+    supervisor spawned this session and handed it the connection id, the claim
+    surfaces there as ``subscription_changed``, so the supervisor learns the
+    room *from Switch* rather than by reading the agent's tool result and
+    hoping its shape never changes.
+
+    ``takeover`` because the overwhelmingly common case is the same agent
+    returning — after a restart, a reset, or a reconnect — and refusing would
+    lock it out of a room it is already a member of, on the strength of a
+    sibling connection that is usually already dead.
+
+    Never fatal. The room binding is written before this runs, so a failure here
+    costs delivery routing, not membership, and says so.
+    """
+    connection = protocol.connections.get(connection_id)
+    if connection is None or connection.agent_id != agent_id:
+        # No connection behind this caller: an MCP transport session, or a
+        # runtime borrowing an id whose connection has since expired. The
+        # binding row still stands and room-scoped calls resolve through it.
+        return
+    try:
+        protocol.connections.claim_room(connection, room_id, takeover=True)
+    except ConnectionError_ as exc:
+        logger.warning(
+            "[CONNECT] agent=%s connection=%s could not claim room %s: %s",
+            agent_id,
+            connection_id,
+            room_id,
+            exc,
+        )
 
 
 @operation
@@ -163,6 +206,8 @@ async def connect_to_room(
             lifecycle=lifecycle,
         )
         await db.commit()
+
+    claim_room_on_caller_connection(protocol, agent_id, key, room.id)
 
     return {
         "agent_id": agent_id,
