@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from switch_core.bridges.agent.protocol import stream as stream_module
 from switch_core.bridges.agent.protocol.connections import (
     HEARTBEAT_TTL_SECONDS,
     PROTOCOL_VERSION,
@@ -407,3 +408,60 @@ class TestALapsedHeartbeatStopsDelivery:
 
         assert registry.claimant_of(AGENT, ROOM_A) is None
         assert conn.closed_reason is not None
+
+
+class TestFilteredEventsDoNotSpinTheLoop:
+    """A connection must not busy-loop over events its filter excludes.
+
+    `read_from` does not return filtered-out events, so unlike events skipped
+    for room coverage they cannot advance the cursor on their way past. Left
+    behind them, the stream's "anything new?" check is permanently true and the
+    generator spins at full speed instead of awaiting.
+
+    That is not a slow stream, it is a stopped server: one spinning generator
+    starves the event loop, so no heartbeat is processed, so every connection in
+    the process is declared dead and reconnects — which is exactly what was
+    observed, with `beats=0` on connections that had only just opened.
+    """
+
+    async def test_the_cursor_advances_past_events_the_filter_excludes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry, delivery_filter="addressed")
+        registry.claim_room(conn, ROOM_A)
+
+        # Unaddressed chatter: real events, none of them notifiable.
+        for i in range(3):
+            buffer.enqueue(AGENT, ROOM_A, _message(f"chatter-{i}", addressed=False))
+
+        # Shorten the keepalive so "did it reach its wait?" is answered in
+        # milliseconds. A spinning generator never yields one at any interval.
+        monkeypatch.setattr(stream_module, "KEEPALIVE_INTERVAL_SECONDS", 0.05)
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        await _take(stream, 1)  # connection_state
+        await asyncio.wait_for(anext(stream), timeout=2.0)
+
+        assert conn.cursor == buffer.head(AGENT)
+        await stream.aclose()
+
+    async def test_an_addressed_event_after_the_excluded_ones_still_arrives(
+        self,
+    ) -> None:
+        """Advancing past the excluded events must not skip what follows."""
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry, delivery_filter="addressed")
+        registry.claim_room(conn, ROOM_A)
+
+        buffer.enqueue(AGENT, ROOM_A, _message("chatter", addressed=False))
+        buffer.enqueue(AGENT, ROOM_A, _message("for-you", addressed=True))
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        frames = await _take(stream, 2)
+
+        assert frames[1][0] == "message"
+        assert frames[1][1]["payload"]["body"] == "for-you"
+        await stream.aclose()

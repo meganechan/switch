@@ -193,6 +193,24 @@ async def event_stream(
                 conn.cursor = max(exc.oldest - 1, 0)
                 continue
 
+            if not pending:
+                # Nothing above the cursor is for this connection: the filter
+                # excluded all of it. Advance past it anyway.
+                #
+                # `read_from` does not return filtered-out events, so the cursor
+                # cannot advance through them the way it does for events skipped
+                # by room coverage below. Leaving it behind them makes the
+                # "anything new?" re-check further down permanently true, and
+                # this loop spins at full speed instead of waiting — starving the
+                # event loop, so no heartbeat is processed, so every connection
+                # in the process is declared dead and reconnects, forever.
+                #
+                # An empty result means the scan reached the end without hitting
+                # the batch limit, so head is exactly how far we have looked.
+                head = buffer.head(agent_id)
+                if head > conn.cursor:
+                    conn.cursor = head
+
             delivered = False
             for item in pending:
                 # Room coverage is evaluated per event rather than up front: a
