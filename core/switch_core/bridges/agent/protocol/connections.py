@@ -417,6 +417,22 @@ class ConnectionRegistry:
         """
         return self.claimant_of(agent_id, room_id) is not None
 
+    def can_spawn_for(self, agent_id: str, room_id: str) -> bool:
+        """Whether something live will start a session for this room on demand.
+
+        Declared by the client when it opens the stream (`spawn_capable`), so
+        this is an *observed* capability rather than a property inferred from
+        the agent's `connection_model`. That matters: the enum says what an
+        agent was configured as, this says what is actually connected and
+        willing right now. Promising "Starting a session…" on the strength of
+        the enum alone is how a room gets told a session is coming when nothing
+        is listening.
+        """
+        return any(
+            conn.spawn_capable and self.covers(conn, room_id)
+            for conn in self.for_agent(agent_id)
+        )
+
     def live_agent_ids(self) -> set[str]:
         """Every agent with at least one live connection.
 

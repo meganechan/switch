@@ -338,6 +338,10 @@ class AutoSessionWatcher {
       // opted-in joins. Room chatter is not one.
       filter: 'addressed',
       rooms: [],
+      // This watcher exists to spawn sessions; saying so is what licenses the
+      // server's "Starting a session…" reply instead of reporting the agent
+      // offline.
+      spawnCapable: true,
       onEvent: (event) => {
         if (event.room_id) this.handleNotification(watcher, event.room_id);
       },

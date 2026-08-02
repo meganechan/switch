@@ -157,6 +157,8 @@ export class NotificationWatcher {
       scope: 'all',
       filter: 'addressed',
       rooms: [],
+      // Same promise as switchdash's watcher: this process will spawn.
+      spawnCapable: true,
       onEvent: (event) => {
         if (event.room_id) this.handleNotification(event.room_id);
       },

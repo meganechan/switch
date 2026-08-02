@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from switch_core.bridges.agent.protocol.connections import (
+    HEARTBEAT_TTL_SECONDS,
     PROTOCOL_VERSION,
     ConnectionRegistry,
 )
@@ -356,3 +357,53 @@ async def test_a_cursor_from_before_a_restart_is_reported_not_ignored() -> None:
 
     assert frames[1][0] == "gap"
     assert "restarted" in frames[1][1]["reason"]
+
+
+class TestALapsedHeartbeatStopsDelivery:
+    """A connection nothing considers alive must not keep receiving.
+
+    Every presence reader filters on liveness, so a connection whose heartbeat
+    has lapsed is invisible to all of them — while its socket happily keeps
+    handing over events. That pairing is undetectable from either side: the
+    client sees traffic and assumes it is healthy, the room is told the agent is
+    offline. It is what produced "my connector isn't reporting in" while
+    switchdash was demonstrably receiving the same message and spawning a
+    session from it.
+    """
+
+    async def test_the_stream_evicts_when_the_heartbeat_lapses(self) -> None:
+        import time as _time
+
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry)
+        registry.claim_room(conn, ROOM_A)
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        # Consume the opening frame while still healthy.
+        await _take(stream, 1)
+
+        conn.last_beat = _time.monotonic() - (HEARTBEAT_TTL_SECONDS + 1)
+        buffer.enqueue(AGENT, ROOM_A, _message("should not arrive"))
+
+        ((name, data),) = await _take(stream, 1)
+
+        assert name == "evicted"
+        assert "heartbeat" in data["reason"]
+
+    async def test_the_connection_is_closed_not_merely_ignored(self) -> None:
+        """Otherwise the room slot stays claimed by a connection that is gone."""
+        import time as _time
+
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry)
+        registry.claim_room(conn, ROOM_A)
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        await _take(stream, 1)
+        conn.last_beat = _time.monotonic() - (HEARTBEAT_TTL_SECONDS + 1)
+        await _take(stream, 1)
+
+        assert registry.claimant_of(AGENT, ROOM_A) is None
+        assert conn.closed_reason is not None

@@ -26,7 +26,11 @@ class _FakeSessionStore:
 
 
 def _registry(
-    *, agent_id: str | None = None, scope: str = "single", room: str | None = None
+    *,
+    agent_id: str | None = None,
+    scope: str = "single",
+    room: str | None = None,
+    spawn_capable: bool = False,
 ) -> ConnectionRegistry:
     """A registry holding at most one live connection."""
     registry = ConnectionRegistry()
@@ -36,7 +40,7 @@ def _registry(
             connection_id=f"c-{agent_id}",
             scope=scope,  # type: ignore[arg-type]
             delivery_filter="all",
-            spawn_capable=False,
+            spawn_capable=spawn_capable,
             cursor=0,
             protocol_version=PROTOCOL_VERSION,
         )
@@ -237,3 +241,43 @@ class TestPresenceIsAUnion:
         statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
 
         assert statuses == {"addr": AgentStatus.NO_SESSION}
+
+
+class TestSpawnCapableConnections:
+    """A connection that will start a session is reported DORMANT, not absent.
+
+    The promise is keyed off what the client *declared* when it connected, not
+    off the agent's configured `connection_model`. A stale or mis-set enum
+    otherwise produces "my connector isn't reporting in" while a watcher sits
+    connected and about to spawn — which is exactly what it looked like in
+    production.
+    """
+
+    async def test_a_spawn_capable_watcher_makes_an_addressable_agent_dormant(
+        self,
+    ) -> None:
+        agents = [_agent("addr", "session_addressable")]
+        store = _FakeSessionStore(live_ids=set())
+        registry = _registry(agent_id="addr", scope="all", spawn_capable=True)
+
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
+
+        assert statuses == {"addr": AgentStatus.DORMANT}
+
+    async def test_a_watcher_that_cannot_spawn_leaves_it_absent(self) -> None:
+        agents = [_agent("addr", "session_addressable")]
+        store = _FakeSessionStore(live_ids=set())
+        registry = _registry(agent_id="addr", scope="all", spawn_capable=False)
+
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
+
+        assert statuses == {"addr": AgentStatus.NO_SESSION}
+
+    async def test_a_live_session_still_wins_over_dormant(self) -> None:
+        agents = [_agent("addr", "session_addressable")]
+        store = _FakeSessionStore(live_ids=set())
+        registry = _registry(agent_id="addr", room="room-1", spawn_capable=True)
+
+        statuses = await compute_agent_statuses(None, agents, "room-1", store, registry)
+
+        assert statuses == {"addr": AgentStatus.LIVE}

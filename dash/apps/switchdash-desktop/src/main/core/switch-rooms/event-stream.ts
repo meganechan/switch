@@ -49,6 +49,16 @@ export interface SwitchEventStreamDeps {
   connectionId: string;
   scope: StreamScope;
   filter: DeliveryFilter;
+  /**
+   * Declares that this connection will start a session for a room on demand.
+   *
+   * The server keys the "Starting a session…" reply and the DORMANT status off
+   * this rather than off the agent's configured `connection_model`, so a
+   * watcher must say so — otherwise an addressed message in an unattended room
+   * is answered with "my connector isn't reporting in" while this connection is
+   * sitting right here, about to spawn.
+   */
+  spawnCapable?: boolean;
   /** Rooms declared when the stream opens. Declared at open rather than
    * subscribed afterwards: catch-up runs immediately, and a room claimed a
    * moment later arrives too late for the buffered events a reconnect exists
@@ -188,6 +198,7 @@ export class SwitchEventStream {
           filter,
           start_from: this.cursor > 0 ? String(this.cursor) : 'head',
         });
+        if (this.deps.spawnCapable) params.set('spawn_capable', 'true');
         if (this.rooms.length) params.set('rooms', this.rooms.join(','));
 
         const resp = await fetch(`${creds.apiEndpoint}/agents/${creds.agentId}/events?${params}`, {

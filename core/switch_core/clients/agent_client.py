@@ -693,6 +693,15 @@ class AgentClient(ClientBase[ClientConfig]):
         # it will spin a session up to handle this — promise that rather than
         # the "elsewhere"/offline wording. With no watcher, fall through to the
         # generic offline reply below.
+        # A live connection that declared itself spawn-capable and covers this
+        # room WILL start a session, whatever the agent's configured model says.
+        # Keying the promise off the observed capability rather than the enum
+        # means a mis-set (or merely stale) connection_model can no longer
+        # produce "my connector isn't reporting in" while a watcher is sitting
+        # right there, connected, about to spawn.
+        if self._connections.can_spawn_for(self.agent.id, meta.room_id):
+            return _STARTING_SESSION_MESSAGE
+
         if connection_model == "auto_session":
             async with self.session_factory() as session:
                 watching = await self._agent_session_store.get_live_agent_ids(

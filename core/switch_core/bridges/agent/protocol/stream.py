@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -141,6 +142,29 @@ async def event_stream(
                 return
             if conn.closed_reason is not None:
                 yield _frame("evicted", {"reason": conn.closed_reason})
+                return
+            if not conn.is_alive(time.monotonic()):
+                # Delivering to a connection whose heartbeat has lapsed is the
+                # worst of both worlds: every presence reader treats it as dead
+                # (they filter on liveness), so the agent is reported offline
+                # while its socket keeps handing it events. That combination is
+                # invisible from either side — the client sees traffic and
+                # believes it is fine, the room is told nobody is home.
+                logger.warning(
+                    "[STREAM] agent=%s connection=%s heartbeat lapsed — closing "
+                    "the stream rather than delivering to a connection nothing "
+                    "else considers alive",
+                    agent_id,
+                    conn.id,
+                )
+                registry.close(conn.id, "heartbeat lapsed")
+                yield _frame(
+                    "evicted",
+                    {
+                        "reason": "heartbeat lapsed; reopen the stream and resume "
+                        "from your cursor"
+                    },
+                )
                 return
 
             if conn.rooms != last_rooms:

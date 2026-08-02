@@ -91,6 +91,15 @@ async def compute_agent_statuses(
     # …whereas watching is exactly "has any live connection": that is what the
     # /watch/heartbeat loop used to assert, and what DORMANT means.
     watching_auto |= connections.live_agents(auto_session_ids)
+    # A spawn-capable connection covering the room will start a session on
+    # demand, whatever the agent was configured as. DORMANT rather than
+    # NO_SESSION is the honest report: nothing is attending yet, but something
+    # is watching and will be.
+    spawn_ready = {
+        aid
+        for aid in addressable_ids
+        if aid not in live_addressable and connections.can_spawn_for(aid, room_id)
+    }
 
     statuses: dict[str, AgentStatus] = {}
     for agent in agents:
@@ -102,11 +111,12 @@ async def compute_agent_statuses(
                 else AgentStatus.DISCONNECTED
             )
         elif model == "session_addressable":
-            statuses[agent.id] = (
-                AgentStatus.LIVE
-                if agent.id in live_addressable
-                else AgentStatus.NO_SESSION
-            )
+            if agent.id in live_addressable:
+                statuses[agent.id] = AgentStatus.LIVE
+            elif agent.id in spawn_ready:
+                statuses[agent.id] = AgentStatus.DORMANT
+            else:
+                statuses[agent.id] = AgentStatus.NO_SESSION
         elif model == "auto_session":
             if agent.id in live_auto_room:
                 statuses[agent.id] = AgentStatus.LIVE
