@@ -448,11 +448,18 @@ one registry**:
 between the two is `POST /ops/${toolName}` and nothing more — no mapping table
 to maintain, and no second vocabulary to keep in step.
 
-Parity is **structural, not maintained**: the HTTP door looks the operation up
-in the same registry the MCP server is built from, so a new tool is reachable
-over HTTP the moment it exists. Neither door can quietly fall behind. This is
-what makes a local runtime possible at all (§9.1) and closes the overlap with
-CHOO-490.
+Parity is **structural, not maintained**: operations live in a registry that
+neither door owns. The HTTP endpoint dispatches into it; the MCP server
+registers its tools from it. An operation is therefore reachable through both
+doors the moment it exists, and **retiring a door is deleting a file** rather
+than refactoring everything underneath. This is what makes a local runtime
+possible at all (§9.1) and closes the overlap with CHOO-490.
+
+An operation is a plain async function taking its arguments and nothing else.
+Who is calling, and which connection or session they are bound to, comes from
+a **call context** each front door establishes before dispatching — so no
+transport type appears in an operation's signature, and the operations layer
+imports nothing from either door.
 
 `GET /agents/{agent_id}/ops` lists every operation and its JSON-schema
 parameters, read straight off the registry.
@@ -558,6 +565,11 @@ heartbeat maintains it, its death releases everything.
 **Only the stream can create a connection.** Calls through either door attach
 to one; they never conjure one "to be helpful", which would reintroduce two
 things that can disagree.
+
+**Switch hosting an MCP server is the legacy path.** It remains supported, but
+the direction of travel is a local runtime (§9.1): MCP the *protocol* is how an
+agent calls tools and is not going anywhere; Switch being the one to *host* it
+is what recedes.
 
 ### 9.1 Local MCP (recommended)
 

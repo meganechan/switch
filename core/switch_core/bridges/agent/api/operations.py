@@ -5,10 +5,10 @@ JSON body. Operation names are exactly the MCP tool names — one vocabulary, so
 a local runtime translating between the two is `POST /ops/${toolName}` and
 nothing more.
 
-Both front doors dispatch into the **same** registry: this module looks the
-operation up in the MCP tool registry rather than re-implementing it. Parity is
-therefore structural — a new tool is reachable over HTTP the moment it exists,
-and neither door can quietly fall behind the other.
+Both front doors are built from the **same** registry: this one dispatches into
+it, and the MCP server registers its tools from it. Parity is therefore
+structural — an operation is reachable through both doors the moment it exists,
+and neither can quietly fall behind the other.
 
 What is deliberately NOT here: media upload/download (multipart and binary, so
 HTTP semantics matter), the event stream, connection lifecycle, mediation, and
@@ -25,12 +25,12 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from switch_core.bridges.agent.auth import get_agent_from_scope
 from switch_core.bridges.agent.dependencies import get_protocol
-from switch_core.bridges.agent.mcp.callctx import (
+from switch_core.bridges.agent.operations import all_operations, get_operation
+from switch_core.bridges.agent.operations.callctx import (
     CallContext,
     reset_call_context,
     set_call_context,
 )
-from switch_core.bridges.agent.mcp.server import mcp
 from switch_core.bridges.agent.protocol.connections import UnknownConnectionError
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.db.models import Agent
@@ -50,20 +50,33 @@ class BadArgumentsError(Exception):
     """The body did not match the operation's parameters."""
 
 
-async def list_operations() -> dict[str, dict[str, Any]]:
-    """Every operation, with its JSON-schema parameters.
+def list_operations() -> dict[str, dict[str, Any]]:
+    """Every operation, with its parameters.
 
-    Read straight off the tool registry, so this is the authoritative list for
-    both doors and for the protocol documentation.
+    Read straight off the registry both doors are built from, so this is the
+    authoritative list — for clients and for the protocol documentation.
     """
-    tools = await mcp._list_tools()
     return {
-        tool.name: {
-            "description": (tool.description or "").strip().split("\n")[0],
-            "parameters": tool.parameters,
+        op.name: {
+            "description": op.description.split("\n")[0],
+            "parameters": _parameter_spec(op.fn),
         }
-        for tool in tools
+        for op in all_operations().values()
     }
+
+
+def _parameter_spec(fn: Any) -> dict[str, Any]:
+    """Parameter names, whether they are required, and their annotation."""
+    spec: dict[str, Any] = {}
+    for name, param in inspect.signature(fn).parameters.items():
+        annotation = param.annotation
+        spec[name] = {
+            "required": param.default is inspect.Parameter.empty,
+            "type": annotation
+            if isinstance(annotation, str)
+            else getattr(annotation, "__name__", str(annotation)),
+        }
+    return spec
 
 
 async def call_operation(
@@ -80,20 +93,11 @@ async def call_operation(
     `assume_role` — resolves it from the connection rather than from an MCP
     transport session. That is what makes the two doors interchangeable.
     """
-    tools = {tool.name: tool for tool in await mcp._list_tools()}
-    tool = tools.get(operation)
-    if tool is None:
-        raise UnknownOperationError(operation, list(tools))
+    op = get_operation(operation)
+    if op is None:
+        raise UnknownOperationError(operation, list(all_operations()))
 
-    fn = getattr(tool, "fn", None)
-    if fn is None:
-        # Every agent operation is a plain function registered as a tool. A
-        # tool without one is something else (a proxy or a mount) and must not
-        # be silently treated as unavailable.
-        raise RuntimeError(
-            f"operation {operation!r} is registered as {type(tool).__name__}, "
-            "which has no callable to dispatch to"
-        )
+    fn = op.fn
     signature = inspect.signature(fn)
     accepted = set(signature.parameters)
 
@@ -104,10 +108,6 @@ async def call_operation(
         )
 
     call_args: dict[str, Any] = dict(arguments)
-    if "ctx" in accepted:
-        # There is no FastMCP context on this path. The only thing operations
-        # take from it is the session key, which the call context supplies.
-        call_args["ctx"] = None
 
     missing = [
         name
@@ -139,7 +139,7 @@ async def get_operations(
     agent: Annotated[Agent, Depends(get_agent_from_scope)],
 ) -> dict[str, Any]:
     """List every operation and its parameters, straight from the registry."""
-    return {"operations": await list_operations()}
+    return {"operations": list_operations()}
 
 
 @router.post("/{agent_id}/ops/{operation}")
