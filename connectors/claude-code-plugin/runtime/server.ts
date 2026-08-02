@@ -163,7 +163,22 @@ type EventResponse = {
 // creating a new one. That is what lets a brief network drop cost a gap in
 // delivery rather than this session's room slot.
 
-const CONNECTION_ID = randomUUID()
+// A supervisor that spawned this session may hand it a connection to share
+// (switchdash does: it opens the stream, then passes the id in the
+// environment). Then this process holds no stream and no heartbeat of its own —
+// it only tags its tool calls with the id, so the server can tell which session
+// is calling and which room that session is in.
+//
+// The point is that `connect_to_room` then claims the room on the *supervisor's*
+// connection, which is the one delivering events. Two connections for one
+// session is what made the supervisor unable to see its own agent's room, and
+// left it scraping tool responses to find out.
+//
+// Absent the hand-off — a bare terminal session, or one the supervisor merely
+// attached to — this process owns its connection exactly as before.
+const BORROWED_CONNECTION_ID = process.env.SWITCH_CONNECTION_ID?.trim() || null
+const CONNECTION_ID = BORROWED_CONNECTION_ID ?? randomUUID()
+const OWNS_CONNECTION = BORROWED_CONNECTION_ID === null
 
 let pollingRoomId: string | null = null
 let streamAbort: AbortController | null = null
@@ -624,6 +639,11 @@ function stopStream() {
 }
 
 function startStream() {
+  // A borrowed connection belongs to the supervisor: it holds the stream and
+  // the heartbeat. Opening a second stream on the same id would take the
+  // connection over — the server treats a reopen as the client returning — and
+  // the supervisor would stop receiving anything.
+  if (!OWNS_CONNECTION) return
   if (streamAbort) return
   const abort = new AbortController()
   streamAbort = abort
@@ -737,31 +757,10 @@ async function handleFrame(frame: SseFrame): Promise<void> {
 
 // -- Room reconciliation ------------------------------------------------------
 
-async function subscribeRoom(roomId: string): Promise<void> {
-  try {
-    const resp = await fetch(
-      `${API_ENDPOINT}/agents/${AGENT_ID}/connection/subscribe`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${API_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ connection_id: CONNECTION_ID, room_id: roomId }),
-      },
-    )
-    if (!resp.ok) {
-      // A 409 means another live connection of this agent already holds the
-      // room — usually a stale process. Surface it rather than carrying on
-      // looking connected while receiving nothing.
-      process.stderr.write(
-        `switch: could not claim room ${roomId}: HTTP ${resp.status} ${await resp.text()}\n`,
-      )
-    }
-  } catch (err) {
-    process.stderr.write(`switch: subscribe failed for ${roomId}: ${err}\n`)
-  }
-}
+// There is no subscribeRoom any more: `connect_to_room` claims the room on the
+// calling connection server-side, so a client-side follow-up would be a second
+// way to say the same thing — and, on a managed session, a way to take a slot
+// that belongs to the supervisor. Releasing is still explicit, below.
 
 async function unsubscribeRoom(roomId: string): Promise<void> {
   try {
@@ -785,7 +784,10 @@ function setConnectedRoom(target: string | null) {
 
   if (previous) {
     process.stderr.write(`switch: leaving room ${previous}\n`)
-    void unsubscribeRoom(previous)
+    // Only release a slot we hold. On a borrowed connection the claim belongs
+    // to the supervisor's stream, and connect_to_room repoints it for us —
+    // releasing here would blank the supervisor's room between the two calls.
+    if (OWNS_CONNECTION) void unsubscribeRoom(previous)
     pollingRoomId = null
   }
 
@@ -795,20 +797,33 @@ function setConnectedRoom(target: string | null) {
 
     process.stderr.write(
       `switch: joining room ${target}` +
+        (OWNS_CONNECTION ? '' : ' (connection shared with the supervisor)') +
         (SUPPRESS_NOTIFICATIONS ? ' (notifications suppressed: switchdash-managed)' : '') +
         '\n',
     )
+
+    if (!OWNS_CONNECTION) {
+      // The supervisor holds the stream on this connection, and the server has
+      // already claimed the room on it — connect_to_room does that now. So the
+      // supervisor has been told, and there is nothing for us to open, claim or
+      // reopen. This branch is the whole point of sharing the connection.
+      return
+    }
+
     startStream()
     startHeartbeat()
     if (SUPPRESS_NOTIFICATIONS) {
-      // switchdash owns delivery for this room, so it owns the room slot. This
-      // connection stays open purely as the session's identity for MCP/ops
-      // calls — it must not compete for the room it is not serving.
+      // Managed session on an older supervisor that did not hand us an id: it
+      // runs its own connection for this room and owns the slot, so ours must
+      // not compete for a room it is not serving. Kept for switchdash releases
+      // in the wild; the shared-connection path above replaces it.
       return
     }
-    void subscribeRoom(target)
-    // If the stream was already open before this room was known, it opened
-    // without one; reopening picks the room up at open time.
+    // The room is already claimed server-side by connect_to_room. What is left
+    // is catch-up: the stream may have opened before the room was known, in
+    // which case it skipped that room's buffered events. Reopening declares the
+    // room up front and resumes from our cursor — which is still behind those
+    // events, because we never received them.
     if (streamAbort && !streamHasRoom) {
       streamHasRoom = true
       restartStream()
@@ -835,6 +850,11 @@ function stopHeartbeat() {
 }
 
 function startHeartbeat() {
+  // The supervisor beats for a borrowed connection. Two heartbeats would not
+  // conflict, but they would disagree about the cursor: ours only advances on
+  // events we receive, and on a borrowed connection we receive none — so ours
+  // would keep reporting 0 and undo the supervisor's progress.
+  if (!OWNS_CONNECTION) return
   if (heartbeatAbort) return
   const abort = new AbortController()
   heartbeatAbort = abort
@@ -862,7 +882,9 @@ function startHeartbeat() {
           )
           stopStreamKeepingRoom()
           startStream()
-          if (pollingRoomId && !SUPPRESS_NOTIFICATIONS) void subscribeRoom(pollingRoomId)
+          // No re-claim here. When we own the connection and serve the room,
+          // reopening declares it on the URL; when the supervisor serves it,
+          // the slot is the supervisor's and claiming would take it away.
         }
       } catch (err) {
         if (abort.signal.aborted) return
