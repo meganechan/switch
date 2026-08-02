@@ -71,7 +71,7 @@ def _client(
         session_factory=_session_factory,
         _agent_session_store=SimpleNamespace(),
         _room_role_store=SimpleNamespace(agent_room_role=_agent_room_role),
-        _event_queue=SimpleNamespace(enqueue=lambda *a, **k: enqueue.append((a, k))),
+        _event_buffer=SimpleNamespace(enqueue=lambda *a, **k: enqueue.append((a, k))),
     )
 
 

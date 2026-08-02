@@ -309,7 +309,7 @@ async def _dispatch_control_command(
     # switchdash when we know its deeplink.
     body = f"{ack} ([Open in SwitchDash]({deeplink}))" if deeplink else ack
     await _reply(client, room, event, body)
-    client._event_queue.enqueue(
+    client._event_buffer.enqueue(
         client.agent.id,
         meta.room_id,
         AgentEvent(

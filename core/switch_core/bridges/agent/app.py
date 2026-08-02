@@ -11,7 +11,7 @@ from switch_core.bridges.agent.auth import BearerAuthMiddleware
 from switch_core.bridges.agent.deeplink import router as deeplink_router
 from switch_core.bridges.agent.dependencies import init_dependencies
 from switch_core.bridges.agent.mcp import create_mcp_app
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.request_tracker import RequestTracker
 from switch_core.bridges.collaboration.lifecycle_service import (
@@ -41,7 +41,7 @@ def create_agent_bridge_app(
     room_service: RoomService,
     client_lifecycle: ClientLifecycleService,
     collab_lifecycle: CollaborationBridgeLifecycleService,
-    event_queue: EventQueue,
+    event_buffer: EventBuffer,
     task_store: TaskStore,
     request_tracker: RequestTracker,
     resource_request_tracker: ResourceRequestTracker,
@@ -59,7 +59,7 @@ def create_agent_bridge_app(
         room_service=room_service,
         client_lifecycle=client_lifecycle,
         collab_lifecycle=collab_lifecycle,
-        event_queue=event_queue,
+        event_buffer=event_buffer,
         task_store=task_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,
@@ -78,7 +78,7 @@ def create_agent_bridge_app(
         room_service=room_service,
         client_lifecycle=client_lifecycle,
         collab_lifecycle=collab_lifecycle,
-        event_queue=event_queue,
+        event_buffer=event_buffer,
         task_store=task_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,

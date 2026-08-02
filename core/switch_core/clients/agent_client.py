@@ -24,7 +24,7 @@ from switch_core.bridges.agent.commands import (
     _addressed_by_name_or_role,
     dispatch_command,
 )
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.types import (
     AgentEvent,
     AttachmentRef,
@@ -178,7 +178,7 @@ class AgentClient(ClientBase[ClientConfig]):
     def __init__(
         self,
         *,
-        event_queue: EventQueue,
+        event_buffer: EventBuffer,
         agent_store: AgentStore,
         room_store: RoomStore,
         bridge_store: CollaborationBridgeStore,
@@ -193,7 +193,7 @@ class AgentClient(ClientBase[ClientConfig]):
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
-        self._event_queue = event_queue
+        self._event_buffer = event_buffer
         self._agent_store = agent_store
         self._room_store = room_store
         self._bridge_store = bridge_store
@@ -289,7 +289,7 @@ class AgentClient(ClientBase[ClientConfig]):
             listening = await self._room_store.get_receives_join_events(
                 session, meta.room_id, self.agent.id
             )
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -370,7 +370,7 @@ class AgentClient(ClientBase[ClientConfig]):
         )
 
         logger.debug("Enqueuing event %s", agent_event.model_dump_json(indent=2))
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             agent_event,
@@ -569,7 +569,7 @@ class AgentClient(ClientBase[ClientConfig]):
         )
 
         logger.debug("Enqueuing media event %s", agent_event.model_dump_json(indent=2))
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             agent_event,
@@ -597,7 +597,7 @@ class AgentClient(ClientBase[ClientConfig]):
         if handled:
             return
 
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -815,7 +815,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -839,7 +839,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -861,7 +861,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -884,7 +884,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -907,7 +907,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(

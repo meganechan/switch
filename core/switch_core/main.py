@@ -15,7 +15,7 @@ from alembic.config import Config as AlembicConfig
 from fastapi.responses import JSONResponse
 
 from switch_core.bridges.agent.app import create_agent_bridge_app
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.request_tracker import RequestTracker
 from switch_core.bridges.agent.server_connectors.lifecycle import (
@@ -166,7 +166,7 @@ async def run() -> None:
     )
 
     # ── Event queue + request trackers ───────────────────────────────────────
-    event_queue = EventQueue()
+    event_buffer = EventBuffer()
     request_tracker = RequestTracker()
     resource_request_tracker = ResourceRequestTracker()
     connector_store = ServerConnectorStore()
@@ -189,7 +189,7 @@ async def run() -> None:
     client_factory.register(
         "agent",
         AgentClient,
-        event_queue=event_queue,
+        event_buffer=event_buffer,
         agent_store=agent_store,
         room_store=room_store,
         bridge_store=bridge_store,
@@ -274,7 +274,7 @@ async def run() -> None:
         room_service=room_service,
         client_lifecycle=client_lifecycle,
         collab_lifecycle=collab_lifecycle,
-        event_queue=event_queue,
+        event_buffer=event_buffer,
         task_store=task_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,
@@ -314,7 +314,7 @@ async def run() -> None:
         collab_lifecycle=collab_lifecycle,
         connector_lifecycle=connector_lifecycle,
         connector_store=connector_store,
-        event_queue=event_queue,
+        event_buffer=event_buffer,
         session_factory=session_factory,
         user_store=user_store,
         external_user_store=external_user_store,

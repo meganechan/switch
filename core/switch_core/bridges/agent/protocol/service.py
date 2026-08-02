@@ -25,7 +25,7 @@ from switch_core.bridges.agent.protocol.agent_detail import (
     list_agent_summaries,
     reparent_agent,
 )
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.statuses import compute_agent_statuses
 from switch_core.bridges.agent.protocol.types import (
     AgentEvent,
@@ -117,7 +117,7 @@ class ProtocolService:
         room_service: RoomService,
         client_lifecycle: ClientLifecycleService,
         collab_lifecycle: CollaborationBridgeLifecycleService,
-        event_queue: EventQueue,
+        event_buffer: EventBuffer,
         task_store: TaskStore,
         request_tracker: RequestTracker,
         resource_request_tracker: ResourceRequestTracker,
@@ -138,7 +138,7 @@ class ProtocolService:
         self.room_service = room_service
         self.client_lifecycle = client_lifecycle
         self.collab_lifecycle = collab_lifecycle
-        self.event_queue = event_queue
+        self.event_buffer = event_buffer
         self.task_store = task_store
         self.request_tracker = request_tracker
         self.resource_request_tracker = resource_request_tracker
@@ -505,7 +505,7 @@ class ProtocolService:
         resolved_id = agent.id
         resolved_name = agent.name
         await self.client_lifecycle.stop(client_id)
-        self.event_queue.remove(resolved_id)
+        self.event_buffer.remove(resolved_id)
 
         await self._remove_bridge_identities(resolved_name)
 
@@ -1317,7 +1317,7 @@ class ProtocolService:
         async with self.session_factory() as session:
             await self.agent_session_store.touch_heartbeat(session, agent_id, None)
             await session.commit()
-        return await self.event_queue.poll(agent_id, timeout=timeout)
+        return await self.event_buffer.poll(agent_id, timeout=timeout)
 
     async def poll_notifications(
         self, agent_id: str, timeout: float = 10
@@ -1325,14 +1325,14 @@ class ProtocolService:
         """Long-poll the agent's notification stream across all its rooms.
 
         Returns only notifiable events (addressed messages, task events, and
-        room_join events the agent listens for) — see EventQueue. Unlike
+        room_join events the agent listens for) — see EventBuffer. Unlike
         `poll_events`, this does NOT touch any heartbeat: an auto_session
         connector maintains its "watching" presence via the dedicated
         `touch_watch_heartbeat` path, decoupled from this long-poll. Consuming
         this stream never drains the per-room queues, so live session pollers
         are unaffected.
         """
-        return await self.event_queue.poll_notifications(agent_id, timeout=timeout)
+        return await self.event_buffer.poll_notifications(agent_id, timeout=timeout)
 
     async def touch_watch_heartbeat(self, agent_id: str) -> None:
         """Refresh an auto_session connector's global "watching" heartbeat.
@@ -1358,7 +1358,7 @@ class ProtocolService:
         the long-poll cadence so the TTL can stay short.
         """
         await self.require_room_member(agent_id, room_id)
-        return await self.event_queue.poll_room(agent_id, room_id, timeout=timeout)
+        return await self.event_buffer.poll_room(agent_id, room_id, timeout=timeout)
 
     async def report_events(
         self,
