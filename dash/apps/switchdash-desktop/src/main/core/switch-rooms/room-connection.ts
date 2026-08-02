@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
@@ -124,8 +123,21 @@ export interface RoomConnectionLogger {
 
 export interface RoomConnectionDeps {
   creds: SwitchCredentials;
-  roomId: string;
+  /**
+   * The room the session is already known to be in, if we happen to know —
+   * restoring after a restart, or an adopted session whose hook told us. Null
+   * for a session we just launched: it has not connected to a room yet, and
+   * when it does the server tells us on the stream.
+   */
+  roomId: string | null;
   roomName: string | null;
+  /**
+   * The connection id this session uses, minted before launch and handed to the
+   * session in its environment so its tool calls land on this same connection.
+   * Stable across room changes and reconnects — that is what makes the room
+   * repointable instead of requiring a new connection each time.
+   */
+  connectionId: string;
   /** The switchdash session id of the session this connection drives, so
    * the deeplink can resolve to the exact session on any client (the shared
    * session id is the same across clients; the local room mapping is not). */
@@ -152,13 +164,20 @@ export interface RoomConnectionDeps {
    * temp dir in the sidecar).
    */
   mediaDir: string;
+  /**
+   * Called when the server reports which room this connection covers — on
+   * connect, and again whenever it changes. This is how switchdash learns a
+   * session's room: from Switch, on the connection the session's own
+   * `connect_to_room` call landed on.
+   */
+  onRoomChanged?: (roomId: string | null) => void;
   log: RoomConnectionLogger;
 }
 
 /**
- * One agent ↔ one Switch room: receives room events on the agent bridge's push
- * stream, injects addressed messages / task events into the session via an
- * `InjectionSink`, and reports runtime state back to the bridge.
+ * One **session's** connection to Switch: receives its room's events on the
+ * agent bridge's push stream, injects addressed messages / task events into the
+ * session via an `InjectionSink`, and reports runtime state back to the bridge.
  * Transport-agnostic — the local main process drives it with a PTY-backed sink,
  * the remote sidecar with a tmux-backed one.
  *
@@ -168,11 +187,21 @@ export interface RoomConnectionDeps {
  * The connection survives a dropped socket, so a reconnect resumes from the
  * cursor rather than losing whatever arrived while it was away — the poll had
  * no cursor at all and the server drained its queue on read.
+ *
+ * **The room is not fixed and is not ours to decide.** The connection belongs
+ * to the session and merely points at whichever room the session is in; the
+ * server says which, on this connection's own stream. When the session calls
+ * `connect_to_room`, the server claims the room on the connection the call came
+ * in on — this one, when the session was handed our id at launch — and tells us
+ * as `subscription_changed`. Before that arrived from the server we learned the
+ * room by reading the agent's tool response through a hook, which broke
+ * silently the moment that response changed shape.
  */
 export class RoomConnection {
   private readonly creds: SwitchCredentials;
-  private readonly roomId: string;
-  private readonly roomName: string | null;
+  /** The room this session is currently in, or null before the server says. */
+  private roomId: string | null;
+  private roomName: string | null;
   private readonly sessionId: string;
   private readonly sink: InjectionSink;
   private readonly injector: PromptInjector;
@@ -207,9 +236,13 @@ export class RoomConnection {
   /** The push transport: one SSE stream plus one heartbeat, replacing the
    * long-poll and the three renew loops. */
   private stream: SwitchEventStream | null = null;
-  /** Chosen once and reused across reconnects, so the server-side connection —
-   * and with it the room slot and role lease — survives a dropped socket. */
-  private readonly connectionId = randomUUID();
+  /** Minted before launch and shared with the session, so its tool calls land
+   * on this connection. Reused across reconnects, so the server-side
+   * connection — and with it the room slot and role lease — survives a dropped
+   * socket. */
+  private readonly connectionId: string;
+  /** Notified whenever the server tells us which room this session is in. */
+  private readonly onRoomChanged: ((roomId: string | null) => void) | null;
   /** Unaddressed room messages filtered out since the last event we surfaced. */
   private missed = 0;
 
@@ -224,6 +257,8 @@ export class RoomConnection {
     this.deeplinkScheme = deps.deeplinkScheme;
     this.isHumanTyping = deps.isHumanTyping;
     this.mediaDir = deps.mediaDir;
+    this.connectionId = deps.connectionId;
+    this.onRoomChanged = deps.onRoomChanged ?? null;
     this.log = deps.log;
   }
 
@@ -236,8 +271,11 @@ export class RoomConnection {
       // second session of the same agent silently competing for the room.
       scope: 'single',
       filter: 'all',
-      rooms: [this.roomId],
+      // Empty until the session connects to one. Declared here only when we
+      // already know it — a restored session, or one adopted with a room.
+      rooms: this.roomId ? [this.roomId] : [],
       onEvent: (event) => this.handleEvent(event),
+      onRooms: (rooms) => this.adoptRoom(rooms),
       onGap: (info) => this.handleGap(info),
       onEvicted: (reason) =>
         this.log.warn('RoomConnection: connection evicted', {
@@ -254,7 +292,37 @@ export class RoomConnection {
     // session's `(Open in SwitchDash)` link is available in the new room's
     // !status immediately on connect/switch — not only once the agent next
     // works. idle surfaces nothing on the bridge, so this posts no message.
-    void this.postRuntimeState('idle', null).catch(() => {});
+    if (this.roomId) void this.postRuntimeState('idle', null).catch(() => {});
+  }
+
+  /**
+   * Take the room the server says this connection covers.
+   *
+   * The server is the authority: the session's `connect_to_room` claimed the
+   * room on this connection, and this is that fact arriving. Nothing else is
+   * allowed to set the room — inferring it anywhere else is what let switchdash
+   * and Switch disagree.
+   *
+   * A `single`-scope connection covers at most one room, so anything else in
+   * the list would be a protocol violation rather than a case to handle.
+   */
+  private adoptRoom(rooms: string[]): void {
+    const next = rooms[0] ?? null;
+    if (next === this.roomId) return;
+
+    const previous = this.roomId;
+    this.roomId = next;
+    // The name is not on the wire — the renderer resolves it from the gateway's
+    // room list, and falls back to a short id when it cannot.
+    if (next !== previous) this.roomName = null;
+    this.log.debug('RoomConnection: room set by the server', {
+      event: 'room_connection_room_changed',
+      sessionId: this.sessionId,
+      previous,
+      roomId: next,
+    });
+    this.onRoomChanged?.(next);
+    if (next) void this.postRuntimeState('idle', null).catch(() => {});
   }
 
   /** Stop the loops and clear any lingering runtime-state surface. */
@@ -276,8 +344,14 @@ export class RoomConnection {
     this.stopActivityTicker();
   }
 
-  get room(): string {
+  /** The room the session is in, or null until the server has said. */
+  get room(): string | null {
     return this.roomId;
+  }
+
+  /** The connection this session's tool calls are expected to arrive on. */
+  get connection(): string {
+    return this.connectionId;
   }
 
   /**
@@ -290,7 +364,7 @@ export class RoomConnection {
     const params = new URLSearchParams({
       server: this.creds.apiEndpoint,
       agent: this.creds.agentId,
-      room: this.roomId,
+      room: this.roomId ?? '',
       // The shared session id resolves to the exact session on any client
       // (a client that only adopted the session has no room mapping to match on).
       session: this.sessionId,
@@ -740,6 +814,18 @@ export class RoomConnection {
    */
   private async executeCommand(payload: CommandPayload): Promise<void> {
     const command = payload.command;
+    if (!this.roomId) {
+      // A control command can only have come from a room, so this means the
+      // server told us about the event before it told us about the room.
+      // Refusing beats guessing: `reset` re-types a connect prompt naming the
+      // room, and naming the wrong one would move the session.
+      this.log.warn('RoomConnection: control command before the room is known', {
+        event: 'room_connection_command_without_room',
+        sessionId: this.sessionId,
+        command,
+      });
+      return;
+    }
     const plan = this.control.plan(command, {
       room: this.roomName ?? this.roomId,
       role: payload.args || null,

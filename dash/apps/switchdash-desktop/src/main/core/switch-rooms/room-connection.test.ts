@@ -147,6 +147,7 @@ describe('RoomConnection', () => {
       creds,
       roomId: 'room-1',
       roomName: 'Room One',
+      connectionId: 'conn-1',
       sessionId: 'session-1',
       sink,
       injector,
@@ -556,6 +557,7 @@ describe('RoomConnection', () => {
       creds,
       roomId: 'room-1',
       roomName: 'Room One',
+      connectionId: 'conn-1',
       sessionId: 'session-1',
       sink: { acquire: () => ({ write: vi.fn() }) },
       injector,
@@ -684,6 +686,7 @@ describe('RoomConnection', () => {
       creds,
       roomId: 'room-1',
       roomName: 'Room One',
+      connectionId: 'conn-1',
       sessionId: 'session-1',
       sink: { acquire: () => target },
       injector,
@@ -730,6 +733,7 @@ describe('RoomConnection', () => {
         creds,
         roomId: 'room-1',
         roomName: 'Room One',
+        connectionId: 'conn-1',
         sessionId: 'session-1',
         sink: { acquire: () => ({ write: vi.fn() }) },
         injector,
@@ -800,5 +804,154 @@ describe('RoomConnection', () => {
       expect(recovered[0][1]).toMatchObject({ event: 'switch_beat_recovered' });
       conn.stop();
     });
+  });
+});
+
+/**
+ * The room comes from the server, on this connection's own stream.
+ *
+ * switchdash used to learn it by reading the agent's `connect_to_room` tool
+ * response through a hook — inference about another process, from a payload
+ * shape nobody had agreed to keep stable. It broke the moment that shape
+ * changed, and the failure was silent: no room in the sidebar, and no
+ * connection started either, because both hang off the same dispatch.
+ *
+ * Now the session's tool call lands on this connection, the server claims the
+ * room on it, and says so.
+ */
+describe('the room is set by the server', () => {
+  function sseWithFrames(frames: string[]): ReadableStream<Uint8Array> {
+    const encoder = new TextEncoder();
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const frame of frames) controller.enqueue(encoder.encode(frame));
+      },
+    });
+  }
+
+  function connectWithFrames(frames: string[], roomId: string | null = null) {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (String(url).includes('/events')) {
+        return {
+          ok: true,
+          status: 200,
+          body: sseWithFrames(frames),
+          text: async (): Promise<string> => '',
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async (): Promise<string> => '',
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const rooms: (string | null)[] = [];
+    const conn = new RoomConnection({
+      creds,
+      roomId,
+      roomName: null,
+      connectionId: 'conn-1',
+      sessionId: 'session-1',
+      sink: { acquire: () => ({ write: vi.fn() }) },
+      injector,
+      control,
+      deeplinkScheme: 'switchdash',
+      isHumanTyping: () => false,
+      mediaDir,
+      onRoomChanged: (room) => rooms.push(room),
+      log: silentLog,
+    });
+    conn.start();
+    return { conn, rooms, fetchMock };
+  }
+
+  it('opens with no room when the session has not connected to one yet', async () => {
+    const { conn, fetchMock } = connectWithFrames([]);
+    await flush();
+
+    const open = fetchMock.mock.calls.find((c) => String(c[0]).includes('/events'));
+    expect(String(open?.[0])).not.toContain('rooms=');
+    expect(conn.room).toBeNull();
+    conn.stop();
+  });
+
+  it('takes the room from connection_state', async () => {
+    const { conn, rooms } = connectWithFrames([
+      `event: connection_state\ndata: ${JSON.stringify({ rooms: ['room-9'] })}\n\n`,
+    ]);
+    await flush(8);
+
+    expect(conn.room).toBe('room-9');
+    expect(rooms).toEqual(['room-9']);
+    conn.stop();
+  });
+
+  it('follows a subscription_changed when the session moves room', async () => {
+    const { conn, rooms } = connectWithFrames([
+      `event: connection_state\ndata: ${JSON.stringify({ rooms: ['room-9'] })}\n\n`,
+      `event: subscription_changed\ndata: ${JSON.stringify({ rooms: ['room-10'] })}\n\n`,
+    ]);
+    await flush(8);
+
+    expect(conn.room).toBe('room-10');
+    expect(rooms).toEqual(['room-9', 'room-10']);
+    conn.stop();
+  });
+
+  it('does not re-announce a room that has not changed', async () => {
+    // The server repeats the room on every reconnect; treating each as a change
+    // would rewrite the session→room mapping and re-emit to the renderer for
+    // nothing.
+    const { conn, rooms } = connectWithFrames([
+      `event: connection_state\ndata: ${JSON.stringify({ rooms: ['room-9'] })}\n\n`,
+      `event: subscription_changed\ndata: ${JSON.stringify({ rooms: ['room-9'] })}\n\n`,
+    ]);
+    await flush(8);
+
+    expect(rooms).toEqual(['room-9']);
+    conn.stop();
+  });
+
+  it('reports the room going away', async () => {
+    const { conn, rooms } = connectWithFrames([
+      `event: connection_state\ndata: ${JSON.stringify({ rooms: ['room-9'] })}\n\n`,
+      `event: subscription_changed\ndata: ${JSON.stringify({ rooms: [] })}\n\n`,
+    ]);
+    await flush(8);
+
+    expect(conn.room).toBeNull();
+    expect(rooms).toEqual(['room-9', null]);
+    conn.stop();
+  });
+
+  it('declares a room it already knows, so catch-up covers it', async () => {
+    // A restored or adopted session: we know the room before the stream opens,
+    // and buffered events for it must be part of the first read.
+    const { conn, fetchMock } = connectWithFrames([], 'room-known');
+    await flush();
+
+    const open = fetchMock.mock.calls.find((c) => String(c[0]).includes('/events'));
+    expect(String(open?.[0])).toContain('rooms=room-known');
+    conn.stop();
+  });
+
+  it('ignores a control command that arrives before the room is known', async () => {
+    // `reset` re-types a prompt naming the room; naming the wrong one would
+    // move the session. Refusing beats guessing.
+    const { conn } = connectWithFrames([
+      `id: 1\nevent: command\ndata: ${JSON.stringify({
+        type: 'command',
+        room_id: 'room-9',
+        payload: { command: 'reset', args: '', user_id: '@u', user_name: 'u', thread_id: null },
+      })}\n\n`,
+    ]);
+    await flush(8);
+
+    expect(
+      silentLog.warn.mock.calls.some((c) => String(c[0]).includes('control command before'))
+    ).toBe(true);
+    conn.stop();
   });
 });

@@ -52,6 +52,9 @@ vi.mock('@main/core/switch-rooms/switch-room-service', () => ({
 vi.mock('@main/core/switch-rooms/switch-notification-poller', () => ({
   switchNotificationPoller: {
     disconnect: vi.fn(),
+    // Sessions in these tests are not Switch agents, so no connection is
+    // opened and no SWITCH_CONNECTION_ID reaches the spawn.
+    ensureForSession: vi.fn(async () => null),
   },
 }));
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { deriveAgentStatus } from '@main/core/agent-hooks/derive-agent-status';
@@ -154,6 +155,21 @@ export class SidecarRuntime {
     // has no database to update.
   }
 
+  /**
+   * Open a session's connection before it launches, and return the id to hand
+   * it in its environment. Mirrors switchdash's `ensureForSession`.
+   *
+   * The connection must exist before the session's first `connect_to_room`,
+   * which arrives tagged with this id. It also makes the room server-driven
+   * here too: the claim lands on this connection and comes back as
+   * `subscription_changed`, so the sidecar stops depending on parsing the hook.
+   */
+  ensureForSession(sessionId: string, providerId: string): string {
+    const existing = this.sessions.get(sessionId);
+    if (existing) return existing.connection.connection;
+    return this.openConnection(sessionId, providerId, null, null);
+  }
+
   private connectRoom(
     sessionId: string,
     providerId: string,
@@ -168,16 +184,38 @@ export class SidecarRuntime {
       this.roomConnectedListener?.(roomId);
       return;
     }
+    if (existing && existing.roomId === null) {
+      // We opened this connection at launch and the server has not named a
+      // room yet. The claim is in flight; trust it rather than rebuilding.
+      this.deps.log.debug('SidecarRuntime: hook named a room before the server did', {
+        sessionId,
+        roomId,
+      });
+      this.roomConnectedListener?.(roomId);
+      return;
+    }
     // A session re-targeting to a new room supersedes ITS OWN prior room only —
     // other sessions' connections are untouched (mirrors each session's
     // connect_to_room re-targeting independently).
     if (existing) existing.connection.stop();
 
+    this.openConnection(sessionId, providerId, roomId, roomName);
+    this.roomConnectedListener?.(roomId);
+  }
+
+  private openConnection(
+    sessionId: string,
+    providerId: string,
+    roomId: string | null,
+    roomName: string | null
+  ): string {
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
+    const connectionId = randomUUID();
     const connection = this.deps.createConnection({
       creds: this.deps.creds,
       roomId,
       roomName,
+      connectionId,
       sessionId,
       sink: new TmuxInjectionSink(tmuxTarget, this.deps.tmuxRun, () =>
         this.deps.isPaneLive(tmuxTarget)
@@ -190,13 +228,28 @@ export class SidecarRuntime {
       // can't gate on human typing yet — a known follow-up for the attached case.
       isHumanTyping: () => false,
       mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', sessionId),
+      // The server naming this connection's room is what records it here, so a
+      // session that moves rooms is followed without re-reading a hook.
+      onRoomChanged: (room) => {
+        const entry = this.sessions.get(sessionId);
+        if (entry) entry.roomId = room;
+        if (room) {
+          this.deps.registry.record({ sessionId, roomId: room, providerId, tmuxTarget });
+          this.roomConnectedListener?.(room);
+        }
+      },
       log: this.deps.log,
     });
     this.sessions.set(sessionId, { connection, roomId, tmuxTarget });
-    this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
-    this.deps.log.debug('SidecarRuntime: room connected', { sessionId, roomId, roomName });
+    if (roomId) this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
+    this.deps.log.debug('SidecarRuntime: connection opened', {
+      sessionId,
+      roomId,
+      roomName,
+      connectionId,
+    });
     connection.start();
-    this.roomConnectedListener?.(roomId);
+    return connectionId;
   }
 
   /**

@@ -65,6 +65,14 @@ export interface SwitchEventStreamDeps {
    * advanced past them. */
   rooms: string[];
   onEvent(event: AgentBridgeEvent): Promise<void> | void;
+  /**
+   * The rooms the server says this connection covers — on connect, and again
+   * whenever they change. The server is the authority here: a room claimed by
+   * the session's own `connect_to_room` arrives this way, which is what lets a
+   * supervisor learn its session's room from Switch rather than by watching
+   * the agent's tool calls.
+   */
+  onRooms?: (rooms: string[]) => void;
   /** Fired when the server reports missed events it cannot replay. */
   onGap(info: { fromSequence: number; reason: string }): void;
   /** Fired when another stream took this connection over, or it was closed. */
@@ -109,6 +117,21 @@ export class SwitchEventStream {
 
   private reopen(): void {
     this.socketAbort?.abort();
+  }
+
+  /**
+   * Pass the server's room list on, and keep our own copy in step.
+   *
+   * The local copy matters on reconnect: it is what gets declared on the open
+   * URL, so a room the server claimed while we were connected is still ours
+   * after a drop. Without it a reconnect would re-open with the room we were
+   * first told about — or none — and quietly stop receiving.
+   */
+  private reportRooms(raw: unknown): void {
+    if (!Array.isArray(raw)) return;
+    const rooms = raw.filter((r): r is string => typeof r === 'string');
+    this.rooms = rooms;
+    this.deps.onRooms?.(rooms);
   }
 
   private async subscribe(roomId: string): Promise<void> {
@@ -203,12 +226,14 @@ export class SwitchEventStream {
           event: 'switch_stream_connected',
           rooms: frame.data.rooms,
         });
+        this.reportRooms(frame.data.rooms);
         return;
       case 'subscription_changed':
         log.debug('SwitchEventStream: subscription changed', {
           event: 'switch_stream_subscription',
           rooms: frame.data.rooms,
         });
+        this.reportRooms(frame.data.rooms);
         return;
       case 'gap':
         log.warn('SwitchEventStream: gap — events missed', {

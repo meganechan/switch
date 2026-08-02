@@ -26,6 +26,13 @@ export interface InProcessSessionSpawnerDeps {
   endpointFile: string;
   /** The multi-session runtime — a room it already serves needs no new session. */
   runtime: RoomLivenessSource;
+  /**
+   * Open a connection for a session about to launch and return its id, so the
+   * session's tool calls land on the connection this sidecar is reading. Same
+   * hand-off switchdash does locally; without it the session opens its own and
+   * the sidecar is back to inferring the room from a hook.
+   */
+  openConnectionFor?: (sessionId: string, providerId: string) => string | null;
   /** The agent's Switch identity as `SWITCH_*` env, injected into every
    * auto-started session so it authenticates as this agent — a `--settings` env
    * block is not reliably propagated to the spawned MCP server (CHOO-1440). */
@@ -133,6 +140,11 @@ export class InProcessSessionSpawner implements SessionSpawner {
     const sessionId = randomUUID();
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
 
+    // Open the session's connection before launching it: its first
+    // connect_to_room arrives tagged with this id, and the server refuses a
+    // call naming a connection that is not open.
+    const connectionId = this.deps.openConnectionFor?.(sessionId, spec.providerId) ?? null;
+
     const hookEnv = {
       ...this.deps.switchEnv,
       ...buildAgentHookEnv({
@@ -141,6 +153,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
         token: hookToken,
         endpointFile,
       }),
+      ...(connectionId ? { SWITCH_CONNECTION_ID: connectionId } : {}),
     };
     const command = materializeAgentCommand(spec, {
       sessionId,

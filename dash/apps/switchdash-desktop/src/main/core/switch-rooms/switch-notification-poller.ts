@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
@@ -18,7 +19,7 @@ import {
   readSwitchAgentCredentials,
   readSwitchAgentCredentialsFromSettings,
 } from './switch-credentials';
-import type { SessionRoomContext } from './switch-room-service';
+import { switchRoomService, type SessionRoomContext } from './switch-room-service';
 
 /**
  * Polls the Switch agent bridge for room events on behalf of each live session
@@ -38,14 +39,51 @@ class SwitchNotificationPoller {
   private readonly connections = new Map<string, RoomConnection>();
 
   /**
-   * Begin polling the room a session just connected to (replaces any prior).
-   * Idempotent for the same room: a repeat connect (e.g. a hydration after a
-   * boot-time sweep already started the poller) is a no-op so the in-flight
-   * queue and renew loop are preserved.
+   * Open this session's connection before it launches, and return the id to
+   * hand it in its environment.
+   *
+   * The connection must exist first: the session's very first `connect_to_room`
+   * arrives tagged with this id, and the server rejects a call naming a
+   * connection that is not open. Opening here is also what makes the room
+   * server-driven — the claim lands on this connection and comes back as
+   * `subscription_changed`.
+   *
+   * Returns null when the session has no Switch credentials, which is not an
+   * error: plenty of sessions are not Switch agents at all.
+   */
+  async ensureForSession(ctx: SessionRoomContext): Promise<string | null> {
+    const existing = this.connections.get(ctx.sessionId);
+    if (existing) return existing.connection;
+    return await this.start(ctx, null, null);
+  }
+
+  /**
+   * Point a session at a room the hook told us about.
+   *
+   * This is the **fallback** path. When switchdash launched the session it
+   * handed over a connection id, the session's `connect_to_room` claimed the
+   * room on it, and the server has already told us — so by the time this runs
+   * there is nothing to do. It still matters for a session switchdash only
+   * adopted, which has its own connection and never saw our id.
+   *
+   * Idempotent for the same room, so the common no-op stays a no-op.
    */
   connect(ctx: SessionRoomContext, roomId: string, roomName: string | null): void {
     const existing = this.connections.get(ctx.sessionId);
-    if (existing && existing.room === roomId) return;
+    if (existing) {
+      if (existing.room === roomId) return;
+      if (existing.room === null) {
+        // Our connection is open but the server has not named a room yet.
+        // Trust the server rather than racing it: the claim is in flight and
+        // will arrive on the stream. Tearing down and rebuilding here is what
+        // would lose the session's place.
+        log.debug('SwitchNotificationPoller: hook named a room before the server did', {
+          sessionId: ctx.sessionId,
+          roomId,
+        });
+        return;
+      }
+    }
     this.disconnect(ctx.sessionId);
     void this.start(ctx, roomId, roomName).catch((error) => {
       log.warn('SwitchNotificationPoller: failed to start poller', {
@@ -70,22 +108,22 @@ class SwitchNotificationPoller {
 
   private async start(
     ctx: SessionRoomContext,
-    roomId: string,
+    roomId: string | null,
     roomName: string | null
-  ): Promise<void> {
+  ): Promise<string | null> {
     const loaded = await loadSessionWithAgent(ctx.sessionId);
     if (!loaded) {
       log.warn('SwitchNotificationPoller: session not found; cannot read credentials', {
         sessionId: ctx.sessionId,
       });
-      return;
+      return null;
     }
     const location = await getLocationById(loaded.locationId);
     if (!location) {
       log.warn('SwitchNotificationPoller: no location for session; cannot read credentials', {
         sessionId: ctx.sessionId,
       });
-      return;
+      return null;
     }
     if (location.sshHost !== null) {
       // Remote agents poll from their on-host sidecar (CHOO-1059); the local
@@ -94,7 +132,7 @@ class SwitchNotificationPoller {
         sessionId: ctx.sessionId,
         locationId: location.id,
       });
-      return;
+      return null;
     }
     const rootPath = location.dir;
 
@@ -117,7 +155,7 @@ class SwitchNotificationPoller {
         'SwitchNotificationPoller: missing Switch credentials (SWITCH_API_TOKEN/ENDPOINT/AGENT_ID) — cannot poll room',
         { sessionId: ctx.sessionId, dir: rootPath, roomId, slug }
       );
-      return;
+      return null;
     }
 
     // Names for the ids these logs carry. The poller holds the joined row
@@ -126,10 +164,12 @@ class SwitchNotificationPoller {
     noteAgentName(creds.agentId, slug);
 
     const ptySessionId = makeAgentPtySessionId(location.id, ctx.sessionId);
+    const connectionId = randomUUID();
     const connection = new RoomConnection({
       creds,
       roomId,
       roomName,
+      connectionId,
       sessionId: ctx.sessionId,
       sink: new PtyInjectionSink(ptySessionId),
       injector: new PluginPromptInjector(ctx.providerId),
@@ -137,6 +177,17 @@ class SwitchNotificationPoller {
       deeplinkScheme: DEEPLINK_SCHEME,
       isHumanTyping: () => isHumanInputRecent(ptySessionId),
       mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', ctx.sessionId),
+      // The server naming this connection's room is the authoritative signal,
+      // so it is what updates the session→room map the UI reads. The
+      // connect_to_room hook writes the same map, and now only matters for
+      // sessions that never got our connection id.
+      onRoomChanged: (room) => {
+        if (room) {
+          void switchRoomService.setSessionRoom(ctx, room, creds.agentId, null);
+        } else {
+          switchRoomService.clearSession(ctx.sessionId);
+        }
+      },
       log,
     });
     this.connections.set(ctx.sessionId, connection);
@@ -161,6 +212,7 @@ class SwitchNotificationPoller {
       },
       () => connection.start()
     );
+    return connectionId;
   }
 
   /**

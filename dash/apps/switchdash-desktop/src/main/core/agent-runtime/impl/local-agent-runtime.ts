@@ -209,6 +209,23 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         session.agentName && repoAgents
           ? await repoAgents.readLaunchEnv(createPluginFs(this.sessionPath), session.agentName)
           : await readAgentSwitchEnv(agentSettingsPath(this.sessionPath, session.agentId), log);
+
+      // Open this session's Switch connection before the session exists, and
+      // hand it the id. Its tool calls then arrive on the connection switchdash
+      // is reading, so `connect_to_room` claims the room *there* and the server
+      // tells us which room the session is in. Before this, the two held
+      // separate connections and switchdash had to infer the room by scraping
+      // the agent's tool response through a hook.
+      //
+      // Order matters: the server refuses a call naming a connection that is
+      // not open, and the session may call connect_to_room immediately.
+      // Null when the session has no Switch credentials — most sessions —
+      // in which case nothing here applies and the var is simply absent.
+      const switchConnectionId = await switchNotificationPoller.ensureForSession({
+        sessionId: this.sessionId,
+        providerId: session.providerId,
+        ptyId,
+      });
       const pty = spawnLocalPty({
         id: ptySessionId,
         command: resolved.command,
@@ -223,6 +240,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
           ...colorEnv,
           ...this.sessionEnvVars,
           ...subagentVars,
+          ...(switchConnectionId ? { SWITCH_CONNECTION_ID: switchConnectionId } : {}),
         },
         cols: spawnSize.cols,
         rows: spawnSize.rows,
