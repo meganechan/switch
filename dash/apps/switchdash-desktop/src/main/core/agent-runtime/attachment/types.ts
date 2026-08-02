@@ -39,3 +39,19 @@ export interface AttachableRuntime {
 
   isAttached(): boolean;
 }
+
+/**
+ * Whether a runtime participates in per-host attachment capping. False for
+ * local runtimes, which have no shared SSH transport to protect.
+ */
+export function isAttachableRuntime(runtime: unknown): runtime is AttachableRuntime {
+  const candidate = runtime as Partial<AttachableRuntime> | null;
+  return (
+    typeof candidate?.attachHostKey === 'string' &&
+    typeof candidate.attachSessionId === 'string' &&
+    typeof candidate.ensureAttachable === 'function' &&
+    typeof candidate.attach === 'function' &&
+    typeof candidate.detachForEviction === 'function' &&
+    typeof candidate.isAttached === 'function'
+  );
+}

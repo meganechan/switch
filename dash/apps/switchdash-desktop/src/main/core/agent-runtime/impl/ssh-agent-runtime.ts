@@ -691,7 +691,10 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
   private detachPty(): void {
     const pty = this.supervisor.stop() ?? this.pty;
     this.pty = null;
-    ptySessionRegistry.unregister(this.ptySessionId);
+    // On tmux the pane outlives the PTY and a later attach lands back on it, so
+    // keep the size — otherwise the re-attach spawns at 80x24 and tmux repaints
+    // the pane that small inside a full-width terminal.
+    ptySessionRegistry.unregister(this.ptySessionId, { preserveSize: this.tmux });
     if (pty) {
       try {
         pty.kill();
