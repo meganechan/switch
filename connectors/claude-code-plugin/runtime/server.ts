@@ -675,7 +675,15 @@ function startStream() {
         // Declare the room when opening, not after: catch-up runs immediately,
         // and a room subscribed afterwards would arrive too late for the
         // buffered events this reconnect exists to recover.
-        if (pollingRoomId) params.set('rooms', pollingRoomId)
+        //
+        // Not when switchdash is managing this session, though. It runs its own
+        // connection for the room and claims the slot; a second claim from here
+        // would be refused, and whichever of us lost would sit in a reconnect
+        // loop delivering nothing. Suppressing the *notification* was never
+        // enough — the claim has to be suppressed too.
+        if (pollingRoomId && !SUPPRESS_NOTIFICATIONS) {
+          params.set('rooms', pollingRoomId)
+        }
         const resp = await fetch(
           `${API_ENDPOINT}/agents/${AGENT_ID}/events?${params}`,
           {
@@ -825,6 +833,12 @@ function setConnectedRoom(target: string | null) {
     )
     startStream()
     startHeartbeat()
+    if (SUPPRESS_NOTIFICATIONS) {
+      // switchdash owns delivery for this room, so it owns the room slot. This
+      // connection stays open purely as the session's identity for MCP/ops
+      // calls — it must not compete for the room it is not serving.
+      return
+    }
     void subscribeRoom(target)
     // If the stream was already open before this room was known, it opened
     // without one; reopening picks the room up at open time.
@@ -881,7 +895,7 @@ function startHeartbeat() {
           )
           stopStreamKeepingRoom()
           startStream()
-          if (pollingRoomId) void subscribeRoom(pollingRoomId)
+          if (pollingRoomId && !SUPPRESS_NOTIFICATIONS) void subscribeRoom(pollingRoomId)
         }
       } catch (err) {
         if (abort.signal.aborted) return
