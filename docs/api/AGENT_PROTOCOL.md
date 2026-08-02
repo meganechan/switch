@@ -735,13 +735,44 @@ A connection that has silently missed events must never appear healthy.
    plugin keeps registering the remote `switch` MCP server alongside the local
    channel.
 
-**Stage B — the rest.**
+**Stage B — migrate the clients. Nothing is removed.**
 
-4. Remove `connection_model`; derive statuses; move role leases onto the
-   connection; delete the three renew endpoints.
+The server stays backward compatible until the clients are known to have moved,
+so everything here is additive and the old paths keep working untouched.
+
+4. **A connection counts as presence.** *(implemented)* Presence is read from
+   `agent_sessions` and `role_leases` — the rows the pre-connection clients kept
+   warm with `/connection/renew`, `/watch/heartbeat` and `/leases/renew`. A
+   client on the single connection heartbeat sends none of those, so without
+   this it would show DISCONNECTED and lose its role while alive on the stream.
+   `record_connection_presence` (called on stream open, on subscribe, and on
+   every beat) writes those rows from the connection, refreshing the
+   room-agnostic slot unconditionally and one row per covered room.
+
+   This is a **transitional shim, not the end state**. The alternative was to
+   teach every reader (statuses, availability, agent detail, the runtime-state
+   sweep) about the connection registry — which is where §5.4 ends up, but is
+   four readers changed during the one stage whose point is not disturbing the
+   old path. One writer speaking the readers' language is smaller, leaves both
+   worlds live at once, and deletes cleanly in Stage C.
+
 5. switchdash (`RoomConnection` → session-grained connection that repoints
-   rooms; daemon mode) and the sidecar, which reuses the same class.
-6. Remove the polling endpoints.
+   rooms; daemon mode) and the sidecar, which reuses the same class verbatim —
+   `sidecar-runtime.ts` constructs `RoomConnection` directly, so the two
+   migrate together rather than separately. The `auto_session` watcher's
+   `/notifications` poll folds into an `all`-scope connection, and its three
+   heartbeat loops collapse into one beat.
+
+   Note `RoomConnection` has no client-side cursor today: the poll URL carries
+   only `timeout` and the server drains the queue on read. Resume is something
+   this migration *adds*, not something it has to preserve.
+
+**Stage C — the removals. Gated on the clients having transitioned.**
+
+6. Remove `connection_model`; derive statuses from connections; move role
+   leases onto the connection; delete the three renew endpoints and the
+   presence shim from stage B item 4.
+7. Remove the polling endpoints.
 
 Opportunistic, both relevant to this work: the `DORMANT` display bug, and
 `read_context`'s deep-history pagination, which discards Matrix's continuation

@@ -29,10 +29,17 @@ class _Protocol:
         self.event_buffer = EventBuffer()
         self.connections = ConnectionRegistry()
         self.polled = False
+        self.presence: list[tuple[str, set[str]]] = []
 
     async def poll_events(self, agent_id: str, timeout: float) -> list[Any]:
         self.polled = True
         return []
+
+    async def record_connection_presence(self, agent_id: str, rooms: Any) -> None:
+        self.presence.append((agent_id, set(rooms)))
+
+    async def require_room_member(self, agent_id: str, room_id: str) -> None:
+        return None
 
 
 def _agent() -> Any:

@@ -5,7 +5,7 @@ import logging
 import re
 import secrets
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -2165,6 +2165,37 @@ class ProtocolService:
             refreshed = await self.room_role_store.touch_lease(session, agent_id)
             await session.commit()
             return refreshed
+
+    async def record_connection_presence(
+        self, agent_id: str, rooms: Iterable[str]
+    ) -> None:
+        """Write a connection's heartbeat into the presence rows readers still use.
+
+        Transitional (CHOO-1857 stage B): presence is derived from
+        ``agent_sessions`` and ``role_leases``, which the pre-connection clients
+        maintained with /connection/renew, /watch/heartbeat and /leases/renew. A
+        client that has moved to the single connection heartbeat sends none of
+        those, so without this it would go DISCONNECTED and lose its role while
+        demonstrably alive on the stream.
+
+        Rather than teach every reader about the connection registry mid-
+        migration, the one writer speaks their language. Both worlds are then
+        live at once and old clients are untouched. This goes away with
+        ``connection_model`` and the renew endpoints, once the readers derive
+        presence from connections directly.
+
+        The room-agnostic slot is refreshed unconditionally: a live connection
+        is a live agent whatever rooms it covers, and that slot is what
+        ``always_on`` liveness and the ``auto_session`` DORMANT state read.
+        """
+        async with self.session_factory() as session:
+            await self.agent_session_store.touch_heartbeat(session, agent_id, None)
+            for room_id in rooms:
+                await self.agent_session_store.touch_heartbeat(
+                    session, agent_id, room_id
+                )
+            await self.room_role_store.touch_lease(session, agent_id)
+            await session.commit()
 
     async def touch_connection(self, agent_id: str, room_id: str) -> None:
         """Refresh a session_addressable agent's room-scoped liveness heartbeat.
