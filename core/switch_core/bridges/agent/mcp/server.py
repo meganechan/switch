@@ -10,6 +10,7 @@ from starlette.types import ASGIApp
 
 from switch_core.bridges.agent.api.handlers import parse_timestamp_ms
 from switch_core.bridges.agent.auth import BearerAuthMiddleware, OIDCTokenValidator
+from switch_core.bridges.agent.mcp.callctx import current_call_context
 from switch_core.bridges.agent.protocol.instructions import build_room_instructions
 from switch_core.bridges.agent.protocol.types import IntegrationProfile
 from switch_core.db.models import CollaborationBridge
@@ -36,12 +37,17 @@ def _get_protocol() -> ProtocolService:
 
 
 def _get_agent_id() -> str:
-    """Resolve the calling agent from the authenticated HTTP request scope.
+    """Resolve the calling agent, whichever front door the call arrived through.
 
-    BearerAuthMiddleware sets `scope["agent_id"]` for every authenticated MCP
-    request; fastmcp's `get_http_request()` exposes that scope inside the tool
-    handler.
+    Over HTTP the operations endpoint binds a call context before dispatching.
+    Over MCP there is none, and the agent comes from the authenticated request
+    scope that BearerAuthMiddleware set, which fastmcp exposes to tool handlers
+    via `get_http_request()`.
     """
+    bound = current_call_context()
+    if bound is not None:
+        return bound.agent_id
+
     request = get_http_request()
     agent_id = request.scope.get("agent_id")
     if not isinstance(agent_id, str):
@@ -49,12 +55,25 @@ def _get_agent_id() -> str:
     return agent_id
 
 
-async def _require_connected_room(ctx: Context) -> str:
+def _session_key(ctx: Context | None) -> str | None:
+    """The thing that owns this caller's room binding.
+
+    An MCP transport session, or a connection id when the call came over HTTP.
+    Operations only compare it for equality, so which one it is does not matter
+    above this line.
+    """
+    bound = current_call_context()
+    if bound is not None:
+        return bound.session_key
+    return ctx.session_id if ctx is not None else None
+
+
+async def _require_connected_room(ctx: Context | None) -> str:
     """Return the room_id this MCP session is bound to.
 
     Raises if the session has not called connect_to_room.
     """
-    transport_session_id = ctx.session_id
+    transport_session_id = _session_key(ctx)
     if not transport_session_id:
         raise ValueError("Not connected to a room. Call connect_to_room first.")
     protocol = _get_protocol()
@@ -91,11 +110,10 @@ async def list_rooms(
 
     protocol = _get_protocol()
     connected_room_id: str | None = None
-    if ctx.session_id:
+    session_key = _session_key(ctx)
+    if session_key:
         async with protocol.session_factory() as db:
-            row = await protocol.agent_session_store.get_connected_room(
-                db, ctx.session_id
-            )
+            row = await protocol.agent_session_store.get_connected_room(db, session_key)
         if row is not None:
             _, connected_room_id = row
     rooms = await protocol.list_rooms(agent_id, include_archived=include_archived)
@@ -188,7 +206,8 @@ async def connect_to_room(
     )
     roles = await protocol.list_room_roles(agent_id, room.id)
 
-    if not ctx.session_id:
+    session_key = _session_key(ctx)
+    if not session_key:
         raise ValueError("MCP session has no session id; cannot connect to room")
     # session_passive agents have no poll loop, so the row exists only to
     # bind the MCP transport to a room — lifecycle="explicit". always_on and
@@ -203,7 +222,7 @@ async def connect_to_room(
             db,
             agent_id=agent_id,
             room_id=room.id,
-            transport_session_id=ctx.session_id,
+            transport_session_id=session_key,
             lifecycle=lifecycle,
         )
         await db.commit()
@@ -1074,7 +1093,7 @@ async def assume_role(ctx: Context, role: str) -> dict[str, Any]:
     agent_id = _get_agent_id()
     room_id = await _require_connected_room(ctx)
     return await _get_protocol().assume_room_role(
-        agent_id, room_id, role, ctx.session_id
+        agent_id, room_id, role, _session_key(ctx)
     )
 
 

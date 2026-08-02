@@ -437,34 +437,74 @@ has missed events must never appear healthy.
 
 ## 7. Operations (agent → server)
 
-Unchanged in shape from today; every call additionally carries `connection_id`
-and the client's `cursor`. The MCP tool surface is unchanged from the agent's
-point of view.
+Every agent operation is reachable through **two front doors that dispatch into
+one registry**:
 
-**Rooms** — `connect_to_room` (subscribe + return the room payload),
-`read_context`, `list_participants`, `list_linked_rooms`, `list_references`,
-`load_internal_documents`.
+- **MCP** — the tool surface an agent model calls.
+- **HTTP** — `POST /agents/{agent_id}/ops/{operation}`, arguments as the JSON
+  body, `X-Switch-Connection-Id` naming the caller's connection.
+
+**Operation names are the MCP tool names verbatim.** A runtime translating
+between the two is `POST /ops/${toolName}` and nothing more — no mapping table
+to maintain, and no second vocabulary to keep in step.
+
+Parity is **structural, not maintained**: the HTTP door looks the operation up
+in the same registry the MCP server is built from, so a new tool is reachable
+over HTTP the moment it exists. Neither door can quietly fall behind. This is
+what makes a local runtime possible at all (§9.1) and closes the overlap with
+CHOO-490.
+
+`GET /agents/{agent_id}/ops` lists every operation and its JSON-schema
+parameters, read straight off the registry.
+
+### 7.1 What the caller supplies
+
+An operation needs two things about its caller: **which agent** (the bearer
+token) and **which session or connection** it belongs to. Over MCP the latter
+is the transport session; over HTTP it is the connection id. Both are derived
+by the server — from the credential and the header — never taken from the
+request body.
+
+A connection id belonging to a different agent, or to one that has died, is
+**refused**, not silently treated as "no connection".
+
+### 7.2 The operations
+
+**Rooms** — `connect_to_room`, `read_context`, `list_participants`,
+`list_rooms`, `list_all_rooms`, `get_room_detail`, `update_room`,
+`create_room`, `archive_room`, `unarchive_room`, `invite_agent_to_room`,
+`add_users_to_room`, `list_linked_rooms`, `link_rooms`, `unlink_rooms`,
+`list_room_groups`, `create_room_group`, `get_room_group_detail`.
 
 `connect_to_room` remains a single call that both subscribes and returns
 instructions, participants, references, roles and linked rooms. Internally
-subscription and payload are separate concerns, but they are not split in the
-agent-facing API: an agent must not be able to subscribe to a room without
-being told what the room is about.
+subscription and payload are separate concerns; they are not split in the
+agent-facing API, because an agent must not be able to subscribe to a room
+without being told what the room is about.
 
-**Messaging** — `post_message`, `send_targeted_message`, `send_attachment`,
-`download_attachment`, typing indicator.
+**Messaging** — `post_message`, `send_targeted_message`.
 
 **Tasks** — `delegate_task`, `accept_task`, `update_task`, `finalise_task`,
 `cancel_task`, `list_tasks`.
 
-**Roles** — `list_roles`, `get_role_detail`, `assume_role`, `release_role`.
+**Roles** — `list_roles`, `get_role_detail`, `define_role`, `edit_role`,
+`delete_role`, `assume_role`, `release_role`.
 
-**Moderation** — room, group, reference, link and agent management.
+**Resources** — `list_references`, `list_reference_types`, `create_reference`,
+`attach_reference_to_room`, `load_internal_documents`, `create_room_document`,
+`update_room_document`, `delete_room_document`.
 
-**Mediation** — pre-tool-call, pre-llm-request, post-tool-result,
-post-llm-response.
+**Agents and bridges** — `list_agents`, `get_agent_detail`,
+`update_agent_detail`, `list_bridges`.
 
----
+### 7.3 What stays ordinary REST
+
+Not agent operations, and shaped wrongly by RPC over JSON:
+
+- **Media** — upload and download are multipart and binary.
+- **The event stream** and **connection lifecycle** (`beat`, `subscribe`,
+  `unsubscribe`) — these are the transport, not things done *through* it.
+- **Mediation hooks**, **registration**, **runtime state**, **typing**.
 
 ## 8. Connection profiles replace agent profiles
 
@@ -515,9 +555,9 @@ MCP remains the tool surface. Two ways to reach it, converging on **one
 connection object** — the stream registers it, calls validate against it, the
 heartbeat maintains it, its death releases everything.
 
-**Only the stream can create a connection.** MCP calls attach to one; they
-never conjure one "to be helpful", which would reintroduce two things that can
-disagree.
+**Only the stream can create a connection.** Calls through either door attach
+to one; they never conjure one "to be helpful", which would reintroduce two
+things that can disagree.
 
 ### 9.1 Local MCP (recommended)
 
@@ -659,13 +699,15 @@ A connection that has silently missed events must never appear healthy.
 3. Claude Code connector on the stream: connection id, resume by cursor, one
    heartbeat, room claimed on the connection.
 
-   **Not yet done — merging the two MCP servers into one local runtime.** The
-   agent-facing tool surface is MCP-only: `connect_to_room` and its siblings
-   have no HTTP equivalent, so a local runtime cannot serve them by proxying.
-   That merge depends on HTTP parity (CHOO-490) and is deferred rather than
-   half-built. Until then the plugin keeps registering the remote `switch` MCP
-   server alongside the local channel, and remote MCP calls remain
-   uncorrelated to a connection (§9.2).
+4. HTTP operations front door (§7): every MCP tool reachable at
+   `POST /ops/{operation}`, dispatched from the same registry so parity cannot
+   drift. Unblocks the local runtime and closes the overlap with CHOO-490.
+
+   **Still to do — merging the two MCP servers into one local runtime.** Now
+   possible: the runtime serves the tool surface over stdio and translates each
+   call to `POST /ops/${toolName}` on its own connection. Until it lands the
+   plugin keeps registering the remote `switch` MCP server alongside the local
+   channel.
 
 **Stage B — the rest.**
 
