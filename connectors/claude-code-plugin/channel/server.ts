@@ -2,10 +2,11 @@
 /**
  * Switch channel for Claude Code.
  *
- * Polls the Switch Agent Bridge for room events and pushes addressed messages
- * and task events into the Claude Code session as channel notifications.
+ * Holds a push connection to the Switch Agent Bridge (server-sent events) and
+ * pushes addressed messages and task events into the Claude Code session as
+ * channel notifications.
  *
- * The polling target is set by the PostToolUse hook on connect_to_room, which
+ * The room is set by the PostToolUse hook on connect_to_room, which
  * POSTs the room id to a localhost port this server exposes. The port is
  * advertised at `${CLAUDE_PLUGIN_DATA}/sessions/${ppid}/port`, where ppid is
  * this process's parent PID (the Claude Code session). The hook resolves the
@@ -15,6 +16,7 @@
  * Config comes from env vars set via .mcp.json env block (SWITCH_*).
  */
 
+import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
@@ -27,12 +29,12 @@ const API_ENDPOINT = process.env.SWITCH_API_ENDPOINT ?? ''
 const API_TOKEN = process.env.SWITCH_API_TOKEN ?? ''
 const AGENT_ID = process.env.SWITCH_AGENT_ID ?? ''
 
-// When this session is managed by switchdash, switchdash polls the agent
-// bridge for room events and injects addressed messages into the PTY itself.
-// The bridge's per-room event queue is destructive (each event is delivered to
-// a single poller), so this channel must NOT also poll or the two would steal
-// each other's events. We still renew liveness and role leases — only the event
-// poll loop is suppressed.
+// When this session is managed by switchdash, switchdash reads the agent
+// bridge itself and injects addressed messages into the PTY. Reads are no
+// longer destructive, so both could read without stealing from each other —
+// but the agent would be notified twice. Until switchdash moves onto the
+// connection protocol this channel opens no stream; it still renews liveness
+// and role leases.
 const DISABLE_POLL = process.env.SWITCH_CHANNEL_DISABLE_POLL === '1'
 
 // Claude Code may spawn this server twice on startup: once before settings.env
@@ -152,12 +154,25 @@ type EventResponse = {
   events: AgentEvent[]
 }
 
-// -- Polling state -----------------------------------------------------------
+// -- Connection state --------------------------------------------------------
+//
+// The client picks its own connection id and reuses it when reconnecting, so a
+// dropped stream reattaches to the same server-side connection instead of
+// creating a new one. That is what lets a brief network drop cost a gap in
+// delivery rather than this session's room slot.
+
+const CONNECTION_ID = randomUUID()
 
 let pollingRoomId: string | null = null
-let pollAbort: AbortController | null = null
+let streamAbort: AbortController | null = null
 let leaseAbort: AbortController | null = null
+let heartbeatAbort: AbortController | null = null
 let connRenewAbort: AbortController | null = null
+
+// Highest sequence number processed. Sent back on reconnect (as Last-Event-ID)
+// to resume exactly where we stopped, and on every heartbeat so the server can
+// trim what we have seen.
+let cursor = 0
 
 // Unaddressed room messages are filtered out (never reach Claude as a
 // notification), so the agent silently falls behind on room chatter. We tally
@@ -186,7 +201,9 @@ const mcp = new Server(
       '',
       'Every notification carries a `missed_count` in its meta: the number of unaddressed room messages filtered out since you last called read_context. When it is above 0 the one-line body is annotated with it. A growing count means the room is active around you and you have fallen behind — call read_context (widen `since` to cover the gap) to catch up on what you missed. The count resets to 0 when you call read_context.',
       '',
-      'Polling is automatic: when you call connect_to_room on the switch MCP server, a PostToolUse hook pushes the room id to this channel over a localhost port. Polling begins (or switches rooms) immediately. No separate tool call is needed.',
+      'Delivery is automatic: when you call connect_to_room on the switch MCP server, a PostToolUse hook pushes the room id to this channel over a localhost port. The channel claims that room on its connection and events are pushed to you as they happen. No separate tool call is needed.',
+      '',
+      'If you receive a `gap` event, some room events were dropped and cannot be replayed — call read_context before responding rather than assuming you have the full picture.',
       '',
       'When you receive a message event:',
       '1. Call read_context with the since parameter set to a timestamp a few minutes before the event timestamp to get recent conversation context without re-reading the full history.',
@@ -479,53 +496,112 @@ async function handleSendAttachment(rawArgs: Record<string, unknown>) {
   }
 }
 
-// -- Polling loop ------------------------------------------------------------
+// -- Event stream (SSE) ------------------------------------------------------
+//
+// One long-lived HTTP request the server writes events into as they happen.
+// Catch-up from our cursor comes first, then live delivery. On any drop we
+// reopen with the same connection id and Last-Event-ID, and the server resumes
+// from where we stopped — the gap fills itself rather than being lost.
 
-function stopPolling() {
-  if (pollAbort) {
-    pollAbort.abort()
-    pollAbort = null
+function stopStream() {
+  if (streamAbort) {
+    streamAbort.abort()
+    streamAbort = null
   }
   pollingRoomId = null
 }
 
-function startPolling(roomId: string) {
+type ControlFrame = { event: string; data: Record<string, unknown>; id?: string }
+
+async function* readSse(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal,
+): AsyncGenerator<ControlFrame> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffered = ''
+
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read()
+      if (done) return
+      buffered += decoder.decode(value, { stream: true })
+
+      let split: number
+      while ((split = buffered.indexOf('\n\n')) !== -1) {
+        const raw = buffered.slice(0, split)
+        buffered = buffered.slice(split + 2)
+
+        let event = 'message'
+        let id: string | undefined
+        const dataLines: string[] = []
+        for (const line of raw.split('\n')) {
+          // A comment line is the server's keepalive: it stops proxies timing
+          // the stream out for idleness and carries nothing.
+          if (line.startsWith(':')) continue
+          if (line.startsWith('event: ')) event = line.slice(7)
+          else if (line.startsWith('id: ')) id = line.slice(4)
+          else if (line.startsWith('data: ')) dataLines.push(line.slice(6))
+        }
+        if (!dataLines.length) continue
+        try {
+          yield { event, id, data: JSON.parse(dataLines.join('\n')) }
+        } catch (err) {
+          process.stderr.write(`switch-channel: unparseable SSE frame: ${err}\n`)
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {})
+  }
+}
+
+function startStream() {
+  if (streamAbort) return
   const abort = new AbortController()
-  pollAbort = abort
-  pollingRoomId = roomId
-  // Fresh room → fresh backlog. The agent reads context on arrival anyway.
-  missedSinceRead = 0
+  streamAbort = abort
 
   void (async () => {
     let backoff = 1000
 
     while (!abort.signal.aborted) {
       try {
-        const url = `${API_ENDPOINT}/agents/${AGENT_ID}/rooms/${roomId}/events?timeout=10`
-        const resp = await fetch(url, {
-          headers: { Authorization: `Bearer ${API_TOKEN}` },
-          signal: abort.signal,
+        const params = new URLSearchParams({
+          connection_id: CONNECTION_ID,
+          scope: 'single',
+          filter: 'all',
+          start_from: cursor > 0 ? String(cursor) : 'head',
         })
+        const resp = await fetch(
+          `${API_ENDPOINT}/agents/${AGENT_ID}/events?${params}`,
+          {
+            headers: {
+              Authorization: `Bearer ${API_TOKEN}`,
+              Accept: 'text/event-stream',
+              ...(cursor > 0 ? { 'Last-Event-ID': String(cursor) } : {}),
+            },
+            signal: abort.signal,
+          },
+        )
 
-        if (resp.status === 204) {
-          backoff = 1000
-          continue
-        }
-
-        if (!resp.ok) {
+        if (!resp.ok || !resp.body) {
           throw new Error(`HTTP ${resp.status}: ${await resp.text()}`)
         }
 
         backoff = 1000
-        const data = (await resp.json()) as EventResponse
+        process.stderr.write(
+          `switch-channel: stream open (connection ${CONNECTION_ID}, cursor ${cursor})\n`,
+        )
 
-        for (const event of data.events) {
-          await handleEvent(event)
+        for await (const frame of readSse(resp.body, abort.signal)) {
+          if (frame.id) cursor = Math.max(cursor, Number(frame.id) || 0)
+          await handleFrame(frame)
         }
       } catch (err) {
         if (abort.signal.aborted) return
-
-        process.stderr.write(`switch-channel: poll error: ${err}, retrying in ${backoff / 1000}s\n`)
+        process.stderr.write(
+          `switch-channel: stream error: ${err}, reconnecting in ${backoff / 1000}s\n`,
+        )
         await new Promise(r => setTimeout(r, backoff))
         backoff = Math.min(backoff * 2, 30000)
       }
@@ -533,41 +609,197 @@ function startPolling(roomId: string) {
   })()
 }
 
+async function handleFrame(frame: ControlFrame): Promise<void> {
+  switch (frame.event) {
+    case 'connection_state':
+      process.stderr.write(
+        `switch-channel: connection established (rooms=${JSON.stringify(frame.data.rooms)})\n`,
+      )
+      return
+
+    case 'subscription_changed':
+      process.stderr.write(
+        `switch-channel: subscription now ${JSON.stringify(frame.data.rooms)}\n`,
+      )
+      return
+
+    case 'gap':
+      // Never silent: tell the agent it has a hole in its history rather than
+      // letting it carry on as though the stream were complete.
+      process.stderr.write(
+        `switch-channel: GAP — missed events before sequence ${frame.data.from_sequence}\n`,
+      )
+      await emitNotification(
+        'Some room events were missed and cannot be replayed. Call read_context ' +
+          'to catch up before responding.',
+        {
+          room_id: pollingRoomId ?? '',
+          event_type: 'gap',
+          from_sequence: String(frame.data.from_sequence ?? ''),
+        },
+      )
+      return
+
+    case 'evicted':
+      process.stderr.write(
+        `switch-channel: evicted — ${frame.data.reason}\n`,
+      )
+      return
+
+    default:
+      await handleEvent(frame.data as unknown as AgentEvent)
+  }
+}
+
 // -- Room reconciliation ------------------------------------------------------
+
+async function subscribeRoom(roomId: string): Promise<void> {
+  try {
+    const resp = await fetch(
+      `${API_ENDPOINT}/agents/${AGENT_ID}/connection/subscribe`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${API_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ connection_id: CONNECTION_ID, room_id: roomId }),
+      },
+    )
+    if (!resp.ok) {
+      // A 409 means another live connection of this agent already holds the
+      // room — usually a stale process. Surface it rather than carrying on
+      // looking connected while receiving nothing.
+      process.stderr.write(
+        `switch-channel: could not claim room ${roomId}: HTTP ${resp.status} ${await resp.text()}\n`,
+      )
+    }
+  } catch (err) {
+    process.stderr.write(`switch-channel: subscribe failed for ${roomId}: ${err}\n`)
+  }
+}
+
+async function unsubscribeRoom(roomId: string): Promise<void> {
+  try {
+    await fetch(`${API_ENDPOINT}/agents/${AGENT_ID}/connection/unsubscribe`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ connection_id: CONNECTION_ID, room_id: roomId }),
+    })
+  } catch (err) {
+    process.stderr.write(`switch-channel: unsubscribe failed for ${roomId}: ${err}\n`)
+  }
+}
 
 function setConnectedRoom(target: string | null) {
   if (target === pollingRoomId) return
 
-  if (pollingRoomId) {
-    process.stderr.write(`switch-channel: leaving room ${pollingRoomId}\n`)
-    stopPolling()
-    stopConnectionRenew()
+  const previous = pollingRoomId
+
+  if (previous) {
+    process.stderr.write(`switch-channel: leaving room ${previous}\n`)
+    if (DISABLE_POLL) {
+      stopConnectionRenew()
+    } else {
+      void unsubscribeRoom(previous)
+    }
+    pollingRoomId = null
   }
 
   if (target) {
-    // Track the connected room even when polling is suppressed so room-change
-    // dedup and download_attachment's default room still work.
     pollingRoomId = target
     missedSinceRead = 0
+
     if (DISABLE_POLL) {
+      // switchdash reads this session's events itself and injects them into
+      // the PTY. Reads are no longer destructive, so both could stream without
+      // stealing from each other — but the agent would then be notified twice.
+      // Until switchdash moves onto the connection protocol, stay on the old
+      // room-scoped liveness renewal and open no stream here.
       process.stderr.write(
-        `switch-channel: polling disabled (switchdash-managed) — renewing liveness only for room ${target}\n`,
+        `switch-channel: stream disabled (switchdash-managed) — renewing liveness only for room ${target}\n`,
       )
-    } else {
-      process.stderr.write(`switch-channel: starting poll for room ${target}\n`)
-      startPolling(target)
+      startConnectionRenew(target)
+      return
     }
-    startConnectionRenew(target)
+
+    process.stderr.write(`switch-channel: joining room ${target}\n`)
+    startStream()
+    startHeartbeat()
+    void subscribeRoom(target)
   }
 }
 
-// -- Connection liveness renewal --------------------------------------------
+// -- Connection heartbeat ----------------------------------------------------
 //
-// While connected to a room, renew the room-scoped liveness heartbeat on a
-// fast cadence, decoupled from the long-poll. The server keeps the connection
-// "live" only while these renews arrive (SESSION_TTL), so a closed/crashed
-// session drops to "no session" within seconds instead of waiting out a long
-// poll-derived window. stopped on disconnect and re-targeted on room change.
+// One tick, every 2s, carrying the cursor. It proves this client is alive AND
+// consuming — strictly stronger than the server observing an open socket — and
+// tells the server how far we have read. The server drops the connection when
+// these stop, releasing its room slot; it rejects them when no stream is
+// attached, so a session that is somehow acting without receiving is told
+// rather than left believing it is connected.
+
+const HEARTBEAT_INTERVAL_MS = 2000
+
+function stopHeartbeat() {
+  if (heartbeatAbort) {
+    heartbeatAbort.abort()
+    heartbeatAbort = null
+  }
+}
+
+function startHeartbeat() {
+  if (heartbeatAbort) return
+  const abort = new AbortController()
+  heartbeatAbort = abort
+
+  void (async () => {
+    while (!abort.signal.aborted) {
+      try {
+        const resp = await fetch(
+          `${API_ENDPOINT}/agents/${AGENT_ID}/connection/beat`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${API_TOKEN}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ connection_id: CONNECTION_ID, cursor }),
+            signal: abort.signal,
+          },
+        )
+        if (resp.status === 409 || resp.status === 404) {
+          // Either the stream is gone or the connection expired. Both mean we
+          // are not receiving; reopening resumes from the cursor.
+          process.stderr.write(
+            `switch-channel: heartbeat rejected (HTTP ${resp.status}) — reopening stream\n`,
+          )
+          stopStreamKeepingRoom()
+          startStream()
+          if (pollingRoomId) void subscribeRoom(pollingRoomId)
+        }
+      } catch (err) {
+        if (abort.signal.aborted) return
+        process.stderr.write(`switch-channel: heartbeat error: ${err}\n`)
+      }
+      await new Promise(r => setTimeout(r, HEARTBEAT_INTERVAL_MS))
+    }
+  })()
+}
+
+function stopStreamKeepingRoom() {
+  const room = pollingRoomId
+  stopStream()
+  pollingRoomId = room
+}
+
+// -- Legacy room-scoped liveness renewal -------------------------------------
+//
+// Only used for switchdash-managed sessions, which have not moved onto the
+// connection protocol yet. Removed once they have.
 
 const CONNECTION_RENEW_INTERVAL_MS = 2000
 
@@ -1002,7 +1234,8 @@ async function emitNotification(content: string, meta: Record<string, string>) {
 const transport = new StdioServerTransport()
 
 transport.onclose = () => {
-  stopPolling()
+  stopStream()
+  stopHeartbeat()
   stopConnectionRenew()
   stopLeaseRenew()
   unpublishPort()

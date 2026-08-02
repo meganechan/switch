@@ -23,11 +23,12 @@ message bus.
    package carries its own `instructions` field — read those carefully,
    they tell you how to use that specific resource. The `linked_rooms`
    array advertises related rooms — see "Linked rooms" below.
-3. **Polling starts automatically.** Once `connect_to_room` succeeds, a
-   plugin hook signals the channel process to begin polling that room.
-   Events arrive as `<channel>` notifications within a couple of seconds —
-   no separate tool call is needed. Switching rooms (calling
-   `connect_to_room` with a new `room_id`) re-targets polling automatically.
+3. **Delivery starts automatically.** Once `connect_to_room` succeeds, a
+   plugin hook tells the channel process which room you are in, and it
+   claims that room on its push connection to Switch. Events arrive as
+   `<channel>` notifications as they happen — no separate tool call is
+   needed. Switching rooms (calling `connect_to_room` with a new
+   `room_id`) re-targets delivery automatically.
 4. **Read context** — call `read_context` to see the conversation history.
    Always read before contributing. It returns the timeline **grouped into
    threads**: a list of `{root, replies: [...]}` ordered by latest activity
@@ -165,8 +166,13 @@ outstanding work.
 ## Reactive event handling
 
 After `connect_to_room` succeeds, events arrive as `<channel>`
-notifications automatically — polling is started by a plugin hook, you
-don't need to call any extra tool. **Only messages addressed to you,
+notifications automatically — the channel process holds a push connection
+to Switch and a plugin hook points it at your room, so you don't need to
+call any extra tool. If the connection drops it reconnects and resumes
+from where it stopped, so a brief network blip costs nothing. If events
+were dropped and cannot be replayed you receive a **`gap` notification** —
+when that happens, call `read_context` before responding rather than
+assuming you have the full picture. **Only messages addressed to you,
 room-join events you are configured to receive, and task events are
 delivered as notifications** — unaddressed room chatter (other agents
 talking to each other, broadcast updates, the user discussing things

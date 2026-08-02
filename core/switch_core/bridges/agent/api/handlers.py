@@ -26,6 +26,7 @@ from switch_core.bridges.agent.api.schemas import (
     CancelTaskRequest,
     ConnectionBeatRequest,
     ConnectionRenewRequest,
+    ConnectionSubscribeRequest,
     CreateModerationRoomRequest,
     CreateModerationRoomResponse,
     DelegateTaskRequest,
@@ -81,6 +82,7 @@ from switch_core.bridges.agent.protocol.connections import (
     ConnectionError_,
     DeliveryFilter,
     NoStreamAttachedError,
+    RoomOccupiedError,
     Scope,
     UnknownConnectionError,
 )
@@ -763,6 +765,63 @@ async def connection_beat(
 
     protocol.event_buffer.confirm(agent.id, conn.id, req.cursor)
     return {"ok": True, "rooms": sorted(conn.rooms), "cursor": conn.cursor}
+
+
+@router.post("/{agent_id}/connection/subscribe")
+async def connection_subscribe(
+    agent_id: str,
+    req: ConnectionSubscribeRequest,
+    agent: Annotated[Agent, Depends(get_agent_from_scope)],
+    protocol: Annotated[ProtocolService, Depends(get_protocol)],
+) -> dict[str, Any]:
+    """Claim a room on an open connection.
+
+    Membership is checked here, so a connection can only cover rooms the agent
+    already belongs to: subscribing is not joining. On a `single`-scope
+    connection this also drops whichever room it held before, which is how
+    "one room at a time" stops being a convention and becomes a guarantee.
+    """
+    try:
+        conn = protocol.connections.require(agent.id, req.connection_id)
+    except UnknownConnectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    try:
+        await protocol.require_room_member(agent.id, req.room_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    try:
+        evicted = protocol.connections.claim_room(
+            conn, req.room_id, takeover=req.takeover
+        )
+    except RoomOccupiedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "ok": True,
+        "rooms": sorted(conn.rooms),
+        "evicted_connection_id": evicted.id if evicted else None,
+    }
+
+
+@router.post("/{agent_id}/connection/unsubscribe")
+async def connection_unsubscribe(
+    agent_id: str,
+    req: ConnectionSubscribeRequest,
+    agent: Annotated[Agent, Depends(get_agent_from_scope)],
+    protocol: Annotated[ProtocolService, Depends(get_protocol)],
+) -> dict[str, Any]:
+    """Release a room, returning coverage to any all-scope connection."""
+    try:
+        conn = protocol.connections.require(agent.id, req.connection_id)
+    except UnknownConnectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    protocol.connections.release_room(conn, req.room_id)
+    return {"ok": True, "rooms": sorted(conn.rooms)}
 
 
 @router.get("/{agent_id}/notifications", response_model=None)

@@ -558,7 +558,49 @@ fallback tier and costs minting, expiry, rotation and injection.
 
 ---
 
-## 10. Backward compatibility
+## 10. Client topologies
+
+### 10.1 How a client knows which room a session is in
+
+It asks; it does not observe.
+
+Today switchdash learns a session's room by watching: a `PostToolUse` hook
+fires after `connect_to_room` succeeds and switchdash records the room in its
+own map, persisted to SQLite. The hook is accurate — the flaw is the *copy*. A
+copy drifts when the session dies, when the connection fails after the tool
+returned, when the server restarts, or when the room is deleted.
+
+Under this design the session's own connection carries its subscription, and
+that is authoritative. A client reads it from the local runtime it spawned
+(same process as the connection) or from Switch. **The hook, the persisted
+session→room blob, and the remote mirror all go away.**
+
+Cross-checking a room against incoming events becomes unnecessary: a
+connection only receives events for rooms it is subscribed to, and any change
+— including a room going dark because another connection claimed it — arrives
+as `subscription_changed`.
+
+### 10.2 One connection per session, or one per agent
+
+A connection is a socket, and a socket belongs to one process. Two terminal
+sessions are two processes and therefore two connections; the count follows
+from the topology, not from policy.
+
+**Default: one connection per session.** A spawned session opens its own
+`single`-scope connection; the daemon holds an `all`-scope one and only
+notices uncovered rooms and spawns. This is the shape that already exists, it
+isolates failure (the daemon dying does not disconnect running sessions), and
+it keeps correlation structural.
+
+**Optional later: one connection per agent.** A daemon may multiplex sessions
+behind a single connection, serving them a local MCP endpoint and minting a
+per-session token at spawn so it knows which session is calling. Switch does
+not change: it sees one `all`-scope connection either way, and reachability
+questions are answered from scope. This is a client-side optimisation, not a
+protocol migration — but nothing else should hard-code one-socket-per-session
+assumptions.
+
+## 11. Backward compatibility
 
 Polling clients must keep working. Both paths read the **same buffer**, so they
 cannot diverge while both exist.
@@ -584,7 +626,7 @@ Polling endpoints are removed in a later, separate release.
 
 ---
 
-## 11. Failure handling
+## 12. Failure handling
 
 Fail loud, never fake. Concretely:
 
@@ -605,17 +647,25 @@ A connection that has silently missed events must never appear healthy.
 
 ---
 
-## 12. Delivery plan
+## 13. Delivery plan
 
-**Stage A — server plus one client.**
+**Stage A — server plus one client.** *(implemented)*
 
-1. Sequence numbers on events; keep-until-confirmed; bounded buffer with gap
-   flag; old poll endpoints served from the buffer with a server-held cursor.
-   No client changes. Deletes `DISABLE_POLL`.
+1. Sequence numbers on events; bounded buffer with gap flag; old poll
+   endpoints served from the buffer with a server-held cursor. No client
+   changes.
 2. Connection object, SSE endpoint, heartbeat, scope, filter, slots, the state
    machine of §5.3. Polling still works. Testable with `curl`.
-3. Claude Code connector: merge the two MCP servers into one local runtime;
-   `connect_to_room` binds the connection.
+3. Claude Code connector on the stream: connection id, resume by cursor, one
+   heartbeat, room claimed on the connection.
+
+   **Not yet done — merging the two MCP servers into one local runtime.** The
+   agent-facing tool surface is MCP-only: `connect_to_room` and its siblings
+   have no HTTP equivalent, so a local runtime cannot serve them by proxying.
+   That merge depends on HTTP parity (CHOO-490) and is deferred rather than
+   half-built. Until then the plugin keeps registering the remote `switch` MCP
+   server alongside the local channel, and remote MCP calls remain
+   uncorrelated to a connection (§9.2).
 
 **Stage B — the rest.**
 
@@ -635,7 +685,7 @@ versions must be updated when the agent-facing contract changes.
 
 ---
 
-## 13. Related work
+## 14. Related work
 
 - **CHOO-490** — HTTP protocol parity. Overlaps directly; this document is the
   contract both should serve.
