@@ -174,6 +174,25 @@ async def event_stream(
                     {"rooms": sorted(last_rooms), "reason": "subscription updated"},
                 )
 
+            if conn.scope == "single" and not conn.rooms:
+                # A session connection that has not claimed a room yet must not
+                # read. It would find every event uncovered — it covers nothing
+                # — and the skip path advances the cursor, so it would consume
+                # its way to the end of the buffer while waiting for its room.
+                #
+                # That window is not an edge case: a session spawned to answer a
+                # message opens its connection *before* the session boots and
+                # calls connect_to_room. Reading during it burns past the very
+                # message the session was started for, which then never arrives.
+                #
+                # Park until a room is claimed. `claim_room` sets `wake`, so the
+                # loop resumes the moment there is something to cover, with the
+                # cursor still where it started.
+                conn.wake.clear()
+                if not conn.rooms and not await _wait_for_wake(conn):
+                    yield b": keepalive\n\n"
+                continue
+
             try:
                 pending = buffer.read_from(
                     agent_id,
@@ -242,6 +261,20 @@ async def event_stream(
                 yield b": keepalive\n\n"
     finally:
         registry.detach_stream(conn.id, generation)
+
+
+async def _wait_for_wake(conn: Connection) -> bool:
+    """Wait for the connection itself to change — a room claim, or a close.
+
+    Deliberately not waiting on the event bell: a parked connection covers
+    nothing, so new events are not news to it, and waking for each one would
+    spin through a busy room for no reason.
+    """
+    try:
+        await asyncio.wait_for(conn.wake.wait(), timeout=KEEPALIVE_INTERVAL_SECONDS)
+        return True
+    except TimeoutError:
+        return False
 
 
 async def _wait_for_work(bell: asyncio.Event, conn: Connection) -> bool:

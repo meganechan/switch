@@ -465,3 +465,74 @@ class TestFilteredEventsDoNotSpinTheLoop:
         assert frames[1][0] == "message"
         assert frames[1][1]["payload"]["body"] == "for-you"
         await stream.aclose()
+
+
+class TestAConnectionWithNoRoomDoesNotConsume:
+    """A session connection must not burn through the buffer before it has a room.
+
+    A session spawned to answer a message opens its connection *before* the
+    session boots and calls connect_to_room. During that window it covers no
+    room, so every event looks uncovered — and the skip path advances the
+    cursor. Left to read, it consumes its way to the end of the buffer and the
+    message it was started for is behind it by the time its room arrives.
+
+    This is the last link in that chain: the spawn hand-off can pass the right
+    cursor, the client can open at the right place, and the message is still
+    lost here.
+    """
+
+    async def test_the_cursor_survives_the_wait_for_a_room(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(stream_module, "KEEPALIVE_INTERVAL_SECONDS", 0.05)
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        # Opened at 0, like a session handed its trigger's position.
+        conn = _open(registry, cursor=0)
+
+        buffer.enqueue(AGENT, ROOM_A, _message("the trigger", addressed=True))
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        await _take(stream, 1)  # connection_state
+        # Parked: a keepalive rather than the event, and no cursor movement.
+        await asyncio.wait_for(anext(stream), timeout=2.0)
+
+        assert conn.cursor == 0
+        await stream.aclose()
+
+    async def test_the_trigger_arrives_once_the_room_is_claimed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(stream_module, "KEEPALIVE_INTERVAL_SECONDS", 0.05)
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry, cursor=0)
+
+        buffer.enqueue(AGENT, ROOM_A, _message("the trigger", addressed=True))
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        await _take(stream, 1)
+        await asyncio.wait_for(anext(stream), timeout=2.0)  # parked
+
+        # connect_to_room, arriving late as it does in practice.
+        registry.claim_room(conn, ROOM_A)
+
+        frames = await _take(stream, 2)
+        assert frames[0][0] == "subscription_changed"
+        assert frames[1][0] == "message"
+        assert frames[1][1]["payload"]["body"] == "the trigger"
+        await stream.aclose()
+
+    async def test_an_all_scope_connection_is_not_parked(self) -> None:
+        """A watcher holds no room by design and must keep receiving."""
+        registry = ConnectionRegistry()
+        buffer = EventBuffer()
+        conn = _open(registry, scope="all", connection_id="watcher")
+
+        buffer.enqueue(AGENT, ROOM_A, _message("hello", addressed=True))
+
+        stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+        frames = await _take(stream, 2)
+
+        assert frames[1][0] == "message"
+        await stream.aclose()
