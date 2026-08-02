@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const createSession = vi.fn();
-const getConnections = vi.fn();
 const getAgentById = vi.fn();
 
 vi.mock('@main/lib/logger', () => ({
@@ -10,10 +9,6 @@ vi.mock('@main/lib/logger', () => ({
 
 vi.mock('@main/core/sessions/session-service', () => ({
   sessionService: { createSession: (...args: unknown[]) => createSession(...args) },
-}));
-
-vi.mock('./switch-room-service', () => ({
-  switchRoomService: { getConnections: () => getConnections() },
 }));
 
 // spawnForRoom reads the agent to decide autoApprove; startForAgent / the loops
@@ -39,6 +34,7 @@ function fakeWatcher() {
     localAgentId: 'local-1',
     creds: CREDS,
     inFlight: new Map<string, ReturnType<typeof setTimeout>>(),
+    connectionId: 'watch-conn-1',
   };
 }
 
@@ -53,14 +49,12 @@ function handle(watcher: ReturnType<typeof fakeWatcher>, roomId: string): void {
 describe('AutoSessionWatcher.handleNotification', () => {
   beforeEach(() => {
     createSession.mockReset();
-    getConnections.mockReset();
     getAgentById.mockReset();
     getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false });
     createSession.mockResolvedValue({ success: true, data: { session: { id: 'new' } } });
   });
 
   it('spawns a session when no live session is attending the room', async () => {
-    getConnections.mockReturnValue([]);
     const watcher = fakeWatcher();
 
     handle(watcher, 'room-x');
@@ -72,7 +66,6 @@ describe('AutoSessionWatcher.handleNotification', () => {
   });
 
   it('spawns with permissions enforced when the agent has autoApprove off', async () => {
-    getConnections.mockReturnValue([]);
     getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false });
     const watcher = fakeWatcher();
 
@@ -84,7 +77,6 @@ describe('AutoSessionWatcher.handleNotification', () => {
   });
 
   it('spawns with permissions bypassed when the agent has autoApprove on', async () => {
-    getConnections.mockReturnValue([]);
     getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: true });
     const watcher = fakeWatcher();
 
@@ -95,19 +87,7 @@ describe('AutoSessionWatcher.handleNotification', () => {
     expect(params.autoApprove).toBe(true);
   });
 
-  it('does not spawn when a live session already attends the room', async () => {
-    getConnections.mockReturnValue([
-      { sessionId: 'c1', roomId: 'room-x', agentId: 'switch-agent-1' },
-    ]);
-    const watcher = fakeWatcher();
-
-    handle(watcher, 'room-x');
-    await new Promise((r) => setTimeout(r, 10));
-    expect(createSession).not.toHaveBeenCalled();
-  });
-
   it('in-flight guard prevents a second spawn for the same room', async () => {
-    getConnections.mockReturnValue([]);
     const watcher = fakeWatcher();
 
     handle(watcher, 'room-x');
@@ -116,13 +96,60 @@ describe('AutoSessionWatcher.handleNotification', () => {
     expect(createSession).toHaveBeenCalledTimes(1);
   });
 
-  it('treats a live session in a different room as not attending', async () => {
-    getConnections.mockReturnValue([
-      { sessionId: 'c1', roomId: 'other-room', agentId: 'switch-agent-1' },
-    ]);
-    const watcher = fakeWatcher();
+  /**
+   * "A session already attends this room" is no longer checked here — the
+   * server never delivers the event, because the session's connection claims
+   * the room and this watcher's `all`-scope connection goes dark on it. The
+   * guarantee moved rather than disappeared, and it is covered on the server
+   * side (room slots) and by the stream tests.
+   *
+   * What stays here is the boot window, which no server can close.
+   */
+  describe('the boot window', () => {
+    it('spawns exactly one session when messages arrive during boot', async () => {
+      // The spawned session takes tens of seconds to start and claim the room.
+      // Until it does, the server still sees the room as unattended and keeps
+      // delivering — so every message in that window would spawn again.
+      const watcher = fakeWatcher();
 
-    handle(watcher, 'room-x');
-    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+      handle(watcher, 'room-x');
+      handle(watcher, 'room-x');
+      handle(watcher, 'room-x');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+      await new Promise((r) => setTimeout(r, 20));
+
+      expect(createSession).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not let one room's boot block another room", async () => {
+      const watcher = fakeWatcher();
+
+      handle(watcher, 'room-x');
+      handle(watcher, 'room-y');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+
+      const rooms = createSession.mock.calls.map(
+        (c) => (c[0] as { initialPrompt: string }).initialPrompt
+      );
+      expect(rooms.some((p) => p.includes('room-x'))).toBe(true);
+      expect(rooms.some((p) => p.includes('room-y'))).toBe(true);
+    });
+
+    it('spawns again for a room whose guard has been cleared', async () => {
+      // Cleared when the session connects (or on the TTL backstop). A session
+      // that dies must be replaceable — a guard that never cleared would leave
+      // the room permanently unattended.
+      const watcher = fakeWatcher();
+
+      handle(watcher, 'room-x');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+
+      const timer = watcher.inFlight.get('room-x');
+      if (timer) clearTimeout(timer);
+      watcher.inFlight.delete('room-x');
+
+      handle(watcher, 'room-x');
+      await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+    });
   });
 });
