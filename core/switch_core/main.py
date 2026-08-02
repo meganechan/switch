@@ -90,6 +90,11 @@ logger = logging.getLogger(__name__)
 # after a session crashes, while staying well above the per-pass DB cost.
 _RUNTIME_STATE_SWEEP_INTERVAL = 5.0
 
+# How often to close connections whose heartbeat has lapsed. Kept well under
+# the heartbeat TTL so a dead connection's room slot and role lease are freed
+# promptly rather than at the next unrelated request.
+_CONNECTION_SWEEP_INTERVAL = 2.0
+
 
 async def _runtime_state_sweep_loop(protocol: ProtocolService) -> None:
     while True:
@@ -98,6 +103,20 @@ async def _runtime_state_sweep_loop(protocol: ProtocolService) -> None:
             await protocol.sweep_runtime_states()
         except Exception:
             logger.exception("Runtime-state sweep failed")
+
+
+async def _connection_sweep_loop(protocol: ProtocolService) -> None:
+    while True:
+        await asyncio.sleep(_CONNECTION_SWEEP_INTERVAL)
+        try:
+            for conn in protocol.connections.sweep():
+                logger.info(
+                    "Connection %s for agent %s expired (heartbeat lapsed)",
+                    conn.id,
+                    conn.agent_id,
+                )
+        except Exception:
+            logger.exception("Connection sweep failed")
 
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -354,10 +373,14 @@ async def run() -> None:
         async with original_lifespan(app):  # type: ignore[arg-type]
             asyncio.create_task(connector_lifecycle.start_all())
             sweep_task = asyncio.create_task(_runtime_state_sweep_loop(protocol))
+            connection_sweep_task = asyncio.create_task(
+                _connection_sweep_loop(protocol)
+            )
             try:
                 yield
             finally:
                 sweep_task.cancel()
+                connection_sweep_task.cancel()
 
     agent_bridge_app.router.lifespan_context = lifespan  # type: ignore[assignment]
 

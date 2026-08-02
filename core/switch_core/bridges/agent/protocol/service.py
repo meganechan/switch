@@ -25,6 +25,7 @@ from switch_core.bridges.agent.protocol.agent_detail import (
     list_agent_summaries,
     reparent_agent,
 )
+from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.statuses import compute_agent_statuses
 from switch_core.bridges.agent.protocol.types import (
@@ -139,6 +140,7 @@ class ProtocolService:
         self.client_lifecycle = client_lifecycle
         self.collab_lifecycle = collab_lifecycle
         self.event_buffer = event_buffer
+        self.connections = ConnectionRegistry()
         self.task_store = task_store
         self.request_tracker = request_tracker
         self.resource_request_tracker = resource_request_tracker

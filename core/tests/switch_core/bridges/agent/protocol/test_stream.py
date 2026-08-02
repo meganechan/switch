@@ -1,0 +1,295 @@
+"""SSE delivery: catch-up, live push, resume and the control events (CHOO-1857)."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from typing import Any
+
+import pytest
+
+from switch_core.bridges.agent.protocol.connections import (
+    PROTOCOL_VERSION,
+    ConnectionRegistry,
+)
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
+from switch_core.bridges.agent.protocol.stream import event_stream
+from switch_core.bridges.agent.protocol.types import AgentEvent, MessagePayload
+
+AGENT = "agent-1"
+ROOM_A = "room-a"
+ROOM_B = "room-b"
+
+
+def _message(body: str, *, addressed: bool = False, room: str = ROOM_A) -> AgentEvent:
+    return AgentEvent(
+        type="message",
+        room_id=room,
+        payload=MessagePayload(
+            addressed=addressed,
+            sender="@u:s",
+            sender_name="u",
+            message_id=f"$evt-{body}",
+            body=body,
+            timestamp=0,
+        ),
+    )
+
+
+def _parse(frame: bytes) -> tuple[str, dict[str, Any]]:
+    """Split one SSE frame into (event name, data)."""
+    text = frame.decode()
+    name = ""
+    data = "{}"
+    for line in text.strip().splitlines():
+        if line.startswith("event: "):
+            name = line[len("event: ") :]
+        elif line.startswith("data: "):
+            data = line[len("data: ") :]
+    return name, json.loads(data)
+
+
+async def _take(stream, count: int, timeout: float = 2.0) -> list[tuple[str, dict]]:
+    """Pull `count` non-keepalive frames off the stream."""
+    out: list[tuple[str, dict]] = []
+
+    async def pump() -> None:
+        async for frame in stream:
+            if frame.startswith(b":"):
+                continue
+            out.append(_parse(frame))
+            if len(out) >= count:
+                return
+
+    await asyncio.wait_for(pump(), timeout=timeout)
+    return out
+
+
+def _open(registry: ConnectionRegistry, **kw: Any):
+    params: dict[str, Any] = {
+        "agent_id": AGENT,
+        "connection_id": "c1",
+        "scope": "single",
+        "delivery_filter": "all",
+        "spawn_capable": False,
+        "cursor": 0,
+        "protocol_version": PROTOCOL_VERSION,
+    }
+    params.update(kw)
+    return registry.open(**params)
+
+
+async def test_first_frame_is_the_connection_state() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    ((name, data),) = await _take(stream, 1)
+
+    assert name == "connection_state"
+    assert data["connection_id"] == "c1"
+    assert data["scope"] == "single"
+    assert data["rooms"] == [ROOM_A]
+    assert data["protocol"] == PROTOCOL_VERSION
+
+
+async def test_catch_up_then_live_delivery() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    # Queued before the stream opened: must be caught up, not skipped.
+    buffer.enqueue(AGENT, ROOM_A, _message("before"))
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+    assert frames[1][0] == "message"
+    assert frames[1][1]["payload"]["body"] == "before"
+
+    # Appended while the stream is open: pushed without being asked for.
+    async def append_soon() -> None:
+        await asyncio.sleep(0.01)
+        buffer.enqueue(AGENT, ROOM_A, _message("after"))
+
+    task = asyncio.create_task(append_soon())
+    live = await _take(stream, 1)
+    await task
+
+    assert live[0][1]["payload"]["body"] == "after"
+
+
+async def test_sequence_number_is_carried_for_resume() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+    seq = buffer.enqueue(AGENT, ROOM_A, _message("one"))
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][1]["sequence"] == seq
+    assert conn.cursor == seq
+
+
+async def test_resuming_from_a_cursor_skips_what_was_already_seen() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    first = buffer.enqueue(AGENT, ROOM_A, _message("seen"))
+    buffer.enqueue(AGENT, ROOM_A, _message("missed"))
+
+    conn = _open(registry, cursor=first)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][1]["payload"]["body"] == "missed"
+
+
+async def test_expired_cursor_produces_a_gap_event_rather_than_silence() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer(max_events_per_agent=1)
+    buffer.enqueue(AGENT, ROOM_A, _message("dropped"))
+    buffer.enqueue(AGENT, ROOM_A, _message("kept"))
+
+    conn = _open(registry, cursor=0)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][0] == "gap"
+    assert "re-read" in frames[1][1]["reason"]
+
+
+async def test_events_for_rooms_the_connection_does_not_cover_are_skipped() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    buffer.enqueue(AGENT, ROOM_B, _message("elsewhere", room=ROOM_B))
+    buffer.enqueue(AGENT, ROOM_A, _message("mine"))
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][1]["payload"]["body"] == "mine"
+
+
+async def test_addressed_filter_drops_ambient_chatter() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry, scope="all", delivery_filter="addressed")
+
+    buffer.enqueue(AGENT, ROOM_A, _message("chatter"))
+    buffer.enqueue(AGENT, ROOM_B, _message("wanted", addressed=True, room=ROOM_B))
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    frames = await _take(stream, 2)
+
+    assert frames[1][1]["payload"]["body"] == "wanted"
+
+
+async def test_a_superseded_stream_is_told_it_was_evicted() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    await _take(stream, 1)
+
+    # A second stream attaches to the same connection id.
+    _open(registry)
+    buffer.enqueue(AGENT, ROOM_A, _message("wake up"))
+
+    frames = await _take(stream, 1)
+    assert frames[0][0] == "evicted"
+
+
+async def test_closing_the_connection_ends_the_stream_with_a_reason() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    await _take(stream, 1)
+
+    registry.close(conn.id, "heartbeat lapsed")
+
+    frames = await _take(stream, 1)
+    assert frames[0][0] == "evicted"
+    assert frames[0][1]["reason"] == "heartbeat lapsed"
+
+
+async def test_subscription_change_is_announced() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+    registry.claim_room(conn, ROOM_A)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    await _take(stream, 1)
+
+    registry.claim_room(conn, ROOM_B)
+
+    frames = await _take(stream, 1)
+    assert frames[0][0] == "subscription_changed"
+    assert frames[0][1]["rooms"] == [ROOM_B]
+
+
+async def test_stream_detaches_on_exit_without_killing_the_connection() -> None:
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+    conn = _open(registry)
+
+    stream = event_stream(conn=conn, registry=registry, buffer=buffer)
+    await _take(stream, 1)
+    await stream.aclose()
+
+    assert not conn.stream_attached
+    assert registry.get(conn.id) is conn
+
+
+@pytest.mark.parametrize("scope", ["single", "all"])
+async def test_two_connections_receive_the_same_event(scope: str) -> None:
+    """Non-destructive reads: one reader must not steal from another."""
+    registry = ConnectionRegistry()
+    buffer = EventBuffer()
+
+    session = registry.open(
+        agent_id=AGENT,
+        connection_id="session",
+        scope="single",
+        delivery_filter="all",
+        spawn_capable=False,
+        cursor=0,
+        protocol_version=PROTOCOL_VERSION,
+    )
+    registry.claim_room(session, ROOM_A)
+
+    other_agent = registry.open(
+        agent_id="agent-2",
+        connection_id="other",
+        scope=scope,  # type: ignore[arg-type]
+        delivery_filter="all",
+        spawn_capable=False,
+        cursor=0,
+        protocol_version=PROTOCOL_VERSION,
+    )
+    registry.claim_room(other_agent, ROOM_A)
+
+    buffer.enqueue(AGENT, ROOM_A, _message("shared"))
+    buffer.enqueue("agent-2", ROOM_A, _message("shared"))
+
+    a = event_stream(conn=session, registry=registry, buffer=buffer)
+    b = event_stream(conn=other_agent, registry=registry, buffer=buffer)
+
+    assert (await _take(a, 2))[1][1]["payload"]["body"] == "shared"
+    assert (await _take(b, 2))[1][1]["payload"]["body"] == "shared"

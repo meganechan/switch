@@ -107,6 +107,18 @@ class ConnectionRenewRequest(BaseModel):
     room_id: str
 
 
+class ConnectionBeatRequest(BaseModel):
+    """The single client tick that keeps a connection alive (CHOO-1857).
+
+    Replaces /connection/renew, /watch/heartbeat and /leases/renew: it proves
+    the client is alive *and* consuming, and reports how far it has read so the
+    event buffer knows what has been seen.
+    """
+
+    connection_id: str
+    cursor: int = 0
+
+
 class StatusRequest(BaseModel):
     room_id: str
     presence: Literal["online", "offline"] | None = None

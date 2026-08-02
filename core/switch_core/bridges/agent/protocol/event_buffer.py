@@ -189,6 +189,15 @@ class EventBuffer:
         except TimeoutError:
             return
 
+    def doorbell(self, agent_id: str) -> asyncio.Event:
+        """The wake-up signal for an agent, shared by every reader.
+
+        Set whenever an event is appended. Readers re-read from their own
+        cursor when woken; the signal carries no payload, so a spurious or
+        missed wake costs latency, never correctness.
+        """
+        return self._notify.setdefault(agent_id, asyncio.Event())
+
     def head(self, agent_id: str) -> int:
         """The sequence number of the most recent event (0 if none)."""
         return self._next_seq.get(agent_id, 1) - 1

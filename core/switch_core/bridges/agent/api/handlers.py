@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from datetime import UTC, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, cast
 
 from fastapi import (
     APIRouter,
@@ -16,7 +16,7 @@ from fastapi import (
 )
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.responses import Response
+from starlette.responses import Response, StreamingResponse
 
 from switch_core.bridges.agent.api.schemas import (
     AcceptTaskRequest,
@@ -24,6 +24,7 @@ from switch_core.bridges.agent.api.schemas import (
     AgentListResponse,
     BulkRegisterResult,
     CancelTaskRequest,
+    ConnectionBeatRequest,
     ConnectionRenewRequest,
     CreateModerationRoomRequest,
     CreateModerationRoomResponse,
@@ -75,7 +76,16 @@ from switch_core.bridges.agent.dependencies import (
     get_protocol,
     get_session,
 )
+from switch_core.bridges.agent.protocol.connections import (
+    PROTOCOL_VERSION,
+    ConnectionError_,
+    DeliveryFilter,
+    NoStreamAttachedError,
+    Scope,
+    UnknownConnectionError,
+)
 from switch_core.bridges.agent.protocol.service import AgentExistsError, ProtocolService
+from switch_core.bridges.agent.protocol.stream import event_stream
 from switch_core.db.models import Agent, Task
 from switch_core.db.stores.api_key_store import ApiKeyStore
 from switch_core.db.stores.feature_flag_store import FeatureFlagStore
@@ -612,11 +622,147 @@ async def poll_events(
     agent: Annotated[Agent, Depends(get_agent_from_scope)],
     protocol: Annotated[ProtocolService, Depends(get_protocol)],
     timeout: Annotated[float, Query()] = 10,
+    accept: Annotated[str | None, Header()] = None,
+    connection_id: Annotated[str | None, Query()] = None,
+    scope: Annotated[str, Query()] = "single",
+    event_filter: Annotated[str, Query(alias="filter")] = "all",
+    start_from: Annotated[str, Query()] = "head",
+    spawn_capable: Annotated[bool, Query()] = False,
+    protocol_version: Annotated[int, Query(alias="protocol")] = PROTOCOL_VERSION,
+    last_event_id: Annotated[str | None, Header(alias="last-event-id")] = None,
 ) -> EventResponse | Response:
+    """Deliver the agent's events, as a push stream or a long poll.
+
+    `Accept: text/event-stream` opens a connection and streams: catch-up from
+    the client's cursor, then live delivery. Anything else falls back to the
+    long poll, which is served from the same buffer so the two cannot diverge
+    while both exist.
+    """
+    if accept and "text/event-stream" in accept:
+        return _open_event_stream(
+            agent=agent,
+            protocol=protocol,
+            connection_id=connection_id,
+            scope=scope,
+            event_filter=event_filter,
+            start_from=start_from,
+            spawn_capable=spawn_capable,
+            protocol_version=protocol_version,
+            last_event_id=last_event_id,
+        )
+
     events = await protocol.poll_events(agent.id, timeout=timeout)
     if not events:
         return Response(status_code=204)
     return EventResponse(events=events)
+
+
+def _resolve_start_cursor(
+    protocol: ProtocolService,
+    agent_id: str,
+    start_from: str,
+    last_event_id: str | None,
+) -> int:
+    """Where a stream begins.
+
+    `Last-Event-ID` wins when present: a reconnecting SSE client sends it
+    automatically and it is the most accurate statement of what it processed.
+    """
+    raw = last_event_id or start_from
+    if raw in ("", "head"):
+        return protocol.event_buffer.head(agent_id)
+    try:
+        return max(int(raw), 0)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"start_from must be 'head' or a sequence number, got {raw!r}",
+        ) from exc
+
+
+def _open_event_stream(
+    *,
+    agent: Agent,
+    protocol: ProtocolService,
+    connection_id: str | None,
+    scope: str,
+    event_filter: str,
+    start_from: str,
+    spawn_capable: bool,
+    protocol_version: int,
+    last_event_id: str | None,
+) -> StreamingResponse:
+    if not connection_id:
+        raise HTTPException(
+            status_code=400,
+            detail="connection_id is required to open an event stream; generate a "
+            "UUID and reuse it when reconnecting so the connection survives the "
+            "drop",
+        )
+    if scope not in ("single", "all"):
+        raise HTTPException(
+            status_code=400, detail=f"scope must be 'single' or 'all', got {scope!r}"
+        )
+    if event_filter not in ("all", "addressed"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"filter must be 'all' or 'addressed', got {event_filter!r}",
+        )
+
+    cursor = _resolve_start_cursor(protocol, agent.id, start_from, last_event_id)
+
+    try:
+        conn = protocol.connections.open(
+            agent_id=agent.id,
+            connection_id=connection_id,
+            scope=cast(Scope, scope),
+            delivery_filter=cast(DeliveryFilter, event_filter),
+            spawn_capable=spawn_capable,
+            cursor=cursor,
+            protocol_version=protocol_version,
+        )
+    except ConnectionError_ as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        event_stream(
+            conn=conn,
+            registry=protocol.connections,
+            buffer=protocol.event_buffer,
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Proxies that buffer would defeat the point of a push channel.
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post("/{agent_id}/connection/beat")
+async def connection_beat(
+    agent_id: str,
+    req: ConnectionBeatRequest,
+    agent: Annotated[Agent, Depends(get_agent_from_scope)],
+    protocol: Annotated[ProtocolService, Depends(get_protocol)],
+) -> dict[str, Any]:
+    """The single per-connection heartbeat.
+
+    Proves the client is alive and reports its cursor. Rejected when the
+    connection is unknown, dead, or has no stream attached — an agent that can
+    still make calls but is receiving nothing must be told, not left believing
+    it is connected.
+    """
+    try:
+        conn = protocol.connections.beat(agent.id, req.connection_id, req.cursor)
+    except NoStreamAttachedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except UnknownConnectionError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    protocol.event_buffer.confirm(agent.id, conn.id, req.cursor)
+    return {"ok": True, "rooms": sorted(conn.rooms), "cursor": conn.cursor}
 
 
 @router.get("/{agent_id}/notifications", response_model=None)

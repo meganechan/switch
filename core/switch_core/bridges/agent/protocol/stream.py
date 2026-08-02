@@ -1,0 +1,198 @@
+"""Server-sent event stream for agent connections (CHOO-1857).
+
+Turns a connection plus the event buffer into a `text/event-stream`: catch-up
+from the client's cursor, then live delivery as events are appended. The client
+never asks again — it opens once and reads.
+
+Every event carries its sequence number as the SSE `id`, so a client that
+reconnects sends `Last-Event-ID` and resumes exactly where it stopped. Gaps are
+reported as their own event rather than skipped: a client that has missed
+events must never see a stream that looks complete.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from collections.abc import AsyncIterator
+from typing import Any
+
+from switch_core.bridges.agent.protocol.connections import (
+    PROTOCOL_VERSION,
+    Connection,
+    ConnectionRegistry,
+)
+from switch_core.bridges.agent.protocol.event_buffer import (
+    CursorExpiredError,
+    EventBuffer,
+)
+
+logger = logging.getLogger(__name__)
+
+# How long to wait for an event before writing a keepalive comment. This exists
+# only to stop proxies dropping an idle connection — liveness comes from the
+# client's heartbeat, never from this.
+KEEPALIVE_INTERVAL_SECONDS = 15.0
+
+# Cap on how many buffered events are written in one batch, so a large catch-up
+# cannot monopolise the loop.
+CATCH_UP_BATCH = 200
+
+
+def _frame(event: str, data: dict[str, Any], *, seq: int | None = None) -> bytes:
+    lines = []
+    if seq is not None:
+        lines.append(f"id: {seq}")
+    lines.append(f"event: {event}")
+    lines.append(f"data: {json.dumps(data, separators=(',', ':'))}")
+    return ("\n".join(lines) + "\n\n").encode()
+
+
+def _connection_state(conn: Connection) -> dict[str, Any]:
+    return {
+        "connection_id": conn.id,
+        "agent_id": conn.agent_id,
+        "scope": conn.scope,
+        "filter": conn.delivery_filter,
+        "spawn_capable": conn.spawn_capable,
+        "rooms": sorted(conn.rooms),
+        "cursor": conn.cursor,
+        "protocol": PROTOCOL_VERSION,
+        "heartbeat_interval_seconds": 2.0,
+    }
+
+
+async def event_stream(
+    *,
+    conn: Connection,
+    registry: ConnectionRegistry,
+    buffer: EventBuffer,
+) -> AsyncIterator[bytes]:
+    """Yield SSE frames for a connection until its stream is superseded or it dies."""
+    generation = conn.stream_generation
+    agent_id = conn.agent_id
+    bell = buffer.doorbell(agent_id)
+    # Captured before the first yield: the generator suspends there, and any
+    # subscription change that lands while it is suspended must still be
+    # reported when it resumes.
+    last_rooms = set(conn.rooms)
+
+    try:
+        yield _frame("connection_state", _connection_state(conn))
+
+        # A cursor the buffer can no longer serve is reported, not silently
+        # moved to head. The client re-reads room context to recover.
+        if buffer.has_gap_before(agent_id, conn.cursor):
+            oldest = buffer.oldest_retained(agent_id)
+            logger.warning(
+                "[STREAM] agent=%s connection=%s resumed from expired cursor %s "
+                "(oldest retained %s)",
+                agent_id,
+                conn.id,
+                conn.cursor,
+                oldest,
+            )
+            resumed_at = max(oldest - 1, 0)
+            conn.cursor = resumed_at
+            yield _frame(
+                "gap",
+                {
+                    "from_sequence": conn.cursor,
+                    "resumed_at": resumed_at,
+                    "reason": "events older than the retention window were "
+                    "dropped; re-read room context",
+                },
+            )
+
+        while True:
+            if conn.stream_generation != generation:
+                # Another stream took this connection over.
+                yield _frame(
+                    "evicted",
+                    {"reason": "another stream attached to this connection"},
+                )
+                return
+            if conn.closed_reason is not None:
+                yield _frame("evicted", {"reason": conn.closed_reason})
+                return
+
+            if conn.rooms != last_rooms:
+                last_rooms = set(conn.rooms)
+                yield _frame(
+                    "subscription_changed",
+                    {"rooms": sorted(last_rooms), "reason": "subscription updated"},
+                )
+
+            try:
+                pending = buffer.read_from(
+                    agent_id,
+                    conn.cursor,
+                    notifiable_only=conn.delivery_filter == "addressed",
+                    limit=CATCH_UP_BATCH,
+                )
+            except CursorExpiredError as exc:
+                yield _frame(
+                    "gap",
+                    {
+                        "from_sequence": exc.requested,
+                        "resumed_at": max(exc.oldest - 1, 0),
+                        "reason": str(exc),
+                    },
+                )
+                conn.cursor = max(exc.oldest - 1, 0)
+                continue
+
+            delivered = False
+            for item in pending:
+                # Room coverage is evaluated per event rather than up front: a
+                # sibling claiming a room must take effect immediately, without
+                # tearing the stream down.
+                if not registry.covers(conn, item.room_id):
+                    conn.cursor = item.seq
+                    continue
+                payload = item.event.model_dump(mode="json")
+                payload["sequence"] = item.seq
+                # Advance before yielding: the cursor tracks what the server has
+                # written out. What the client has actually processed comes back
+                # on its heartbeat, which is the value that governs resume.
+                conn.cursor = item.seq
+                delivered = True
+                yield _frame(item.event.type, payload, seq=item.seq)
+
+            if delivered:
+                continue
+
+            bell.clear()
+            conn.wake.clear()
+            # Re-check after clearing: an event appended between the read above
+            # and the clear would otherwise wait for the keepalive timeout.
+            if buffer.head(agent_id) > conn.cursor or conn.rooms != last_rooms:
+                continue
+
+            if not await _wait_for_work(bell, conn):
+                yield b": keepalive\n\n"
+    finally:
+        registry.detach_stream(conn.id, generation)
+
+
+async def _wait_for_work(bell: asyncio.Event, conn: Connection) -> bool:
+    """Wait for a new event or a change to the connection itself.
+
+    Returns False when neither happened before the keepalive interval, so the
+    caller can write a comment and keep the socket warm.
+    """
+    waiters = [
+        asyncio.ensure_future(bell.wait()),
+        asyncio.ensure_future(conn.wake.wait()),
+    ]
+    try:
+        done, _ = await asyncio.wait(
+            waiters,
+            timeout=KEEPALIVE_INTERVAL_SECONDS,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        return bool(done)
+    finally:
+        for waiter in waiters:
+            waiter.cancel()
