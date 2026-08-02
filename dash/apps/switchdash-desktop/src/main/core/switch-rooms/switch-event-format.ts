@@ -66,6 +66,15 @@ export interface AgentBridgeEvent {
   type: string;
   room_id: string;
   payload: MessagePayload | CommandPayload | RoomJoinPayload | TaskPayload;
+  /**
+   * The event's position in the agent's buffer. Present on the push transport,
+   * absent on the legacy poll.
+   *
+   * Load-bearing when a watcher spawns a session: the session's connection has
+   * to start from *before* the message that triggered the spawn, or the very
+   * message the session was started to answer is behind it.
+   */
+  sequence?: number;
 }
 
 export interface AgentBridgeEventResponse {

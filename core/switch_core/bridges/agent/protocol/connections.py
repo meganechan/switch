@@ -115,6 +115,10 @@ class Connection:
     # agent belongs to that no sibling has claimed.
     rooms: set[str] = field(default_factory=set)
     stream_attached: bool = False
+    # How many heartbeats this connection has received. Diagnostic: it is the
+    # difference between a client that never started beating and one that beat
+    # and then stopped, which the timestamp alone cannot tell you.
+    beats: int = 0
     # Bumped when a new stream attaches, so a superseded stream can notice it
     # has been replaced and stop writing.
     stream_generation: int = 0
@@ -239,11 +243,18 @@ class ConnectionRegistry:
         conn.closed_reason = reason
         conn.stream_attached = False
         conn.wake.set()
+        # `beats` and the age separate the two ways a connection dies, which
+        # otherwise look identical in the log: a client that never beat at all
+        # (beats=0 — it is not running the heartbeat, or cannot reach us) versus
+        # one that beat and then stopped (beats>0 — it went away, or the server
+        # was too busy to process ticks).
         logger.info(
-            "[CONN] closed agent=%s connection=%s reason=%s",
+            "[CONN] closed agent=%s connection=%s reason=%s beats=%d last_beat_age=%.1fs",
             conn.agent_id,
             connection_id,
             reason,
+            conn.beats,
+            time.monotonic() - conn.last_beat,
         )
         return conn
 
@@ -277,6 +288,7 @@ class ConnectionRegistry:
         if not conn.stream_attached:
             raise NoStreamAttachedError(connection_id)
         conn.last_beat = time.monotonic()
+        conn.beats += 1
         if cursor > conn.cursor:
             conn.cursor = cursor
         return conn

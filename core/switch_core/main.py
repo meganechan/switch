@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import signal
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -15,7 +16,10 @@ from alembic.config import Config as AlembicConfig
 from fastapi.responses import JSONResponse
 
 from switch_core.bridges.agent.app import create_agent_bridge_app
-from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
+from switch_core.bridges.agent.protocol.connections import (
+    HEARTBEAT_TTL_SECONDS,
+    ConnectionRegistry,
+)
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.request_tracker import RequestTracker
@@ -107,14 +111,36 @@ async def _runtime_state_sweep_loop(protocol: ProtocolService) -> None:
 
 
 async def _connection_sweep_loop(protocol: ProtocolService) -> None:
+    """Expire connections whose client has stopped beating.
+
+    Skips a round after the event loop has been blocked. A stall stops us
+    *processing* heartbeats, so every connection looks lapsed at once through no
+    fault of its client — and expiring them all drops their room slots and role
+    leases, then every client reconnects together, which is a worse stall. The
+    clients were never given the chance to beat, so the honest reading is "we
+    were not listening", not "they went away".
+    """
     while True:
+        started = time.monotonic()
         await asyncio.sleep(_CONNECTION_SWEEP_INTERVAL)
+        overslept = (time.monotonic() - started) - _CONNECTION_SWEEP_INTERVAL
+        if overslept > HEARTBEAT_TTL_SECONDS / 2:
+            logger.warning(
+                "Connection sweep skipped: the event loop was blocked for %.1fs, "
+                "so heartbeats could not be processed and every connection would "
+                "look lapsed. Something is blocking the loop — that is the bug, "
+                "not the connections.",
+                overslept,
+            )
+            continue
         try:
             for conn in protocol.connections.sweep():
                 logger.info(
-                    "Connection %s for agent %s expired (heartbeat lapsed)",
+                    "Connection %s for agent %s expired (heartbeat lapsed, "
+                    "%d beats received)",
                     conn.id,
                     conn.agent_id,
+                    conn.beats,
                 )
         except Exception:
             logger.exception("Connection sweep failed")

@@ -955,3 +955,89 @@ describe('the room is set by the server', () => {
     conn.stop();
   });
 });
+
+/**
+ * A session spawned to answer a message must start from before that message.
+ *
+ * The watcher consumed the triggering event — that is how it knew to spawn — so
+ * by the time the session's connection opens, the message is already behind
+ * head. Opening at head starts the session *after* the one thing it exists to
+ * handle, and it comes up to silence.
+ *
+ * This worked before the push transport by accident: the notification queue and
+ * the per-room queue were separate, so consuming one left the other intact.
+ * With a single buffer and per-connection cursors, the start position has to be
+ * passed explicitly.
+ */
+describe('a spawned session starts from its trigger', () => {
+  function openWith(startCursor: number | undefined) {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (String(url).includes('/events')) {
+        return {
+          ok: true,
+          status: 200,
+          body: new ReadableStream<Uint8Array>({ start() {} }),
+          text: async (): Promise<string> => '',
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+        text: async (): Promise<string> => '',
+      };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const conn = new RoomConnection({
+      creds,
+      roomId: null,
+      roomName: null,
+      connectionId: 'conn-1',
+      startCursor,
+      sessionId: 'session-1',
+      sink: { acquire: () => ({ write: vi.fn() }) },
+      injector,
+      control,
+      deeplinkScheme: 'switchdash',
+      isHumanTyping: () => false,
+      mediaDir,
+      log: silentLog,
+    });
+    conn.start();
+    return { conn, fetchMock };
+  }
+
+  function openUrl(fetchMock: ReturnType<typeof vi.fn>): string {
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/events'));
+    return String(call?.[0]);
+  }
+
+  it('opens at the given cursor rather than at head', async () => {
+    const { conn, fetchMock } = openWith(41);
+    await flush();
+
+    expect(openUrl(fetchMock)).toContain('start_from=41');
+    expect(openUrl(fetchMock)).not.toContain('start_from=head');
+    conn.stop();
+  });
+
+  it('sends Last-Event-ID so the server resumes from there', async () => {
+    const { conn, fetchMock } = openWith(41);
+    await flush();
+
+    const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/events'));
+    expect(call).toBeDefined();
+    expect((call![1] as RequestInit).headers).toMatchObject({ 'Last-Event-ID': '41' });
+    conn.stop();
+  });
+
+  it('still opens at head when nothing triggered the session', async () => {
+    // A session the operator started themselves has no message waiting for it;
+    // replaying history into it would be wrong.
+    const { conn, fetchMock } = openWith(undefined);
+    await flush();
+
+    expect(openUrl(fetchMock)).toContain('start_from=head');
+    conn.stop();
+  });
+});

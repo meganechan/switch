@@ -37,6 +37,8 @@ import { switchRoomService, type SessionRoomContext } from './switch-room-servic
  */
 class SwitchNotificationPoller {
   private readonly connections = new Map<string, RoomConnection>();
+  /** Agent id → buffer position the next session for it should start from. */
+  private readonly pendingStart = new Map<string, number>();
 
   /**
    * Open this session's connection before it launches, and return the id to
@@ -55,6 +57,27 @@ class SwitchNotificationPoller {
     const existing = this.connections.get(ctx.sessionId);
     if (existing) return existing.connection;
     return await this.start(ctx, null, null);
+  }
+
+  /**
+   * Where the next session opened for this agent should start reading.
+   *
+   * Set by the watcher just before it spawns, carrying the sequence of the
+   * message that triggered the spawn. Without it the session's stream opens at
+   * head — *after* that message, because the watcher already consumed it to
+   * decide to spawn — and the session comes up having missed the one thing it
+   * was started to answer.
+   *
+   * Keyed by agent rather than by room because the room is not known until the
+   * session connects. Two spawns racing take the lower cursor, which replays a
+   * little rather than skipping: the connection only ever receives events for
+   * the room it claims, so the cost of overlap is small and the cost of a gap
+   * is the bug this fixes.
+   */
+  noteSpawnTrigger(agentId: string, sequence: number): void {
+    const start = Math.max(sequence - 1, 0);
+    const pending = this.pendingStart.get(agentId);
+    this.pendingStart.set(agentId, pending === undefined ? start : Math.min(pending, start));
   }
 
   /**
@@ -165,11 +188,16 @@ class SwitchNotificationPoller {
 
     const ptySessionId = makeAgentPtySessionId(location.id, ctx.sessionId);
     const connectionId = randomUUID();
+    // Consumed, not just read: it belongs to this session's launch, and a
+    // later session must not rewind to a message this one already handled.
+    const startCursor = this.pendingStart.get(creds.agentId);
+    this.pendingStart.delete(creds.agentId);
     const connection = new RoomConnection({
       creds,
       roomId,
       roomName,
       connectionId,
+      startCursor,
       sessionId: ctx.sessionId,
       sink: new PtyInjectionSink(ptySessionId),
       injector: new PluginPromptInjector(ctx.providerId),

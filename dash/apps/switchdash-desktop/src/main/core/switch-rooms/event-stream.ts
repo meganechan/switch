@@ -58,6 +58,15 @@ export interface SwitchEventStreamDeps {
    * sitting right here, about to spawn.
    */
   spawnCapable?: boolean;
+  /**
+   * Where to begin, when it must not be "whatever happens next".
+   *
+   * A session spawned to answer a message needs the buffer position *before*
+   * that message: the watcher already consumed it to decide to spawn, so
+   * opening at head starts the session after the very thing it was started
+   * for. Omitted for every other case, where head is right.
+   */
+  startCursor?: number;
   /** Rooms declared when the stream opens. Declared at open rather than
    * subscribed afterwards: catch-up runs immediately, and a room claimed a
    * moment later arrives too late for the buffered events a reconnect exists
@@ -85,8 +94,9 @@ export interface SwitchEventStreamDeps {
 export class SwitchEventStream {
   private readonly deps: SwitchEventStreamDeps;
   /** Highest sequence number received. Sent on every beat and used as
-   * `Last-Event-ID` when reopening. */
-  private cursor = 0;
+   * `Last-Event-ID` when reopening. Seeded from `startCursor` when the caller
+   * needs to begin behind head rather than at it. */
+  private cursor: number;
   /** Aborts only the current socket, so a reconnect can replace it without
    * tearing down the connection. */
   private socketAbort: AbortController | null = null;
@@ -95,6 +105,7 @@ export class SwitchEventStream {
   constructor(deps: SwitchEventStreamDeps) {
     this.deps = deps;
     this.rooms = [...deps.rooms];
+    this.cursor = deps.startCursor ?? 0;
   }
 
   get position(): number {

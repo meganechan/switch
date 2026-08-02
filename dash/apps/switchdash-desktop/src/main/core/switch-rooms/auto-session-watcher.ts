@@ -23,6 +23,7 @@ import {
   readSwitchAgentCredentialsFromSettings,
   type SwitchAgentCredentials,
 } from './switch-credentials';
+import { switchNotificationPoller } from './switch-notification-poller';
 
 const SPAWN_MAX_ATTEMPTS = 3;
 const SPAWN_RETRY_DELAY_MS = 2000;
@@ -343,7 +344,7 @@ class AutoSessionWatcher {
       // offline.
       spawnCapable: true,
       onEvent: (event) => {
-        if (event.room_id) this.handleNotification(watcher, event.room_id);
+        if (event.room_id) this.handleNotification(watcher, event.room_id, event.sequence);
       },
       onGap: (info) => {
         // A gap here means we may have missed a request to start a session.
@@ -383,13 +384,21 @@ class AutoSessionWatcher {
    * between deciding to spawn and the spawned session claiming the room, which
    * the server cannot know about.
    */
-  private handleNotification(watcher: AgentWatcher, roomId: string): void {
+  private handleNotification(watcher: AgentWatcher, roomId: string, sequence?: number): void {
     if (watcher.inFlight.has(roomId)) {
       log.info(
         'AutoSessionWatcher: notification for room with a spawn already in flight — skipping duplicate spawn',
         { localAgentId: watcher.localAgentId, roomId }
       );
       return;
+    }
+
+    // Tell the poller where the session it is about to open should start
+    // reading. We have already consumed this event — that is how we know to
+    // spawn — so a session starting at head would come up having missed the
+    // very message it exists to answer.
+    if (sequence !== undefined) {
+      switchNotificationPoller.noteSpawnTrigger(watcher.creds.agentId, sequence);
     }
 
     const timer = setTimeout(() => watcher.inFlight.delete(roomId), INFLIGHT_TTL_MS);

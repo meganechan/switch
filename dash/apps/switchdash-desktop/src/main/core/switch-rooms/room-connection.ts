@@ -138,6 +138,13 @@ export interface RoomConnectionDeps {
    * repointable instead of requiring a new connection each time.
    */
   connectionId: string;
+  /**
+   * Where this session's stream should begin, when head is wrong. Set when a
+   * watcher spawned the session to answer a specific message: that message is
+   * already behind head, so starting there would skip the one thing the
+   * session exists to handle.
+   */
+  startCursor?: number;
   /** The switchdash session id of the session this connection drives, so
    * the deeplink can resolve to the exact session on any client (the shared
    * session id is the same across clients; the local room mapping is not). */
@@ -241,6 +248,7 @@ export class RoomConnection {
    * connection — and with it the room slot and role lease — survives a dropped
    * socket. */
   private readonly connectionId: string;
+  private readonly startCursor: number | undefined;
   /** Notified whenever the server tells us which room this session is in. */
   private readonly onRoomChanged: ((roomId: string | null) => void) | null;
   /** Unaddressed room messages filtered out since the last event we surfaced. */
@@ -258,6 +266,7 @@ export class RoomConnection {
     this.isHumanTyping = deps.isHumanTyping;
     this.mediaDir = deps.mediaDir;
     this.connectionId = deps.connectionId;
+    this.startCursor = deps.startCursor;
     this.onRoomChanged = deps.onRoomChanged ?? null;
     this.log = deps.log;
   }
@@ -274,6 +283,7 @@ export class RoomConnection {
       // Empty until the session connects to one. Declared here only when we
       // already know it — a restored session, or one adopted with a room.
       rooms: this.roomId ? [this.roomId] : [],
+      startCursor: this.startCursor,
       onEvent: (event) => this.handleEvent(event),
       onRooms: (rooms) => this.adoptRoom(rooms),
       onGap: (info) => this.handleGap(info),
