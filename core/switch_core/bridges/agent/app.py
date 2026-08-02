@@ -53,10 +53,14 @@ def create_agent_bridge_app(
     bridge_store: CollaborationBridgeStore,
     session_factory: object,
     config: SwitchConfig,
+    connections: ConnectionRegistry | None = None,
 ) -> tuple[FastAPI, ProtocolService]:
     # One registry for the whole process: the live connection set is the source
-    # of truth for reachability, so every service must see the same one.
-    connections = ConnectionRegistry()
+    # of truth for reachability, so every service must see the same one. The
+    # caller may supply it — main.py does, because the Matrix agent clients are
+    # wired before this app is built and read presence from the same registry.
+    if connections is None:
+        connections = ConnectionRegistry()
 
     init_dependencies(
         agent_store=agent_store,

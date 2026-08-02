@@ -738,28 +738,47 @@ A connection that has silently missed events must never appear healthy.
 **Stage B — migrate the clients. Nothing is removed.**
 
 The server stays backward compatible until the clients are known to have moved,
-so everything here is additive and the old paths keep working untouched.
+so everything here is additive: a client still polling and still sending the
+three renews is unaffected and unaware.
 
-4. **A connection counts as presence.** *(implemented)* Presence is read from
-   `agent_sessions` and `role_leases` — the rows the pre-connection clients kept
-   warm with `/connection/renew`, `/watch/heartbeat` and `/leases/renew`. A
-   client on the single connection heartbeat sends none of those, so without
-   this it would show DISCONNECTED and lose its role while alive on the stream.
-   `record_connection_presence` (called on stream open, on subscribe, and on
-   every beat) writes those rows from the connection, refreshing the
-   room-agnostic slot unconditionally and one row per covered room.
+4. **Presence is the union of the heartbeat rows and the live connections.**
+   *(implemented)* Presence was read only from `agent_sessions` and
+   `role_leases` — the rows the pre-connection clients kept warm with
+   `/connection/renew`, `/watch/heartbeat` and `/leases/renew`. A client on the
+   single connection heartbeat sends none of those, so it would show
+   DISCONNECTED and lose its role within six seconds of migrating, while alive
+   on its stream. That, not the transport, is what blocks the client work.
 
-   This is a **transitional shim, not the end state**. The alternative was to
-   teach every reader (statuses, availability, agent detail, the runtime-state
-   sweep) about the connection registry — which is where §5.4 ends up, but is
-   four readers changed during the one stage whose point is not disturbing the
-   old path. One writer speaking the readers' language is smaller, leaves both
-   worlds live at once, and deletes cleanly in Stage C.
+   Every reader now takes both arms:
+
+   | reader | connection arm |
+   |---|---|
+   | `compute_agent_statuses` | `live_agents` / `live_agents_in_room` OR-ed into each liveness set |
+   | `AgentClient._is_available` | a covering connection means reachable |
+   | `AgentClient` "sessions elsewhere" / `bound_here` | connection rooms merged with the bound rooms |
+   | `auto_session` spawn reply | any live connection counts as watching |
+   | `room_role_store` (6 predicates + `acquire_lease`) | `last_seen_at` fresh **OR** `agent_id` in `alive_agent_ids` |
+   | `assemble_agent_detail` | connections listed as sessions, `lifecycle: "connection"` |
+
+   Neither arm alone is correct while both kinds of client exist. Stage C
+   deletes the DB arm and what remains is this code minus one branch — which is
+   why the union goes in now rather than a write-shim that would be thrown away.
+
+   `connections` is a **required** argument on `compute_agent_statuses` and
+   `assemble_agent_detail`: a call site that forgot it would report a migrated
+   agent as offline, and nothing at the call site would show it. Pass an empty
+   registry to mean "DB arm only". The store-level predicates default
+   `alive_agent_ids` to empty, since the store is a query layer with no registry
+   to hand and its own tests exercise the freshness rule directly.
+
+   One registry is created in `main.py` and injected into `AgentClient`,
+   `AdminClient` and the bridge app — the Matrix clients are wired before the
+   bridge, so the bridge could no longer own it.
 
 5. switchdash (`RoomConnection` → session-grained connection that repoints
    rooms; daemon mode) and the sidecar, which reuses the same class verbatim —
-   `sidecar-runtime.ts` constructs `RoomConnection` directly, so the two
-   migrate together rather than separately. The `auto_session` watcher's
+   `sidecar-runtime.ts` constructs `RoomConnection` directly, so the two migrate
+   together rather than separately. The `auto_session` watcher's
    `/notifications` poll folds into an `all`-scope connection, and its three
    heartbeat loops collapse into one beat.
 
@@ -769,9 +788,9 @@ so everything here is additive and the old paths keep working untouched.
 
 **Stage C — the removals. Gated on the clients having transitioned.**
 
-6. Remove `connection_model`; derive statuses from connections; move role
-   leases onto the connection; delete the three renew endpoints and the
-   presence shim from stage B item 4.
+6. Remove `connection_model`; derive statuses from connections alone; move role
+   leases onto the connection; delete the three renew endpoints and the DB arm
+   of every union above.
 7. Remove the polling endpoints.
 
 Opportunistic, both relevant to this work: the `DORMANT` display bug, and

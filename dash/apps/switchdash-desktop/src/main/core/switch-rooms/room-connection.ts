@@ -1,71 +1,33 @@
 import * as fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
 import type { InjectionSink } from './injection-sink';
 import type { SessionControl } from './session-control';
+import { SwitchEventStream } from './event-stream';
 import {
   formatEventForInjection,
   formatAttachmentAnnotation,
-  type AgentBridgeEventResponse,
+  type AgentBridgeEvent,
   type AttachmentRef,
   type CommandPayload,
   type MessagePayload,
 } from './switch-event-format';
 
-const POLL_TIMEOUT_S = 10;
-const INITIAL_BACKOFF_MS = 1000;
-const MAX_BACKOFF_MS = 30_000;
 // Per-request timeouts. Without these a fetch on a half-open socket (e.g. during
 // a brief ALB 5xx blip) can hang forever with no response and no error, wedging
-// the await-each-tick loop it runs in — the renew loop in particular, which then
-// stops refreshing liveness so the session ages out (SESSION_TTL) and the agent
-// silently drops the room. Every fetch is bounded so a hang aborts and the
-// surrounding backoff loop continues.
+// the await-each-tick loop it runs in. Every fetch is bounded so a hang aborts
+// and the surrounding loop continues.
 //
-// The long-poll waits up to POLL_TIMEOUT_S server-side, so its client bound adds
-// slack on top. Renew is deliberately short — shorter than the server's ~6s
-// SESSION_TTL — so a hung renew aborts and retries well inside the window that
-// would otherwise drop the session.
-const POLL_REQUEST_TIMEOUT_MS = POLL_TIMEOUT_S * 1000 + 5_000;
-const RENEW_REQUEST_TIMEOUT_MS = 4_000;
+// Liveness no longer depends on these: the event stream and its heartbeat live
+// in SwitchEventStream, which owns its own timeouts and reconnect. What remains
+// here is the out-of-band reporting — runtime state and media downloads.
 const RUNTIME_STATE_REQUEST_TIMEOUT_MS = 10_000;
 const MEDIA_REQUEST_TIMEOUT_MS = 30_000;
-// Watchdog cadence + staleness bound for the renew loop. If no renew has
-// succeeded within the threshold the loop is presumed wedged (a request stalled
-// past its own timeout, or the loop otherwise stopped making progress): abort the
-// in-flight renew to force an immediate fresh attempt, and warn loudly so a
-// silently-dropped room is visible rather than mysterious.
-//
-// "Wedged" specifically means *not making progress*. A renew that fails fast —
-// a refused connection to an endpoint that is simply gone — is progress: the
-// loop is running, retrying, and reporting for itself. Firing the watchdog then
-// would abort a request that is not in flight and warn about a stall that is not
-// happening, which is how a single dead endpoint used to produce a third of a
-// warning line per second, forever.
-const RENEW_WATCHDOG_INTERVAL_MS = 2_000;
-const RENEW_STALE_THRESHOLD_MS = 8_000;
-// Backoff for the renew loops. Renews are a heartbeat, so the healthy cadence is
-// fixed and short; failures back off geometrically up to this cap. Once the
-// heartbeat has missed its TTL the session is already dropped server-side, so
-// retrying every 2s buys nothing but noise — `renew` is an upsert, so the
-// session re-establishes on the first success whenever that comes.
-const RENEW_MAX_BACKOFF_MS = 30_000;
 // Safety net for the dialog gate: if a blocking prompt (permission/elicitation)
 // never reports resolution, release the gate after this long so queued messages
 // can't get permanently stuck. Normal turns are never gated.
 const BUSY_FALLBACK_MS = 60_000;
-// Cadence for the room connection-liveness heartbeat. The server keeps the
-// agent's session "connected" only while these renews arrive (SESSION_TTL), so
-// a closed session drops to "no session" within seconds. Mirrors the connector
-// channel's CONNECTION_RENEW_INTERVAL_MS.
-const CONNECTION_RENEW_INTERVAL_MS = 2000;
-// Cadence for the role-lease heartbeat. When the managed session assumes a room
-// role, the server holds the seat only while `/leases/renew` arrives within its
-// LEASE_TTL (~6s), so without this a role assumed from switchdash auto-releases
-// within seconds. Renewed unconditionally: the server's touch is room-agnostic
-// and a no-op when no lease is held, so it keeps a held role alive and does
-// nothing otherwise. Mirrors the connector channel's LEASE_RENEW_INTERVAL_MS.
-const LEASE_RENEW_INTERVAL_MS = 2000;
 // How long to wait before re-checking the dual-writer gate while the operator
 // is typing into the pane. Short enough that delivery resumes promptly once
 // they pause.
@@ -194,12 +156,18 @@ export interface RoomConnectionDeps {
 }
 
 /**
- * One agent ↔ one Switch room: long-polls the agent bridge for room events,
- * injects addressed messages / task events into the session via an
- * `InjectionSink`, keeps the room connection alive with a renew heartbeat, and
- * reports runtime state back to the bridge. Transport-agnostic — the local main
- * process drives it with a PTY-backed sink, the remote sidecar with a
- * tmux-backed one.
+ * One agent ↔ one Switch room: receives room events on the agent bridge's push
+ * stream, injects addressed messages / task events into the session via an
+ * `InjectionSink`, and reports runtime state back to the bridge.
+ * Transport-agnostic — the local main process drives it with a PTY-backed sink,
+ * the remote sidecar with a tmux-backed one.
+ *
+ * Delivery and liveness both belong to `SwitchEventStream`: one SSE connection
+ * and one heartbeat, in place of the long-poll and the three renew loops
+ * (`/connection/renew`, `/leases/renew`, `/watch/heartbeat`) this used to run.
+ * The connection survives a dropped socket, so a reconnect resumes from the
+ * cursor rather than losing whatever arrived while it was away — the poll had
+ * no cursor at all and the server drained its queue on read.
  */
 export class RoomConnection {
   private readonly creds: SwitchCredentials;
@@ -236,15 +204,14 @@ export class RoomConnection {
   private activityTicker: ReturnType<typeof setInterval> | null = null;
   private busyFallback: ReturnType<typeof setTimeout> | null = null;
   private humanGateTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Monotonic timestamp of the last renew that succeeded — drives the watchdog. */
-  private lastRenewOkAt = 0;
-  /** Consecutive connection-renew failures; 0 while healthy. Tells the watchdog
-   * a loop that is failing loudly apart from one that has gone quiet. */
-  private renewFailures = 0;
-  /** Aborts just the in-flight renew request (independent of the loop's own
-   * per-request timeout) so the watchdog can force an immediate retry. */
-  private renewRequestAbort: AbortController | null = null;
-  private renewWatchdog: ReturnType<typeof setInterval> | null = null;
+  /** The push transport: one SSE stream plus one heartbeat, replacing the
+   * long-poll and the three renew loops. */
+  private stream: SwitchEventStream | null = null;
+  /** Chosen once and reused across reconnects, so the server-side connection —
+   * and with it the room slot and role lease — survives a dropped socket. */
+  private readonly connectionId = randomUUID();
+  /** Unaddressed room messages filtered out since the last event we surfaced. */
+  private missed = 0;
 
   constructor(deps: RoomConnectionDeps) {
     this.creds = deps.creds;
@@ -260,12 +227,28 @@ export class RoomConnection {
     this.log = deps.log;
   }
 
-  /** Begin polling + renew loops and seed an idle runtime-state report. */
+  /** Open the event stream and seed an idle runtime-state report. */
   start(): void {
-    void this.pollLoop();
-    void this.connectionRenewLoop();
-    void this.leaseRenewLoop();
-    this.renewWatchdog = setInterval(() => this.checkRenewStale(), RENEW_WATCHDOG_INTERVAL_MS);
+    this.stream = new SwitchEventStream({
+      creds: this.creds,
+      connectionId: this.connectionId,
+      // One room per session: the connection claims it, which is what stops a
+      // second session of the same agent silently competing for the room.
+      scope: 'single',
+      filter: 'all',
+      rooms: [this.roomId],
+      onEvent: (event) => this.handleEvent(event),
+      onGap: (info) => this.handleGap(info),
+      onEvicted: (reason) =>
+        this.log.warn('RoomConnection: connection evicted', {
+          event: 'room_connection_evicted',
+          roomId: this.roomId,
+          reason,
+        }),
+      log: this.log,
+      signal: this.abort.signal,
+    });
+    this.stream.start();
 
     // Seed this room's deeplink right away (an idle report carries it) so the
     // session's `(Open in SwitchDash)` link is available in the new room's
@@ -290,7 +273,6 @@ export class RoomConnection {
     this.abort.abort();
     if (this.busyFallback) clearTimeout(this.busyFallback);
     if (this.humanGateTimer) clearTimeout(this.humanGateTimer);
-    if (this.renewWatchdog) clearInterval(this.renewWatchdog);
     this.stopActivityTicker();
   }
 
@@ -378,254 +360,77 @@ export class RoomConnection {
     }
   }
 
-  /** Refresh the room connection-liveness heartbeat. Throws on a non-OK response. */
-  private async postConnectionRenew(requestAbort: AbortController): Promise<void> {
-    const resp = await this.fetchWithTimeout(
-      `${this.creds.apiEndpoint}/agents/${this.creds.agentId}/connection/renew`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.creds.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ room_id: this.roomId }),
-      },
-      RENEW_REQUEST_TIMEOUT_MS,
-      { extraSignal: requestAbort.signal }
-    );
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+  /**
+   * Handle one event from the stream.
+   *
+   * Unaddressed room messages are not surfaced; they are tallied and the count
+   * is appended to the next event that IS surfaced, so the agent knows it has
+   * fallen behind and can catch up with read_context.
+   */
+  private async handleEvent(event: AgentBridgeEvent): Promise<void> {
+    // Session-control commands aren't injected as text — they drive concrete
+    // keystrokes (interrupt/compact/reset) against the session.
+    if (event.type === 'command') {
+      void this.executeCommand(event.payload as CommandPayload);
+      return;
     }
-  }
-
-  /** Refresh the role-lease heartbeat. Throws on a non-OK response. */
-  private async postLeaseRenew(): Promise<void> {
-    const resp = await this.fetchWithTimeout(
-      `${this.creds.apiEndpoint}/agents/${this.creds.agentId}/leases/renew`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.creds.token}`,
-          'Content-Type': 'application/json',
-        },
-      },
-      RENEW_REQUEST_TIMEOUT_MS
-    );
-    if (!resp.ok) {
-      throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+    const addressed = event.type === 'message' && (event.payload as MessagePayload).addressed;
+    const threadId =
+      event.type === 'message' ? ((event.payload as MessagePayload).thread_id ?? null) : null;
+    if (event.type === 'message' && !addressed) {
+      this.missed += 1;
     }
-  }
-
-  /**
-   * Keep the agent's session marked "connected" to the room while we poll it.
-   * The connect_to_room hook only fires on a live tool call, so after a restart
-   * (or whenever switchdash owns the session) nothing else renews this — without
-   * it the bridge would consider the session gone within seconds.
-   *
-   * Each renew is bounded by RENEW_REQUEST_TIMEOUT_MS (see fetchWithTimeout) so a
-   * hung request can never wedge this loop, and a watchdog re-aborts an in-flight
-   * renew that has stalled the loop past RENEW_STALE_THRESHOLD_MS. `renew` is an
-   * upsert server-side, so once requests flow again a TTL-expired session
-   * re-establishes on the next success — no explicit re-connect needed.
-   */
-  private async connectionRenewLoop(): Promise<void> {
-    // Seed the watchdog clock so a wedge before the first success is still caught.
-    this.lastRenewOkAt = Date.now();
-    await this.renewLoop('connection', CONNECTION_RENEW_INTERVAL_MS, async () => {
-      const requestAbort = new AbortController();
-      this.renewRequestAbort = requestAbort;
-      try {
-        await this.postConnectionRenew(requestAbort);
-        this.lastRenewOkAt = Date.now();
-      } finally {
-        if (this.renewRequestAbort === requestAbort) this.renewRequestAbort = null;
-      }
-    });
-  }
-
-  /**
-   * Drive one renew heartbeat until the connection stops.
-   *
-   * While renews succeed the cadence is fixed — this is a liveness signal and the
-   * server drops the session without it. While they fail it backs off to
-   * RENEW_MAX_BACKOFF_MS, and reports on a curve rather than per attempt: the
-   * first failure, then at exponentially sparser counts, then a line when it
-   * recovers. An endpoint that is permanently gone therefore costs a handful of
-   * lines rather than one every couple of seconds for the life of the app, while
-   * a failure that matters is still reported the moment it happens.
-   */
-  private async renewLoop(
-    kind: 'connection' | 'lease',
-    intervalMs: number,
-    attempt: () => Promise<void>
-  ): Promise<void> {
-    let failures = 0;
-    let failingSince = 0;
-
-    while (!this.abort.signal.aborted) {
-      try {
-        await attempt();
-        if (failures > 0) {
-          this.log.warn(`RoomConnection: ${kind} renew recovered`, {
-            event: 'room_renew_recovered',
-            roomId: this.roomId,
-            failures,
-            outageMs: Date.now() - failingSince,
-          });
-        }
-        failures = 0;
-        if (kind === 'connection') this.renewFailures = 0;
-      } catch (error) {
-        if (this.abort.signal.aborted) return;
-        if (failures === 0) failingSince = Date.now();
-        failures += 1;
-        if (kind === 'connection') this.renewFailures = failures;
-        // Powers of two: 1st, 2nd, 4th, 8th … failure. Dense enough to catch a
-        // blip as it starts, sparse enough that an outage cannot flood the log.
-        if ((failures & (failures - 1)) === 0) {
-          this.log.warn(`RoomConnection: ${kind} renew error`, {
-            event: 'room_renew_failed',
-            roomId: this.roomId,
-            endpoint: this.creds.apiEndpoint,
-            failures,
-            failingForMs: Date.now() - failingSince,
-            error: String(error),
-          });
-        }
-      }
-
-      const delay =
-        failures === 0
-          ? intervalMs
-          : Math.min(intervalMs * 2 ** (failures - 1), RENEW_MAX_BACKOFF_MS);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-
-  /**
-   * Keep any role the managed session has assumed alive. The server holds the
-   * seat only while `/leases/renew` arrives within its LEASE_TTL, and the
-   * `connect_to_room`/`assume_role` hooks fire only on the agent's own tool
-   * calls — nothing else renews the lease when switchdash owns the session, so
-   * without this a role assumed from switchdash auto-releases within seconds.
-   *
-   * Renewed unconditionally: `touch_lease` is room-agnostic and a no-op when no
-   * lease is held, so this keeps a held role alive and does nothing otherwise.
-   * Each renew is bounded by RENEW_REQUEST_TIMEOUT_MS so a hung request cannot
-   * wedge the loop; the loop ends on abort, which lets the lease expire and the
-   * role auto-release shortly after the connection stops.
-   */
-  private async leaseRenewLoop(): Promise<void> {
-    await this.renewLoop('lease', LEASE_RENEW_INTERVAL_MS, () => this.postLeaseRenew());
-  }
-
-  /**
-   * Detect a renew loop that has stopped making progress — no successful renew
-   * within RENEW_STALE_THRESHOLD_MS. Abort the in-flight request so the loop
-   * retries immediately instead of waiting out a stall, and warn loudly: a
-   * silently-dropped room should be visible, not mysterious.
-   *
-   * A loop that is failing outright is not stalled: it is looping, backing off
-   * and reporting on its own schedule, and there is no in-flight request to
-   * abort. Leave it to speak for itself — this watchdog exists for the case it
-   * cannot report, where a request neither returns nor rejects.
-   */
-  private checkRenewStale(): void {
-    if (this.abort.signal.aborted) return;
-    if (this.renewFailures > 0) return;
-    const staleMs = Date.now() - this.lastRenewOkAt;
-    if (staleMs <= RENEW_STALE_THRESHOLD_MS) return;
-    this.log.warn('RoomConnection: renew stale — forcing retry', {
-      event: 'room_renew_stalled',
+    const text = formatEventForInjection(event, this.roomName);
+    this.log.debug('RoomConnection: received event', {
       roomId: this.roomId,
-      staleMs,
+      type: event.type,
+      ...(event.type === 'message'
+        ? { addressed: (event.payload as MessagePayload).addressed }
+        : {}),
+      surfaced: text !== null,
     });
-    this.renewRequestAbort?.abort();
-  }
+    if (!text) return;
 
-  private async pollLoop(): Promise<void> {
-    let backoff = INITIAL_BACKOFF_MS;
-    const url = `${this.creds.apiEndpoint}/agents/${this.creds.agentId}/rooms/${this.roomId}/events?timeout=${POLL_TIMEOUT_S}`;
-    // Tally unaddressed room messages filtered out since the last event we DID
-    // surface, and annotate the next surfaced event with the count — mirroring
-    // the channel's missed_count so the agent knows it has fallen behind.
-    let missed = 0;
-
-    while (!this.abort.signal.aborted) {
-      try {
-        const resp = await this.fetchWithTimeout(
-          url,
-          { headers: { Authorization: `Bearer ${this.creds.token}` } },
-          POLL_REQUEST_TIMEOUT_MS
-        );
-
-        if (resp.status === 204) {
-          backoff = INITIAL_BACKOFF_MS;
-          continue;
-        }
-        if (!resp.ok) {
-          throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
-        }
-
-        backoff = INITIAL_BACKOFF_MS;
-        const data = (await resp.json()) as AgentBridgeEventResponse;
-        for (const event of data.events) {
-          // Session-control commands aren't injected as text — they drive
-          // concrete keystrokes (interrupt/compact/reset) against the session.
-          if (event.type === 'command') {
-            void this.executeCommand(event.payload as CommandPayload);
-            continue;
-          }
-          const addressed = event.type === 'message' && (event.payload as MessagePayload).addressed;
-          const threadId =
-            event.type === 'message' ? ((event.payload as MessagePayload).thread_id ?? null) : null;
-          if (event.type === 'message' && !addressed) {
-            missed += 1;
-          }
-          const text = formatEventForInjection(event, this.roomName);
-          this.log.debug('RoomConnection: received event', {
-            roomId: this.roomId,
-            type: event.type,
-            ...(event.type === 'message'
-              ? { addressed: (event.payload as MessagePayload).addressed }
-              : {}),
-            surfaced: text !== null,
-          });
-          if (text) {
-            let annotated = text;
-            if (event.type === 'message') {
-              // Materialise attachments of ANY type to local files and tell the
-              // agent they are there — parity with the connector channel, which
-              // the pollers otherwise lacked. A download that fails is named in
-              // the annotation rather than dropped, so the agent is never left
-              // believing it saw everything.
-              const { imagePaths, filePaths, failed } = await this.downloadAttachments(
-                event.payload as MessagePayload
-              );
-              const annotation = formatAttachmentAnnotation(imagePaths, filePaths, failed);
-              if (annotation) {
-                annotated = `${annotated}\n${annotation}`;
-              }
-            }
-            const body =
-              missed > 0
-                ? `${annotated}\n(${missed} unread room message${missed === 1 ? '' : 's'} since your last read_context — call read_context to catch up.)`
-                : annotated;
-            missed = 0;
-            this.enqueue({ text: body, addressed, threadId });
-          }
-        }
-      } catch (error) {
-        if (this.abort.signal.aborted) return;
-        this.log.warn('RoomConnection: poll error', {
-          roomId: this.roomId,
-          error: String(error),
-        });
-        await new Promise((r) => setTimeout(r, backoff));
-        backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+    let annotated = text;
+    if (event.type === 'message') {
+      // Materialise attachments of ANY type to local files and tell the agent
+      // they are there — parity with the connector channel. A download that
+      // fails is named in the annotation rather than dropped, so the agent is
+      // never left believing it saw everything.
+      const { imagePaths, filePaths, failed } = await this.downloadAttachments(
+        event.payload as MessagePayload
+      );
+      const annotation = formatAttachmentAnnotation(imagePaths, filePaths, failed);
+      if (annotation) {
+        annotated = `${annotated}\n${annotation}`;
       }
     }
+    const body =
+      this.missed > 0
+        ? `${annotated}\n(${this.missed} unread room message${this.missed === 1 ? '' : 's'} since your last read_context — call read_context to catch up.)`
+        : annotated;
+    this.missed = 0;
+    this.enqueue({ text: body, addressed, threadId });
   }
+
+  /**
+   * Tell the agent it has a hole in its history.
+   *
+   * The server reports a gap when it cannot serve our cursor — events aged out
+   * of the buffer, or the server restarted and the numbering reset. Staying
+   * quiet here would leave the session believing the stream was complete, which
+   * is the failure mode this transport exists to make impossible.
+   */
+  private handleGap(info: { fromSequence: number; reason: string }): void {
+    this.enqueue({
+      text:
+        `[Switch] Some room events were missed and cannot be replayed (${info.reason}). ` +
+        'Call read_context to catch up before responding.',
+      addressed: true,
+      threadId: null,
+    });
+  }
+
 
   /**
    * Download a message's attachments — of any type — to local files under

@@ -745,10 +745,6 @@ async def _open_event_stream(
             protocol.connections.close(conn.id, "room already claimed")
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    # Present from the moment the stream opens, not from the first beat two
-    # seconds later: an agent that reconnects should not blink offline.
-    await protocol.record_connection_presence(agent.id, conn.rooms)
-
     return StreamingResponse(
         event_stream(
             conn=conn,
@@ -787,11 +783,6 @@ async def connection_beat(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     protocol.event_buffer.confirm(agent.id, conn.id, req.cursor)
-    # One heartbeat, but presence is still read from the rows the three old
-    # renew endpoints wrote. Until those readers derive presence from the
-    # connection itself, this beat has to speak their language too — otherwise
-    # a migrated client goes DISCONNECTED and loses its role while alive.
-    await protocol.record_connection_presence(agent.id, conn.rooms)
     return {"ok": True, "rooms": sorted(conn.rooms), "cursor": conn.cursor}
 
 
@@ -827,10 +818,6 @@ async def connection_subscribe(
         )
     except RoomOccupiedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-
-    # The newly claimed room counts as presence immediately, so a session that
-    # has just connected is addressable without waiting for the next beat.
-    await protocol.record_connection_presence(agent.id, conn.rooms)
 
     return {
         "ok": True,

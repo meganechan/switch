@@ -15,6 +15,7 @@ from alembic.config import Config as AlembicConfig
 from fastapi.responses import JSONResponse
 
 from switch_core.bridges.agent.app import create_agent_bridge_app
+from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.request_tracker import RequestTracker
@@ -199,6 +200,12 @@ async def run() -> None:
         session_factory=session_factory,
     )
 
+    # One connection registry for the process. Created here rather than inside
+    # the agent bridge because the Matrix agent clients are wired first and read
+    # presence from it — an agent is reachable if it has a live connection OR a
+    # fresh heartbeat row (CHOO-1857 stage B).
+    connections = ConnectionRegistry()
+
     # ── Client factory ───────────────────────────────────────────────────────
     client_factory = ClientFactory(
         client_store=client_store,
@@ -219,6 +226,7 @@ async def run() -> None:
         external_user_store=external_user_store,
         request_tracker=request_tracker,
         resource_request_tracker=resource_request_tracker,
+        connections=connections,
         frontend_base_url=config.frontend_base_url,
     )
     client_factory.register(
@@ -282,6 +290,7 @@ async def run() -> None:
         reference_store=reference_store,
         agent_session_store=agent_session_store,
         room_service=room_service,
+        connections=connections,
         frontend_base_url=config.frontend_base_url,
     )
 
@@ -303,6 +312,7 @@ async def run() -> None:
         bridge_store=bridge_store,
         session_factory=session_factory,
         config=config,
+        connections=connections,
     )
     collab_bridge_app = create_collaboration_bridge_app(
         bridge_store=bridge_store,

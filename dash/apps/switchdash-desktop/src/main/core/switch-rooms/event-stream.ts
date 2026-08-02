@@ -1,0 +1,323 @@
+import type { AgentBridgeEvent } from './switch-event-format';
+import type { SwitchCredentials } from './room-connection';
+
+/**
+ * The agent bridge's push transport (CHOO-1857), client side.
+ *
+ * Replaces the long-poll: one SSE stream carries events, one heartbeat proves
+ * we are alive, and both are tied to a connection id we choose. The connection
+ * outlives its socket — losing the stream stops delivery but does not end the
+ * connection, so reopening within the heartbeat TTL keeps the room slot and the
+ * role lease and resumes from the cursor.
+ *
+ * Two things this buys that the poll could not:
+ *
+ * - **Resume.** Every event carries a sequence number; we reopen with
+ *   `Last-Event-ID` and get exactly what we missed. The poll had no cursor at
+ *   all — the server drained the queue on read, so anything delivered while we
+ *   were away was simply gone.
+ * - **One heartbeat instead of three.** `/connection/renew`, `/leases/renew`
+ *   and `/watch/heartbeat` collapse into `/connection/beat`.
+ *
+ * A gap is never silent. If the server cannot serve our cursor it says so, and
+ * `onGap` fires so the caller can tell the agent to re-read context rather than
+ * carry on believing it saw everything.
+ */
+
+/** Cadence of the connection heartbeat. Must stay well inside the server's
+ * 6s TTL — the server declares the connection dead without it. */
+export const BEAT_INTERVAL_MS = 2000;
+const BEAT_REQUEST_TIMEOUT_MS = 4000;
+const INITIAL_BACKOFF_MS = 1000;
+const MAX_BACKOFF_MS = 30_000;
+
+export type StreamScope = 'single' | 'all';
+export type DeliveryFilter = 'all' | 'addressed';
+
+type Frame = { event: string; id?: string; data: Record<string, unknown> };
+
+export interface EventStreamLogger {
+  debug(message: string, meta?: Record<string, unknown>): void;
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
+export interface SwitchEventStreamDeps {
+  creds: SwitchCredentials;
+  /** Chosen by us and reused across reconnects — that is what makes the
+   * connection survive a dropped socket. */
+  connectionId: string;
+  scope: StreamScope;
+  filter: DeliveryFilter;
+  /** Rooms declared when the stream opens. Declared at open rather than
+   * subscribed afterwards: catch-up runs immediately, and a room claimed a
+   * moment later arrives too late for the buffered events a reconnect exists
+   * to recover — they would be skipped as "not covered" AND the cursor
+   * advanced past them. */
+  rooms: string[];
+  onEvent(event: AgentBridgeEvent): Promise<void> | void;
+  /** Fired when the server reports missed events it cannot replay. */
+  onGap(info: { fromSequence: number; reason: string }): void;
+  /** Fired when another stream took this connection over, or it was closed. */
+  onEvicted(reason: string): void;
+  log: EventStreamLogger;
+  /** Aborts the stream and the heartbeat together. */
+  signal: AbortSignal;
+}
+
+/** Parse an SSE byte stream into frames. */
+async function* readSse(
+  body: ReadableStream<Uint8Array>,
+  signal: AbortSignal
+): AsyncGenerator<Frame> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = '';
+
+  try {
+    while (!signal.aborted) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      buffered += decoder.decode(value, { stream: true });
+
+      let split: number;
+      while ((split = buffered.indexOf('\n\n')) !== -1) {
+        const raw = buffered.slice(0, split);
+        buffered = buffered.slice(split + 2);
+
+        let event = 'message';
+        let id: string | undefined;
+        const dataLines: string[] = [];
+        for (const line of raw.split('\n')) {
+          // A comment line is the server's keepalive: it stops proxies timing
+          // the stream out for idleness and carries nothing.
+          if (line.startsWith(':')) continue;
+          if (line.startsWith('event: ')) event = line.slice(7);
+          else if (line.startsWith('id: ')) id = line.slice(4);
+          else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
+        }
+        if (!dataLines.length) continue;
+        try {
+          yield { event, id, data: JSON.parse(dataLines.join('\n')) };
+        } catch {
+          // A frame we cannot parse is a frame we have lost. Surface it as a
+          // parse failure rather than skipping quietly.
+          throw new Error(`unparseable SSE frame: ${raw.slice(0, 200)}`);
+        }
+      }
+    }
+  } finally {
+    void reader.cancel().catch(() => {});
+  }
+}
+
+export class SwitchEventStream {
+  private readonly deps: SwitchEventStreamDeps;
+  /** Highest sequence number received. Sent on every beat and used as
+   * `Last-Event-ID` when reopening. */
+  private cursor = 0;
+  /** Aborts only the current socket, so a reconnect can replace it without
+   * tearing down the connection. */
+  private socketAbort: AbortController | null = null;
+  private rooms: string[];
+
+  constructor(deps: SwitchEventStreamDeps) {
+    this.deps = deps;
+    this.rooms = [...deps.rooms];
+  }
+
+  get position(): number {
+    return this.cursor;
+  }
+
+  start(): void {
+    void this.streamLoop();
+    void this.beatLoop();
+  }
+
+  /** Repoint the stream at a different room without dropping the connection.
+   * The room is claimed server-side first, then the socket is reopened so the
+   * new room's buffered events are part of catch-up. */
+  async repoint(roomId: string): Promise<void> {
+    this.rooms = [roomId];
+    await this.subscribe(roomId);
+    this.reopen();
+  }
+
+  private reopen(): void {
+    this.socketAbort?.abort();
+  }
+
+  private async subscribe(roomId: string): Promise<void> {
+    const resp = await this.post('connection/subscribe', {
+      connection_id: this.deps.connectionId,
+      room_id: roomId,
+    });
+    if (!resp.ok) {
+      // 409 means another live connection of this agent already holds the room
+      // — usually a stale session. Loud: quietly carrying on would leave us
+      // attached to a stream that will never deliver that room's events.
+      throw new Error(`subscribe to ${roomId} failed: HTTP ${resp.status}`);
+    }
+  }
+
+  private post(path: string, body: unknown, timeoutMs = BEAT_REQUEST_TIMEOUT_MS) {
+    const { creds } = this.deps;
+    return fetch(`${creds.apiEndpoint}/agents/${creds.agentId}/${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${creds.token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), this.deps.signal]),
+    });
+  }
+
+  private async streamLoop(): Promise<void> {
+    const { creds, connectionId, scope, filter, log, signal } = this.deps;
+    let backoff = INITIAL_BACKOFF_MS;
+
+    while (!signal.aborted) {
+      const socketAbort = new AbortController();
+      this.socketAbort = socketAbort;
+      try {
+        const params = new URLSearchParams({
+          connection_id: connectionId,
+          scope,
+          filter,
+          start_from: this.cursor > 0 ? String(this.cursor) : 'head',
+        });
+        if (this.rooms.length) params.set('rooms', this.rooms.join(','));
+
+        const resp = await fetch(`${creds.apiEndpoint}/agents/${creds.agentId}/events?${params}`, {
+          headers: {
+            Authorization: `Bearer ${creds.token}`,
+            Accept: 'text/event-stream',
+            ...(this.cursor > 0 ? { 'Last-Event-ID': String(this.cursor) } : {}),
+          },
+          signal: AbortSignal.any([socketAbort.signal, signal]),
+        });
+
+        if (!resp.ok || !resp.body) {
+          throw new Error(`HTTP ${resp.status}: ${await resp.text()}`);
+        }
+
+        backoff = INITIAL_BACKOFF_MS;
+        log.debug('SwitchEventStream: stream open', {
+          event: 'switch_stream_open',
+          connectionId,
+          cursor: this.cursor,
+          rooms: this.rooms,
+        });
+
+        for await (const frame of readSse(resp.body, socketAbort.signal)) {
+          if (frame.id) this.cursor = Math.max(this.cursor, Number(frame.id) || 0);
+          await this.handleFrame(frame);
+        }
+      } catch (error) {
+        if (signal.aborted) return;
+        // A deliberate reopen (repoint) aborts the socket; that is not an error.
+        if (!socketAbort.signal.aborted) {
+          log.warn('SwitchEventStream: stream error', {
+            event: 'switch_stream_error',
+            error: String(error),
+            backoffMs: backoff,
+          });
+          await new Promise((r) => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+        }
+      }
+    }
+  }
+
+  private async handleFrame(frame: Frame): Promise<void> {
+    const { log, onGap, onEvicted, onEvent } = this.deps;
+    switch (frame.event) {
+      case 'connection_state':
+        log.debug('SwitchEventStream: connection established', {
+          event: 'switch_stream_connected',
+          rooms: frame.data.rooms,
+        });
+        return;
+      case 'subscription_changed':
+        log.debug('SwitchEventStream: subscription changed', {
+          event: 'switch_stream_subscription',
+          rooms: frame.data.rooms,
+        });
+        return;
+      case 'gap':
+        log.warn('SwitchEventStream: gap — events missed', {
+          event: 'switch_stream_gap',
+          fromSequence: frame.data.from_sequence,
+          reason: frame.data.reason,
+        });
+        onGap({
+          fromSequence: Number(frame.data.from_sequence ?? 0),
+          reason: String(frame.data.reason ?? 'events were missed'),
+        });
+        return;
+      case 'evicted':
+        log.warn('SwitchEventStream: evicted', {
+          event: 'switch_stream_evicted',
+          reason: frame.data.reason,
+        });
+        onEvicted(String(frame.data.reason ?? 'connection closed'));
+        return;
+      default:
+        await onEvent(frame.data as unknown as AgentBridgeEvent);
+    }
+  }
+
+  /**
+   * The single heartbeat. Proves we are alive and reports the cursor.
+   *
+   * A 404 or 409 means we are not receiving — the connection expired, or it has
+   * no stream attached. Both are recovered by reopening, which resumes from the
+   * cursor. Failing quietly here is the one thing that must not happen: a
+   * client that has stopped receiving while believing it is connected is
+   * exactly the bug this transport exists to remove.
+   */
+  private async beatLoop(): Promise<void> {
+    const { log, signal, connectionId } = this.deps;
+    let failures = 0;
+
+    while (!signal.aborted) {
+      try {
+        const resp = await this.post('connection/beat', {
+          connection_id: connectionId,
+          cursor: this.cursor,
+        });
+        if (resp.status === 404 || resp.status === 409) {
+          log.warn('SwitchEventStream: heartbeat rejected — reopening', {
+            event: 'switch_beat_rejected',
+            status: resp.status,
+            connectionId,
+          });
+          this.reopen();
+        } else if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        } else if (failures > 0) {
+          log.warn('SwitchEventStream: heartbeat recovered', {
+            event: 'switch_beat_recovered',
+            afterFailures: failures,
+          });
+          failures = 0;
+        }
+      } catch (error) {
+        if (signal.aborted) return;
+        failures += 1;
+        // Report the first failure, then on a curve: an endpoint that is simply
+        // gone should cost a handful of lines, not one every two seconds.
+        if (failures === 1 || (failures & (failures - 1)) === 0) {
+          log.warn('SwitchEventStream: heartbeat failed', {
+            event: 'switch_beat_failed',
+            consecutiveFailures: failures,
+            error: String(error),
+          });
+        }
+      }
+      await new Promise((r) => setTimeout(r, BEAT_INTERVAL_MS));
+    }
+  }
+}

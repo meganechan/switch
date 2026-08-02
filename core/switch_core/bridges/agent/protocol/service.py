@@ -5,7 +5,7 @@ import logging
 import re
 import secrets
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -585,7 +585,7 @@ class ProtocolService:
             # holds at most one role (unique agent_id), so the inverse map is
             # well-defined even for shared roles with several holders.
             live_holders = await self.room_role_store.live_holders_for_room(
-                session, room_id
+                session, room_id, self.connections.live_agent_ids()
             )
             roles = await self.room_role_store.list_roles(session, room_id)
             role_name_by_id = {r.id: r.name for r in roles}
@@ -630,7 +630,7 @@ class ProtocolService:
         room_id: str,
     ) -> dict[str, AgentStatus]:
         return await compute_agent_statuses(
-            session, agents, room_id, self.agent_session_store
+            session, agents, room_id, self.agent_session_store, self.connections
         )
 
     async def get_agent_statuses_by_name(
@@ -915,7 +915,7 @@ class ProtocolService:
                     )
                 role_by_id = {role.id: role.name for role in defined_roles}
                 holders = await self.room_role_store.live_holders_for_room(
-                    session, room_id
+                    session, room_id, self.connections.live_agent_ids()
                 )
                 for role_id, agent_ids in holders.items():
                     if role_by_id.get(role_id) not in roles:
@@ -1995,8 +1995,13 @@ class ProtocolService:
         could `assume_role` it right now: the caller holds no other live lease,
         and the role is either non-exclusive or not live-held by someone else.
         """
-        leases = await self.room_role_store.live_leases_for_room(session, room_id)
-        my_lease = await self.room_role_store.get_agent_live_lease(session, agent_id)
+        alive = self.connections.live_agent_ids()
+        leases = await self.room_role_store.live_leases_for_room(
+            session, room_id, alive
+        )
+        my_lease = await self.room_role_store.get_agent_live_lease(
+            session, agent_id, alive
+        )
         # Resolve holder agent ids → names.
         holder_names: dict[str, str] = {}
         for lease_list in leases.values():
@@ -2123,10 +2128,13 @@ class ProtocolService:
             role = await self.room_role_store.get_role(session, room_id, role_name)
             if role is None:
                 raise ValueError(f"Role '{role_name}' not found in this room")
-            prior = await self.room_role_store.get_agent_live_lease(session, agent_id)
+            alive = self.connections.live_agent_ids()
+            prior = await self.room_role_store.get_agent_live_lease(
+                session, agent_id, alive
+            )
             already_held = prior is not None and prior.role_id == role.id
             await self.room_role_store.acquire_lease(
-                session, role, agent_id, transport_session_id
+                session, role, agent_id, transport_session_id, alive
             )
             await session.commit()
             result = {"role": role.name, "instructions": role.instructions}
@@ -2143,12 +2151,14 @@ class ProtocolService:
         If a live lease is dropped, announce the release in its room.
         """
         async with self.session_factory() as session:
-            live = await self.room_role_store.get_agent_live_lease(session, agent_id)
+            live = await self.room_role_store.get_agent_live_lease(
+                session, agent_id, self.connections.live_agent_ids()
+            )
             released_role: str | None = None
             matrix_room_id: str | None = None
             if live is not None:
                 released_role = await self.room_role_store.agent_room_role(
-                    session, live.room_id, agent_id
+                    session, live.room_id, agent_id, self.connections.live_agent_ids()
                 )
                 room = await self.room_store.get(session, live.room_id)
                 matrix_room_id = room.matrix_room_id if room is not None else None
@@ -2165,37 +2175,6 @@ class ProtocolService:
             refreshed = await self.room_role_store.touch_lease(session, agent_id)
             await session.commit()
             return refreshed
-
-    async def record_connection_presence(
-        self, agent_id: str, rooms: Iterable[str]
-    ) -> None:
-        """Write a connection's heartbeat into the presence rows readers still use.
-
-        Transitional (CHOO-1857 stage B): presence is derived from
-        ``agent_sessions`` and ``role_leases``, which the pre-connection clients
-        maintained with /connection/renew, /watch/heartbeat and /leases/renew. A
-        client that has moved to the single connection heartbeat sends none of
-        those, so without this it would go DISCONNECTED and lose its role while
-        demonstrably alive on the stream.
-
-        Rather than teach every reader about the connection registry mid-
-        migration, the one writer speaks their language. Both worlds are then
-        live at once and old clients are untouched. This goes away with
-        ``connection_model`` and the renew endpoints, once the readers derive
-        presence from connections directly.
-
-        The room-agnostic slot is refreshed unconditionally: a live connection
-        is a live agent whatever rooms it covers, and that slot is what
-        ``always_on`` liveness and the ``auto_session`` DORMANT state read.
-        """
-        async with self.session_factory() as session:
-            await self.agent_session_store.touch_heartbeat(session, agent_id, None)
-            for room_id in rooms:
-                await self.agent_session_store.touch_heartbeat(
-                    session, agent_id, room_id
-                )
-            await self.room_role_store.touch_lease(session, agent_id)
-            await session.commit()
 
     async def touch_connection(self, agent_id: str, room_id: str) -> None:
         """Refresh a session_addressable agent's room-scoped liveness heartbeat.
@@ -2529,6 +2508,7 @@ class ProtocolService:
                 user_store=self.user_store,
                 agent_session_store=self.agent_session_store,
                 room_role_store=self.room_role_store,
+                connections=self.connections,
             )
 
     async def update_agent_detail(
@@ -2583,6 +2563,7 @@ class ProtocolService:
                 user_store=self.user_store,
                 agent_session_store=self.agent_session_store,
                 room_role_store=self.room_role_store,
+                connections=self.connections,
             )
 
     async def get_room_detail(

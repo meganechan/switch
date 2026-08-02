@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -371,6 +372,53 @@ class ConnectionRegistry:
             if sibling.id != conn.id and room_id in sibling.rooms:
                 return False
         return True
+
+    # ------------------------------------------------------------------
+    # Presence
+    # ------------------------------------------------------------------
+    #
+    # Presence readers union these with the `agent_sessions` rows the
+    # pre-connection clients maintain (CHOO-1857 stage B). A client on the new
+    # transport sends none of the old renews, so without the connection arm it
+    # would read as DISCONNECTED while alive on the stream; a client still
+    # polling keeps its DB arm. When the old clients are gone, the DB arm goes
+    # with them and these remain.
+
+    def is_live(self, agent_id: str) -> bool:
+        """Whether the agent has any live connection at all.
+
+        The connection equivalent of the room-agnostic heartbeat slot: what
+        `always_on` liveness and the `auto_session` DORMANT state ask for.
+        """
+        return bool(self.for_agent(agent_id))
+
+    def live_in_room(self, agent_id: str, room_id: str) -> bool:
+        """Whether some live connection of this agent covers this room.
+
+        Covers, not claims: an `all`-scope daemon is genuinely reachable in the
+        rooms it has not yielded to a session.
+        """
+        return any(self.covers(conn, room_id) for conn in self.for_agent(agent_id))
+
+    def live_agent_ids(self) -> set[str]:
+        """Every agent with at least one live connection.
+
+        Passed to the role-lease predicates: a connection keeps a role held,
+        so a client that has stopped sending `/leases/renew` because it moved
+        to the single heartbeat does not silently lose its seat.
+        """
+        now = time.monotonic()
+        return {conn.agent_id for conn in self._by_id.values() if conn.is_alive(now)}
+
+    def live_agents_in_room(self, agent_ids: Iterable[str], room_id: str) -> set[str]:
+        return {aid for aid in agent_ids if self.live_in_room(aid, room_id)}
+
+    def live_agents(self, agent_ids: Iterable[str]) -> set[str]:
+        return {aid for aid in agent_ids if self.is_live(aid)}
+
+    def rooms_covered(self, agent_id: str, candidate_rooms: Iterable[str]) -> set[str]:
+        """Which of `candidate_rooms` this agent is reachable in right now."""
+        return {room for room in candidate_rooms if self.live_in_room(agent_id, room)}
 
     def wake_agent(self, agent_id: str) -> None:
         for conn in self.for_agent(agent_id):
