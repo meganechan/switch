@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { readSse, type SseFrame } from './sse'
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -622,51 +623,6 @@ function stopStream() {
   pollingRoomId = null
 }
 
-type ControlFrame = { event: string; data: Record<string, unknown>; id?: string }
-
-async function* readSse(
-  body: ReadableStream<Uint8Array>,
-  signal: AbortSignal,
-): AsyncGenerator<ControlFrame> {
-  const reader = body.getReader()
-  const decoder = new TextDecoder()
-  let buffered = ''
-
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read()
-      if (done) return
-      buffered += decoder.decode(value, { stream: true })
-
-      let split: number
-      while ((split = buffered.indexOf('\n\n')) !== -1) {
-        const raw = buffered.slice(0, split)
-        buffered = buffered.slice(split + 2)
-
-        let event = 'message'
-        let id: string | undefined
-        const dataLines: string[] = []
-        for (const line of raw.split('\n')) {
-          // A comment line is the server's keepalive: it stops proxies timing
-          // the stream out for idleness and carries nothing.
-          if (line.startsWith(':')) continue
-          if (line.startsWith('event: ')) event = line.slice(7)
-          else if (line.startsWith('id: ')) id = line.slice(4)
-          else if (line.startsWith('data: ')) dataLines.push(line.slice(6))
-        }
-        if (!dataLines.length) continue
-        try {
-          yield { event, id, data: JSON.parse(dataLines.join('\n')) }
-        } catch (err) {
-          process.stderr.write(`switch: unparseable SSE frame: ${err}\n`)
-        }
-      }
-    }
-  } finally {
-    reader.cancel().catch(() => {})
-  }
-}
-
 function startStream() {
   if (streamAbort) return
   const abort = new AbortController()
@@ -732,7 +688,7 @@ function startStream() {
   })()
 }
 
-async function handleFrame(frame: ControlFrame): Promise<void> {
+async function handleFrame(frame: SseFrame): Promise<void> {
   switch (frame.event) {
     case 'connection_state':
       process.stderr.write(

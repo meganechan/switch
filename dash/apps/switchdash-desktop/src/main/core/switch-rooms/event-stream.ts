@@ -1,4 +1,5 @@
 import type { SwitchCredentials } from './room-connection';
+import { readSse, type SseFrame } from './sse';
 import type { AgentBridgeEvent } from './switch-event-format';
 
 /**
@@ -33,8 +34,6 @@ const MAX_BACKOFF_MS = 30_000;
 
 export type StreamScope = 'single' | 'all';
 export type DeliveryFilter = 'all' | 'addressed';
-
-type Frame = { event: string; id?: string; data: Record<string, unknown> };
 
 export interface EventStreamLogger {
   debug(message: string, meta?: Record<string, unknown>): void;
@@ -73,52 +72,6 @@ export interface SwitchEventStreamDeps {
   log: EventStreamLogger;
   /** Aborts the stream and the heartbeat together. */
   signal: AbortSignal;
-}
-
-/** Parse an SSE byte stream into frames. */
-async function* readSse(
-  body: ReadableStream<Uint8Array>,
-  signal: AbortSignal
-): AsyncGenerator<Frame> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffered = '';
-
-  try {
-    while (!signal.aborted) {
-      const { done, value } = await reader.read();
-      if (done) return;
-      buffered += decoder.decode(value, { stream: true });
-
-      let split: number;
-      while ((split = buffered.indexOf('\n\n')) !== -1) {
-        const raw = buffered.slice(0, split);
-        buffered = buffered.slice(split + 2);
-
-        let event = 'message';
-        let id: string | undefined;
-        const dataLines: string[] = [];
-        for (const line of raw.split('\n')) {
-          // A comment line is the server's keepalive: it stops proxies timing
-          // the stream out for idleness and carries nothing.
-          if (line.startsWith(':')) continue;
-          if (line.startsWith('event: ')) event = line.slice(7);
-          else if (line.startsWith('id: ')) id = line.slice(4);
-          else if (line.startsWith('data: ')) dataLines.push(line.slice(6));
-        }
-        if (!dataLines.length) continue;
-        try {
-          yield { event, id, data: JSON.parse(dataLines.join('\n')) };
-        } catch {
-          // A frame we cannot parse is a frame we have lost. Surface it as a
-          // parse failure rather than skipping quietly.
-          throw new Error(`unparseable SSE frame: ${raw.slice(0, 200)}`);
-        }
-      }
-    }
-  } finally {
-    void reader.cancel().catch(() => {});
-  }
 }
 
 export class SwitchEventStream {
@@ -242,7 +195,7 @@ export class SwitchEventStream {
     }
   }
 
-  private async handleFrame(frame: Frame): Promise<void> {
+  private async handleFrame(frame: SseFrame): Promise<void> {
     const { log, onGap, onEvicted, onEvent } = this.deps;
     switch (frame.event) {
       case 'connection_state':
