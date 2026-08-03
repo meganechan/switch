@@ -19,12 +19,15 @@ import type {
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  CreateRoomParams,
+  CreateRoomResult,
   PasswordLoginParams,
   ProvisionAgentParams,
   ProvisionAgentResult,
   ProvisionRemoteAgentParams,
   RemoteAgentRoom,
   RemoteAgentSummary,
+  RemoteBridge,
   RemoteExternalUser,
   RemoteRoomGroup,
   RemoteRoomRole,
@@ -38,6 +41,7 @@ import type {
 } from '@shared/core/switch-servers/switch-servers';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
+import { createRoomOnServer } from './create-room';
 import {
   agentExistsOnServer,
   fetchAddressingPolicy,
@@ -46,6 +50,7 @@ import {
   fetchAgents,
   fetchAllExternalUsers,
   fetchAuthConfig,
+  fetchBridges,
   fetchMe,
   fetchRoomGroups,
   fetchRoomRoles,
@@ -184,6 +189,25 @@ export const switchServersController = createRPCController({
 
   listRemoteRooms: async (serverId: string): Promise<RemoteRoomSummary[]> =>
     fetchRooms(await requireServer(serverId)),
+
+  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> =>
+    fetchBridges(await requireReachableServer(serverId)),
+
+  /**
+   * Create a room on the chosen server, owned by the signed-in user. Room
+   * provisioning stays server-side (`POST /gateway/rooms`); this only maps
+   * recoverable failures onto a typed result the modal can act on.
+   */
+  createRoom: async (params: CreateRoomParams): Promise<CreateRoomResult> => {
+    const server = await requireReachableServer(params.serverId);
+    return createRoomOnServer(server, {
+      name: params.name,
+      description: params.description,
+      instructions: params.instructions,
+      bridgeId: params.bridgeId,
+      agentIds: params.agentIds,
+    });
+  },
 
   listAgentRooms: async (params: {
     serverId: string;

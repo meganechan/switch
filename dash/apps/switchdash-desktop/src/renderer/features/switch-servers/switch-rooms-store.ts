@@ -1,6 +1,9 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { rpc } from '@renderer/lib/ipc';
-import type { RemoteAgentRoom } from '@shared/core/switch-servers/switch-servers';
+import type {
+  RemoteAgentRoom,
+  RemoteRoomSummary,
+} from '@shared/core/switch-servers/switch-servers';
 import { switchServersStore } from './switch-servers-store';
 
 /** Cache key for an agent's room membership: server + Switch agent id. */
@@ -29,6 +32,11 @@ export class SwitchRoomsStore {
   /** Room id → native deeplink that opens its channel in the messaging app's
    * desktop client, when the room is bridged and the link could be built. */
   private readonly channelUrlByRoom = new Map<string, string>();
+  /** Server id → the active rooms on that server owned by the signed-in user.
+   * The sidebar lists these even when no session is connected to them, so a
+   * room you create in switchdash is visible the moment it exists rather than
+   * only once an agent joins it. */
+  private readonly ownedRoomsByServer = new Map<string, RemoteRoomSummary[]>();
   /** Keys with an in-flight fetch. */
   readonly loading = new Set<string>();
   /** Last error per key, if the most recent fetch failed. */
@@ -95,6 +103,17 @@ export class SwitchRoomsStore {
   }
 
   /**
+   * Rooms owned by the signed-in user across every connected server, active
+   * only, sorted by name. These are listed in the sidebar regardless of whether
+   * any session is connected to them.
+   */
+  get ownedRooms(): RemoteRoomSummary[] {
+    return [...this.ownedRoomsByServer.values()]
+      .flat()
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
    * Refresh the room id → name map from every connected server's room list.
    * Best-effort: a server that fails to respond is skipped (its rooms keep
    * their last-known names, or fall back to a short id in the UI).
@@ -107,6 +126,9 @@ export class SwitchRoomsStore {
       connected.map(async (server) => {
         try {
           const rooms = await rpc.switchServers.listRemoteRooms(server.id);
+          // Ownership is per server: the same person is a different user row on
+          // each gateway, so match against that server's signed-in identity.
+          const signedInUserId = switchServersStore.statusFor(server.id)?.user?.id ?? null;
           runInAction(() => {
             for (const room of rooms) {
               this.roomNames.set(room.id, room.name);
@@ -117,6 +139,12 @@ export class SwitchRoomsStore {
                 this.channelUrlByRoom.set(room.id, room.externalChannelUrl);
               else this.channelUrlByRoom.delete(room.id);
             }
+            this.ownedRoomsByServer.set(
+              server.id,
+              signedInUserId
+                ? rooms.filter((r) => !r.archived && r.ownerId === signedInUserId)
+                : []
+            );
           });
         } catch {
           // skip this server; names stay best-effort
