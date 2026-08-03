@@ -151,6 +151,24 @@ below:
 
 ### [Unreleased]
 
+### [0.16.1] - 2026-08-03
+
+#### Added
+- Local GitHub-auth detection in Switch setup: a requirement row reporting `gh`
+  missing / not logged in / missing `read:packages`, with an inline device-flow
+  login that requests the scope. Sessions that can't fetch the runtime now toast
+  the reason instead of starting silently broken (CHOO-1873, #102).
+
+#### Fixed
+- GitHub auth changes now take effect without restarting: the updater no longer
+  leaves a boot-time token in `GH_TOKEN` (which shadowed the keyring for `gh`),
+  and the scope check judges the active account only (`gh auth status --active`)
+  rather than any known account (CHOO-1873, #102).
+- A dialog's own terminal now receives keystrokes (the `gh auth` prompt was
+  silenced inside the Agent Settings modal); agent usage — not just install — is
+  gated on GitHub access; managed servers pinned to switch-core `0.11.0` (was
+  `0.8.1`) (CHOO-1873, #102).
+
 ### [0.16.0] - 2026-08-03
 
 #### Added
