@@ -1,8 +1,12 @@
+import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { app } from 'electron';
-import { getGithubTokenFromGhCli } from '@main/core/updates/github-token';
+import { GH_EXECUTABLE, getGithubTokenFromGhCli } from '@main/core/updates/github-token';
 import { log } from '@main/lib/logger';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * Let a spawned session's `npx` resolve the Switch agent runtime.
@@ -56,6 +60,36 @@ function npmrcPath(): string {
  * session whose agent cannot reach Switch, and `gh auth status` at host setup
  * is where this is supposed to be caught.
  */
+/**
+ * Warn when the token cannot read packages.
+ *
+ * `gh auth login` asks for `gist`, `read:org`, `repo` and `workflow` — not
+ * `read:packages`. A perfectly healthy default login therefore yields a token
+ * the registry refuses with a 403 about "expected scopes", several layers below
+ * anything that mentions `gh`. Said here, where it is actionable.
+ *
+ * A warning only: the scope list is parsed from human-readable output, and
+ * being wrong about it must not stop a session starting.
+ */
+async function warnIfCannotReadPackages(): Promise<void> {
+  try {
+    const { stdout, stderr } = await execFileAsync(GH_EXECUTABLE, ['auth', 'status'], {
+      timeout: 10_000,
+    });
+    const output = `${stdout}${stderr}`;
+    if (!output.includes('Token scopes:') || output.includes('read:packages')) return;
+    log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
+      event: 'npm_registry_auth_missing_scope',
+      fix: 'gh auth refresh -h github.com -s read:packages',
+      detail:
+        'gh auth login does not request read:packages, so the registry will refuse ' +
+        'with 403 and the session will start without its MCP tools',
+    });
+  } catch {
+    // Never fatal — a diagnostic, not a gate.
+  }
+}
+
 export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
   const token = await getGithubTokenFromGhCli();
   if (!token) {
@@ -65,6 +99,8 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
     });
     return {};
   }
+
+  await warnIfCannotReadPackages();
 
   const path = npmrcPath();
   try {

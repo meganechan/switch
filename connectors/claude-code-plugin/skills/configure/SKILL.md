@@ -49,7 +49,8 @@ npm config get @sandbox-quantum:registry
 
 If that prints `https://npm.pkg.github.com`, skip to Step 1.
 
-Otherwise it needs the GitHub CLI, authenticated:
+Otherwise it needs the GitHub CLI, authenticated **and holding the
+`read:packages` scope**:
 
 ```bash
 gh auth status
@@ -58,6 +59,25 @@ gh auth status
 If `gh` is missing or logged out, stop and tell the user to install it and run
 `gh auth login` — everything below depends on it, and guessing a token is not
 something to attempt.
+
+Then look at the `Token scopes:` line. **`gh auth login` does not request
+`read:packages`** — the default scopes are `gist`, `read:org`, `repo` and
+`workflow`. A perfectly healthy login therefore produces a token the registry
+refuses:
+
+```
+npm error 403 Permission permission_denied: The token provided does not match expected scopes.
+```
+
+If `read:packages` is absent, have the user add it:
+
+```bash
+gh auth refresh -h github.com -s read:packages
+```
+
+That opens a device-code prompt in a browser. If they cannot complete it (a
+headless box, for instance), the alternative is a classic PAT with
+`read:packages`, used in place of `gh auth token` below.
 
 Then, with the user's agreement (this writes to their `~/.npmrc`):
 

@@ -46,6 +46,37 @@ async function ghToken(log: WatcherLogger): Promise<string | null> {
 }
 
 /**
+ * Warn when the token cannot read packages.
+ *
+ * `gh auth login` asks for `gist`, `read:org`, `repo` and `workflow` — not
+ * `read:packages`. So the default, perfectly healthy login produces a token
+ * that authenticates fine and is then refused by the registry with a 403 about
+ * "expected scopes", several layers below anything that mentions `gh`.
+ *
+ * Checked here so the cause is stated at spawn, where it is actionable, rather
+ * than inferred later from an npx failure. Only a warning: the scope list is
+ * parsed from human-readable output, and being wrong about it must not stop a
+ * session starting.
+ */
+async function warnIfCannotReadPackages(log: WatcherLogger): Promise<void> {
+  try {
+    // `gh auth status` prints scopes on stderr.
+    const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status'], { timeout: 10_000 });
+    const output = `${stdout}${stderr}`;
+    if (!output.includes('Token scopes:') || output.includes('read:packages')) return;
+    log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
+      event: 'npm_registry_auth_missing_scope',
+      fix: 'gh auth refresh -h github.com -s read:packages',
+      detail:
+        'gh auth login does not request read:packages, so the registry will refuse ' +
+        'with 403 and the session will start without its MCP tools',
+    });
+  } catch {
+    // Never fatal — this is a diagnostic, not a gate.
+  }
+}
+
+/**
  * Write the npmrc and return the environment that points npm at it.
  *
  * Returns an empty environment when the host has no usable `gh`. The session
@@ -65,6 +96,8 @@ export async function npmRegistryAuthEnv(
     });
     return {};
   }
+
+  await warnIfCannotReadPackages(log);
 
   const dir = path.join(repoDir, '.switchdash');
   const npmrc = path.join(dir, 'npmrc');
