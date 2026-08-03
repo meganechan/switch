@@ -189,8 +189,8 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
 
   // Rooms the signed-in user owns are listed whether or not anything is
   // connected to them — a room you created should not disappear until an agent
-  // happens to join it.
-  const ownedRoomIds = switchRoomsStore.ownedRooms.map((room) => room.id);
+  // happens to join it. Scoped to the active server, like the rest of the tree.
+  const ownedRoomIds = switchRoomsStore.ownedRoomsInActiveScope.map((room) => room.id);
 
   return (
     <>

@@ -37,24 +37,26 @@ import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
 
 type CreateRoomModalArgs = {
-  /** Pre-select a server (e.g. when opened from a server page). Defaults to the
-   * active server, so the onboarding flow can open this with no arguments. */
+  /** Create on this server instead of the active one — for callers that are not
+   * driven by the sidebar's server scope, such as onboarding. */
   serverId?: string;
 };
 
 type Props = BaseModalProps<{ roomId: string }> & CreateRoomModalArgs;
 
 export const CreateRoomModal = observer(function CreateRoomModal({
-  serverId: initialServerId,
+  serverId: overrideServerId,
   onSuccess,
   onClose,
 }: Props) {
   const { setCloseGuard } = useModalContext();
-  const servers = switchServersStore.servers.filter((s) => switchServersStore.isConnected(s.id));
 
-  const [serverId, setServerId] = useState<string>(
-    initialServerId ?? switchServersStore.activeServerId ?? servers[0]?.id ?? ''
-  );
+  // The sidebar shows one server at a time, so the room belongs to that server;
+  // asking again would let the user create a room somewhere they are not
+  // looking, and then wonder where it went.
+  const serverId = overrideServerId ?? switchServersStore.activeServerId ?? '';
+  const server = switchServersStore.servers.find((s) => s.id === serverId) ?? null;
+
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [instructions, setInstructions] = useState('');
@@ -137,34 +139,15 @@ export const CreateRoomModal = observer(function CreateRoomModal({
   return (
     <>
       <DialogHeader showCloseButton={false}>
-        <DialogTitle>New room</DialogTitle>
+        <DialogTitle>New room{server ? ` on ${server.name}` : ''}</DialogTitle>
       </DialogHeader>
       <DialogContentArea className="pt-0">
         <div className="flex w-full flex-col gap-5">
-          {servers.length > 1 && (
-            <Field>
-              <FieldLabel>Server</FieldLabel>
-              <Select
-                value={serverId}
-                onValueChange={(next) => {
-                  setServerId(next ?? '');
-                  setBridgeId(null);
-                  setAgents([]);
-                  setError(null);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a server" />
-                </SelectTrigger>
-                <SelectContent>
-                  {servers.map((server) => (
-                    <SelectItem key={server.id} value={server.id}>
-                      {server.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
+          {!server && (
+            <p className="text-destructive text-xs">
+              No Switch server is selected, so there is nowhere to create a room. Choose a server in
+              the sidebar first.
+            </p>
           )}
 
           <Field>

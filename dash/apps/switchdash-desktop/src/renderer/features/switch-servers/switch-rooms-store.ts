@@ -103,14 +103,18 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Rooms owned by the signed-in user across every connected server, active
-   * only, sorted by name. These are listed in the sidebar regardless of whether
-   * any session is connected to them.
+   * Rooms owned by the signed-in user on the active server, sorted by name.
+   * Listed in the sidebar whether or not a session is connected to them.
+   *
+   * The sidebar tree shows one server at a time, so these follow the same scope
+   * rule as locations do — including that no active server hides nothing.
    */
-  get ownedRooms(): RemoteRoomSummary[] {
-    return [...this.ownedRoomsByServer.values()]
-      .flat()
-      .sort((a, b) => a.name.localeCompare(b.name));
+  get ownedRoomsInActiveScope(): RemoteRoomSummary[] {
+    const activeServerId = switchServersStore.activeServerId;
+    const scoped = activeServerId
+      ? [this.ownedRoomsByServer.get(activeServerId) ?? []]
+      : [...this.ownedRoomsByServer.values()];
+    return scoped.flat().sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**
