@@ -273,7 +273,29 @@ class SwitchSetupService {
    * descriptor) AND with their connector plugin already installed. Drives the
    * onboarding agent-type picker, which only offers ready-to-use types.
    */
+  /**
+   * Agent types that can actually be onboarded on this machine.
+   *
+   * An installed plugin is not sufficient. The plugin resolves its MCP server
+   * from a private registry at session start, so without GitHub access the
+   * agent onboards, reports itself installed, and then runs with no Switch
+   * tools — which is what "installed" appeared to promise. Availability is
+   * withheld until the credential can actually fetch it, matching how a remote
+   * host reports readiness.
+   */
   async listOnboardable(): Promise<{ agentId: string }[]> {
+    const gh = await probeLocalGhAuth();
+    if (!gh.ghInstalled || !gh.authenticated || !gh.canReadPackages) {
+      log.warn('switch-setup: no agent type is onboardable — GitHub access is not usable', {
+        event: 'switch_setup_onboarding_blocked_by_github',
+        ghInstalled: gh.ghInstalled,
+        authenticated: gh.authenticated,
+        canReadPackages: gh.canReadPackages,
+        envShadowed: gh.envShadowed,
+      });
+      return [];
+    }
+
     const onboardable: { agentId: string }[] = [];
     for (const plugin of listPlugins()) {
       if (plugin.capabilities.switchSetup.kind !== 'cli') continue;
