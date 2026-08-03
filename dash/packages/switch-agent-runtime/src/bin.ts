@@ -186,7 +186,29 @@ type EventResponse = {
 //
 // Absent the hand-off — a bare terminal session, or one the supervisor merely
 // attached to — this process owns its connection exactly as before.
-const BORROWED_CONNECTION_ID = process.env.SWITCH_CONNECTION_ID?.trim() || null;
+//
+// It is read from the ambient environment and NOT declared in the plugin's
+// .mcp.json. Host env vars reach a spawned MCP server anyway, and declaring it
+// there made it mandatory: a `${VAR}` in that block that resolves to nothing
+// fails the whole server with "Missing environment variables", so every session
+// without a supervisor — the standalone case — lost its tools entirely.
+function borrowedConnectionId(): string | null {
+  const raw = process.env.SWITCH_CONNECTION_ID?.trim();
+  if (!raw) return null;
+  // An unexpanded `${...}` means someone declared this in a config file and the
+  // host did not substitute it. Using it as an id would tag every tool call
+  // with a connection that cannot exist, which the server rejects — and the
+  // reason would be invisible from here. Ignore it and own the connection.
+  if (raw.includes('${')) {
+    process.stderr.write(
+      `switch: ignoring unexpanded SWITCH_CONNECTION_ID (${raw}) — opening our own connection\n`
+    );
+    return null;
+  }
+  return raw;
+}
+
+const BORROWED_CONNECTION_ID = borrowedConnectionId();
 const CONNECTION_ID = BORROWED_CONNECTION_ID ?? randomUUID();
 const OWNS_CONNECTION = BORROWED_CONNECTION_ID === null;
 
