@@ -1,6 +1,5 @@
-import type { SwitchCredentials } from './room-connection';
 import { readSse, type SseFrame } from './sse';
-import type { AgentBridgeEvent } from './switch-event-format';
+import type { AgentBridgeEvent, SwitchCredentials } from './types';
 
 /**
  * The agent bridge's push transport (CHOO-1857), client side.

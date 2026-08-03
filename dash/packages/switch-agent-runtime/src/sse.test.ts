@@ -1,48 +1,14 @@
-import * as fs from 'node:fs';
-import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { readSse, type SseFrame } from './sse';
 
 /**
- * The agent bridge's SSE framing is implemented on two clients that cannot
- * import from each other — the plugin runtime is a standalone bun script in a
- * plugin cache, switchdash is an Electron monorepo — so the parser is copied.
+ * The wire format, pinned.
  *
- * Copies rot silently. These tests make that loud in two ways: the parser's
- * *behaviour* is pinned by fixtures, and the copy is compared to its original
- * byte for byte. Behaviour is tested once because identity guarantees the other
- * side behaves the same; without the identity check, testing one would prove
- * nothing about the other.
- *
- * This has already happened once on this branch — heartbeat backoff was fixed
- * on switchdash's side only, because that is where the test was.
+ * These moved here with the parser. They used to sit beside a drift check that
+ * compared two copies of this file; the copies are gone, so the check is too,
+ * but the behaviour it protected still needs testing — and now testing it once
+ * genuinely covers every client, which was the point of the move.
  */
-
-const CANONICAL = path.resolve(
-  __dirname,
-  '../../../../../../../connectors/claude-code-plugin/runtime/sse.ts'
-);
-const COPY = path.join(__dirname, 'sse.ts');
-
-/**
- * Everything below the header comment, normalised for formatting.
- *
- * The two files live in repos with different formatters — switchdash's adds
- * semicolons and drops trailing commas, the plugin's does neither — so raw
- * byte equality would fail on every `format` run and get switched off within a
- * week. Whitespace, semicolons and trailing commas are stripped; anything that
- * changes what the code *does* still shows up.
- */
-function body(source: string): string {
-  const start = source.indexOf('export type SseFrame');
-  if (start === -1) throw new Error('sse.ts no longer starts with `export type SseFrame`');
-  return source
-    .slice(start)
-    .replace(/\/\/.*$/gm, '')
-    .replace(/,(\s*[)\]}])/g, '$1')
-    .replace(/;/g, '')
-    .replace(/\s+/g, '');
-}
 
 function stream(chunks: string[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -61,19 +27,6 @@ async function parse(chunks: string[]): Promise<SseFrame[]> {
   }
   return frames;
 }
-
-describe('the SSE parser copy has not drifted from its original', () => {
-  it('matches the canonical file once formatting is normalised away', () => {
-    expect(fs.existsSync(CANONICAL), `canonical source missing at ${CANONICAL}`).toBe(true);
-
-    const canonical = body(fs.readFileSync(CANONICAL, 'utf8'));
-    const copy = body(fs.readFileSync(COPY, 'utf8'));
-
-    // If this fails, one side was edited. Copy the canonical file over the
-    // copy — do not hand-reconcile them, that is how they drifted before.
-    expect(copy, `copy the canonical file: ${CANONICAL} -> ${COPY}`).toBe(canonical);
-  });
-});
 
 describe('SSE framing', () => {
   it('parses event, id and data', async () => {

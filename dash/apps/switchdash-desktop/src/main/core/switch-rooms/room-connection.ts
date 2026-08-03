@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { SwitchEventStream } from '@sandbox-quantum/switch-agent-runtime';
 import type { AgentStatus, NotificationType } from '@shared/core/providers/agentEvents';
-import { SwitchEventStream } from './event-stream';
 import type { InjectionSink } from './injection-sink';
 import type { SessionControl } from './session-control';
 import {

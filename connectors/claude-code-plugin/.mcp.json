@@ -1,17 +1,13 @@
 {
   "mcpServers": {
     "switch": {
-      "command": "sh",
-      "args": [
-        "-c",
-        "cd \"$1\" && bun install --no-summary 1>&2 && exec bun server.ts",
-        "switch",
-        "${CLAUDE_PLUGIN_ROOT}/runtime"
-      ],
+      "command": "npx",
+      "args": ["-y", "@sandbox-quantum/switch-agent-runtime@0.1.0"],
       "env": {
         "SWITCH_API_ENDPOINT": "${SWITCH_API_ENDPOINT}",
         "SWITCH_API_TOKEN": "${SWITCH_API_TOKEN}",
-        "SWITCH_AGENT_ID": "${SWITCH_AGENT_ID}"
+        "SWITCH_AGENT_ID": "${SWITCH_AGENT_ID}",
+        "SWITCH_CONNECTION_ID": "${SWITCH_CONNECTION_ID}"
       }
     }
   }

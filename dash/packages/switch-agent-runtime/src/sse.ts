@@ -1,21 +1,15 @@
-// COPY — do not edit here. The canonical source is:
-//
-//   connectors/claude-code-plugin/runtime/sse.ts
-//
-// `sse-parity.test.ts` fails if this file and that one differ.
-//
-// The agent bridge's SSE framing is implemented twice, because the two clients
-// are separate deployables: this runtime ships inside the Claude Code plugin
-// (standalone, one dependency, run straight from a plugin cache) and switchdash
-// is an Electron monorepo. Neither can import from the other, and there is no
-// published package to share yet.
-//
-// So it is copied, and the copy is checked.
-//
-// Keep this file free of imports and of anything specific to either host: it is
-// the wire format and nothing else. Reporting, reconnection, heartbeats and
-// cursors belong to the caller, which is where the two clients legitimately
-// differ.
+/**
+ * The agent bridge's SSE framing.
+ *
+ * One implementation, imported by everything that speaks the protocol: the
+ * local MCP runtime next to the agent, and switchdash. It used to exist twice —
+ * separate deployables, no shared package — and the copies drifted within a day
+ * of being made. This package is what removed the excuse.
+ *
+ * Deliberately free of imports and of anything specific to a host: it is the
+ * wire format and nothing else. Reporting, reconnection, heartbeats and cursors
+ * belong to the caller, which is where clients legitimately differ.
+ */
 
 export type SseFrame = { event: string; id?: string; data: Record<string, unknown> };
 
