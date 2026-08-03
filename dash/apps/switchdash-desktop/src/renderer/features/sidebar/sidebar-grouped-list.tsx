@@ -7,6 +7,7 @@ import type { SessionStore } from '@renderer/features/sessions/stores/session-st
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import type { Agent } from '@shared/core/agents/agents';
 import { SidebarAgentItem, agentExpandKey } from './agent-item';
@@ -175,6 +176,7 @@ const AgentFocusedTree = observer(function AgentFocusedTree() {
 });
 
 const RoomFocusedTree = observer(function RoomFocusedTree() {
+  const showCreateSessionModal = useShowModal('sessionModal');
   // Tag every visible session with the agent it belongs to, then group by room.
   const bySession = new Map<string, AgentEntry>();
   const allSessions: SessionStore[] = [];
@@ -185,9 +187,14 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
     }
   }
 
+  // Rooms the signed-in user owns are listed whether or not anything is
+  // connected to them — a room you created should not disappear until an agent
+  // happens to join it.
+  const ownedRoomIds = switchRoomsStore.ownedRooms.map((room) => room.id);
+
   return (
     <>
-      {groupByRoom(allSessions).map(([roomKey, roomSessions]) => {
+      {groupByRoom(allSessions, ownedRoomIds).map(([roomKey, roomSessions]) => {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
         // Agents that have a session in this room, in first-seen order.
@@ -216,6 +223,11 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
                 switchRoomsStore.roomChannelUrl(roomKey)
                   ? () => openRoomInMessagingApp(roomKey)
                   : null
+              }
+              onNewSession={
+                roomKey === UNASSIGNED_ROOM_KEY
+                  ? null
+                  : () => showCreateSessionModal({ roomId: roomKey })
               }
             />
             {expanded &&

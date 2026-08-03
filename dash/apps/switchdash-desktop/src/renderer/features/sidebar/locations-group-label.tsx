@@ -175,6 +175,12 @@ const FilterDropdown = observer(function FilterDropdown() {
 
 export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
   const showAddLocationModal = useShowModal('addAgentModal');
+  const showCreateRoomModal = useShowModal('createRoomModal');
+  // The add button acts on whatever the section is currently listing: adding an
+  // agent while looking at a list of rooms is not what the button appears to
+  // offer (CHOO-1875).
+  const roomMode = sidebarStore.grouping === 'room';
+  const addLabel = roomMode ? 'New Room' : 'Add Agent';
 
   return (
     <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
@@ -230,8 +236,8 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
             render={
               <button
                 type="button"
-                onClick={() => showAddLocationModal({})}
-                aria-label="Add Agent"
+                onClick={() => (roomMode ? showCreateRoomModal({}) : showAddLocationModal({}))}
+                aria-label={addLabel}
                 className={buttonVariants({
                   size: 'icon-xs',
                   variant: 'ghost',
@@ -243,8 +249,8 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
             }
           />
           <TooltipContent>
-            Add Agent
-            <BoundShortcut settingsKey="newLocation" variant="badge" />
+            {addLabel}
+            {!roomMode && <BoundShortcut settingsKey="newLocation" variant="badge" />}
           </TooltipContent>
         </Tooltip>
       </div>

@@ -1,4 +1,4 @@
-import { ChevronRight, DoorOpen, ExternalLink } from 'lucide-react';
+import { ChevronRight, DoorOpen, ExternalLink, Plus } from 'lucide-react';
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
@@ -60,9 +60,19 @@ export function openRoomInMessagingApp(roomKey: string): void {
   if (url) void rpc.app.openExternal(url);
 }
 
-/** Group sessions by their current room key, named rooms first then Unassigned. */
-export function groupByRoom(sessions: SessionStore[]): [string, SessionStore[]][] {
+/**
+ * Group sessions by their current room key, named rooms first then Unassigned.
+ *
+ * `alwaysShow` room keys are included even with no sessions, so a room can be
+ * listed before anything has connected to it — otherwise a room you just
+ * created would be invisible until an agent joined it.
+ */
+export function groupByRoom(
+  sessions: SessionStore[],
+  alwaysShow: string[] = []
+): [string, SessionStore[]][] {
   const groups = new Map<string, SessionStore[]>();
+  for (const key of alwaysShow) groups.set(key, []);
   for (const session of sessions) {
     const key = sessionRoomId(session) ?? UNASSIGNED_ROOM_KEY;
     const list = groups.get(key);
@@ -91,6 +101,7 @@ export function RoomRow({
   onOpenGateway,
   onOpenChannel = null,
   onSelect = null,
+  onNewSession = null,
   isActive = false,
   depth = 0,
   bridgeType = null,
@@ -108,6 +119,9 @@ export function RoomRow({
   /** Open the room's channel in the messaging app, or null when there is no
    * native deeplink (room not bridged / link unknown). */
   onOpenChannel?: (() => void) | null;
+  /** Start a session connected to this room. Null for rows where that makes no
+   * sense (Unassigned), or where the row is already nested under its agent. */
+  onNewSession?: (() => void) | null;
   depth?: number;
   /** Bridge platform type (`slack`, `mattermost`, …) when the room is bridged. */
   bridgeType?: string | null;
@@ -166,6 +180,26 @@ export function RoomRow({
             }
           />
           <TooltipContent>Open in {bridgeType}</TooltipContent>
+        </Tooltip>
+      )}
+      {onNewSession && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <SidebarItemMiniButton
+                type="button"
+                aria-label={`New session in ${label}`}
+                className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNewSession();
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </SidebarItemMiniButton>
+            }
+          />
+          <TooltipContent>New session in this room</TooltipContent>
         </Tooltip>
       )}
       {linkable && (

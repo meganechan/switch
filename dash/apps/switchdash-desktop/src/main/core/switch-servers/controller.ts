@@ -52,6 +52,7 @@ import {
   fetchAuthConfig,
   fetchBridges,
   fetchMe,
+  fetchRoomAgentIds,
   fetchRoomGroups,
   fetchRoomRoles,
   fetchRooms,
@@ -217,6 +218,9 @@ export const switchServersController = createRPCController({
 
   listRoomRoles: async (params: { serverId: string; roomId: string }): Promise<RemoteRoomRole[]> =>
     fetchRoomRoles(await requireServer(params.serverId), params.roomId),
+
+  listRoomAgentIds: async (params: { serverId: string; roomId: string }): Promise<string[]> =>
+    fetchRoomAgentIds(await requireServer(params.serverId), params.roomId),
 
   listRemoteRoomGroups: async (serverId: string): Promise<RemoteRoomGroup[]> =>
     fetchRoomGroups(await requireServer(serverId)),

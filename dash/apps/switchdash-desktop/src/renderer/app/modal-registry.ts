@@ -7,6 +7,7 @@ import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-m
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
+import { CreateRoomModal } from '@renderer/features/switch-servers/CreateRoomModal';
 import { DeleteServerModal } from '@renderer/features/switch-servers/DeleteServerModal';
 import { RenameServerModal } from '@renderer/features/switch-servers/RenameServerModal';
 import { ConfirmActionDialog } from '@renderer/lib/components/confirm-action-dialog';
@@ -60,5 +61,6 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   deleteServerModal: createModal(DeleteServerModal, { size: 'sm' }),
+  createRoomModal: createModal(CreateRoomModal, { size: 'md', dismissOnOutsideClick: false }),
   // oxlint-disable-next-line typescript/no-explicit-any
 } satisfies Record<string, ModalRegistryEntry<any, any>>;

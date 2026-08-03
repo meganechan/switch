@@ -627,6 +627,20 @@ export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummar
 }
 
 /**
+ * Switch agent ids that are members of a room (`GET /rooms/{id}`). One call for
+ * the whole room, rather than asking every candidate agent what it belongs to.
+ * Connecting to a room is only meaningful for an agent already in it, so this is
+ * what scopes the agent picker when starting a session from a room.
+ */
+export async function fetchRoomAgentIds(server: SwitchServer, roomId: string): Promise<string[]> {
+  const res = await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}`, {
+    authenticated: true,
+  });
+  const json = (await res.json()) as { agent_ids?: string[] };
+  return json.agent_ids ?? [];
+}
+
+/**
  * Create a room on `server` (session-authed `POST /gateway/rooms`), owned by the
  * signed-in user. Provisioning stays entirely server-side — this is the same
  * endpoint the operator web app posts to.
@@ -641,7 +655,13 @@ export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummar
  */
 export async function createRoom(
   server: SwitchServer,
-  params: { name: string; description: string; instructions?: string; bridgeId: string; agentIds: string[] }
+  params: {
+    name: string;
+    description: string;
+    instructions?: string;
+    bridgeId: string;
+    agentIds: string[];
+  }
 ): Promise<RemoteRoomSummary> {
   const res = await gatewayFetch(server, '/rooms', {
     authenticated: true,

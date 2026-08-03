@@ -141,9 +141,7 @@ export class SwitchRoomsStore {
             }
             this.ownedRoomsByServer.set(
               server.id,
-              signedInUserId
-                ? rooms.filter((r) => !r.archived && r.ownerId === signedInUserId)
-                : []
+              signedInUserId ? rooms.filter((r) => !r.archived && r.ownerId === signedInUserId) : []
             );
           });
         } catch {
