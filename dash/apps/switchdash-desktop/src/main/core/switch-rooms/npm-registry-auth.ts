@@ -117,6 +117,10 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
     return {};
   }
 
+  log.info('npmRegistryAuth: registry access configured for spawned sessions', {
+    event: 'npm_registry_auth_ready',
+    npmrc: path,
+  });
   return {
     npm_config_userconfig: path,
     SWITCHDASH_GITHUB_TOKEN: token,

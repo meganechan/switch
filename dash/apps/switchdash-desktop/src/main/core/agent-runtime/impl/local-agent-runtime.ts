@@ -177,23 +177,6 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
 
       const tmuxSessionName = this.tmux ? makeAgentTmuxSessionName(this.sessionId) : undefined;
 
-      const resolved = resolveLocalPtySpawn({
-        platform: process.platform,
-        env: process.env,
-        intent: {
-          kind: 'run-command',
-          cwd: this.sessionPath,
-          command: { kind: 'argv', command: agentCommand.command, args: agentCommand.args },
-          shellProfile: this.shellProfile,
-          shellSetup: this.shellSetup,
-          tmuxSessionName,
-        },
-      });
-
-      logLocalPtySpawnWarnings('LocalAgentRuntime', resolved.warnings, {
-        sessionId: ptySessionId,
-      });
-
       const ptyId = makePtyId(session.providerId, this.sessionId);
       const port = agentHookService.getPort();
       const token = agentHookService.getToken();
@@ -235,23 +218,43 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       // session, and the missing login is reported at host setup.
       const npmAuthEnv = await npmRegistryAuthEnv();
 
+      const sessionEnv = {
+        ...buildAgentEnv({
+          hook: port > 0 ? { port, ptyId, token } : undefined,
+          providerVars,
+          shellProfile: this.shellProfile,
+        }),
+        ...colorEnv,
+        ...this.sessionEnvVars,
+        ...subagentVars,
+        ...npmAuthEnv,
+        ...(switchConnectionId ? { SWITCH_CONNECTION_ID: switchConnectionId } : {}),
+      };
+
+      const resolved = resolveLocalPtySpawn({
+        platform: process.platform,
+        env: process.env,
+        intent: {
+          kind: 'run-command',
+          cwd: this.sessionPath,
+          command: { kind: 'argv', command: agentCommand.command, args: agentCommand.args },
+          shellProfile: this.shellProfile,
+          shellSetup: this.shellSetup,
+          tmuxSessionName,
+          paneEnv: tmuxSessionName ? sessionEnv : undefined,
+        },
+      });
+
+      logLocalPtySpawnWarnings('LocalAgentRuntime', resolved.warnings, {
+        sessionId: ptySessionId,
+      });
+
       const pty = spawnLocalPty({
         id: ptySessionId,
         command: resolved.command,
         args: resolved.args,
         cwd: resolved.cwd,
-        env: {
-          ...buildAgentEnv({
-            hook: port > 0 ? { port, ptyId, token } : undefined,
-            providerVars,
-            shellProfile: this.shellProfile,
-          }),
-          ...colorEnv,
-          ...this.sessionEnvVars,
-          ...subagentVars,
-          ...npmAuthEnv,
-          ...(switchConnectionId ? { SWITCH_CONNECTION_ID: switchConnectionId } : {}),
-        },
+        env: sessionEnv,
         cols: spawnSize.cols,
         rows: spawnSize.rows,
       });
