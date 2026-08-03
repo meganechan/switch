@@ -4,11 +4,24 @@
 # switchdash builds it from the workspace, so it never waits on a publish. The
 # Claude Code plugin runs it with `npx`, and that needs a version to exist.
 #
-# Triggered by a merge to main that touches the package. Publishing is
-# idempotent: if the version in package.json is already on the registry the job
-# reports it and exits cleanly, so a merge that changed the code without bumping
-# the version does not fail CI — it just does not publish, which is the correct
-# outcome and a visible one.
+# Triggered by a tag, so a version can be published from a BRANCH — you should
+# not have to merge to main to test the thing you are testing. To cut one:
+#
+#   # bump "version" in dash/packages/switch-agent-runtime/package.json first
+#   git tag switch-agent-runtime-v0.1.0
+#   git push origin switch-agent-runtime-v0.1.0
+#
+# The tag must match the version in package.json, or the job fails rather than
+# publishing something whose name disagrees with its contents.
+#
+# For a pre-merge test, use a prerelease version (0.2.0-rc.1). Those publish
+# under the `next` dist-tag so they never become what `@latest` resolves to —
+# it matters less than it looks, since consumers pin exact versions, but a
+# release candidate silently becoming the default is not a surprise anyone
+# enjoys.
+#
+# Publishing is idempotent: a tag for a version already on the registry reports
+# that and exits cleanly rather than failing.
 #
 # No secret is needed. GitHub Packages accepts the workflow's own GITHUB_TOKEN
 # with `packages: write`, so there is no PAT to create, rotate, or leak.
@@ -17,10 +30,10 @@ name: Publish switch-agent-runtime
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'dash/packages/switch-agent-runtime/**'
-      - '.github/workflows/switch-agent-runtime-publish.yml'
+    tags:
+      - 'switch-agent-runtime-v*'
+  # Lets you publish from a branch without tagging:
+  #   gh workflow run switch-agent-runtime-publish.yml --ref <branch>
   workflow_dispatch:
 
 jobs:
@@ -56,16 +69,36 @@ jobs:
         working-directory: dash/packages/switch-agent-runtime
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_REF: ${{ github.ref }}
         run: |
           set -euo pipefail
           name=$(node -p "require('./package.json').name")
           version=$(node -p "require('./package.json').version")
+
+          # A tag naming one version while package.json says another publishes
+          # something whose name disagrees with its contents. Refuse.
+          case "$TAG_REF" in
+            refs/tags/switch-agent-runtime-v*)
+              tagged="${TAG_REF#refs/tags/switch-agent-runtime-v}"
+              if [ "$tagged" != "$version" ]; then
+                echo "Tag says $tagged, package.json says $version." >&2
+                echo "Bump the version and re-tag." >&2
+                exit 1
+              fi
+              ;;
+          esac
+
           if npm view "$name@$version" version >/dev/null 2>&1; then
             echo "$name@$version is already published — nothing to do."
             echo "Bump the version in package.json to publish a new one."
             exit 0
           fi
-          npm publish
+
+          # A prerelease must not become what `@latest` resolves to.
+          case "$version" in
+            *-*) npm publish --tag next ;;
+            *)   npm publish ;;
+          esac
           echo "Published $name@$version"
           echo "Point the plugin at it: bump the pinned version in" \
                "connectors/claude-code-plugin/.mcp.json and the plugin's own version."
