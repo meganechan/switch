@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { IExecutionContext } from '@main/core/execution-context/types';
-import {
-  isEnvShadowedToken,
-  NPMRC_CONTENTS,
-  parseGhAuthStatus,
-} from '@shared/core/npm-registry';
+import { isEnvShadowedToken, NPMRC_CONTENTS, parseGhAuthStatus } from '@shared/core/npm-registry';
 import { remoteNpmRegistryAuthEnv } from './npm-registry-auth';
 
 vi.mock('electron', () => ({ app: { getPath: () => '/userData' } }));

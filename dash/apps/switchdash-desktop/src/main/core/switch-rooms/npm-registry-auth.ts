@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { app } from 'electron';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { GH_EXECUTABLE, getGithubTokenFromGhCli } from '@main/core/updates/github-token';
+import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import {
@@ -15,7 +16,9 @@ import {
   npmRegistryEnv,
   parseGhAuthStatus,
   READ_PACKAGES_FIX,
+  READ_PACKAGES_SCOPE,
 } from '@shared/core/npm-registry';
+import { switchToolsUnavailableEvent } from '@shared/events/switchSetupEvents';
 
 const execFileAsync = promisify(execFile);
 
@@ -71,6 +74,29 @@ function warnAboutGhAuth(state: GhAuthState, host: string): void {
   }
 }
 
+/**
+ * Tell the user, not just the log, when the session will come up without tools.
+ *
+ * Only for sessions on this machine: a remote host's state belongs on that
+ * host's setup page, where it is already reported, and a toast cannot say which
+ * host it meant.
+ */
+function announceUnusableAuth(state: GhAuthState): void {
+  if (state.status === 'missing-scope') {
+    events.emit(switchToolsUnavailableEvent, {
+      reason: 'missing-scope',
+      detail: `The GitHub token is missing the ${READ_PACKAGES_SCOPE} scope.`,
+    });
+  } else if (state.status === 'invalid') {
+    events.emit(switchToolsUnavailableEvent, {
+      reason: isEnvShadowedToken(state) ? 'env-shadowed' : 'invalid-token',
+      detail: isEnvShadowedToken(state)
+        ? `A ${state.tokenSource} environment variable is overriding your gh login, and it is not usable.`
+        : state.detail,
+    });
+  }
+}
+
 function localNpmrcPath(): string {
   return join(app.getPath('userData'), 'npm', 'npmrc');
 }
@@ -90,6 +116,10 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
       event: 'npm_registry_auth_missing_token',
       hint: 'run `gh auth login`; a private package reads as 404 without it',
     });
+    events.emit(switchToolsUnavailableEvent, {
+      reason: 'not-authenticated',
+      detail: 'This machine is not authenticated to GitHub.',
+    });
     return {};
   }
 
@@ -97,7 +127,9 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
     const { stdout } = await execFileAsync(GH_EXECUTABLE, GH_AUTH_STATUS_ARGS, {
       timeout: 10_000,
     });
-    warnAboutGhAuth(parseGhAuthStatus(stdout), 'this machine');
+    const state = parseGhAuthStatus(stdout);
+    warnAboutGhAuth(state, 'this machine');
+    announceUnusableAuth(state);
   } catch {
     // Never fatal — a diagnostic, not a gate.
   }

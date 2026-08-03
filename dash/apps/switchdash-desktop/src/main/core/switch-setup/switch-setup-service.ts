@@ -4,7 +4,9 @@ import { resolveCommandPath } from '@switchdash/core/deps/runtime';
 import semver from 'semver';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { log } from '@main/lib/logger';
+import { READ_PACKAGES_SCOPE } from '@shared/core/npm-registry';
 import { getPlugin, listPlugins } from '../providers/plugin-registry';
+import { probeLocalGhAuth } from './local-gh-auth';
 
 /** Status of an agent type's Switch connector plugin. */
 export type SwitchSetupStatus = {
@@ -41,6 +43,40 @@ export function marketplaceMatchesSource(entry: MarketplaceListEntry, source: st
 export type SwitchSetupResult = { success: boolean; message?: string };
 
 const EXEC_TIMEOUT_MS = 120_000;
+
+/** Failures that mean the CLI could not read the private marketplace repo. */
+const NOT_FOUND_RE = /\b(404|403|not found|could not resolve|authentication|permission denied)\b/i;
+
+/**
+ * Attach a cause to an install failure.
+ *
+ * The marketplace lives in a private repo, so an unauthenticated CLI is told
+ * the repo does not exist. Passed through untouched — as it was — the user
+ * reads "404" and has no way to know it is about their GitHub login, or gets
+ * "Install failed." with nothing at all when the CLI wrote no stderr.
+ *
+ * The GitHub state is only consulted once something has already failed: it
+ * costs a subprocess, and a healthy install should not pay for it.
+ */
+async function describeInstallFailure(raw: string): Promise<string> {
+  const message = raw || 'Install failed.';
+  if (raw && !NOT_FOUND_RE.test(raw)) return message;
+
+  const gh = await probeLocalGhAuth();
+  if (!gh.ghInstalled) {
+    return `${message}\n\nThe Switch plugin is published to a private GitHub repository, and the GitHub CLI (gh) is not installed on this machine. Install it from https://cli.github.com, then authenticate.`;
+  }
+  if (!gh.authenticated) {
+    return `${message}\n\nThe Switch plugin is published to a private GitHub repository and this machine is not authenticated to GitHub${gh.detail ? ` (${gh.detail})` : ''}. Authenticate from Switch setup and try again.`;
+  }
+  if (!gh.canReadPackages) {
+    return `${message}\n\nThe GitHub token is missing the ${READ_PACKAGES_SCOPE} scope, which is required to read the private Switch packages. Re-authenticate from Switch setup and try again.`;
+  }
+  if (gh.envShadowed) {
+    return `${message}\n\nGitHub access is coming from a GH_TOKEN/GITHUB_TOKEN environment variable rather than your gh login, and that token cannot reach the private Switch repository. Unset it, or give it the ${READ_PACKAGES_SCOPE} scope.`;
+  }
+  return message;
+}
 
 type RunResult = { code: number; stdout: string; stderr: string };
 
@@ -285,12 +321,12 @@ class SwitchSetupService {
     try {
       await this.ensureMarketplace(bin, descriptor.marketplaceName, descriptor.marketplaceSource);
     } catch (err) {
-      return { success: false, message: `Could not add marketplace: ${String(err)}` };
+      return { success: false, message: await describeInstallFailure(String(err)) };
     }
     const res = await this.run(bin, ['plugin', 'install', ref, '-s', descriptor.scope]);
     return res.code === 0
       ? { success: true }
-      : { success: false, message: res.stderr.trim() || 'Install failed.' };
+      : { success: false, message: await describeInstallFailure(res.stderr.trim()) };
   }
 
   async update(agentId: string): Promise<SwitchSetupResult> {
