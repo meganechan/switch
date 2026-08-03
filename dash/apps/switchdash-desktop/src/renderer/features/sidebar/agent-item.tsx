@@ -56,9 +56,14 @@ export function agentExpandKey(agentId: string): string {
 export const SidebarAgentItem = observer(function SidebarAgentItem({
   agent,
   depth = 0,
+  roomId = null,
 }: {
   agent: Agent;
   depth?: number;
+  /** The room this row is listed under, when the sidebar is grouped by room.
+   * A session started from here connects to that room — the row is shown in the
+   * room's context, so acting on it should stay in that context. */
+  roomId?: string | null;
 }) {
   const { navigate } = useNavigate();
   const { currentView } = useWorkspaceSlots();
@@ -230,7 +235,11 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
                   className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100"
                   onClick={(e) => {
                     e.stopPropagation();
-                    showCreateSessionModal({ locationId: agent.locationId, agentName });
+                    showCreateSessionModal({
+                      locationId: agent.locationId,
+                      agentName,
+                      ...(roomId ? { roomId } : {}),
+                    });
                   }}
                 >
                   <Plus className="h-4 w-4" />

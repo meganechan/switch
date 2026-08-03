@@ -160,6 +160,21 @@ export class SwitchRoomsStore {
     return this.roomsByAgent.get(key(serverId, switchAgentId));
   }
 
+  /**
+   * Load membership for several agents at once. The room-grouped sidebar lists
+   * an agent under every room it belongs to, not only the rooms it happens to
+   * have a session in, so it needs the whole set up front rather than one
+   * agent's at a time.
+   */
+  async ensureMembershipsFor(
+    agents: { serverId: string; switchAgentId: string }[],
+    options: { force?: boolean } = {}
+  ): Promise<void> {
+    await Promise.all(
+      agents.map((a) => this.fetchAgentRooms(a.serverId, a.switchAgentId, options))
+    );
+  }
+
   isLoading(serverId: string, switchAgentId: string): boolean {
     return this.loading.has(key(serverId, switchAgentId));
   }

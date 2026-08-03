@@ -1,9 +1,9 @@
 import { ChevronRight, DoorOpen, ExternalLink, Plus } from 'lucide-react';
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
+import { openRoomChannel, openRoomGatewayPage } from '@renderer/features/switch-rooms/room-links';
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
-import { rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -23,8 +23,7 @@ export function roomLabel(roomKey: string): string {
 /** Open a room's detail page in the gateway web app (no-op for Unassigned). */
 export function openRoomInGateway(roomKey: string): void {
   if (roomKey === UNASSIGNED_ROOM_KEY) return;
-  const url = switchRoomsStore.gatewayRoomUrl(roomKey);
-  if (url) void rpc.app.openExternal(url);
+  openRoomGatewayPage(roomKey);
 }
 
 /** Show a room's conversation in the main panel (no-op for Unassigned, which
@@ -56,8 +55,7 @@ export function isRoomViewActive(roomKey: string): boolean {
  */
 export function openRoomInMessagingApp(roomKey: string): void {
   if (roomKey === UNASSIGNED_ROOM_KEY) return;
-  const url = switchRoomsStore.roomChannelUrl(roomKey);
-  if (url) void rpc.app.openExternal(url);
+  openRoomChannel(roomKey);
 }
 
 /**

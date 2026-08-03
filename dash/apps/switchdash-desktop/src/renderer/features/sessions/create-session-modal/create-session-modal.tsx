@@ -131,13 +131,19 @@ export const CreateSessionModal = observer(function CreateSessionModal({
   const [roleName, setRoleName] = useState<string>(NO_ROLE);
   const [pickedAgent, setPickedAgent] = useState<Agent | null>(null);
 
-  // Room-first mode: the room is fixed and the agent is the open question.
+  // Room-first mode: the room is fixed and the agent is the open question —
+  // unless the caller already answered it (a "+" on an agent row listed under
+  // the room), in which case the picker just shows that agent, still switchable.
   const roomFirst = !!roomId;
   const roomMembers = useRoomMemberAgents(roomId);
+  const presetAgent =
+    roomMembers.agents.find(
+      (a) => a.name === agentName && (!locationId || a.locationId === locationId)
+    ) ?? null;
   // Auto-pick when there is only one candidate — the choice would be a
   // formality, and the user still sees which agent it resolved to.
   const effectiveAgent =
-    pickedAgent ?? (roomMembers.agents.length === 1 ? roomMembers.agents[0] : null);
+    pickedAgent ?? presetAgent ?? (roomMembers.agents.length === 1 ? roomMembers.agents[0] : null);
   const selectedLocationId = roomFirst ? effectiveAgent?.locationId : defaultLocationId;
   // Every switchdash agent is its own Switch identity, so a session is always
   // owned by a named agent row (CHOO-1440) — the picked agent's name plays the

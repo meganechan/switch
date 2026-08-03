@@ -57,16 +57,33 @@ function agentSessions(entry: AgentEntry): SessionStore[] {
   );
 }
 
+/** Every scoped agent that has a Switch identity, as membership-lookup keys. */
+function switchIdentities(): { serverId: string; switchAgentId: string }[] {
+  const identities: { serverId: string; switchAgentId: string }[] = [];
+  for (const { agent } of scopedAgents()) {
+    if (agent.serverId && agent.switchAgentId) {
+      identities.push({ serverId: agent.serverId, switchAgentId: agent.switchAgentId });
+    }
+  }
+  return identities;
+}
+
 export const SidebarGroupedList = observer(function SidebarGroupedList() {
   // Live session→room connections + room names live on the server; pull them
   // once on mount and refresh names on focus so headers show names not ids.
   useEffect(() => {
     roomConnectionsStore.ensureLoaded();
-    void agentsStore.load();
     void hostReachabilityStore.hydrate();
+    // Room membership is what puts an agent under a room, so it is loaded for
+    // every agent up front rather than lazily per row.
+    const loadRooms = async (force: boolean) => {
+      await agentsStore.load();
+      await switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force });
+    };
+    void loadRooms(false);
     void switchServersStore.init().then(() => switchRoomsStore.loadRoomNames());
     const onFocus = () => {
-      void agentsStore.load();
+      void loadRooms(true);
       void switchRoomsStore.loadRoomNames();
     };
     window.addEventListener('focus', onFocus);
@@ -187,17 +204,39 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
     }
   }
 
-  // Rooms the signed-in user owns are listed whether or not anything is
-  // connected to them — a room you created should not disappear until an agent
-  // happens to join it. Scoped to the active server, like the rest of the tree.
-  const ownedRoomIds = switchRoomsStore.ownedRoomsInActiveScope.map((room) => room.id);
+  // Which agents belong to which room, from membership rather than from live
+  // sessions — an agent is in a room whether or not it is currently running
+  // there, and the room list should say so.
+  const membersByRoom = new Map<string, AgentEntry[]>();
+  for (const entry of scopedAgents()) {
+    const { serverId, switchAgentId } = entry.agent;
+    if (!serverId || !switchAgentId) continue;
+    for (const membership of switchRoomsStore.roomsFor(serverId, switchAgentId) ?? []) {
+      if (membership.archived) continue;
+      const list = membersByRoom.get(membership.roomId);
+      if (list) list.push(entry);
+      else membersByRoom.set(membership.roomId, [entry]);
+    }
+  }
+
+  // A room is listed when it has a session, when one of this app's agents is a
+  // member of it, or when the signed-in user owns it — so a room you created,
+  // or one your agents live in, does not wait on a session to become visible.
+  const alwaysShow = [
+    ...new Set([
+      ...switchRoomsStore.ownedRoomsInActiveScope.map((room) => room.id),
+      ...membersByRoom.keys(),
+    ]),
+  ];
 
   return (
     <>
-      {groupByRoom(allSessions, ownedRoomIds).map(([roomKey, roomSessions]) => {
+      {groupByRoom(allSessions, alwaysShow).map(([roomKey, roomSessions]) => {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
-        // Agents that have a session in this room, in first-seen order.
+        // Agents with a session here first, in first-seen order, then the rest
+        // of the room's members — a member with nothing running is still in the
+        // room, and hiding it makes the room look emptier than it is.
         const seen = new Set<string>();
         const agentsInRoom: AgentEntry[] = [];
         for (const session of roomSessions) {
@@ -206,6 +245,11 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
             seen.add(entry.agent.id);
             agentsInRoom.push(entry);
           }
+        }
+        for (const entry of membersByRoom.get(roomKey) ?? []) {
+          if (seen.has(entry.agent.id)) continue;
+          seen.add(entry.agent.id);
+          agentsInRoom.push(entry);
         }
         return (
           <div key={roomKey}>
@@ -237,7 +281,11 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
                 );
                 return (
                   <Fragment key={entry.agent.id}>
-                    <SidebarAgentItem agent={entry.agent} depth={1} />
+                    <SidebarAgentItem
+                      agent={entry.agent}
+                      depth={1}
+                      roomId={roomKey === UNASSIGNED_ROOM_KEY ? null : roomKey}
+                    />
                     {agentSessionsHere.map((session) => (
                       <SidebarSessionItem
                         key={session.data.id}
