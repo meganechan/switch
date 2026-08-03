@@ -328,6 +328,37 @@ pnpm run lint
 - Do not bypass path-safety, shell escaping, or validation helpers.
 - Use `pnpm-lock.yaml` for dependency integrity and review dependency changes.
 
+## The Sidecar Mirrors switchdash — Check Both
+
+`src/sidecar/` is a second, headless implementation of what the desktop app does
+for a session: it starts sessions, keeps them connected to their room, and
+injects messages into their pane. It runs on the agent's VM with no Electron, no
+database and no renderer.
+
+**So whenever you add or change logic in the desktop app, ask whether the sidecar
+needs the same thing — and answer it in the same change.** Not "later": the
+sidecar has no UI, so when it lacks something the symptom is a remote session
+that quietly does less than a local one, and nobody notices until someone is
+debugging a VM.
+
+The pairs that must stay in step:
+
+| Desktop | Sidecar | Shared by |
+|---|---|---|
+| `agent-runtime/impl/local-agent-runtime.ts` (spawn env) | `sidecar/session-spawner.ts` + `sidecar/index.ts` | nothing — **the usual place to forget** |
+| `switch-rooms/auto-session-watcher.ts` | `sidecar/notification-watcher.ts` | nothing — two implementations of one watcher |
+| `switch-rooms/room-connection.ts` | — | shared: the sidecar constructs the same class |
+| protocol client (stream, heartbeat, cursor) | — | shared: `@sandbox-quantum/switch-agent-runtime` |
+
+Where a row says *shared*, a change lands in both for free — prefer putting
+logic there. Where it says *nothing*, you are editing one of two copies and the
+other will not follow you.
+
+Things that reach a session through its **environment** are the sharpest edge,
+because both sides build that separately. If you add a variable in
+`local-agent-runtime`, it almost certainly belongs in the sidecar's `switchEnv`
+too.
+
 ## Versioned Artifacts — Bump Them
 
 Three things here ship independently of the app and carry their own version.
