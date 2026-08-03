@@ -2,6 +2,12 @@ import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import {
+  lacksReadPackages,
+  NPMRC_CONTENTS,
+  npmRegistryEnv,
+  READ_PACKAGES_FIX,
+} from '@shared/core/npm-registry';
 import type { WatcherLogger } from './notification-watcher';
 
 const execFileAsync = promisify(execFile);
@@ -21,15 +27,6 @@ const execFileAsync = promisify(execFile);
  * only difference is that the token comes from the VM's own `gh`, which is a
  * core host dependency, rather than the desktop's.
  */
-
-const REGISTRY = 'npm.pkg.github.com';
-const SCOPE = '@sandbox-quantum';
-
-const NPMRC_CONTENTS = [
-  `${SCOPE}:registry=https://${REGISTRY}`,
-  `//${REGISTRY}/:_authToken=\${SWITCHDASH_GITHUB_TOKEN}`,
-  '',
-].join('\n');
 
 async function ghToken(log: WatcherLogger): Promise<string | null> {
   try {
@@ -62,11 +59,10 @@ async function warnIfCannotReadPackages(log: WatcherLogger): Promise<void> {
   try {
     // `gh auth status` prints scopes on stderr.
     const { stdout, stderr } = await execFileAsync('gh', ['auth', 'status'], { timeout: 10_000 });
-    const output = `${stdout}${stderr}`;
-    if (!output.includes('Token scopes:') || output.includes('read:packages')) return;
+    if (!lacksReadPackages(`${stdout}${stderr}`)) return;
     log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
       event: 'npm_registry_auth_missing_scope',
-      fix: 'gh auth refresh -h github.com -s read:packages',
+      fix: READ_PACKAGES_FIX,
       detail:
         'gh auth login does not request read:packages, so the registry will refuse ' +
         'with 403 and the session will start without its MCP tools',
@@ -117,8 +113,5 @@ export async function npmRegistryAuthEnv(
     event: 'npm_registry_auth_ready',
     npmrc,
   });
-  return {
-    npm_config_userconfig: npmrc,
-    SWITCHDASH_GITHUB_TOKEN: token,
-  };
+  return npmRegistryEnv(npmrc, token);
 }

@@ -3,93 +3,46 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { app } from 'electron';
+import type { IExecutionContext } from '@main/core/execution-context/types';
 import { GH_EXECUTABLE, getGithubTokenFromGhCli } from '@main/core/updates/github-token';
 import { log } from '@main/lib/logger';
+import { quoteShellArg } from '@main/utils/shellEscape';
+import {
+  lacksReadPackages,
+  NPMRC_CONTENTS,
+  npmRegistryEnv,
+  READ_PACKAGES_FIX,
+} from '@shared/core/npm-registry';
 
 const execFileAsync = promisify(execFile);
 
 /**
- * Let a spawned session's `npx` resolve the Switch agent runtime.
+ * Registry access for sessions switchdash starts, local and remote.
  *
- * The Claude Code plugin runs its MCP server with
- * `npx @sandbox-quantum/switch-agent-runtime`. That package lives on GitHub
- * Packages and is private, so npm needs two things it does not have by default:
- * which registry serves the `@sandbox-quantum` scope, and a token for it.
+ * Both functions here return an empty environment when `gh` has no usable
+ * token. The caller should start the session anyway: one with no MCP server is
+ * worse than one whose agent cannot reach Switch, and the warnings below name
+ * the cause, which a bare npm 404 would not.
  *
- * Both go in an `.npmrc`. Ours, not the user's — see below.
- *
- * A note on the failure this prevents: a private package you are not
- * authorised for returns **404, not 403**, because registries do not admit
- * that private packages exist. So a missing token is indistinguishable from a
- * missing package unless you already know to suspect auth.
+ * See `@shared/core/npm-registry` for what the two settings are and why.
  */
 
-/** The registry serving our scope. */
-const REGISTRY = 'npm.pkg.github.com';
-const SCOPE = '@sandbox-quantum';
+const MISSING_SCOPE_DETAIL =
+  'gh auth login does not request read:packages, so the registry will refuse ' +
+  'with 403 and the session will start without its MCP tools';
 
-/**
- * The token is referenced, never written.
- *
- * npm expands `${VAR}` in `.npmrc` when it reads the file, so this holds a
- * pointer to an environment variable rather than a credential. The value is
- * put into the session's environment at spawn and lives only in that process.
- * Nothing secret reaches disk, so there is nothing to rotate or leak.
- */
-const NPMRC_CONTENTS = [
-  `${SCOPE}:registry=https://${REGISTRY}`,
-  `//${REGISTRY}/:_authToken=\${SWITCHDASH_GITHUB_TOKEN}`,
-  '',
-].join('\n');
-
-function npmrcPath(): string {
+function localNpmrcPath(): string {
   return join(app.getPath('userData'), 'npm', 'npmrc');
 }
 
 /**
- * Write our `.npmrc` and return the environment that points npm at it.
+ * Registry access for a session on this machine.
  *
- * Deliberately not `~/.npmrc` and not a file in the user's project. The first
- * is their configuration, not ours, and editing it to make our plugin work is
- * a reach; the second shows up in their git status. `npm_config_userconfig`
- * makes npm read ours instead, so the footprint is confined to switchdash's
- * own directory.
- *
- * Returns an empty environment when `gh` has no token — the caller should let
- * the session start anyway. A session with no MCP server is worse than a
- * session whose agent cannot reach Switch, and `gh auth status` at host setup
- * is where this is supposed to be caught.
+ * The npmrc is ours, not the user's: `~/.npmrc` is their configuration and
+ * editing it to make our plugin work is a reach, while a file in their project
+ * shows up in git status. `npm_config_userconfig` makes npm read ours instead,
+ * confining the footprint to switchdash's own directory.
  */
-/**
- * Warn when the token cannot read packages.
- *
- * `gh auth login` asks for `gist`, `read:org`, `repo` and `workflow` — not
- * `read:packages`. A perfectly healthy default login therefore yields a token
- * the registry refuses with a 403 about "expected scopes", several layers below
- * anything that mentions `gh`. Said here, where it is actionable.
- *
- * A warning only: the scope list is parsed from human-readable output, and
- * being wrong about it must not stop a session starting.
- */
-async function warnIfCannotReadPackages(): Promise<void> {
-  try {
-    const { stdout, stderr } = await execFileAsync(GH_EXECUTABLE, ['auth', 'status'], {
-      timeout: 10_000,
-    });
-    const output = `${stdout}${stderr}`;
-    if (!output.includes('Token scopes:') || output.includes('read:packages')) return;
-    log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
-      event: 'npm_registry_auth_missing_scope',
-      fix: 'gh auth refresh -h github.com -s read:packages',
-      detail:
-        'gh auth login does not request read:packages, so the registry will refuse ' +
-        'with 403 and the session will start without its MCP tools',
-    });
-  } catch {
-    // Never fatal — a diagnostic, not a gate.
-  }
-}
-
 export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
   const token = await getGithubTokenFromGhCli();
   if (!token) {
@@ -100,9 +53,22 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
     return {};
   }
 
-  await warnIfCannotReadPackages();
+  try {
+    const { stdout, stderr } = await execFileAsync(GH_EXECUTABLE, ['auth', 'status'], {
+      timeout: 10_000,
+    });
+    if (lacksReadPackages(`${stdout}${stderr}`)) {
+      log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
+        event: 'npm_registry_auth_missing_scope',
+        fix: READ_PACKAGES_FIX,
+        detail: MISSING_SCOPE_DETAIL,
+      });
+    }
+  } catch {
+    // Never fatal — a diagnostic, not a gate.
+  }
 
-  const path = npmrcPath();
+  const path = localNpmrcPath();
   try {
     await mkdir(join(app.getPath('userData'), 'npm'), { recursive: true });
     // 0600: it carries no secret today, but it is npm auth configuration and
@@ -121,8 +87,75 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
     event: 'npm_registry_auth_ready',
     npmrc: path,
   });
-  return {
-    npm_config_userconfig: path,
-    SWITCHDASH_GITHUB_TOKEN: token,
-  };
+  return npmRegistryEnv(path, token);
+}
+
+/**
+ * Registry access for a session on a remote host, over that host's execution
+ * context.
+ *
+ * The desktop's own configuration is useless here: its npmrc path does not
+ * exist on the VM and its token is the wrong machine's. Both have to be
+ * produced there, which is why this exists rather than reusing the above.
+ *
+ * Writes to the same `<repoDir>/.switchdash/npmrc` the sidecar uses, so a host
+ * ends up with one file however its sessions were started.
+ */
+export async function remoteNpmRegistryAuthEnv(
+  ctx: IExecutionContext,
+  repoDir: string
+): Promise<Record<string, string>> {
+  let token = '';
+  try {
+    const { stdout } = await ctx.exec('gh', ['auth', 'token'], { timeout: 15_000 });
+    token = stdout.trim();
+  } catch (error) {
+    log.warn('npmRegistryAuth: `gh auth token` failed on the remote host', {
+      event: 'npm_registry_auth_no_gh',
+      error: String(error),
+    });
+    return {};
+  }
+  if (!token) {
+    log.warn('npmRegistryAuth: no GitHub token on the remote host', {
+      event: 'npm_registry_auth_missing_token',
+      hint: 'run `gh auth login` there; the package is private and reads as 404 without it',
+    });
+    return {};
+  }
+
+  try {
+    const { stdout, stderr } = await ctx.exec('gh', ['auth', 'status'], { timeout: 15_000 });
+    if (lacksReadPackages(`${stdout}${stderr}`)) {
+      log.warn('npmRegistryAuth: the remote GitHub token cannot read packages', {
+        event: 'npm_registry_auth_missing_scope',
+        fix: READ_PACKAGES_FIX,
+        detail: MISSING_SCOPE_DETAIL,
+      });
+    }
+  } catch {
+    // Never fatal — a diagnostic, not a gate.
+  }
+
+  const dir = `${repoDir}/.switchdash`;
+  const npmrc = `${dir}/npmrc`;
+  try {
+    await ctx.exec('sh', [
+      '-c',
+      `mkdir -p ${quoteShellArg(dir)} && printf %s ${quoteShellArg(NPMRC_CONTENTS)} > ${quoteShellArg(npmrc)} && chmod 600 ${quoteShellArg(npmrc)}`,
+    ]);
+  } catch (error) {
+    log.warn('npmRegistryAuth: could not write npmrc on the remote host', {
+      event: 'npm_registry_auth_write_failed',
+      path: npmrc,
+      error: String(error),
+    });
+    return {};
+  }
+
+  log.info('npmRegistryAuth: registry access configured for the remote session', {
+    event: 'npm_registry_auth_ready',
+    npmrc,
+  });
+  return npmRegistryEnv(npmrc, token);
 }
