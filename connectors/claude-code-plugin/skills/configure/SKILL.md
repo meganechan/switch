@@ -24,6 +24,62 @@ choosing project-local vs. user-global settings, the user decides whether
 this Switch identity is tied to one repo or shared across all of them.
 This skill walks through registration and writes that block.
 
+Separately from the agent's identity, the runtime itself is fetched from a
+private registry, which needs its own one-time setup — Step 0.
+
+## Step 0 — Registry access for the runtime
+
+The plugin's MCP server is fetched with
+`npx @sandbox-quantum/switch-agent-runtime`. That package is published to
+**GitHub Packages** and is private, so npm needs to know which registry
+serves the `@sandbox-quantum` scope and how to authenticate. Without both,
+`npx` fails — and it fails **misleadingly**: a private package you are not
+authorised for returns **404**, not 403, because registries do not admit that
+private packages exist. "Package not found" almost always means "not logged
+in" here.
+
+Sessions launched by switchdash get this handed to them and need nothing.
+This step is for **standalone Claude Code**, where nothing is injecting it.
+
+First check whether it is already set up:
+
+```bash
+npm config get @sandbox-quantum:registry
+```
+
+If that prints `https://npm.pkg.github.com`, skip to Step 1.
+
+Otherwise it needs the GitHub CLI, authenticated:
+
+```bash
+gh auth status
+```
+
+If `gh` is missing or logged out, stop and tell the user to install it and run
+`gh auth login` — everything below depends on it, and guessing a token is not
+something to attempt.
+
+Then, with the user's agreement (this writes to their `~/.npmrc`):
+
+```bash
+npm config set @sandbox-quantum:registry https://npm.pkg.github.com
+npm config set //npm.pkg.github.com/:_authToken "$(gh auth token)"
+```
+
+Verify it resolves before moving on, so a failure surfaces here rather than as
+a broken MCP server later:
+
+```bash
+npm view @sandbox-quantum/switch-agent-runtime version
+```
+
+Two things to tell the user plainly rather than leave them to discover:
+
+- This writes a **real token into `~/.npmrc`** (mode 0600). It is how npm
+  authenticates to any private registry, but it is a credential at rest.
+- It **expires when `gh` rotates its token**, and the symptom is the same
+  misleading 404. Re-running the two `npm config set` lines fixes it.
+
 ## Step 1 — Check existing config
 
 Read both possible settings files to see whether the plugin is already
