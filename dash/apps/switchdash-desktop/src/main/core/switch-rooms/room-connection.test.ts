@@ -937,6 +937,23 @@ describe('the room is set by the server', () => {
     conn.stop();
   });
 
+  it('reports the room it declared once the server confirms it', async () => {
+    // A session launched into a room declares it at open, and the server answers
+    // with the same room. That answer is the only signal the rest of the app
+    // gets that the session is in it — deduping it against the declared value
+    // left the session showing as room-less until the agent's own
+    // connect_to_room arrived, which can be a long time and may never come.
+    const { conn, rooms } = connectWithFrames(
+      [`event: connection_state\ndata: ${JSON.stringify({ rooms: ['room-declared'] })}\n\n`],
+      'room-declared'
+    );
+    await flush(8);
+
+    expect(conn.room).toBe('room-declared');
+    expect(rooms).toEqual(['room-declared']);
+    conn.stop();
+  });
+
   it('ignores a control command that arrives before the room is known', async () => {
     // `reset` re-types a prompt naming the room; naming the wrong one would
     // move the session. Refusing beats guessing.

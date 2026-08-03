@@ -251,6 +251,14 @@ export class RoomConnection {
   private readonly startCursor: number | undefined;
   /** Notified whenever the server tells us which room this session is in. */
   private readonly onRoomChanged: ((roomId: string | null) => void) | null;
+  /**
+   * The last room we passed to `onRoomChanged`. Deliberately not seeded from
+   * the declared room: a connection opened declaring one is *told* the same
+   * room back on the `connected` frame, and deduping that against the declared
+   * value would swallow the server's first word — leaving the session's room
+   * known here but never reported to anyone.
+   */
+  private reportedRoom: string | null = null;
   /** Unaddressed room messages filtered out since the last event we surfaced. */
   private missed = 0;
 
@@ -346,10 +354,15 @@ export class RoomConnection {
    */
   private adoptRoom(rooms: string[]): void {
     const next = rooms[0] ?? null;
-    if (next === this.roomId) return;
+    // Against what we last *reported*, not what we hold: a session launched
+    // into a room declares it at open and the server confirms the same value,
+    // which is the only signal the rest of the app ever gets that the session
+    // is in that room.
+    if (next === this.reportedRoom) return;
 
     const previous = this.roomId;
     this.roomId = next;
+    this.reportedRoom = next;
     // The name is not on the wire — the renderer resolves it from the gateway's
     // room list, and falls back to a short id when it cannot.
     if (next !== previous) this.roomName = null;
