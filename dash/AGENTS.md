@@ -328,6 +328,32 @@ pnpm run lint
 - Do not bypass path-safety, shell escaping, or validation helpers.
 - Use `pnpm-lock.yaml` for dependency integrity and review dependency changes.
 
+## Versioned Artifacts — Bump Them
+
+Three things here ship independently of the app and carry their own version.
+**If you make a non-trivial change to one, bump its version in the same commit.**
+Not at release time, not "later" — in the commit that changes it, or it will be
+forgotten and someone will debug a build they think is newer than it is.
+
+| Artifact | Version lives in | Bump when |
+|---|---|---|
+| Remote sidecar | `src/sidecar/sidecar-version.ts` | any behaviour change; **major only** on a client↔sidecar wire break (ready line, endpoint shapes, shared on-disk layout) |
+| Claude Code plugin | `connectors/claude-code-plugin/.claude-plugin/plugin.json` | any change to the plugin — installs will not pick it up otherwise |
+| Agent runtime package | `packages/switch-agent-runtime/package.json` | any change; it is published, and `.mcp.json` pins an exact version that must move with it |
+
+"Non-trivial" means anything a user could observe: behaviour, protocol, wiring,
+dependencies. A comment or a rename that changes nothing does not need one.
+
+Two traps worth knowing rather than rediscovering:
+
+- **A sidecar major replaces every sidecar on sight, live sessions included.**
+  It is judged on the contract *switchdash* speaks to, not on how much changed
+  inside. Changing how the sidecar talks to Switch is not a major.
+- **Redeploy is decided by the bundle's content hash, not by the version.** So a
+  forgotten bump does not strand a VM on old code — but it does make the version
+  a lie, which is worse in its own way, because it is the number people reason
+  from when something misbehaves.
+
 ## Agent Guardrails
 
 - Load only the relevant `agents/` docs for the area being changed.
