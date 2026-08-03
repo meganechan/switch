@@ -151,6 +151,19 @@ below:
 
 ### [Unreleased]
 
+### [0.16.0] - 2026-08-03
+
+#### Added
+- Move switchdash and the remote sidecar onto the agent-bridge push stream: one
+  shared connection per session claims its room server-side instead of scraping
+  it from a hook, backed by the new `@sandbox-quantum/switch-agent-runtime`
+  shared protocol client used by both switchdash and the connector plugin
+  (CHOO-1857, #100).
+
+#### Removed
+- First-run welcome page and residual Emdash artwork; first run now lands on the
+  existing home empty state with an "Add Switch agent" action (CHOO-1398, #96).
+
 ### [0.15.3] - 2026-07-31
 
 #### Fixed
