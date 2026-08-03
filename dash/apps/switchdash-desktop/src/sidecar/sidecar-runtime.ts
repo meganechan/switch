@@ -164,10 +164,10 @@ export class SidecarRuntime {
    * here too: the claim lands on this connection and comes back as
    * `subscription_changed`, so the sidecar stops depending on parsing the hook.
    */
-  ensureForSession(sessionId: string, providerId: string): string {
+  ensureForSession(sessionId: string, providerId: string, startCursor?: number): string {
     const existing = this.sessions.get(sessionId);
     if (existing) return existing.connection.connection;
-    return this.openConnection(sessionId, providerId, null, null);
+    return this.openConnection(sessionId, providerId, null, null, startCursor);
   }
 
   private connectRoom(
@@ -207,7 +207,8 @@ export class SidecarRuntime {
     sessionId: string,
     providerId: string,
     roomId: string | null,
-    roomName: string | null
+    roomName: string | null,
+    startCursor?: number
   ): string {
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
     const connectionId = randomUUID();
@@ -216,6 +217,7 @@ export class SidecarRuntime {
       roomId,
       roomName,
       connectionId,
+      startCursor,
       sessionId,
       sink: new TmuxInjectionSink(tmuxTarget, this.deps.tmuxRun, () =>
         this.deps.isPaneLive(tmuxTarget)
@@ -242,11 +244,16 @@ export class SidecarRuntime {
     });
     this.sessions.set(sessionId, { connection, roomId, tmuxTarget });
     if (roomId) this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
-    this.deps.log.debug('SidecarRuntime: connection opened', {
+    // The other end of the watcher's hand-off. If a spawned session comes up
+    // without the message that triggered it, this says whether a cursor was
+    // handed over and honoured, or whether it opened at head and read past it.
+    this.deps.log.info('SidecarRuntime: connection opened', {
+      event: 'switch_session_connection_open',
       sessionId,
       roomId,
       roomName,
       connectionId,
+      startFrom: startCursor ?? 'head',
     });
     connection.start();
     return connectionId;

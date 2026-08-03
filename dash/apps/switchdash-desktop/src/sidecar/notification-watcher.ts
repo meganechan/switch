@@ -52,8 +52,16 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
 export interface SessionSpawner {
   /** True when a session this watcher started is already attending the room. */
   isRoomLive(roomId: string): Promise<boolean>;
-  /** Launch one fresh session bound to the room. Throws on failure so the watcher can retry. */
-  launch(roomId: string): Promise<void>;
+  /**
+   * Launch one fresh session bound to the room. Throws on failure so the
+   * watcher can retry.
+   *
+   * `startCursor` is where the new session's own connection should begin
+   * reading. The watcher has already consumed the triggering event — that is
+   * how it knows to spawn — so a session opening at head comes up having
+   * missed the very message it exists to answer.
+   */
+  launch(roomId: string, startCursor?: number): Promise<void>;
 }
 
 /** Post a message to a room on the agent's behalf (the spawn-failure notice). Throws on non-OK. */
@@ -160,7 +168,7 @@ export class NotificationWatcher {
       // Same promise as switchdash's watcher: this process will spawn.
       spawnCapable: true,
       onEvent: (event) => {
-        if (event.room_id) this.handleNotification(event.room_id);
+        if (event.room_id) this.handleNotification(event.room_id, event.sequence);
       },
       onGap: (info) => {
         log.warn('NotificationWatcher: gap — may have missed a spawn trigger', {
@@ -192,7 +200,7 @@ export class NotificationWatcher {
   }
 
   /** Decide whether to spawn for a notified room, with a per-room in-flight guard. */
-  private handleNotification(roomId: string): void {
+  private handleNotification(roomId: string, sequence?: number): void {
     if (this.inFlight.has(roomId)) {
       this.deps.log.info(
         'NotificationWatcher: notification for room with a spawn already in flight — skipping duplicate spawn',
@@ -204,7 +212,12 @@ export class NotificationWatcher {
     const timer = setTimeout(() => this.inFlight.delete(roomId), INFLIGHT_TTL_MS);
     this.inFlight.set(roomId, timer);
 
-    void this.spawnForRoom(roomId).catch((error) => {
+    // One before the trigger, so the session's stream replays it. Overlapping
+    // by an event is cheap — a connection only receives events for the room it
+    // claims — where a gap is the bug this exists to prevent.
+    const startCursor = sequence === undefined ? undefined : Math.max(sequence - 1, 0);
+
+    void this.spawnForRoom(roomId, startCursor).catch((error) => {
       this.deps.log.warn('NotificationWatcher: spawn failed', { roomId, error: String(error) });
     });
   }
@@ -219,7 +232,7 @@ export class NotificationWatcher {
     this.clearInFlight(roomId);
   }
 
-  private async spawnForRoom(roomId: string): Promise<void> {
+  private async spawnForRoom(roomId: string, startCursor?: number): Promise<void> {
     const { spawner, creds, log } = this.deps;
 
     // A session this watcher started is already attending the room — its own
@@ -233,10 +246,16 @@ export class NotificationWatcher {
     for (let attempt = 1; attempt <= SPAWN_MAX_ATTEMPTS; attempt += 1) {
       if (this.abort.signal.aborted) return;
       try {
-        await spawner.launch(roomId);
+        await spawner.launch(roomId, startCursor);
+        // Half of a hand-off logged at both ends, so a session that comes up
+        // without its triggering message can be diagnosed from the log alone:
+        // this says where the session should start reading, and the runtime's
+        // `switch_session_connection_open` says where it actually started.
         log.info('NotificationWatcher: spawned session for room', {
+          event: 'auto_session_spawned',
           agentId: creds.agentId,
           roomId,
+          startFrom: startCursor ?? 'head',
         });
         return;
       } catch (error) {

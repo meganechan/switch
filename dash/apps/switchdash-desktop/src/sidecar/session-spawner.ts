@@ -32,7 +32,11 @@ export interface InProcessSessionSpawnerDeps {
    * hand-off switchdash does locally; without it the session opens its own and
    * the sidecar is back to inferring the room from a hook.
    */
-  openConnectionFor?: (sessionId: string, providerId: string) => string | null;
+  openConnectionFor?: (
+    sessionId: string,
+    providerId: string,
+    startCursor?: number
+  ) => string | null;
   /** The agent's Switch identity as `SWITCH_*` env, injected into every
    * auto-started session so it authenticates as this agent — a `--settings` env
    * block is not reliably propagated to the spawned MCP server (CHOO-1440). */
@@ -134,7 +138,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
     return false;
   }
 
-  async launch(roomId: string): Promise<void> {
+  async launch(roomId: string, startCursor?: number): Promise<void> {
     const { hookPort, hookToken, endpointFile, log } = this.deps;
     const spec = this.spec;
     const sessionId = randomUUID();
@@ -143,7 +147,8 @@ export class InProcessSessionSpawner implements SessionSpawner {
     // Open the session's connection before launching it: its first
     // connect_to_room arrives tagged with this id, and the server refuses a
     // call naming a connection that is not open.
-    const connectionId = this.deps.openConnectionFor?.(sessionId, spec.providerId) ?? null;
+    const connectionId =
+      this.deps.openConnectionFor?.(sessionId, spec.providerId, startCursor) ?? null;
 
     const hookEnv = {
       ...this.deps.switchEnv,
