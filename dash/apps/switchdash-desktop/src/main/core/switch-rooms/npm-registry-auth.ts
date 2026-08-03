@@ -8,9 +8,12 @@ import { GH_EXECUTABLE, getGithubTokenFromGhCli } from '@main/core/updates/githu
 import { log } from '@main/lib/logger';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import {
-  lacksReadPackages,
+  GH_AUTH_STATUS_ARGS,
+  type GhAuthState,
+  isEnvShadowedToken,
   NPMRC_CONTENTS,
   npmRegistryEnv,
+  parseGhAuthStatus,
   READ_PACKAGES_FIX,
 } from '@shared/core/npm-registry';
 
@@ -30,6 +33,43 @@ const execFileAsync = promisify(execFile);
 const MISSING_SCOPE_DETAIL =
   'gh auth login does not request read:packages, so the registry will refuse ' +
   'with 403 and the session will start without its MCP tools';
+
+/**
+ * Report what `gh` will do with its current credentials.
+ *
+ * A shadowed token is called out separately because the remedy differs: the
+ * user has usually just authenticated, and being told to authenticate again
+ * would send them round the loop that produced the state.
+ */
+function warnAboutGhAuth(state: GhAuthState, host: string): void {
+  if (isEnvShadowedToken(state)) {
+    log.warn('npmRegistryAuth: an environment token is shadowing the gh login', {
+      event: 'npm_registry_auth_env_shadowed',
+      host,
+      tokenSource: state.status === 'unknown' ? 'unknown' : state.tokenSource,
+      detail:
+        'gh prefers GH_TOKEN/GITHUB_TOKEN over the keyring, so re-running gh auth ' +
+        'login will not change which token is used until that variable is unset',
+    });
+  }
+  if (state.status === 'missing-scope') {
+    log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
+      event: 'npm_registry_auth_missing_scope',
+      host,
+      account: state.login,
+      scopes: state.scopes.join(', '),
+      fix: READ_PACKAGES_FIX,
+      detail: MISSING_SCOPE_DETAIL,
+    });
+  } else if (state.status === 'invalid') {
+    log.warn('npmRegistryAuth: the active GitHub token is not usable', {
+      event: 'npm_registry_auth_invalid_token',
+      host,
+      tokenSource: state.tokenSource,
+      detail: state.detail,
+    });
+  }
+}
 
 function localNpmrcPath(): string {
   return join(app.getPath('userData'), 'npm', 'npmrc');
@@ -54,16 +94,10 @@ export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
   }
 
   try {
-    const { stdout, stderr } = await execFileAsync(GH_EXECUTABLE, ['auth', 'status'], {
+    const { stdout } = await execFileAsync(GH_EXECUTABLE, GH_AUTH_STATUS_ARGS, {
       timeout: 10_000,
     });
-    if (lacksReadPackages(`${stdout}${stderr}`)) {
-      log.warn('npmRegistryAuth: the GitHub token cannot read packages', {
-        event: 'npm_registry_auth_missing_scope',
-        fix: READ_PACKAGES_FIX,
-        detail: MISSING_SCOPE_DETAIL,
-      });
-    }
+    warnAboutGhAuth(parseGhAuthStatus(stdout), 'this machine');
   } catch {
     // Never fatal — a diagnostic, not a gate.
   }
@@ -125,14 +159,8 @@ export async function remoteNpmRegistryAuthEnv(
   }
 
   try {
-    const { stdout, stderr } = await ctx.exec('gh', ['auth', 'status'], { timeout: 15_000 });
-    if (lacksReadPackages(`${stdout}${stderr}`)) {
-      log.warn('npmRegistryAuth: the remote GitHub token cannot read packages', {
-        event: 'npm_registry_auth_missing_scope',
-        fix: READ_PACKAGES_FIX,
-        detail: MISSING_SCOPE_DETAIL,
-      });
-    }
+    const { stdout } = await ctx.exec('gh', GH_AUTH_STATUS_ARGS, { timeout: 15_000 });
+    warnAboutGhAuth(parseGhAuthStatus(stdout), 'the remote host');
   } catch {
     // Never fatal — a diagnostic, not a gate.
   }
