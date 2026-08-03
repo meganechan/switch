@@ -189,9 +189,13 @@ export const CreateRoomModal = observer(function CreateRoomModal({
               disabled={bridgesQuery.isLoading || noBridges}
             >
               <SelectTrigger>
+                {/* Resolve the label ourselves: the trigger shows the raw value
+                    otherwise, which for a bridge is an opaque uuid. */}
                 <SelectValue
                   placeholder={bridgesQuery.isLoading ? 'Loading…' : 'No messaging app available'}
-                />
+                >
+                  {selectedBridge ? bridgeLabel(selectedBridge) : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {bridges.map((bridge) => (
