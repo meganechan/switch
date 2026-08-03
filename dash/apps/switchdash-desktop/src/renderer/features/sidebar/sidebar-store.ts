@@ -50,6 +50,18 @@ export function roomViewGroupKey(roomKey: string): string {
   return `rv:${roomKey}`;
 }
 
+/**
+ * `collapsedGroupKeys` key for an agent listed under a room (room-focused view).
+ *
+ * Keyed by the pair, not by the agent: the same agent appears under every room
+ * it belongs to, and those rows are separate places in the tree. Keying on the
+ * agent alone made them one row rendered many times — collapse one and they all
+ * collapsed.
+ */
+export function roomAgentGroupKey(roomKey: string, agentId: string): string {
+  return `ra:${roomKey}|${agentId}`;
+}
+
 function parseSidebarGrouping(value: unknown): SidebarGrouping | undefined {
   return value === 'agent' || value === 'room' ? value : undefined;
 }

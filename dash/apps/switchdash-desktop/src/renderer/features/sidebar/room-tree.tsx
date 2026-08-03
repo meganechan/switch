@@ -5,6 +5,7 @@ import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { agentExpandKey, SidebarAgentItem } from './agent-item';
+import { RoomAgentRow } from './room-agent-row';
 import { SidebarSessionItem } from './session-item';
 import {
   groupByRoom,
@@ -15,7 +16,7 @@ import {
   RoomRow,
   roomLabel,
 } from './sidebar-room-grouping';
-import { roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
+import { roomAgentGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
 import { type AgentEntry, agentSessions, scopedAgents } from './sidebar-tree-data';
 
 /**
@@ -25,12 +26,14 @@ import { type AgentEntry, agentSessions, scopedAgents } from './sidebar-tree-dat
  * A room here is a place, not a property of a session — it is listed because it
  * exists and concerns you, and its rows act on the room itself (add a member,
  * remove one, open the channel). That is why this is a separate tree from the
- * agent-grouped one rather than the same tree with the nesting inverted.
+ * agent-grouped one rather than the same tree with the nesting inverted, down
+ * to its own agent row.
  */
 
-/** Which of this app's agents belong to which room, from membership rather than
- * from live sessions — an agent is in a room whether or not it is running
- * there. */
+/** Which of this app's agents belong to which room. Membership, not sessions:
+ * an agent is in a room whether or not it is running there — and, just as
+ * importantly, is *out* of it the moment membership is dropped, without waiting
+ * for a session that is still pointed at the room to end. */
 function membersByRoom(): Map<string, AgentEntry[]> {
   const byRoom = new Map<string, AgentEntry[]>();
   for (const entry of scopedAgents()) {
@@ -46,23 +49,21 @@ function membersByRoom(): Map<string, AgentEntry[]> {
   return byRoom;
 }
 
-/** Agents with a session in the room first, in first-seen order, then its other
- * members — a member with nothing running is still in the room, and hiding it
- * makes the room look emptier than it is. */
-function agentsForRoom(
+/** The agents to list under the Unassigned bucket: whoever owns a session that
+ * is in no room. There is no membership to go on there, so the sessions are all
+ * there is. */
+function agentsWithoutRoom(
   roomSessions: SessionStore[],
-  bySession: Map<string, AgentEntry>,
-  members: AgentEntry[]
+  bySession: Map<string, AgentEntry>
 ): AgentEntry[] {
   const seen = new Set<string>();
   const ordered: AgentEntry[] = [];
-  const add = (entry: AgentEntry | undefined) => {
-    if (!entry || seen.has(entry.agent.id)) return;
+  for (const session of roomSessions) {
+    const entry = bySession.get(session.data.id);
+    if (!entry || seen.has(entry.agent.id)) continue;
     seen.add(entry.agent.id);
     ordered.push(entry);
-  };
-  for (const session of roomSessions) add(bySession.get(session.data.id));
-  for (const entry of members) add(entry);
+  }
   return ordered;
 }
 
@@ -96,7 +97,9 @@ export const RoomTree = observer(function RoomTree() {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
         const isRoom = roomKey !== UNASSIGNED_ROOM_KEY;
-        const agentsInRoom = agentsForRoom(roomSessions, bySession, members.get(roomKey) ?? []);
+        const agentsInRoom = isRoom
+          ? (members.get(roomKey) ?? [])
+          : agentsWithoutRoom(roomSessions, bySession);
         return (
           <div key={roomKey}>
             <RoomRow
@@ -121,17 +124,21 @@ export const RoomTree = observer(function RoomTree() {
                 const sessionsHere = roomSessions.filter(
                   (session) => bySession.get(session.data.id)?.agent.id === entry.agent.id
                 );
-                // The agent row owns this key and its chevron reflects it, so
-                // the sessions under it have to honour the same one or the
-                // chevron lies.
-                const agentExpanded = sidebarStore.isGroupExpanded(agentExpandKey(entry.agent.id));
+                // Under a real room the row belongs to the pair (room, agent).
+                // Under Unassigned there is no room to belong to, so it is just
+                // the agent — the agent-view row, keyed the way that view keys it.
+                const agentExpanded = sidebarStore.isGroupExpanded(
+                  isRoom
+                    ? roomAgentGroupKey(roomKey, entry.agent.id)
+                    : agentExpandKey(entry.agent.id)
+                );
                 return (
                   <Fragment key={entry.agent.id}>
-                    <SidebarAgentItem
-                      agent={entry.agent}
-                      depth={1}
-                      roomId={isRoom ? roomKey : null}
-                    />
+                    {isRoom ? (
+                      <RoomAgentRow agent={entry.agent} roomId={roomKey} depth={1} />
+                    ) : (
+                      <SidebarAgentItem agent={entry.agent} depth={1} />
+                    )}
                     {agentExpanded &&
                       sessionsHere.map((session) => (
                         <SidebarSessionItem
