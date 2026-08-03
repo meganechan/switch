@@ -1,6 +1,6 @@
 {
   "name": "@sandbox-quantum/switch-agent-runtime",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Switch agent protocol client, and the local MCP runtime built on it",
   "license": "Apache-2.0",
   "author": {
@@ -46,5 +46,8 @@
     "@typescript/native-preview": "7.0.0-dev.20260609.1",
     "tsdown": "^0.22.2",
     "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

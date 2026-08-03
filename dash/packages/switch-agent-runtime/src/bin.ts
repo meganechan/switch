@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 /**
  * Switch channel for Claude Code.
  *
@@ -160,10 +160,6 @@ type AgentEvent = {
     | TaskUpdatePayload
     | TaskFinalisePayload
     | TaskCancelPayload;
-};
-
-type EventResponse = {
-  events: AgentEvent[];
 };
 
 // -- Connection state --------------------------------------------------------
@@ -1330,7 +1326,7 @@ transport.onclose = () => {
   process.exit(0);
 };
 
-// Wipe any stale port file left by a crashed previous bun for the same ppid.
+// Wipe any stale port file left by a crashed previous process for the same ppid.
 // Safe: the previous process for this ppid is gone (we are it now); a live
 // sibling would be a different ppid.
 unpublishPort();
