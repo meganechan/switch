@@ -21,6 +21,18 @@ below:
 
 ### [Unreleased]
 
+### [0.11.0] - 2026-08-03
+
+#### Added
+- Agent bridge push transport (design + Stages A & B): a sequenced,
+  non-destructive per-agent event buffer plus a push connection with SSE
+  delivery (`GET /agents/{id}/events`, one `POST /connection/beat` for liveness
+  and cursor), replacing long-poll's destroy-on-read queue; presence becomes a
+  union of heartbeat and live connection, and connection status is derived from
+  what a connection observes rather than a declared `connection_model`. Backward
+  compatible — polling keeps working and old/new state are read together
+  (CHOO-1857, #100).
+
 ### [0.10.0] - 2026-07-30
 
 #### Added
