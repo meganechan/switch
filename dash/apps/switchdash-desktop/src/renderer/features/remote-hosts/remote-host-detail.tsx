@@ -414,9 +414,13 @@ function DepRow({
             {install.isPending ? 'Installing…' : 'Install'}
           </Button>
         )}
-        {installed && needsGhAuth && (
+        {/* Also offered when the login is fine but lacks read:packages —
+            telling someone to re-run Authenticate without giving them the
+            button is worse than not telling them. Re-running the login is the
+            fix: it now requests the scope. */}
+        {installed && (needsGhAuth || needsScope) && (
           <Button size="sm" onClick={onAuthenticate}>
-            Authenticate
+            {needsScope ? 'Re-authenticate' : 'Authenticate'}
           </Button>
         )}
       </div>

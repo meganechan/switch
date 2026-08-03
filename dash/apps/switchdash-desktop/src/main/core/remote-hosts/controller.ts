@@ -239,9 +239,18 @@ async function getHostSetup(sshHost: string): Promise<HostSetupStatus> {
 async function startGhAuth(sshHost: string): Promise<{ sessionId: string }> {
   const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
   const profile = await proxy.getRemoteShellProfile();
+  // Login when logged out, refresh when already logged in. `gh auth login` on
+  // an authenticated host stops to ask whether you meant to re-authenticate,
+  // which is a confusing thing to meet when all you needed was a scope; `gh
+  // auth refresh` adds it without disturbing the existing login. Both are the
+  // same device-code flow in this PTY, so the user sees no difference.
   const remoteCommand = buildRemoteShellCommand(
     profile,
-    'gh auth login --hostname github.com --git-protocol https --web --scopes read:packages'
+    'if gh auth status >/dev/null 2>&1; then ' +
+      'gh auth refresh --hostname github.com --scopes read:packages; ' +
+      'else ' +
+      'gh auth login --hostname github.com --git-protocol https --web --scopes read:packages; ' +
+      'fi'
   );
   const sessionId = `gh-auth:${crypto.randomUUID()}`;
 
