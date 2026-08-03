@@ -220,6 +220,23 @@ describe('SidecarRuntime (multi-session)', () => {
     expect(connected).toEqual(['room-1', 'room-1']);
   });
 
+  // The spawner's launched entry is keyed by session, not room, so the listener
+  // has to carry the session id — without it the entry cannot be dropped, and it
+  // keeps vouching for the room the session was started for after it has moved.
+  it('tells the listener which session connected, on first connect and on a move', async () => {
+    const { runtime } = makeRuntime();
+    const connected: Array<[string, string]> = [];
+    runtime.onRoomConnected((roomId, sessionId) => connected.push([roomId, sessionId]));
+
+    await runtime.handleHook(switchRoomHook('room-1', PTY_A));
+    await runtime.handleHook(switchRoomHook('room-2', PTY_A));
+
+    expect(connected).toEqual([
+      ['room-1', 'session-a'],
+      ['room-2', 'session-a'],
+    ]);
+  });
+
   it('roomIdForSession returns the attended room, or null when unknown', async () => {
     const { runtime } = makeRuntime();
     await runtime.handleHook(switchRoomHook('room-1', PTY_A));

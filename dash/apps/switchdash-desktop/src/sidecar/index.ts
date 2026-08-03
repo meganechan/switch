@@ -333,7 +333,14 @@ async function main(): Promise<void> {
   // Hand the per-room spawn guard off to the live-room check the moment a session
   // connects — so a session torn down shortly after connecting does not leave the
   // room gated until INFLIGHT_TTL_MS (mirrors the local AutoSessionWatcher).
-  runtime.onRoomConnected((roomId) => watcher?.clearRoom(roomId));
+  // Both spawn guards end here. The launched entry in particular must go even
+  // when the session connects to a DIFFERENT room than it was started for:
+  // keyed by the room it was launched for, it would otherwise keep vouching for
+  // a room the session has left, and pings there would never spawn again.
+  runtime.onRoomConnected((roomId, sessionId) => {
+    watcher?.clearRoom(roomId);
+    spawner?.drop(sessionId);
+  });
   watcher.start();
 
   const refreshLiveness = async (): Promise<void> => {

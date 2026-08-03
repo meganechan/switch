@@ -83,7 +83,7 @@ export class SidecarRuntime {
   /** Notified when a session connects to a room, so the notification watcher can
    * hand its per-room in-flight guard off to the live-room check (mirrors the
    * local AutoSessionWatcher's room-connection subscription). */
-  private roomConnectedListener: ((roomId: string) => void) | null = null;
+  private roomConnectedListener: ((roomId: string, sessionId: string) => void) | null = null;
 
   constructor(private readonly deps: SidecarRuntimeDeps) {
     this.resolveContext = async (ptyId) => {
@@ -97,8 +97,17 @@ export class SidecarRuntime {
     };
   }
 
-  /** Register the room-connected listener (the notification watcher's guard hand-off). */
-  onRoomConnected(listener: (roomId: string) => void): void {
+  /**
+   * Register the room-connected listener (the notification watcher's guard
+   * hand-off).
+   *
+   * Carries the session id as well as the room because the spawn guards are
+   * keyed differently: the watcher's in-flight guard by room, the spawner's
+   * launched-session entry by session. Both end at the moment a session
+   * connects, and after that the runtime's own room map is the only thing that
+   * should decide whether a room is covered.
+   */
+  onRoomConnected(listener: (roomId: string, sessionId: string) => void): void {
     this.roomConnectedListener = listener;
   }
 
@@ -181,7 +190,7 @@ export class SidecarRuntime {
     // in-flight queue and renew loop are preserved — but still hand off the
     // watcher's spawn guard (idempotent), since a session is attending the room.
     if (existing && existing.roomId === roomId) {
-      this.roomConnectedListener?.(roomId);
+      this.roomConnectedListener?.(roomId, sessionId);
       return;
     }
     if (existing && existing.roomId === null) {
@@ -191,7 +200,7 @@ export class SidecarRuntime {
         sessionId,
         roomId,
       });
-      this.roomConnectedListener?.(roomId);
+      this.roomConnectedListener?.(roomId, sessionId);
       return;
     }
     // A session re-targeting to a new room supersedes ITS OWN prior room only —
@@ -200,7 +209,7 @@ export class SidecarRuntime {
     if (existing) existing.connection.stop();
 
     this.openConnection(sessionId, providerId, roomId, roomName);
-    this.roomConnectedListener?.(roomId);
+    this.roomConnectedListener?.(roomId, sessionId);
   }
 
   private openConnection(
@@ -237,7 +246,7 @@ export class SidecarRuntime {
         if (entry) entry.roomId = room;
         if (room) {
           this.deps.registry.record({ sessionId, roomId: room, providerId, tmuxTarget });
-          this.roomConnectedListener?.(room);
+          this.roomConnectedListener?.(room, sessionId);
         }
       },
       log: this.deps.log,

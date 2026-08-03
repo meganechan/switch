@@ -80,9 +80,16 @@ export class InProcessSessionSpawner implements SessionSpawner {
   }
 
   /**
-   * Forget a launched session by its session id (switchdash deleted it), so
-   * it is no longer reported as pending/spawned and a fresh room notification can
-   * spawn a new one. No-op if we never launched this session.
+   * Forget a launched session by its session id, so it is no longer reported as
+   * pending/spawned and a fresh room notification can spawn a new one. No-op if
+   * we never launched this session.
+   *
+   * Called both when switchdash deletes a session and when one connects to a
+   * room. The entry only covers the boot window — between launch and the first
+   * `connect_to_room` — and once the runtime knows the session, its room map is
+   * the accurate answer. Keeping the entry past that point makes it vouch for
+   * the room the session was *started for* rather than the one it is in, so a
+   * session that moves rooms leaves its old room permanently unspawnable.
    */
   drop(sessionId: string): void {
     for (const [roomId, session] of this.launched) {
