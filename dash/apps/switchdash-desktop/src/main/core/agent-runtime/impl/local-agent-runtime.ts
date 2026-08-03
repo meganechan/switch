@@ -20,6 +20,7 @@ import { getTerminalColorEnv } from '@main/core/pty/terminal-color-scheme';
 import { killTmuxSession, makeAgentTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { providerOverrideSettings } from '@main/core/settings/provider-settings-service';
+import { npmRegistryAuthEnv } from '@main/core/switch-rooms/npm-registry-auth';
 import { readAgentSwitchEnv } from '@main/core/switch-rooms/switch-credentials';
 import { switchNotificationPoller } from '@main/core/switch-rooms/switch-notification-poller';
 import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
@@ -226,6 +227,14 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         providerId: session.providerId,
         ptyId,
       });
+
+      // The Claude Code plugin resolves its MCP server with `npx` from a
+      // private registry, so the session needs to know where that registry is
+      // and how to authenticate. Empty when `gh` has no token, which lets the
+      // session start regardless — a session with no MCP server beats no
+      // session, and the missing login is reported at host setup.
+      const npmAuthEnv = await npmRegistryAuthEnv();
+
       const pty = spawnLocalPty({
         id: ptySessionId,
         command: resolved.command,
@@ -240,6 +249,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
           ...colorEnv,
           ...this.sessionEnvVars,
           ...subagentVars,
+          ...npmAuthEnv,
           ...(switchConnectionId ? { SWITCH_CONNECTION_ID: switchConnectionId } : {}),
         },
         cols: spawnSize.cols,

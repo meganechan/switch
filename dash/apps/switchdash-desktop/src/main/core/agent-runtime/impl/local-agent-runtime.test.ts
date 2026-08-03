@@ -62,6 +62,12 @@ vi.mock('@main/core/switch-rooms/switch-credentials', () => ({
   readAgentSwitchEnv: vi.fn(async () => ({})),
 }));
 
+// Reads the app's userData path and shells out to `gh`; neither exists here,
+// and these tests are about the spawn, not the registry.
+vi.mock('@main/core/switch-rooms/npm-registry-auth', () => ({
+  npmRegistryAuthEnv: vi.fn(async () => ({})),
+}));
+
 vi.mock('@main/core/providers/plugin-registry', () => ({
   getPlugin: vi.fn((id: string) => ({
     metadata: { id },
