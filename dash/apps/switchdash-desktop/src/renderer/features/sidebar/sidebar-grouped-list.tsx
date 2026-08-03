@@ -193,7 +193,7 @@ const AgentFocusedTree = observer(function AgentFocusedTree() {
 });
 
 const RoomFocusedTree = observer(function RoomFocusedTree() {
-  const showCreateSessionModal = useShowModal('sessionModal');
+  const showAddAgentsToRoomModal = useShowModal('addAgentsToRoomModal');
   // Tag every visible session with the agent it belongs to, then group by room.
   const bySession = new Map<string, AgentEntry>();
   const allSessions: SessionStore[] = [];
@@ -268,10 +268,10 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
                   ? () => openRoomInMessagingApp(roomKey)
                   : null
               }
-              onNewSession={
+              onAddAgent={
                 roomKey === UNASSIGNED_ROOM_KEY
                   ? null
-                  : () => showCreateSessionModal({ roomId: roomKey })
+                  : () => showAddAgentsToRoomModal({ roomId: roomKey })
               }
             />
             {expanded &&

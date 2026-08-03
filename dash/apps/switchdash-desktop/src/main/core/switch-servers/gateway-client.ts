@@ -641,6 +641,40 @@ export async function fetchRoomAgentIds(server: SwitchServer, roomId: string): P
 }
 
 /**
+ * Add agents to an existing room (`POST /rooms/{id}/agents`). Requires write
+ * access to the room. Agents already in the room are ignored server-side, so
+ * this is safe to call with a set that overlaps the current membership.
+ */
+export async function addRoomAgents(
+  server: SwitchServer,
+  roomId: string,
+  agentIds: string[]
+): Promise<void> {
+  await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}/agents`, {
+    authenticated: true,
+    method: 'POST',
+    body: { agent_ids: agentIds },
+  });
+}
+
+/**
+ * Remove one agent from a room (`DELETE /rooms/{id}/agents/{agentId}`). Requires
+ * write access. This is membership only — the agent itself, its credentials and
+ * its sessions are untouched; it simply stops being in this room.
+ */
+export async function removeRoomAgent(
+  server: SwitchServer,
+  roomId: string,
+  agentId: string
+): Promise<void> {
+  await gatewayFetch(
+    server,
+    `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}`,
+    { authenticated: true, method: 'DELETE' }
+  );
+}
+
+/**
  * Create a room on `server` (session-authed `POST /gateway/rooms`), owned by the
  * signed-in user. Provisioning stays entirely server-side — this is the same
  * endpoint the operator web app posts to.

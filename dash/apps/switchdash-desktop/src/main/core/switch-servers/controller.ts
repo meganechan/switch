@@ -43,6 +43,7 @@ import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
 import { createRoomOnServer } from './create-room';
 import {
+  addRoomAgents,
   agentExistsOnServer,
   fetchAddressingPolicy,
   fetchAgentDetail,
@@ -57,6 +58,7 @@ import {
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
+  removeRoomAgent,
   updateAddressingPolicy,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
@@ -221,6 +223,26 @@ export const switchServersController = createRPCController({
 
   listRoomAgentIds: async (params: { serverId: string; roomId: string }): Promise<string[]> =>
     fetchRoomAgentIds(await requireServer(params.serverId), params.roomId),
+
+  /**
+   * Add agents to a room. Failures propagate as-is: the caller shows the
+   * gateway's own words (e.g. an agent whose server-side client is not running,
+   * which the gateway rejects) rather than a generic message.
+   */
+  addRoomAgents: async (params: {
+    serverId: string;
+    roomId: string;
+    agentIds: string[];
+  }): Promise<void> =>
+    addRoomAgents(await requireReachableServer(params.serverId), params.roomId, params.agentIds),
+
+  /** Remove one agent from a room. Membership only — the agent is not deleted. */
+  removeRoomAgent: async (params: {
+    serverId: string;
+    roomId: string;
+    agentId: string;
+  }): Promise<void> =>
+    removeRoomAgent(await requireReachableServer(params.serverId), params.roomId, params.agentId),
 
   listRemoteRoomGroups: async (serverId: string): Promise<RemoteRoomGroup[]> =>
     fetchRoomGroups(await requireServer(serverId)),

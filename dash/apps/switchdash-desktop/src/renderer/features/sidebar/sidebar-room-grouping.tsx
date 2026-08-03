@@ -99,7 +99,7 @@ export function RoomRow({
   onOpenGateway,
   onOpenChannel = null,
   onSelect = null,
-  onNewSession = null,
+  onAddAgent = null,
   isActive = false,
   depth = 0,
   bridgeType = null,
@@ -117,9 +117,9 @@ export function RoomRow({
   /** Open the room's channel in the messaging app, or null when there is no
    * native deeplink (room not bridged / link unknown). */
   onOpenChannel?: (() => void) | null;
-  /** Start a session connected to this room. Null for rows where that makes no
-   * sense (Unassigned), or where the row is already nested under its agent. */
-  onNewSession?: (() => void) | null;
+  /** Add an agent to this room. Null for rows with no room behind them
+   * (Unassigned), or where membership is not editable from here. */
+  onAddAgent?: (() => void) | null;
   depth?: number;
   /** Bridge platform type (`slack`, `mattermost`, …) when the room is bridged. */
   bridgeType?: string | null;
@@ -180,24 +180,24 @@ export function RoomRow({
           <TooltipContent>Open in {bridgeType}</TooltipContent>
         </Tooltip>
       )}
-      {onNewSession && (
+      {onAddAgent && (
         <Tooltip>
           <TooltipTrigger
             render={
               <SidebarItemMiniButton
                 type="button"
-                aria-label={`New session in ${label}`}
+                aria-label={`Add an agent to ${label}`}
                 className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onNewSession();
+                  onAddAgent();
                 }}
               >
                 <Plus className="h-3.5 w-3.5" />
               </SidebarItemMiniButton>
             }
           />
-          <TooltipContent>New session in this room</TooltipContent>
+          <TooltipContent>Add an agent to this room</TooltipContent>
         </Tooltip>
       )}
       {linkable && (

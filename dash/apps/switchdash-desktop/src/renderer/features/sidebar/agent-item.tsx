@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Bot,
   ChevronRight,
+  DoorOpen,
   ExternalLink,
   PlugZap,
   Plus,
@@ -254,7 +255,35 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
         </SidebarMenuRow>
       </ContextMenuTrigger>
       <ContextMenuContent>
-        {location.data?.sshHost != null && (
+        {roomId !== null && (
+          // Listed under a room, the destructive action a user means is "get it
+          // out of this room" — not "delete the agent everywhere", which is
+          // what the menu below does and is a much bigger hammer than the
+          // context suggests. That one stays in the agent view.
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => {
+              const serverId = switchRoomsStore.roomServerId(roomId);
+              if (!serverId || !agent.switchAgentId) return;
+              const roomLabel = switchRoomsStore.roomNameById(roomId) ?? 'the room';
+              void toastPromise(
+                rpc.switchServers
+                  .removeRoomAgent({ serverId, roomId, agentId: agent.switchAgentId })
+                  .then(() => switchRoomsStore.refreshAll()),
+                {
+                  loading: `Removing ${label} from ${roomLabel}…`,
+                  success: `${label} was removed from ${roomLabel}`,
+                  error: (error) =>
+                    `Failed to remove from room: ${error instanceof Error ? error.message : String(error)}`,
+                }
+              );
+            }}
+          >
+            <DoorOpen className="size-4" />
+            Remove from this room
+          </ContextMenuItem>
+        )}
+        {roomId === null && location.data?.sshHost != null && (
           <ContextMenuItem
             onClick={() => {
               showConfirmReset({
@@ -274,22 +303,24 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
             Reset agent
           </ContextMenuItem>
         )}
-        <ContextMenuItem
-          variant="destructive"
-          onClick={() => {
-            void confirmDeleteAgent({
-              locationId: agent.locationId,
-              agentId: agent.id,
-              locationLabel: label,
-              onDeleted: () => {
-                if (isActive) navigate('home');
-              },
-            });
-          }}
-        >
-          <Trash2 className="size-4" />
-          Remove Agent
-        </ContextMenuItem>
+        {roomId === null && (
+          <ContextMenuItem
+            variant="destructive"
+            onClick={() => {
+              void confirmDeleteAgent({
+                locationId: agent.locationId,
+                agentId: agent.id,
+                locationLabel: label,
+                onDeleted: () => {
+                  if (isActive) navigate('home');
+                },
+              });
+            }}
+          >
+            <Trash2 className="size-4" />
+            Remove Agent
+          </ContextMenuItem>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   );
