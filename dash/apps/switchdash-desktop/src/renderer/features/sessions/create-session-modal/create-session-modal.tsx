@@ -239,6 +239,16 @@ export const CreateSessionModal = observer(function CreateSessionModal({
         });
         return;
       }
+      // Declare the room before the session exists, so its connection opens
+      // already claiming it and the session shows under the right room from the
+      // start rather than after the agent's first connect_to_room.
+      if (activeRoom) {
+        await rpc.switchRooms.noteIntendedRoom({
+          sessionId: id,
+          roomId: activeRoom.roomId,
+          roomName: activeRoom.roomName,
+        });
+      }
       // createSession registers the session synchronously (before its first
       // await), so it is in the manager by the time this call returns — the
       // session-view guard then finds it and navigation lands on the session.

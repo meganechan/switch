@@ -279,6 +279,10 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
                 const agentSessionsHere = roomSessions.filter(
                   (session) => bySession.get(session.data.id)?.agent.id === entry.agent.id
                 );
+                // The agent row owns this key and its chevron reflects it, so
+                // the sessions under it have to honour the same one or the
+                // chevron lies.
+                const agentExpanded = sidebarStore.isGroupExpanded(agentExpandKey(entry.agent.id));
                 return (
                   <Fragment key={entry.agent.id}>
                     <SidebarAgentItem
@@ -286,14 +290,15 @@ const RoomFocusedTree = observer(function RoomFocusedTree() {
                       depth={1}
                       roomId={roomKey === UNASSIGNED_ROOM_KEY ? null : roomKey}
                     />
-                    {agentSessionsHere.map((session) => (
-                      <SidebarSessionItem
-                        key={session.data.id}
-                        locationId={entry.agent.locationId}
-                        sessionId={session.data.id}
-                        depth={2}
-                      />
-                    ))}
+                    {agentExpanded &&
+                      agentSessionsHere.map((session) => (
+                        <SidebarSessionItem
+                          key={session.data.id}
+                          locationId={entry.agent.locationId}
+                          sessionId={session.data.id}
+                          depth={2}
+                        />
+                      ))}
                   </Fragment>
                 );
               })}
