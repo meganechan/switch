@@ -9,6 +9,7 @@
 
 import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
 import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
+import { installOutput } from '@main/core/dependencies/install-output';
 import {
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
@@ -17,6 +18,7 @@ import { getRemoteSwitchSetupService } from '@main/core/switch-setup/remote-swit
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import {
+  hostSetupActivityEventChannel,
   hostSetupPlanEventChannel,
   type HostSetupPlan,
   type HostSetupStep,
@@ -24,6 +26,7 @@ import {
 import { probeGhAuthStatus } from '../gh-auth';
 import { hostReachabilityService } from '../production-host-reachability';
 import { HostSetupRunner, type StepCheckResult, type StepInstallResult } from './host-setup-runner';
+import { InstallProgressReader } from './install-progress';
 import {
   agentPluginStepId,
   buildSetupPlan,
@@ -147,6 +150,37 @@ async function checkStep(
   return outcomeForDependency(state, Boolean(remoteDependencyDescriptor(step.id)?.minVersion));
 }
 
+/**
+ * Sampling interval for the progress line. Fast enough to read as live, slow
+ * enough that a repainting progress bar does not turn into an IPC flood.
+ */
+const PROGRESS_INTERVAL_MS = 250;
+
+/**
+ * Publish what a step's command is doing, for as long as it is running.
+ *
+ * Returns the stop function, which also clears the line: once the command is
+ * over, what happened belongs to the step itself (satisfied, or failed with its
+ * error and transcript) and a stale half-finished line beside it would only
+ * contradict that.
+ */
+function streamInstallProgress(sshHost: string, stepId: string): () => void {
+  const reader = new InstallProgressReader();
+  const unsubscribe = installOutput.subscribe((event) => {
+    if (event.sshHost === sshHost) reader.push(event.chunk);
+  });
+  const timer = setInterval(() => {
+    const line = reader.take();
+    if (line) events.emit(hostSetupActivityEventChannel, { sshHost, stepId, line });
+  }, PROGRESS_INTERVAL_MS);
+
+  return () => {
+    unsubscribe();
+    clearInterval(timer);
+    events.emit(hostSetupActivityEventChannel, { sshHost, stepId, line: null });
+  };
+}
+
 async function installStep(
   sshHost: string,
   manager: HostDependencyManager,
@@ -160,7 +194,13 @@ async function installStep(
       : { ok: false, error: result.message ?? `Could not install the Switch connector.` };
   }
 
-  const result = await manager.install(step.id);
+  const stopProgress = streamInstallProgress(sshHost, step.id);
+  let result: Awaited<ReturnType<typeof manager.install>>;
+  try {
+    result = await manager.install(step.id);
+  } finally {
+    stopProgress();
+  }
   if (result.success) return { ok: true };
 
   // Surface the installer's own words. The old page discarded these and

@@ -85,7 +85,16 @@ function OutcomeTile({ step }: { step: HostSetupStep }) {
 }
 
 /** What a step observed, in the agents page's "Found `v…`" card. */
-function ObservationCard({ step, actions }: { step: HostSetupStep; actions?: React.ReactNode }) {
+function ObservationCard({
+  step,
+  activity,
+  actions,
+}: {
+  step: HostSetupStep;
+  /** The running command's latest line, when something is in flight. */
+  activity: string | null;
+  actions?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-2 rounded-lg border p-3">
@@ -111,6 +120,16 @@ function ObservationCard({ step, actions }: { step: HostSetupStep; actions?: Rea
         </div>
         {actions}
       </div>
+
+      {/*
+        A remote install can run for minutes. Showing the line the host is
+        printing is the difference between "this is working" and "this has hung".
+      */}
+      {activity && (
+        <p className="truncate font-mono text-xs text-foreground-muted" title={activity}>
+          {activity}
+        </p>
+      )}
 
       {step.state === 'failed' && step.error && (
         <p className="text-destructive text-xs">{step.error}</p>
@@ -210,6 +229,7 @@ export function SetupDetailSheet({
   sshHost,
   plan,
   icon,
+  activityFor,
   onClose,
   onInstall,
   installingStepId,
@@ -223,6 +243,8 @@ export function SetupDetailSheet({
   plan: HostSetupPlan | null;
   /** Icon for the prerequisite being shown; agent types use their own. */
   icon: React.ReactNode;
+  /** The running command's latest line for a step, if it is running. */
+  activityFor: (stepId: string) => string | null;
   onClose: () => void;
   onInstall: (stepId: string) => void;
   installingStepId: string | null;
@@ -253,6 +275,7 @@ export function SetupDetailSheet({
                     <Label>Installation</Label>
                     <ObservationCard
                       step={target.step}
+                      activity={activityFor(target.step.id)}
                       actions={
                         <StepActions
                           step={target.step}
@@ -272,6 +295,7 @@ export function SetupDetailSheet({
                   row={target.row}
                   sshHost={sshHost}
                   plan={plan}
+                  activityFor={activityFor}
                   onInstall={onInstall}
                   installingStepId={installingStepId}
                   onSkip={onSkip}
@@ -291,6 +315,7 @@ function AgentTypeDetail({
   row,
   sshHost,
   plan,
+  activityFor,
   onInstall,
   installingStepId,
   onSkip,
@@ -300,6 +325,7 @@ function AgentTypeDetail({
   row: AgentTypeRow;
   sshHost: string;
   plan: HostSetupPlan | null;
+  activityFor: (stepId: string) => string | null;
   onInstall: (stepId: string) => void;
   installingStepId: string | null;
   onSkip: (stepId: string) => void;
@@ -320,6 +346,7 @@ function AgentTypeDetail({
         <Label>Installation</Label>
         <ObservationCard
           step={row.cli}
+          activity={activityFor(row.cli.id)}
           actions={
             <StepActions
               step={row.cli}

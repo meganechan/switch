@@ -13,8 +13,15 @@ import { classifyInstallCommandFailure, type InstallCommandRunner } from './inst
  * through the remote shell in a PTY (many installers want a TTY), with the exit
  * code classified into an InstallCommandError rather than thrown. Uses the same
  * remote shell wrapping as agent session execution so PATH/env match.
+ *
+ * Output is both accumulated (for the failure transcript) and handed to
+ * `onOutput` as it arrives, so a caller can show what the host is doing during
+ * an install that takes minutes rather than only once it is over.
  */
-export function createSshInstallCommandRunner(proxy: SshClientProxy): InstallCommandRunner {
+export function createSshInstallCommandRunner(
+  proxy: SshClientProxy,
+  onOutput: (chunk: string) => void
+): InstallCommandRunner {
   return async (command) => {
     const profile = await proxy.getRemoteShellProfile();
     const remoteCommand = buildRemoteShellCommand(profile, command);
@@ -37,7 +44,10 @@ export function createSshInstallCommandRunner(proxy: SshClientProxy): InstallCom
     const pty = opened.data;
     return new Promise<Result<void, InstallCommandError>>((resolve) => {
       const chunks: string[] = [];
-      pty.onData((chunk) => chunks.push(chunk));
+      pty.onData((chunk) => {
+        chunks.push(chunk);
+        onOutput(chunk);
+      });
       pty.onExit(({ exitCode }) => {
         if (exitCode === 0) {
           log.info('[SshDependencyManager] Remote install succeeded');

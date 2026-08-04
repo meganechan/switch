@@ -151,3 +151,25 @@ export function isPlanComplete(plan: HostSetupPlan): boolean {
 
 /** Pushed to the renderer on every plan transition, so the UI never polls. */
 export const hostSetupPlanEventChannel = defineEvent<HostSetupPlan>('remote-hosts:setup-changed');
+
+/**
+ * What a step is doing right now, in the running command's own words.
+ *
+ * A remote install can take minutes — fetching packages, unpacking, running
+ * post-install hooks — and a spinner labelled "Installing…" for all of it is
+ * indistinguishable from a hang. This carries the line the host is currently
+ * printing so the user can see it is moving, and roughly on what.
+ *
+ * Deliberately not part of the plan: it is a live view of work in progress, not
+ * a fact about the host. It is never persisted, and `line: null` means the work
+ * has finished — whatever it concluded is then in the step itself.
+ */
+export type HostSetupActivity = {
+  sshHost: string;
+  stepId: string;
+  line: string | null;
+};
+
+export const hostSetupActivityEventChannel = defineEvent<HostSetupActivity>(
+  'remote-hosts:setup-activity'
+);

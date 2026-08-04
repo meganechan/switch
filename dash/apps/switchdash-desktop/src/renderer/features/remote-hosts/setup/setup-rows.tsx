@@ -55,6 +55,7 @@ function Row({
   icon,
   name,
   subtitle,
+  progress,
   badge,
   highlighted,
   action,
@@ -63,6 +64,8 @@ function Row({
   icon: React.ReactNode;
   name: string;
   subtitle?: string | null;
+  /** What the running command last printed. Takes the subtitle's place while it runs. */
+  progress?: string | null;
   badge: BadgeSpec;
   highlighted?: boolean;
   /** Inline fix-it control, so acting on one item costs no navigation. */
@@ -86,7 +89,11 @@ function Row({
         </div>
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm text-foreground">{name}</span>
-          {subtitle && <span className="truncate text-xs text-foreground-muted">{subtitle}</span>}
+          {progress ? (
+            <span className="truncate font-mono text-[11px] text-foreground-muted">{progress}</span>
+          ) : (
+            subtitle && <span className="truncate text-xs text-foreground-muted">{subtitle}</span>
+          )}
         </span>
       </button>
       <div className="flex shrink-0 items-center gap-2">
@@ -133,12 +140,14 @@ export function PrerequisiteRow({
   step,
   isCurrent,
   installing,
+  activity,
   onInstall,
   onOpen,
 }: {
   step: HostSetupStep;
   isCurrent: boolean;
   installing: boolean;
+  activity: string | null;
   onInstall: () => void;
   onOpen: () => void;
 }) {
@@ -147,6 +156,7 @@ export function PrerequisiteRow({
       icon={<PrerequisiteIcon step={step} />}
       name={step.name}
       subtitle={step.state === 'satisfied' ? step.version : null}
+      progress={activity}
       badge={stepBadge(step)}
       highlighted={isCurrent}
       action={<InstallAction step={step} installing={installing} onInstall={onInstall} />}
@@ -159,12 +169,15 @@ export function AgentTypeRowItem({
   row,
   isCurrent,
   installingStepId,
+  activityFor,
   onInstall,
   onOpen,
 }: {
   row: AgentTypeRow;
   isCurrent: boolean;
   installingStepId: string | null;
+  /** A row covers two steps, so it asks per step which one is talking. */
+  activityFor: (stepId: string) => string | null;
   onInstall: (stepId: string) => void;
   onOpen: () => void;
 }) {
@@ -180,6 +193,7 @@ export function AgentTypeRowItem({
       icon={<AgentIcon id={row.agentId} size={16} />}
       name={row.name}
       subtitle={row.cli.state === 'satisfied' ? row.cli.version : null}
+      progress={activityFor(row.cli.id) ?? (row.plugin ? activityFor(row.plugin.id) : null)}
       badge={agentTypeBadge(row)}
       highlighted={isCurrent}
       action={

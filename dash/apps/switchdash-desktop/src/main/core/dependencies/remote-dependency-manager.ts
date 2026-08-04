@@ -6,6 +6,7 @@ import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import { log } from '@main/lib/logger';
 import { agentUpdateService } from './agent-update-service';
 import { CORE_DEPENDENCIES } from './core-dependencies';
+import { installOutput } from './install-output';
 import { DEPENDENCIES } from './registry';
 import { createSshInstallCommandRunner } from './ssh-install-runner';
 
@@ -43,7 +44,9 @@ async function buildRemoteDependencyManager(sshHost: string): Promise<HostDepend
   const platform = await detectRemotePlatform(ctx);
 
   const manager = new HostDependencyManager(ctx, {
-    runInstallCommand: createSshInstallCommandRunner(proxy),
+    runInstallCommand: createSshInstallCommandRunner(proxy, (chunk) =>
+      installOutput.emit({ sshHost, chunk })
+    ),
     // Remote hosts use auto-detection only; per-host install overrides are a
     // local-only feature today, so no selection is persisted for remote hosts.
     getSelection: () => Promise.resolve(null),

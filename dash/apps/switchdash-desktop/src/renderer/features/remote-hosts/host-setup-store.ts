@@ -15,22 +15,48 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { events, rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
-import { hostSetupPlanEventChannel, type HostSetupPlan } from '@shared/core/remote-hosts/setup';
+import {
+  hostSetupActivityEventChannel,
+  hostSetupPlanEventChannel,
+  type HostSetupPlan,
+} from '@shared/core/remote-hosts/setup';
+
+function activityKey(sshHost: string, stepId: string): string {
+  return `${sshHost}\u0000${stepId}`;
+}
 
 class HostSetupStore {
   private plans = new Map<string, HostSetupPlan>();
+  /** What each in-flight step's command last printed. Live only — never persisted. */
+  private activity = new Map<string, string>();
   private hydrated = false;
   private hydrating: Promise<void> | null = null;
 
   constructor() {
-    makeAutoObservable<this, 'plans' | 'hydrating'>(this, {
+    makeAutoObservable<this, 'plans' | 'activity' | 'hydrating'>(this, {
       plans: true,
+      activity: true,
       hydrating: false,
     });
 
     events.on(hostSetupPlanEventChannel, (plan) => {
       runInAction(() => {
         this.plans.set(plan.sshHost, plan);
+        // A progress line outliving the work it described would be a small lie
+        // about what the host is doing, so it goes when the step stops.
+        for (const step of plan.steps) {
+          if (step.state !== 'checking' && step.state !== 'installing') {
+            this.activity.delete(activityKey(plan.sshHost, step.id));
+          }
+        }
+      });
+    });
+
+    events.on(hostSetupActivityEventChannel, ({ sshHost, stepId, line }) => {
+      runInAction(() => {
+        const key = activityKey(sshHost, stepId);
+        if (line === null) this.activity.delete(key);
+        else this.activity.set(key, line);
       });
     });
   }
@@ -61,6 +87,11 @@ class HostSetupStore {
   get(sshHost: string | null): HostSetupPlan | null {
     if (!sshHost) return null;
     return this.plans.get(sshHost) ?? null;
+  }
+
+  /** The line a running step last printed, or null when nothing is in flight. */
+  activityFor(sshHost: string, stepId: string): string | null {
+    return this.activity.get(activityKey(sshHost, stepId)) ?? null;
   }
 }
 

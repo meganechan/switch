@@ -32,6 +32,7 @@ import { deriveHostStatus } from '@shared/core/remote-hosts/host-status';
 import { isHostBlocked } from '@shared/core/remote-hosts/reachability';
 import { GhAuthPanel } from '../gh-auth-panel';
 import { hostReachabilityStore } from '../host-reachability-store';
+import { hostSetupStore } from '../host-setup-store';
 import { HostUnreachablePanel } from '../host-unreachable-panel';
 import { SetupDetailSheet, type SheetTarget } from '../setup/setup-detail-sheet';
 import {
@@ -97,6 +98,9 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   const busy = prepare.isPending || recheck.isPending || installStep.isPending;
   const installingStepId = installStep.isPending ? (installStep.variables ?? null) : null;
   const currentStepId = plan.data?.currentStepId ?? null;
+  // Read inside render so mobx tracks it: the line changes several times a
+  // second while an install runs, and nothing else re-renders on that.
+  const activityFor = (stepId: string) => hostSetupStore.activityFor(sshHost, stepId);
 
   // Keep an open sheet in step with pushed plan updates, so a row's detail
   // advances while a run is in flight instead of freezing at the state it had
@@ -190,6 +194,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                         step={step}
                         isCurrent={step.id === currentStepId}
                         installing={installingStepId === step.id}
+                        activity={activityFor(step.id)}
                         onInstall={() => installStep.mutate(step.id)}
                         onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
                       />
@@ -207,6 +212,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                         row={row}
                         isCurrent={row.cli.id === currentStepId || row.plugin?.id === currentStepId}
                         installingStepId={installingStepId}
+                        activityFor={activityFor}
                         onInstall={(stepId) => installStep.mutate(stepId)}
                         onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
                       />
@@ -242,6 +248,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                 <PrerequisiteIcon step={liveTarget.step} size={24} />
               ) : null
             }
+            activityFor={activityFor}
             onClose={() => setSheetTarget(null)}
             onInstall={(stepId) => installStep.mutate(stepId)}
             installingStepId={installingStepId}
@@ -258,14 +265,10 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   );
 });
 
-function RemoteHostTitlebar() {
-  const sshHost = useSshHost();
-  return <span className="text-sm text-foreground-muted">{sshHost}</span>;
-}
-
 export const remoteHostView = {
   WrapView: ({ children }: { children: React.ReactNode; sshHost: string }) => <>{children}</>,
-  TitlebarSlot: RemoteHostTitlebar,
+  // No titlebar slot: the page header already names the host and repeats the
+  // alias underneath it, so a third copy in the title bar was only noise.
   MainPanel: RemoteHostMainPanel,
   canActivate: (params: unknown): GuardResult => {
     // Params can come from a snapshot written by an older build, so validate
