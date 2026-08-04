@@ -165,6 +165,26 @@ below:
 
 ### [Unreleased]
 
+### [0.18.0] - 2026-08-04
+
+#### Added
+- Codex is now a supported agent provider. Add a Codex agent from the add-agent
+  modal (with a dedicated Codex config), connected to Switch via a new Codex
+  connector plugin registered in the marketplace, running locally or on a remote
+  host. `CODEX_SANDBOX_MODE` / `CODEX_APPROVAL_POLICY` drive Codex's sandbox and
+  approval (validated — an unknown value fails rather than silently widening the
+  sandbox); a Codex agent defaults to a `codex.<repo>.<user>` identity; and
+  switchdash registers the Switch MCP runtime for Codex itself via a per-agent
+  Codex profile, since Codex can't expand `${VAR}` in a bundled `.mcp.json`
+  (CHOO-1436, #91, #79).
+
+#### Fixed
+- Codex session correctness: per-agent Switch credentials are written to disk for
+  providers without repo-agents (so Codex sessions actually receive `SWITCH_*`);
+  Codex room tracking follows `connect_to_room` mid-session; and Codex hook
+  payloads post correctly (local Codex sessions had been posting empty bodies to
+  a portless URL) (CHOO-1436, #79).
+
 ### [0.17.2] - 2026-08-04
 
 #### Added
