@@ -229,6 +229,17 @@ let streamHasRoom = false;
 // by the /read-context hook) and when polling switches rooms.
 let missedSinceRead = 0;
 
+// Reason from the most recent `gap` frame, held until it can ride out on a
+// notification the agent was going to receive anyway.
+//
+// A gap says events were dropped and cannot be replayed. That must never be
+// silent, but it does not warrant a wake of its own: the only available
+// response is to re-read context, and the agent cannot know whether anything
+// it cared about was in the hole. Waking for it spends a turn on a maybe.
+// Deferring costs nothing — the warning still arrives before the agent's next
+// reply, which is the point at which stale context would actually mislead it.
+let pendingGapReason: string | null = null;
+
 // -- MCP server --------------------------------------------------------------
 
 const mcp = new Server(
@@ -740,19 +751,14 @@ async function handleFrame(frame: SseFrame): Promise<void> {
       return;
 
     case 'gap':
-      // Never silent: tell the agent it has a hole in its history rather than
-      // letting it carry on as though the stream were complete.
+      // Never silent, but never a wake either: logged here and held for the
+      // next notification, rather than spending a turn to say "you may have
+      // missed something you may not care about".
       process.stderr.write(
         `switch: GAP — missed events before sequence ${frame.data.from_sequence}\n`
       );
-      await emitNotification(
-        'Some room events were missed and cannot be replayed. Call read_context ' +
-          'to catch up before responding.',
-        {
-          room_id: pollingRoomId ?? '',
-          event_type: 'gap',
-          from_sequence: String(frame.data.from_sequence ?? ''),
-        }
+      pendingGapReason = String(
+        frame.data.reason ?? 'events were dropped and cannot be replayed'
       );
       return;
 
@@ -1026,8 +1032,11 @@ async function handleHookRequest(req: Request): Promise<Response> {
 
   if (url.pathname === '/read-context') {
     // The agent called read_context, so it has caught up on room history —
-    // clear the missed-message backlog we've been tallying.
+    // clear the missed-message backlog we've been tallying, and any deferred
+    // gap warning: re-reading context is exactly the recovery that warning
+    // would have asked for, so repeating it later would be noise.
     missedSinceRead = 0;
+    pendingGapReason = null;
     return new Response('ok');
   }
 
@@ -1300,10 +1309,19 @@ async function emitNotification(content: string, meta: Record<string, string>) {
   // to inspect meta, and knows to widen read_context's `since` to catch up.
   const missed = missedSinceRead;
   const enriched = { ...meta, missed_count: String(missed) };
-  const body =
+  let body =
     missed > 0
       ? `${content}\n⚠️ ${missed} unread room message${missed === 1 ? '' : 's'} since your last read_context — call read_context (widen \`since\`) to catch up on what you missed.`
       : content;
+
+  // Deliver any deferred gap on the way past. This is the turn the agent was
+  // already being woken for, so the warning is free here, and it lands before
+  // the reply it would otherwise have skewed.
+  if (pendingGapReason !== null) {
+    enriched.gap = pendingGapReason;
+    body = `${body}\n⚠️ Some earlier room events were dropped and cannot be replayed (${pendingGapReason}) — call read_context before responding.`;
+    pendingGapReason = null;
+  }
   await mcp
     .notification({
       method: 'notifications/claude/channel',

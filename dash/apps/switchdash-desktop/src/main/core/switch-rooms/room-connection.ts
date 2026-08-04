@@ -261,6 +261,16 @@ export class RoomConnection {
   private reportedRoom: string | null = null;
   /** Unaddressed room messages filtered out since the last event we surfaced. */
   private missed = 0;
+  /**
+   * Reason from the most recent gap, held until the next event we surface.
+   *
+   * Not injected on its own: a gap is a maybe — the agent cannot tell whether
+   * anything it cared about was dropped — and interrupting a session to report
+   * a maybe costs a turn every time the stream hiccups. Carried on the next
+   * real event instead, which is still before any reply stale context could
+   * skew.
+   */
+  private pendingGapReason: string | null = null;
 
   constructor(deps: RoomConnectionDeps) {
     this.creds = deps.creds;
@@ -530,30 +540,36 @@ export class RoomConnection {
         annotated = `${annotated}\n${annotation}`;
       }
     }
-    const body =
+    let body =
       this.missed > 0
         ? `${annotated}\n(${this.missed} unread room message${this.missed === 1 ? '' : 's'} since your last read_context — call read_context to catch up.)`
         : annotated;
     this.missed = 0;
+    if (this.pendingGapReason !== null) {
+      body = `${body}\n(Some earlier room events were dropped and cannot be replayed: ${this.pendingGapReason} — call read_context before responding.)`;
+      this.pendingGapReason = null;
+    }
     this.enqueue({ text: body, addressed, threadId });
   }
 
   /**
-   * Tell the agent it has a hole in its history.
+   * Record that the history has a hole, without waking the session for it.
    *
    * The server reports a gap when it cannot serve our cursor — events aged out
-   * of the buffer, or the server restarted and the numbering reset. Staying
-   * quiet here would leave the session believing the stream was complete, which
-   * is the failure mode this transport exists to make impossible.
+   * of the buffer, or the server restarted and the numbering reset. The session
+   * must still learn about it: leaving it believing the stream was complete is
+   * the failure mode this transport exists to make impossible. But it learns on
+   * the next event we surface, not by being interrupted now — a gap fires on
+   * routine reconnects, and each interruption is a whole turn spent on a
+   * condition whose only remedy the agent can apply just as well later.
    */
   private handleGap(info: { fromSequence: number; reason: string }): void {
-    this.enqueue({
-      text:
-        `[Switch] Some room events were missed and cannot be replayed (${info.reason}). ` +
-        'Call read_context to catch up before responding.',
-      addressed: true,
-      threadId: null,
+    this.log.warn('RoomConnection: gap — deferring the warning to the next surfaced event', {
+      roomId: this.roomId,
+      fromSequence: info.fromSequence,
+      reason: info.reason,
     });
+    this.pendingGapReason = info.reason;
   }
 
   /**
