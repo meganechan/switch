@@ -31,10 +31,7 @@ from switch_core.bridges.agent.operations.callctx import (
     reset_call_context,
     set_call_context,
 )
-from switch_core.bridges.agent.protocol.connections import (
-    RoomOccupiedError,
-    UnknownConnectionError,
-)
+from switch_core.bridges.agent.protocol.connections import UnknownConnectionError
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.db.models import Agent
 
@@ -167,11 +164,6 @@ async def post_operation(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except BadArgumentsError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RoomOccupiedError as exc:
-        # Same status as /connection/subscribe reports for the same collision,
-        # so a client sees one code for "another session of yours holds that
-        # room" however it asked for it.
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:

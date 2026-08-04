@@ -11,9 +11,10 @@ remember. Two consequences, and the second is the point:
   reading the agent's tool result. Reading the tool result is what switchdash
   did, and it broke silently the moment the result's shape changed.
 
-The claim is also the gate on a second session (CHOO-1419): a live claimant is
-another session of this agent already in the room, and the connect is refused
-rather than admitting a duplicate or leaving the caller to receive nothing.
+The claim is also what resolves a second session (CHOO-1419): a live claimant is
+another session of this agent already in the room, so the newcomer displaces it
+rather than the two coexisting — and the eviction is reported back, because a
+takeover nobody mentions looks exactly like the bug it resolves.
 """
 
 from __future__ import annotations
@@ -22,8 +23,6 @@ import logging
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from switch_core.bridges.agent.operations.definitions import (
     claim_room_on_caller_connection,
 )
@@ -31,7 +30,6 @@ from switch_core.bridges.agent.protocol.connections import (
     PROTOCOL_VERSION,
     ConnectionRegistry,
     NoStreamAttachedError,
-    RoomOccupiedError,
 )
 
 AGENT = "agent-1"
@@ -103,49 +101,76 @@ def test_a_dead_sibling_does_not_lock_the_agent_out() -> None:
     assert claimant.id == CONN
 
 
-def test_a_live_sibling_makes_the_connect_fail(caplog: Any) -> None:
-    """A second session of the agent is refused the room, loudly (CHOO-1419).
+def test_a_live_sibling_is_evicted_and_the_eviction_is_reported() -> None:
+    """A second session takes the room, and is told what it cost (CHOO-1419).
 
     A live claimant is another session of this same agent already acting in the
-    room. Letting the caller through would put two of them in it — the thing
-    that produces duplicated replies and interleaved work.
+    room. Only one of them may, so the newcomer displaces it rather than the two
+    coexisting — refusing instead would strand a session that was started to
+    work here and has nowhere else to go.
 
-    Yielding quietly is the worse half of that: the caller would believe it
-    joined a room whose events go elsewhere, and would sit there receiving
-    nothing. So the incumbent keeps the room AND the caller is told.
+    The eviction is returned, not merely logged. An unannounced takeover is
+    indistinguishable from the duplicate-session bug it resolves: a session
+    stops receiving a room and nothing says why.
     """
     registry = ConnectionRegistry()
     incumbent = _open(registry, "first-session")
     registry.claim_room(incumbent, ROOM)
     _open(registry, CONN)
 
-    with pytest.raises(RoomOccupiedError) as excinfo:
-        claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+    evicted = claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
 
-    assert excinfo.value.holder_id == "first-session"
+    assert evicted == "first-session"
     claimant = registry.claimant_of(AGENT, ROOM)
     assert claimant is not None
-    assert claimant.id == "first-session"
-    assert ROOM in incumbent.rooms
+    assert claimant.id == CONN
+    assert ROOM not in incumbent.rooms
 
 
-def test_the_refused_caller_keeps_its_other_rooms() -> None:
-    """Losing a claim must not disturb what the caller already holds.
+def test_the_evicted_session_is_woken_so_it_learns_it_lost_the_room() -> None:
+    """The loser has to find out, and its stream is the only way it can.
 
-    `claim_room` clears a `single` connection's previous room before taking the
-    new one, so a refusal that happened after that would strip the caller of a
-    room it was legitimately in.
+    Without the wake it stays blocked on its read, still believing it holds the
+    room, and switchdash keeps showing it under that room.
     """
     registry = ConnectionRegistry()
     incumbent = _open(registry, "first-session")
     registry.claim_room(incumbent, ROOM)
-    caller = _open(registry, CONN)
-    registry.claim_room(caller, "other-room")
+    incumbent.wake.clear()
+    _open(registry, CONN)
 
-    with pytest.raises(RoomOccupiedError):
-        claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+    claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
 
-    assert caller.rooms == {"other-room"}
+    assert incumbent.wake.is_set()
+
+
+def test_taking_an_unheld_room_reports_no_eviction() -> None:
+    """The warning must not fire on the ordinary case of an empty room."""
+    registry = ConnectionRegistry()
+    _open(registry, CONN)
+
+    evicted = claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    assert evicted is None
+
+
+def test_a_dead_predecessor_is_not_reported_as_an_eviction() -> None:
+    """Nothing was displaced, so nothing should be announced.
+
+    A restart meets its own dead connection constantly. Reporting that as "you
+    evicted a session" would cry wolf on the most routine event there is.
+    """
+    import time as _time
+
+    registry = ConnectionRegistry()
+    dead = _open(registry, "previous-life")
+    registry.claim_room(dead, ROOM)
+    dead.last_beat = _time.monotonic() - 3600
+    _open(registry, CONN)
+
+    evicted = claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    assert evicted is None
 
 
 def test_the_same_connection_reconnecting_is_not_a_duplicate() -> None:
@@ -158,8 +183,9 @@ def test_the_same_connection_reconnecting_is_not_a_duplicate() -> None:
     conn = _open(registry, CONN)
     registry.claim_room(conn, ROOM)
 
-    claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+    evicted = claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
 
+    assert evicted is None
     claimant = registry.claimant_of(AGENT, ROOM)
     assert claimant is not None
     assert claimant.id == CONN

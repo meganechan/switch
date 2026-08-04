@@ -24,7 +24,7 @@ from switch_core.bridges.agent.operations.context import (
 from switch_core.bridges.agent.operations.registry import operation
 from switch_core.bridges.agent.protocol.connections import (
     ConnectionError_,
-    RoomOccupiedError,
+    evicted_session_warning,
 )
 from switch_core.bridges.agent.protocol.instructions import build_room_instructions
 from switch_core.bridges.agent.protocol.service import ProtocolService
@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 def claim_room_on_caller_connection(
     protocol: ProtocolService, agent_id: str, connection_id: str, room_id: str
-) -> None:
+) -> str | None:
     """Bind the room to the connection that asked to connect.
 
     Connecting IS claiming the room slot. The caller identified itself with a
@@ -50,17 +50,20 @@ def claim_room_on_caller_connection(
     room *from Switch* rather than by reading the agent's tool result and
     hoping its shape never changes.
 
-    **Without takeover, and occupancy is fatal.** At most one session of an
-    agent may act in a room. A dead connection is not a claimant at all —
-    ``claimant_of`` filters on liveness — so the only thing a claim can ever
-    lose to is a connection that is genuinely alive and holding the room, which
-    is a second session of this agent arriving in a room that already has one.
+    **The newcomer wins, and is told what it cost.** At most one session of an
+    agent may act in a room (CHOO-1419). A dead connection is not a claimant at
+    all — ``claimant_of`` filters on liveness — so the only thing a claim can
+    ever displace is a second session of this agent that is genuinely alive in
+    the room.
 
-    Refusing is the whole point. Yielding here leaves the caller believing it
-    joined a room whose events go to somebody else: the call succeeds, the room
-    payload comes back in full, and nothing ever reaches the agent. A caller
-    that cannot have the room has to be told so it can fail, not proceed on a
-    false picture of where it is.
+    Refusing the newcomer instead would strand it: the session exists, was
+    started to work here, and has nowhere to go. Letting it in resolves the
+    duplicate rather than freezing it, and the loser learns it lost the room
+    from ``subscription_changed`` on its own stream.
+
+    What is not acceptable is doing it quietly. Returns the evicted connection
+    id so the caller can say so — a takeover nobody reports reads exactly like
+    the duplicate-session bug it is meant to resolve.
 
     Faults other than occupancy stay non-fatal — they cost delivery routing
     rather than the agent's place in the room, and say so in the log.
@@ -70,11 +73,9 @@ def claim_room_on_caller_connection(
         # No connection behind this caller: an MCP transport session, or a
         # runtime borrowing an id whose connection has since expired. The
         # binding row still stands and room-scoped calls resolve through it.
-        return
+        return None
     try:
-        protocol.connections.claim_room(connection, room_id)
-    except RoomOccupiedError:
-        raise
+        evicted = protocol.connections.claim_room(connection, room_id, takeover=True)
     except ConnectionError_ as exc:
         logger.warning(
             "[CONNECT] agent=%s connection=%s could not claim room %s: %s",
@@ -83,6 +84,17 @@ def claim_room_on_caller_connection(
             room_id,
             exc,
         )
+        return None
+    if evicted is None:
+        return None
+    logger.warning(
+        "[CONNECT] agent=%s connection=%s took room %s from connection %s",
+        agent_id,
+        connection_id,
+        room_id,
+        evicted.id,
+    )
+    return evicted.id
 
 
 @operation
@@ -146,7 +158,12 @@ async def connect_to_room(
     Returns:
         {agent_id, room_id, name, description, participants, instructions,
          reference_types, references, documents, packages, linked_rooms,
-         roles}.
+         roles, warning}.
+        `warning` is normally null. It is set when connecting took the room off
+        another live session of this same agent — only one session of an agent
+        may act in a room, so that session was disconnected from it to let this
+        one in. Surface it rather than ignoring it: it means work may have been
+        interrupted somewhere else.
         Each reference, document, and package carries its own `instructions`
         field — agent-facing guidance for that resource — alongside a short
         `description`. `roles` lists the room's assumable roles, each
@@ -209,11 +226,9 @@ async def connect_to_room(
     lifecycle = (
         "explicit" if profile.connection_model == "session_passive" else "heartbeat"
     )
-    # Claim before binding. The claim is the one step that can refuse, and a
-    # refused connect must leave nothing behind: a binding row written first
-    # would outlive the error and report this session as connected to a room it
-    # was never let into.
-    claim_room_on_caller_connection(protocol, agent_id, key, room.id)
+    evicted_connection_id = claim_room_on_caller_connection(
+        protocol, agent_id, key, room.id
+    )
 
     async with protocol.session_factory() as db:
         await protocol.agent_session_store.set_connected_room(
@@ -251,6 +266,11 @@ async def connect_to_room(
         "packages": resources["packages"],
         "linked_rooms": linked_rooms,
         "roles": roles,
+        "warning": (
+            evicted_session_warning(room.id, evicted_connection_id)
+            if evicted_connection_id
+            else None
+        ),
     }
 
 
