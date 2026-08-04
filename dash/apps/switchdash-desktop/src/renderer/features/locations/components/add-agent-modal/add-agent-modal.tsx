@@ -41,10 +41,12 @@ import {
   SelectValue,
 } from '@renderer/lib/ui/select';
 import { log } from '@renderer/utils/logger';
+import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import type { ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
+import { CodexAgentConfig } from './codex-agent-config';
 import { ConfigureAgentPanel } from './configure-agent-panel';
 import { PickExistingPanel } from './content';
 import { useConfigureAgentForm, usePickMode } from './modes';
@@ -164,6 +166,13 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const advancedAttributesRef = useRef<RepoAgentAttributes>({});
   const onAdvancedChange = useCallback((attributes: RepoAgentAttributes) => {
     advancedAttributesRef.current = attributes;
+  }, []);
+
+  // Per-agent Codex config (model / effort / instructions), held in a ref for
+  // the same reason. Null when the user left the Codex section untouched.
+  const codexConfigRef = useRef<AgentProviderConfig | null>(null);
+  const onCodexConfigChange = useCallback((config: AgentProviderConfig | null) => {
+    codexConfigRef.current = config;
   }, []);
 
   const shouldCheckPathStatus = !isRemoteRun && pickState.path.trim().length > 0;
@@ -429,7 +438,8 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     if (result.kind === 'name-conflict') {
       toast({
         title: 'Agent name already taken',
-        description: 'An agent with this name already exists on the server. Pick another name.',
+        description:
+          'An agent with this name already exists in this directory or on the server. Pick another name.',
         variant: 'destructive',
       });
       return;
@@ -465,6 +475,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         autoSession: form.autoSession,
         autoApprove: form.autoApprove,
         definitionAttributes: advancedAttributesRef.current,
+        providerConfig: codexConfigRef.current,
       });
       if (result.kind !== 'created') {
         reportProvisionError(result);
@@ -693,6 +704,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               onAddServer={() => showAddServerModal({})}
             />
             <AgentAdvancedConfig providerId={pickState.providerId} onChange={onAdvancedChange} />
+            {pickState.providerId === 'codex' && (
+              <CodexAgentConfig onChange={onCodexConfigChange} />
+            )}
           </>
         )}
         {switchAgent && (
@@ -734,6 +748,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               onAddServer={() => showAddServerModal({})}
             />
             <AgentAdvancedConfig providerId={pickState.providerId} onChange={onAdvancedChange} />
+            {pickState.providerId === 'codex' && (
+              <CodexAgentConfig onChange={onCodexConfigChange} />
+            )}
           </>
         )}
       </DialogContentArea>

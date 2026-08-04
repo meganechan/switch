@@ -1,4 +1,6 @@
+import type { SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
 import { resolveAgentExecutable } from '@main/core/agent-runtime/impl/resolve-agent-executable';
+import { resolveSwitchLaunchProfile } from '@main/core/agent-runtime/switch-mcp-launch-args';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { getPlugin } from '@main/core/providers/plugin-registry';
@@ -37,11 +39,25 @@ export async function generateAgentLaunchSpec(params: {
    * prompt, tools, and Switch identity. Null for a provider/agent with no
    * on-disk definition (CHOO-1440). */
   agentName: string | null;
+  /** Per-agent creds slug (the agent's name) — keys the Switch launch profile a
+   * provider that registers the server itself writes (Codex). */
+  credsSlug: string;
+  /** Per-agent model / effort / instructions folded into the launch profile. */
+  specialization?: SwitchLaunchSpecialization;
   ctx: IExecutionContext;
   connectionId: string;
 }): Promise<AgentLaunchSpec> {
-  const { providerId, remoteRepoDir, deeplinkScheme, autoApprove, agentName, ctx, connectionId } =
-    params;
+  const {
+    providerId,
+    remoteRepoDir,
+    deeplinkScheme,
+    autoApprove,
+    agentName,
+    credsSlug,
+    specialization,
+    ctx,
+    connectionId,
+  } = params;
   const plugin = getPlugin(providerId);
   if (!plugin.behavior.prompt) {
     throw new Error(
@@ -59,13 +75,28 @@ export async function generateAgentLaunchSpec(params: {
     connectionId,
   });
 
+  // Auto-started sessions always run as the agent, so they have a Switch
+  // identity. A provider that registers the server itself (Codex) returns the
+  // profile file to bake into the spec and the `--profile <slug>` argv; the
+  // sidecar writes the file on the VM. Null for providers whose plugin resolves
+  // the server from a bundled config (Claude).
+  const switchProfile = resolveSwitchLaunchProfile(plugin, {
+    slug: credsSlug,
+    workingDir: remoteRepoDir,
+    hasSwitchIdentity: true,
+    specialization,
+  });
+
   const repoAgents = plugin.behavior.repoAgents;
   const agentCommand = plugin.behavior.prompt.buildCommand({
     cli,
     extraArgs: parseExtraArgs(providerConfig?.extraArgs),
     // The provider owns how to run as the named agent (CHOO-1440); kept distinct
     // from user extra args.
-    agentArgs: agentName && repoAgents ? repoAgents.launchArgs(remoteRepoDir, agentName) : [],
+    agentArgs: [
+      ...(agentName && repoAgents ? repoAgents.launchArgs(remoteRepoDir, agentName) : []),
+      ...(switchProfile?.args ?? []),
+    ],
     autoApprove,
     initialPrompt: INITIAL_PROMPT_PLACEHOLDER,
     sessionId: SESSION_ID_PLACEHOLDER,
@@ -79,6 +110,10 @@ export async function generateAgentLaunchSpec(params: {
     args: agentCommand.args,
     env: { ...agentCommand.env, ...(providerConfig?.env ?? {}) },
     cwd: remoteRepoDir,
+    launchFiles: switchProfile?.files.map((file) => ({
+      homeRelativePath: file.relativePath,
+      content: file.content,
+    })),
     providerId,
     deeplinkScheme,
   };

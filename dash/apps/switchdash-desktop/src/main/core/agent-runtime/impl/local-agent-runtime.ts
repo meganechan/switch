@@ -4,8 +4,10 @@ import { dirTrustService } from '@main/core/agent-hooks/dir-trust-service';
 import { ensureHooksInstalled } from '@main/core/agent-hooks/hook-config-service';
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
+import { prepareSwitchMcpLaunch } from '@main/core/agent-runtime/switch-mcp-launch-args';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
 import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
+import { getAgentById } from '@main/core/agents/getAgentById';
 import { localDependencyManager } from '@main/core/dependencies/dependency-managers';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import type { IExecutionContext } from '@main/core/execution-context/types';
@@ -28,6 +30,7 @@ import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
 import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
+import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
@@ -156,14 +159,47 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         cachedStatePath,
       });
 
+      // A session talks to Switch as its own agent, not whatever identity happens
+      // to sit in `.claude/settings.local.json`. Real env vars outrank every
+      // settings file and reach the spawned MCP server, so inject the agent's
+      // identity last (highest precedence): a subagent from its definition creds,
+      // and a plain agent from its provider-neutral `.switch/agents/<slug>.json`
+      // (empty when absent — the session then falls back to settings.local.json,
+      // which Claude reads natively).
+      // Resolved before the command is built because a provider that registers
+      // the Switch server at launch keys it on this identity (see below).
+      const workspaceFs = createPluginFs(this.sessionPath);
+      const identityVars =
+        session.agentName && repoAgents
+          ? await repoAgents.readLaunchEnv(workspaceFs, session.agentName)
+          : await readAgentSwitchEnvFromFs(workspaceFs, agentCredsSlug(session), log);
+
+      // Register the Switch MCP server for providers that cannot resolve it from
+      // a bundled config (Codex): writes a per-agent profile under `~/.codex` and
+      // returns `--profile <slug>`, folding in the agent's per-agent model /
+      // effort / instructions. A no-op for Claude, whose plugin expands its own
+      // `.mcp.json`.
+      const agentRecord = await getAgentById(session.agentId);
+      const switchMcpArgs = await prepareSwitchMcpLaunch(plugin, {
+        homeFs: createPluginFs(homedir()),
+        slug: agentCredsSlug(session),
+        workingDir: this.sessionPath,
+        hasSwitchIdentity: !!identityVars.SWITCH_API_ENDPOINT,
+        specialization: toSwitchSpecialization(agentRecord?.providerConfig),
+      });
+
       const agentCommand = plugin.behavior.prompt!.buildCommand({
         cli: executableCli,
         extraArgs: parseExtraArgs(providerConfig?.extraArgs),
-        // The provider owns how to run as the named agent (CHOO-1440).
-        agentArgs:
-          session.agentName && repoAgents
+        // The provider owns how to run as the named agent (CHOO-1440), and how to
+        // receive a per-session Switch MCP server when it cannot read one from a
+        // config file.
+        agentArgs: [
+          ...(session.agentName && repoAgents
             ? repoAgents.launchArgs(this.sessionPath, session.agentName)
-            : [],
+            : []),
+          ...switchMcpArgs,
+        ],
         autoApprove: session.autoApprove ?? false,
         initialPrompt: agentSession.isResuming ? undefined : initialPrompt,
         sessionId: agentSession.sessionId,
@@ -181,18 +217,6 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       const port = agentHookService.getPort();
       const token = agentHookService.getToken();
       const colorEnv = await getTerminalColorEnv();
-      // A session talks to Switch as its own agent, not whatever identity happens
-      // to sit in `.claude/settings.local.json`. Real env vars outrank every
-      // settings file and reach the spawned MCP server, so inject the agent's
-      // identity last (highest precedence): a subagent from its definition creds,
-      // and a plain agent from its provider-neutral `.switch/agents/<slug>.json`
-      // (empty when absent — only Claude then recovers, by reading
-      // settings.local.json natively; any other provider launches unidentified).
-      const workspaceFs = createPluginFs(this.sessionPath);
-      const identityVars =
-        session.agentName && repoAgents
-          ? await repoAgents.readLaunchEnv(workspaceFs, session.agentName)
-          : await readAgentSwitchEnvFromFs(workspaceFs, agentCredsSlug(session), log);
 
       // Open this session's Switch connection before the session exists, and
       // hand it the id. Its tool calls then arrive on the connection switchdash

@@ -1,4 +1,3 @@
-import path from 'node:path';
 import type { PluginFs } from '@switchdash/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_SUBAGENTS, claudeRepoAgentsBehavior } from './subagents';
@@ -28,10 +27,13 @@ function fakeFs(files: Record<string, string>): PluginFs {
   };
 }
 
+// Forward-slash literals, not `path.join`: these keys are what a PluginFs sees,
+// and on Windows `path.join` would produce backslashes here *and* in the code
+// under test, so the two would agree with each other and with nothing else.
 const settingsRel = (name: string) =>
-  path.join(CLAUDE_SUBAGENTS.dirRelative, `${name}${CLAUDE_SUBAGENTS.settingsSuffix}`);
+  `${CLAUDE_SUBAGENTS.dirRelative}/${name}${CLAUDE_SUBAGENTS.settingsSuffix}`;
 /** Provider-neutral per-agent credentials file (the current write location). */
-const defRel = (name: string) => path.join(CLAUDE_SUBAGENTS.definitionsDirRelative, `${name}.md`);
+const defRel = (name: string) => `${CLAUDE_SUBAGENTS.definitionsDirRelative}/${name}.md`;
 
 describe('claudeRepoAgentsBehavior.launchArgs', () => {
   it('builds --agent and --settings for a subagent', () => {
@@ -39,8 +41,16 @@ describe('claudeRepoAgentsBehavior.launchArgs', () => {
       '--agent',
       'reviewer',
       '--settings',
-      path.join('/repo/agent', '.switch', 'agents', 'reviewer.json'),
+      '/repo/agent/.switch/agents/reviewer.json',
     ]);
+  });
+
+  it('keeps a remote POSIX path POSIX', () => {
+    // launchArgs is handed `remoteRepoDir` / the SSH session path for a remote
+    // agent, and the flag is parsed by a shell on that Linux host.
+    const args = claudeRepoAgentsBehavior.launchArgs('/home/agent/repo', 'reviewer');
+    expect(args[3]).toBe('/home/agent/repo/.switch/agents/reviewer.json');
+    expect(args[3]).not.toContain('\\');
   });
 });
 
@@ -158,13 +168,34 @@ describe('claudeRepoAgentsBehavior.writeDefinition / readDefinition', () => {
     });
 
     const raw = (await workspaceFs.read(defRel('reviewer'))) ?? '';
-    expect(raw).toContain(
-      'tools: Read, Grep, mcp__plugin_switch-connector_switch, mcp__plugin_switch-connector_switch-channel'
-    );
+    expect(raw).toContain('tools: Read, Grep, mcp__plugin_switch-connector_switch');
 
     // Read-back strips the Switch rules so the form shows only the user's tools.
     const attrs = await claudeRepoAgentsBehavior.readDefinition(workspaceFs, 'reviewer');
     expect(attrs?.tools).toEqual(['Read', 'Grep']);
+  });
+
+  it('strips the retired switch-channel rule an older switchdash wrote', async () => {
+    const workspaceFs = fakeFs({
+      [defRel('reviewer')]: [
+        '---',
+        'name: reviewer',
+        'description: Reviews diffs',
+        'tools: Read, mcp__plugin_switch-connector_switch, mcp__plugin_switch-connector_switch-channel',
+        '---',
+        'body',
+        '',
+      ].join('\n'),
+    });
+
+    const attrs = await claudeRepoAgentsBehavior.readDefinition(workspaceFs, 'reviewer');
+    expect(attrs?.tools).toEqual(['Read']);
+
+    // And it is not written back: only the rule switchdash still authors is.
+    await claudeRepoAgentsBehavior.writeDefinition(workspaceFs, attrs ?? {});
+    const raw = (await workspaceFs.read(defRel('reviewer'))) ?? '';
+    expect(raw).toContain('tools: Read, mcp__plugin_switch-connector_switch\n');
+    expect(raw).not.toContain('switch-channel');
   });
 
   it('serialises optional scalar, number, and boolean fields and omits empty ones', async () => {
@@ -207,7 +238,7 @@ describe('claudeRepoAgentsBehavior.attributeFields', () => {
 });
 
 describe('claudeRepoAgentsBehavior.removeLocal', () => {
-  it('deletes both the definition and credentials files', async () => {
+  it('deletes the definition and the legacy per-agent settings', async () => {
     const workspaceFs = fakeFs({
       [defRel('reviewer')]: '---\nname: reviewer\ndescription: x\n---\n',
       [settingsRel('reviewer')]: '{"env":{}}',
@@ -217,5 +248,17 @@ describe('claudeRepoAgentsBehavior.removeLocal', () => {
 
     expect(await workspaceFs.exists(defRel('reviewer'))).toBe(false);
     expect(await workspaceFs.exists(settingsRel('reviewer'))).toBe(false);
+  });
+
+  it('leaves the provider-neutral credentials to the caller, which removes them for every provider', async () => {
+    const neutralRel = '.switch/agents/reviewer.json';
+    const workspaceFs = fakeFs({
+      [defRel('reviewer')]: '---\nname: reviewer\ndescription: x\n---\n',
+      [neutralRel]: '{"env":{}}',
+    });
+
+    await claudeRepoAgentsBehavior.removeLocal(workspaceFs, 'reviewer');
+
+    expect(await workspaceFs.exists(neutralRel)).toBe(true);
   });
 });

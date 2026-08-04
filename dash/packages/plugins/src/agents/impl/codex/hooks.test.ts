@@ -1,6 +1,73 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import { execFile, spawn } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { promisify } from 'node:util';
+import type { HookEvent, PluginFs } from '@switchdash/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CODEX_CONFIG_PATH, CODEX_HOOKS_PATH, buildCodexHookConfig } from './hooks';
+import { plugin } from './index';
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Execute a generated hook command under a real `sh` with `curl` stubbed out,
+ * feeding it an event payload on stdin the way Codex does, and report the URL
+ * and request body it would have posted.
+ *
+ * A copy of the harness in `@switchdash/core`'s `helpers/hooks.test.ts`; this
+ * package resolves that one through `dist` subpath exports, which do not carry
+ * test files.
+ */
+async function runHookCommand(
+  command: string,
+  { env, stdin }: { env: Record<string, string>; stdin: string }
+): Promise<{ url: string; body: string }> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'codex-hook-'));
+  try {
+    const stub = path.join(dir, 'curl');
+    const argvOut = path.join(dir, 'argv');
+    const bodyOut = path.join(dir, 'body');
+    await writeFile(
+      stub,
+      '#!/bin/sh\n' +
+        `printf '%s\\n' "$@" > ${JSON.stringify(argvOut)}\n` +
+        `for a in "$@"; do [ "$a" = "@-" ] && cat > ${JSON.stringify(bodyOut)}; done\n` +
+        'exit 0\n',
+      { mode: 0o755 }
+    );
+    await writeFile(bodyOut, '');
+    await writeFile(argvOut, '');
+
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('sh', ['-c', command], {
+        env: { ...env, PATH: `${dir}:${process.env.PATH ?? ''}` },
+        stdio: ['pipe', 'ignore', 'ignore'],
+      });
+      child.on('error', reject);
+      child.on('close', () => resolve());
+      child.stdin.end(stdin);
+    });
+
+    const { stdout: argv } = await execFileAsync('cat', [argvOut]);
+    const { stdout: body } = await execFileAsync('cat', [bodyOut]);
+    return { url: argv.split('\n').find((a) => a.startsWith('http://')) ?? '', body };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+/** The `command` strings switchdash writes into Codex's `hooks.json`, by event. */
+async function installedCommands(): Promise<Record<string, string>> {
+  const fs = createMemoryFs();
+  await buildCodexHookConfig().writeHooks(fs, []);
+  const config = JSON.parse((await fs.read(CODEX_HOOKS_PATH))!) as {
+    hooks: Record<string, Array<{ hooks: Array<{ command: string }> }>>;
+  };
+  return Object.fromEntries(
+    Object.entries(config.hooks).map(([key, entries]) => [key, entries[0].hooks[0].command])
+  );
+}
 
 function createMemoryFs(initial: Record<string, string> = {}): PluginFs {
   const files = new Map(Object.entries(initial));
@@ -109,6 +176,48 @@ describe('buildCodexHookConfig install/read/delete', () => {
     }
   });
 
+  it('installs no PostToolUse room-tracking hook — the room is connection-driven', async () => {
+    // Since the agent-bridge push transport (CHOO-1857), a session's room is
+    // claimed on the connection switchdash opens and hands it as
+    // SWITCH_CONNECTION_ID, so the server reports the room back. The old
+    // PostToolUse `connect_to_room` scrape is gone; only lifecycle hooks remain.
+    const fs = createMemoryFs();
+    await buildCodexHookConfig().writeHooks(fs, []);
+    const config = JSON.parse((await fs.read(CODEX_HOOKS_PATH))!) as {
+      hooks: Record<string, unknown>;
+    };
+
+    expect(config.hooks.PostToolUse).toBeUndefined();
+    expect(Object.keys(config.hooks).sort()).toEqual(['PermissionRequest', 'SessionStart', 'Stop']);
+    expect(JSON.stringify(config.hooks)).not.toContain('switch_room_connect');
+  });
+
+  it('declares exactly the events its installed hooks can produce', async () => {
+    // The declaration is what the rest of the app reasons about a provider from,
+    // so an event no installed hook emits is a claim nothing can honour.
+    const producible: Record<string, HookEvent> = {
+      Stop: 'stop',
+      PermissionRequest: 'notification',
+      SessionStart: 'session',
+    };
+
+    const fs = createMemoryFs();
+    await buildCodexHookConfig().writeHooks(fs, []);
+    const config = JSON.parse((await fs.read(CODEX_HOOKS_PATH))!) as {
+      hooks: Record<string, unknown>;
+    };
+
+    const emitted = Object.keys(config.hooks).map((key) => {
+      const event = producible[key];
+      if (!event) throw new Error(`unmapped Codex hook key ${key}`);
+      return event;
+    });
+    const hooks = plugin.capabilities.hooks;
+    const declared = hooks.kind === 'none' ? [] : hooks.supportedEvents;
+
+    expect([...declared].sort()).toEqual([...new Set(emitted)].sort());
+  });
+
   it('reflects installation state through getHooksInstalled + readHooks', async () => {
     const fs = createMemoryFs();
     const cfg = buildCodexHookConfig();
@@ -183,5 +292,62 @@ describe('buildCodexHookConfig install/read/delete', () => {
     };
 
     await expect(buildCodexHookConfig().writeHooks(fs, [])).rejects.toThrow('transport failure');
+  });
+});
+
+describe('the installed Codex hook commands actually post', () => {
+  // Codex runs each command as `$SHELL -lc "<command>"` and writes the event
+  // JSON to its stdin. These commands resolve their endpoint in shell, so
+  // asserting on the string only proves the text is present — a command that
+  // resolves an empty port, or never reads the payload, passes a string check
+  // and then fails silently behind curl's `|| true`.
+  const ENV = {
+    SWITCHDASH_HOOK_PORT: '5001',
+    SWITCHDASH_HOOK_TOKEN: 'env-token',
+    SWITCHDASH_PTY_ID: 'codex:s1',
+  };
+
+  it.each(['SessionStart'])(
+    'the %s command reaches the hook server with the payload intact',
+    async (event) => {
+      const payload = JSON.stringify({ session_id: 's1' });
+      const { url, body } = await runHookCommand((await installedCommands())[event], {
+        env: ENV,
+        stdin: payload,
+      });
+
+      expect(url).toBe('http://127.0.0.1:5001/hook');
+      expect(body).toBe(payload);
+    }
+  );
+
+  it.each(['Stop', 'PermissionRequest'])(
+    'the %s command reaches the hook server with its fixed body',
+    async (event) => {
+      const { url } = await runHookCommand((await installedCommands())[event], {
+        env: ENV,
+        stdin: '',
+      });
+
+      expect(url).toBe('http://127.0.0.1:5001/hook');
+    }
+  );
+
+  it('prefers the sidecar endpoint file over the baked-in env, for every event', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'codex-ep-'));
+    const endpointFile = path.join(dir, 'endpoint');
+    await writeFile(endpointFile, '6002\nfresh-token\n');
+
+    try {
+      for (const command of Object.values(await installedCommands())) {
+        const { url } = await runHookCommand(command, {
+          env: { ...ENV, SWITCHDASH_HOOK_ENDPOINT_FILE: endpointFile },
+          stdin: '{}',
+        });
+        expect(url).toBe('http://127.0.0.1:6002/hook');
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

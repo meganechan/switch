@@ -21,7 +21,9 @@ import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { connectRemoteAgent } from './connect-remote-agent';
 import { getAgentById } from './getAgentById';
 import { stopRemoteWatcher } from './remote-watcher';
+import { removeAgentLaunchProfile } from './remove-launch-profile';
 import { removeSwitchCredentials } from './remove-switch-settings';
+import { agentSettingsRelativePath } from './switch-settings-paths';
 
 export type DeleteAgentOptions = {
   /**
@@ -80,7 +82,25 @@ async function removeProvisionedFiles(agent: Agent, location: Location): Promise
         });
       });
     }
+    // The per-agent credentials are written for every provider, so they are
+    // removed for every provider — a provider without repo-agent definitions has
+    // no `removeLocal` to carry the token file out with it.
+    //
+    // Isolated like `removeLocal` above: each teardown step must run even if an
+    // earlier one fails, or one unwritable file leaves the rest of the agent's
+    // credentials behind.
+    await ctx.fs.delete(agentSettingsRelativePath(agent.name ?? agent.id)).catch((error) => {
+      log.warn('deleteAgent: failed to remove the per-agent Switch credentials', {
+        agentId: agent.id,
+        name: agent.name,
+        error: String(error),
+      });
+    });
     await removeSwitchCredentials(agent.providerId, ctx.fs);
+    // A provider that registers the Switch server itself (Codex) leaves a
+    // per-agent launch profile under the user's home — a different scope than
+    // ctx.fs, reached through its own home filesystem (local or remote).
+    await removeAgentLaunchProfile(agent, location, agent.name ?? agent.id);
   } finally {
     ctx.close();
   }

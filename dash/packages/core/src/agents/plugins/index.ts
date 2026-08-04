@@ -68,10 +68,21 @@ export type { PluginFs } from '../runtime/fs';
 // Capability behavior interfaces — needed for dts portability
 export type { IHostDependencyBehavior } from '../../host-dependencies/capability';
 export type { IHooksBehavior } from './capabilities/hooks';
-export type { IMcpBehavior, McpServerRegistration } from './capabilities/mcp';
+export type {
+  IMcpBehavior,
+  McpServerRegistration,
+  SwitchLaunchProfile,
+  SwitchLaunchProfileFile,
+  SwitchLaunchSpecialization,
+  SwitchMcpLaunchServer,
+} from './capabilities/mcp';
 export type { IPlugins } from './capabilities/plugins';
 export type { ISessionsBehavior } from './capabilities/sessions';
-export { SWITCH_AGENT_SETTINGS_DIR, SWITCH_CONNECTOR_TOOL_RULES } from './capabilities/repo-agents';
+export {
+  RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES,
+  SWITCH_AGENT_SETTINGS_DIR,
+  SWITCH_CONNECTOR_TOOL_RULES,
+} from './capabilities/repo-agents';
 export type {
   IRepoAgentsBehavior,
   LocalRepoAgent,
@@ -83,7 +94,12 @@ export type {
   RepoAgentFieldType,
   RepoAgentsDescriptor,
 } from './capabilities/repo-agents';
-export type { ISwitchSetupBehavior, SwitchSetupDescriptor } from './capabilities/switch-setup';
+export type {
+  ISwitchSetupBehavior,
+  SwitchSetupCliDialect,
+  SwitchSetupDescriptor,
+} from './capabilities/switch-setup';
+export { SWITCH_SETUP_CLI_DIALECTS } from './capabilities/switch-setup';
 
 // Typed registry factory
 export { createPluginRegistry } from '../../lib/plugins/registry';

@@ -14,15 +14,13 @@ const base: CommandContext = {
   model: '',
 };
 
-// The auto-approve flag, split the way buildStandardCommand splits it on
-// whitespace.
-const AUTO_FLAGS = [
-  '-c',
-  'approval_policy="never"',
-  '-c',
-  'sandbox_mode="danger-full-access"',
-  '--dangerously-bypass-hook-trust',
-];
+// Emitted for every session: Codex runs no hook it has no persisted trust
+// entry for, and switchdash's hooks are how it reads the session's status and
+// captures the rollout id.
+const TRUST_FLAG = '--dangerously-bypass-hook-trust';
+
+// The approval flag, split the way buildStandardCommand splits it on whitespace.
+const AUTO_FLAGS = ['-c', 'approval_policy="never"'];
 
 describe('codex buildCommand', () => {
   it('starts a fresh session with auto-approve flags then the positional prompt', () => {
@@ -31,19 +29,38 @@ describe('codex buildCommand', () => {
     expect(cmd.command).toBe('codex');
     // sessionIdOnResumeOnly → the switchdash UUID is never injected on a fresh run.
     // Full structural check: auto-approve flags in order, prompt last.
-    expect(cmd.args).toEqual([...AUTO_FLAGS, 'Fix the bug']);
+    expect(cmd.args).toEqual([TRUST_FLAG, ...AUTO_FLAGS, 'Fix the bug']);
   });
 
-  it('omits auto-approve args when autoApprove is false', () => {
+  it('omits auto-approve args when autoApprove is false, but keeps hook trust', () => {
+    // Hook trust is orthogonal to approvals: gate it on auto-approve and a
+    // default agent runs none of switchdash's hooks, taking the session's status
+    // signals and its rollout-id capture with them.
     const cmd = build({ ...base, initialPrompt: 'hello' });
-    expect(cmd.args).not.toContain('--dangerously-bypass-hook-trust');
-    expect(cmd.args).toEqual(['hello']);
+    expect(cmd.args).not.toContain('approval_policy="never"');
+    expect(cmd.args).toEqual([TRUST_FLAG, 'hello']);
+  });
+
+  it('never overrides the sandbox, whatever the approval setting', () => {
+    // Codex runs hooks outside the sandbox — verified against 0.146.0, a
+    // SessionStart hook curling 127.0.0.1 succeeds under workspace-write — so
+    // switchdash's loopback hooks are no reason to hand a session full disk and
+    // network access it was never asked to have.
+    for (const autoApprove of [true, false]) {
+      const cmd = build({ ...base, autoApprove, initialPrompt: 'hello' });
+      expect(cmd.args.join(' ')).not.toContain('sandbox_mode');
+    }
+  });
+
+  it('keeps hook trust on resume, where the flag precedes the subcommand', () => {
+    const cmd = build({ ...base, isResuming: true, providerSessionId: 'rollout-9' });
+    expect(cmd.args.slice(0, 3)).toEqual([TRUST_FLAG, 'resume', 'rollout-9']);
   });
 
   it('resumes with the captured rollout session id', () => {
     const cmd = build({ ...base, isResuming: true, providerSessionId: 'rollout-9' });
-    expect(cmd.args[0]).toBe('resume');
-    expect(cmd.args[1]).toBe('rollout-9');
+    expect(cmd.args[1]).toBe('resume');
+    expect(cmd.args[2]).toBe('rollout-9');
     // No positional prompt is added on resume.
     expect(cmd.args).not.toContain('Fix the bug');
   });
@@ -57,14 +74,14 @@ describe('codex buildCommand', () => {
     });
     // Regression guard on arg order: `resume <id>` must precede the -c flags,
     // and no positional prompt is appended on resume.
-    expect(cmd.args).toEqual(['resume', 'rollout-9', ...AUTO_FLAGS]);
+    expect(cmd.args).toEqual([TRUST_FLAG, 'resume', 'rollout-9', ...AUTO_FLAGS]);
   });
 
   it('falls back to `resume --last` as split args when no rollout id was captured', () => {
     const cmd = build({ ...base, isResuming: true });
     // Regression guard: the multi-token fallback must be two argv elements,
     // not a single "resume --last" string.
-    expect(cmd.args.slice(0, 2)).toEqual(['resume', '--last']);
+    expect(cmd.args.slice(1, 3)).toEqual(['resume', '--last']);
   });
 
   it('deduplicates the bypass-approvals-and-sandbox singleton flag', () => {
