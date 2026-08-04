@@ -52,8 +52,8 @@ export function VersionDriftNotice({
       </AlertTitle>
       <AlertDescription>
         {unknown
-          ? `This server runs switch-core ${drift.deployed} and this version of switchdash expects ${drift.expected}. Those cannot be compared automatically — restart only if you know ${drift.expected} is not older.`
-          : `This server still runs switch-core ${drift.deployed}. Restart it to pull ${drift.expected} and migrate its data. Its rooms and messages are kept.`}
+          ? `Runs switch-core ${drift.deployed}; this app expects ${drift.expected}. Can't tell which is newer — restart only if ${drift.expected} isn't older.`
+          : `Still on switch-core ${drift.deployed}. Restart to pull ${drift.expected} and migrate; rooms and messages are kept.`}
       </AlertDescription>
       <AlertAction>
         <Button size="sm" disabled={disabled} onClick={onRestart}>

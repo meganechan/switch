@@ -42,16 +42,14 @@ export type SwitchVersionDrift = {
  * the status `error` when a start is blocked) and the renderer (as the drift
  * banner) so both say the same thing.
  *
- * Names what is stuck, why it cannot be undone, and the two ways out: the
- * honest answer is "install the newer switchdash again", and a user who is not
- * told that will reach for Reset and lose their data.
+ * Kept to two sentences, but both ways out stay in: a user who is not told
+ * that updating switchdash fixes this will reach for Reset and lose their data.
  */
 export function switchVersionDowngradeMessage(deployed: string, expected: string): string {
   return (
-    `This stack runs switch-core ${deployed}, but this version of switchdash pins ${expected}. ` +
-    `Starting it would point the stack at an older core than its database has already migrated to, ` +
-    `and switch-core cannot roll a migration back. Update switchdash to a version that ships ` +
-    `switch-core ${deployed} or newer, or reset the stack to rebuild it empty (this deletes its data).`
+    `Runs switch-core ${deployed}; this app pins ${expected}. Its database has already migrated ` +
+    `forward and switch-core can't roll back — update switchdash to a build with switch-core ` +
+    `${deployed} or newer, or reset the stack (deletes its data).`
   );
 }
 
