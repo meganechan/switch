@@ -115,7 +115,15 @@ jobs:
           # auto-update.
           shopt -s nullglob
           assets=(release/*.dmg release/*.zip release/*.blockmap release/latest-mac.yml)
-          notes="switchdash desktop app $version (macOS arm64). Install: download the .dmg, open it, drag Switchdash to Applications. This build is signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass. In-app updates require a GitHub login via the gh CLI (gh auth login)."
+          # Covers both platforms: the Linux job attaches its assets to this same
+          # Release a few minutes later.
+          notes="switchdash desktop app $version — macOS arm64 and Linux x64.
+
+          **macOS (arm64):** download the .dmg, open it, drag Switchdash to Applications. Signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass.
+
+          **Linux (x64):** download the .AppImage (\`chmod +x\` then run), the .deb (\`sudo apt install ./<file>.deb\`) or the .rpm (\`sudo dnf install ./<file>.rpm\`). Linux builds are unsigned.
+
+          In-app updates require a GitHub login via the gh CLI (\`gh auth login\`)."
           gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "switchdash $version" \
