@@ -151,6 +151,22 @@ below:
 
 ### [Unreleased]
 
+### [0.17.1] - 2026-08-04
+
+#### Added
+- Linux x64 desktop builds are shipped again (AppImage, deb, rpm), with a stable
+  desktop-entry name so the launcher, icon and pinning behave; INSTALL docs and
+  release notes now cover Linux (CHOO-1905, #104).
+
+#### Changed
+- Release builds macOS and Linux artifacts in parallel (the GitHub Release is
+  created in its own job), cutting ~5 minutes off a release (CHOO-1905, #104).
+
+#### Fixed
+- A dropped-events "gap" no longer wakes an agent and spends a turn: switchdash
+  defers the warning onto the next event it was already going to surface, instead
+  of injecting an addressed prompt (CHOO-1906, #105).
+
 ### [0.17.0] - 2026-08-04
 
 #### Added
