@@ -261,7 +261,7 @@ const mcp = new Server(
       '',
       'Delivery is automatic: when you call connect_to_room on the switch MCP server, a PostToolUse hook pushes the room id to this channel over a localhost port. The channel claims that room on its connection and events are pushed to you as they happen. No separate tool call is needed.',
       '',
-      'If you receive a `gap` event, some room events were dropped and cannot be replayed — call read_context before responding rather than assuming you have the full picture.',
+      'If a notification carries a gap warning (a `gap` entry in its meta, and a line saying earlier events were dropped), some room events could not be replayed — call read_context before responding rather than assuming you have the full picture. A gap never arrives as a notification of its own; it is attached to the next event you receive.',
       '',
       'When you receive a message event:',
       '1. Call read_context with the since parameter set to a timestamp a few minutes before the event timestamp to get recent conversation context without re-reading the full history.',
@@ -757,9 +757,7 @@ async function handleFrame(frame: SseFrame): Promise<void> {
       process.stderr.write(
         `switch: GAP — missed events before sequence ${frame.data.from_sequence}\n`
       );
-      pendingGapReason = String(
-        frame.data.reason ?? 'events were dropped and cannot be replayed'
-      );
+      pendingGapReason = String(frame.data.reason ?? 'events were dropped and cannot be replayed');
       return;
 
     case 'evicted':
@@ -1308,7 +1306,7 @@ async function emitNotification(content: string, meta: Record<string, string>) {
   // non-zero, annotate the one-line body so the agent sees it without having
   // to inspect meta, and knows to widen read_context's `since` to catch up.
   const missed = missedSinceRead;
-  const enriched = { ...meta, missed_count: String(missed) };
+  const enriched: Record<string, string> = { ...meta, missed_count: String(missed) };
   let body =
     missed > 0
       ? `${content}\n⚠️ ${missed} unread room message${missed === 1 ? '' : 's'} since your last read_context — call read_context (widen \`since\`) to catch up on what you missed.`
