@@ -113,6 +113,9 @@ const config: Configuration = {
   },
   linux: {
     category: 'Development',
+    // fpm requires a maintainer for the .deb and .rpm targets; without it the
+    // packaging step aborts before writing any Linux artifact.
+    maintainer: 'Louis Amaudruz <louis.amaudruz@sandboxaq.com>',
     target: [
       { target: 'AppImage', arch: ['x64'] },
       { target: 'deb', arch: ['x64'] },

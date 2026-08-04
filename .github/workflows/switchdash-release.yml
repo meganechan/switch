@@ -4,11 +4,9 @@ name: switchdash release
 # (private) repo, so anyone with repo-read access can install it without building
 # from source. Release assets inherit the repo's read access — no separate ACL.
 #
-# macOS (arm64) is signed + notarized. Linux (x64) is temporarily disabled
-# (CHOO-1339): the .deb target fails without an author email in the app
-# package.json; re-enabling with proper maintainer metadata is a follow-up.
-# Windows is not built yet (needs an Authenticode / Azure Trusted Signing
-# identity — tracked as a follow-up).
+# macOS (arm64) is signed + notarized. Linux (x64) builds AppImage, deb and rpm,
+# unsigned. Windows is not built yet (needs an Authenticode / Azure Trusted
+# Signing identity — tracked as a follow-up).
 #
 # Trigger by pushing a tag like `switchdash-v1.1.34` (the version after
 # `switchdash-v` MUST match apps/switchdash-desktop/package.json `version`).
@@ -137,9 +135,6 @@ jobs:
   build-linux:
     name: Build & release (Linux x64)
     runs-on: ubuntu-latest
-    # Disabled (CHOO-1339): the .deb target fails without an author email in the
-    # app package.json. Re-enable once maintainer metadata is added (follow-up).
-    if: false
     # On tag runs, upload into the Release the macOS job creates — depend on it so
     # the Release exists before we upload. Linux is unsigned, so no cert secrets.
     needs: build-macos
