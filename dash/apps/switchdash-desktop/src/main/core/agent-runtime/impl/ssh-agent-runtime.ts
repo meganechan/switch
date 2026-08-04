@@ -3,6 +3,7 @@ import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
+import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import { reapStaleSidecarsForAgent } from '@main/core/agents/reap-stale-sidecars';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
@@ -21,6 +22,7 @@ import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-co
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';
 import type { SshConnectionManagerEvent } from '@main/core/ssh/lifecycle/ssh-connection-manager';
 import { remoteNpmRegistryAuthEnv } from '@main/core/switch-rooms/npm-registry-auth';
+import { readAgentSwitchEnvFromFs } from '@main/core/switch-rooms/switch-credentials';
 import { events } from '@main/lib/events';
 import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
@@ -214,8 +216,8 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       repoDir: this.sessionPath,
       deeplinkScheme: DEEPLINK_SCHEME,
       autoApprove: agent?.autoApprove ?? false,
-      credsSlug: agent?.name ?? session.agentName ?? session.agentId,
-      agentName: agent?.name ?? session.agentName ?? null,
+      credsSlug: agentCredsSlug(session),
+      agentName: session.agentName ?? null,
       ctx: this.ctx,
       connectionId: this.connectionId,
       host,
@@ -304,8 +306,8 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
           repoDir: this.sessionPath,
           deeplinkScheme: DEEPLINK_SCHEME,
           autoApprove: agent?.autoApprove ?? false,
-          credsSlug: agent?.name ?? session.agentName ?? session.agentId,
-          agentName: agent?.name ?? session.agentName ?? null,
+          credsSlug: agentCredsSlug(session),
+          agentName: session.agentName ?? null,
           ctx: this.ctx,
           connectionId: this.connectionId,
           host: this.createSidecarHost(),
@@ -452,13 +454,14 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       const providerEnv: Record<string, string> = { ...agentCommand.env, ...customEnv };
 
       // The agent's Switch identity as real env vars (highest precedence): read
-      // from its neutral `.switch/agents/<name>.json` on the VM. A `--settings`
+      // from its neutral `.switch/agents/<slug>.json` on the VM. A `--settings`
       // file's env block is not reliably propagated to the spawned MCP server, so
       // inject it directly, matching the local runtime.
+      const remoteFs = createRemotePluginFs(this.fs);
       const identityVars =
         session.agentName && repoAgents
-          ? await repoAgents.readLaunchEnv(createRemotePluginFs(this.fs), session.agentName)
-          : {};
+          ? await repoAgents.readLaunchEnv(remoteFs, session.agentName)
+          : await readAgentSwitchEnvFromFs(remoteFs, agentCredsSlug(session), log);
 
       const tmuxSessionName = this.tmux ? makeAgentTmuxSessionName(this.sessionId) : undefined;
 

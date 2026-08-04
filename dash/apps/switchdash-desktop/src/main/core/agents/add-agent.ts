@@ -12,8 +12,10 @@ import { basenameFromAnyPath } from '@shared/path-name';
 import { agentEvents } from './agent-events';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { createAgent } from './createAgent';
+import { knownAgentTypeForProvider } from './known-agent-type';
 import { registerAgentIdentity } from './register-agent-identity';
 import { reconcileAgentAutoSessionFromGateway } from './setAgentAutoSession';
+import { writeNeutralAgentSettingsFs } from './write-switch-settings';
 
 export type AddAgentParams = {
   id?: string;
@@ -71,23 +73,29 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
     description: params.description,
     repoDir: params.dir,
     autoSession: params.autoSession,
+    agentType: knownAgentTypeForProvider(params.providerId),
   });
   if (registered.kind !== 'created') return registered;
 
   const behavior = getPlugin(params.providerId).behavior.repoAgents;
   const workspace = await resolveWorkspaceFsFor(params.sshHost, params.dir);
   try {
+    // Writing the per-agent Switch credentials is unconditional core behavior for
+    // every provider, keyed by the agent's `name` — the single key-space every
+    // reader (launch path, auto-session watcher, notification poller) uses
+    // (CHOO-1440). Providers with repo-agent definitions (Claude) layer their
+    // on-disk definition on top; that's the only provider-specific extra.
+    await writeNeutralAgentSettingsFs(workspace.fs, {
+      slug: params.name,
+      apiEndpoint: server.apiUrl,
+      apiToken: registered.apiKey,
+      agentId: registered.id,
+    });
     if (behavior) {
       await behavior.writeDefinition(workspace.fs, {
         ...params.definitionAttributes,
         name: params.name,
         description: params.description,
-      });
-      await behavior.writeCredentials(workspace.fs, {
-        agentName: params.name,
-        apiEndpoint: server.apiUrl,
-        apiToken: registered.apiKey,
-        agentId: registered.id,
       });
     }
   } finally {

@@ -2,12 +2,19 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { createPluginFs } from '@main/core/providers/plugin-fs';
 import { detectSwitchAgent } from './detect';
-import { SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
+import {
+  agentSettingsRelativePath,
+  SWITCH_AGENTS_GITIGNORE_RELATIVE,
+  SWITCH_SETTINGS_RELATIVE_PATH,
+} from './switch-settings-paths';
 import {
   mergeSwitchApiEndpoint,
   mergeSwitchSettings,
   removeSwitchSettings,
+  writeAgentNeutralSettings,
+  writeNeutralAgentSettingsFs,
   writeSwitchSettings,
 } from './write-switch-settings';
 
@@ -89,6 +96,111 @@ describe('writeSwitchSettings', () => {
       SWITCH_API_TOKEN: 'new-token',
       SWITCH_AGENT_ID: 'agent-999',
     });
+  });
+});
+
+describe('writeNeutralAgentSettingsFs', () => {
+  it('writes the provider-neutral per-agent creds keyed by slug, with a gitignore', async () => {
+    await writeNeutralAgentSettingsFs(createPluginFs(dir), {
+      slug: 'agent-abc',
+      apiEndpoint: 'https://switch.example.com',
+      apiToken: 'secret-token',
+      agentId: 'switch-agent-1',
+    });
+
+    const raw = await fs.readFile(path.join(dir, agentSettingsRelativePath('agent-abc')), 'utf8');
+    const settings = JSON.parse(raw) as Record<string, unknown>;
+    expect(settings.env).toEqual({
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'secret-token',
+      SWITCH_AGENT_ID: 'switch-agent-1',
+    });
+
+    // The credentials directory is git-ignored so the token never enters VCS.
+    const ignore = await fs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8');
+    expect(ignore).toBe('*\n');
+  });
+
+  it('merges into an existing per-agent file, preserving unrelated env keys and allow rules', async () => {
+    const relPath = agentSettingsRelativePath('agent-abc');
+    await fs.mkdir(path.dirname(path.join(dir, relPath)), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, relPath),
+      JSON.stringify({
+        permissions: { allow: ['Bash'] },
+        env: { EXISTING: 'keep', SWITCH_API_TOKEN: 'old' },
+      }),
+      'utf8'
+    );
+
+    await writeNeutralAgentSettingsFs(createPluginFs(dir), {
+      slug: 'agent-abc',
+      apiEndpoint: 'https://switch.example.com',
+      apiToken: 'new-token',
+      agentId: 'switch-agent-1',
+    });
+
+    const settings = JSON.parse(await fs.readFile(path.join(dir, relPath), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(settings.env).toEqual({
+      EXISTING: 'keep',
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'new-token',
+      SWITCH_AGENT_ID: 'switch-agent-1',
+    });
+    // The connector's MCP tools are auto-approved on top of whatever the agent
+    // already allowed, so a Switch agent never has to ask to reach its room.
+    expect(settings.permissions).toEqual({
+      allow: [
+        'Bash',
+        'mcp__plugin_switch-connector_switch',
+        'mcp__plugin_switch-connector_switch-channel',
+      ],
+    });
+  });
+
+  it('writes the gitignore before the token file, so a crash never leaves a tracked token', async () => {
+    const writes: string[] = [];
+    const recordingFs = createPluginFs(dir);
+    const write = recordingFs.write.bind(recordingFs);
+    recordingFs.write = async (p, c) => {
+      writes.push(p);
+      return write(p, c);
+    };
+
+    await writeNeutralAgentSettingsFs(recordingFs, {
+      slug: 'agent-abc',
+      apiEndpoint: 'https://switch.example.com',
+      apiToken: 'secret-token',
+      agentId: 'switch-agent-1',
+    });
+
+    expect(writes).toEqual([
+      SWITCH_AGENTS_GITIGNORE_RELATIVE,
+      agentSettingsRelativePath('agent-abc'),
+    ]);
+  });
+});
+
+describe('writeAgentNeutralSettings', () => {
+  it('produces the same file as the PluginFs writer, for a plain directory path', async () => {
+    await writeAgentNeutralSettings({
+      dir,
+      slug: 'agent-abc',
+      apiEndpoint: 'https://switch.example.com',
+      apiToken: 'secret-token',
+      agentId: 'switch-agent-1',
+    });
+
+    const raw = await fs.readFile(path.join(dir, agentSettingsRelativePath('agent-abc')), 'utf8');
+    expect((JSON.parse(raw) as { env: Record<string, string> }).env).toEqual({
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'secret-token',
+      SWITCH_AGENT_ID: 'switch-agent-1',
+    });
+    expect(await fs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8')).toBe('*\n');
   });
 });
 

@@ -96,6 +96,42 @@ const CLAUDE_CONTROL: SessionControl = {
   },
 };
 
+/**
+ * Codex: also a TUI. ESC interrupts the current turn (Ctrl+C would exit the
+ * session instead), `/clear` starts a fresh chat, `/compact` summarises the
+ * transcript.
+ *
+ * Both slash commands are gated behind Codex's `available_during_task()`, which
+ * rejects them outright while a turn is running — the command is dropped with an
+ * error cell, not queued. The follow-up step would still run and announce work
+ * that never happened, so each is preceded by an interrupt. Kept as its own
+ * object rather than aliasing CLAUDE_CONTROL: the two CLIs are free to diverge,
+ * and a shared reference would make a Claude-only change silently apply here.
+ */
+const CODEX_CONTROL: SessionControl = {
+  capabilities: { reset: true, compact: true, interrupt: true },
+  plan(command, ctx) {
+    switch (command) {
+      case 'interrupt':
+        return [{ kind: 'raw', data: ESC }];
+      case 'compact':
+        return [
+          { kind: 'raw', data: ESC },
+          { kind: 'prompt', text: '/compact' },
+          { kind: 'prompt', text: reconnectAndAnnounce(ctx, 'context has been compacted') },
+        ];
+      case 'reset':
+        return [
+          { kind: 'raw', data: ESC },
+          { kind: 'prompt', text: '/clear' },
+          { kind: 'prompt', text: reconnectAndAnnounce(ctx, 'session has been reset') },
+        ];
+      default:
+        return null;
+    }
+  },
+};
+
 const NO_CONTROL: SessionControl = {
   capabilities: { reset: false, compact: false, interrupt: false },
   plan: () => null,
@@ -103,6 +139,7 @@ const NO_CONTROL: SessionControl = {
 
 const BY_PROVIDER: Record<string, SessionControl> = {
   claude: CLAUDE_CONTROL,
+  codex: CODEX_CONTROL,
 };
 
 /** Resolve the session-control support + recipes for a provider. */
