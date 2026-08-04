@@ -151,6 +151,25 @@ below:
 
 ### [Unreleased]
 
+### [0.17.0] - 2026-08-04
+
+#### Added
+- In-app Switch room creation: create a room from switchdash (name, description,
+  messaging app, agents, optional instructions) instead of the operator web app —
+  the picker offers only running bridges and every created room is bridged
+  (CHOO-1875, #103).
+- Room-centric sidebar: a room tree listing rooms by membership and ownership
+  (not only rooms with a live session), showing each room's members, managing
+  membership (add/remove agents), starting a session in a room with the agent
+  pre-chosen, and opening the room in its messaging app when the gateway supplies
+  a deeplink; rooms sort and filter on their own properties (CHOO-1875, #103).
+
+#### Fixed
+- Sessions launched for a room now declare that room when their connection opens
+  — both sidebar-started and auto-spawned (messaging-app-addressed) sessions
+  appear under the correct room immediately instead of sitting under
+  "Unassigned" until the agent calls `connect_to_room` (CHOO-1875, #103).
+
 ### [0.16.1] - 2026-08-03
 
 #### Added
