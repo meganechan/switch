@@ -31,7 +31,12 @@ import {
   reconcileInterruptedPlan,
 } from './plan-builder';
 import { deleteSetupPlan, getSetupPlan, listSetupPlans, saveSetupPlan } from './setup-plan-store';
-import { outcomeForDependency, outcomeForGhAuth } from './step-outcomes';
+import {
+  condenseCommandOutput,
+  describeInstallFailure,
+  outcomeForDependency,
+  outcomeForGhAuth,
+} from './step-outcomes';
 
 /** Runners are per-host so two hosts can be set up at once, but a host only once. */
 const runners = new Map<string, HostSetupRunner>();
@@ -160,11 +165,15 @@ async function installStep(
 
   // Surface the installer's own words. The old page discarded these and
   // rendered a bare "Install failed" — or, for a Result-typed failure, nothing.
+  // Its words are not always intelligible, though, so the few failures we can
+  // recognise are named plainly and the raw transcript is kept underneath.
   const error = result.error as { message?: string; output?: string; type?: string };
+  const message = error.message ?? error.type ?? 'Install failed.';
+  const output = error.output ? condenseCommandOutput(error.output) : null;
   return {
     ok: false,
-    error: error.message ?? error.type ?? 'Install failed.',
-    output: error.output ?? null,
+    error: describeInstallFailure(step.name, message, output),
+    output,
   };
 }
 

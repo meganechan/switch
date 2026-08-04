@@ -43,7 +43,9 @@ describe('buildSetupPlan', () => {
   it('marks gh and its login optional so they cannot strand a host', () => {
     const plan = build();
     const optional = plan.steps.filter((s) => s.optional).map((s) => s.id);
-    expect(optional).toEqual(['gh', GH_AUTH_STEP_ID]);
+    // gh is required: without it the Switch connector cannot fetch its runtime,
+    // so an agent on this host would start with no Switch tools (CHOO-1873).
+    expect(optional).toEqual([]);
   });
 
   it('keeps the required core tools required', () => {

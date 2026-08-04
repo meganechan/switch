@@ -56,14 +56,25 @@ describe('deriveHostStatus', () => {
     expect(isHostUsable(status)).toBe(true);
   });
 
-  it('does not count optional steps against readiness', () => {
+  it('does not hold an outstanding optional step against the verdict', () => {
     const status = deriveHostStatus(
       reachability('reachable'),
       plan([step('git', 'satisfied'), step('gh', 'pending', true)])
     );
 
     expect(status.kind).toBe('ready');
-    expect(status.total).toBe(1);
+  });
+
+  it('counts every step shown, so the tally cannot contradict the list', () => {
+    // A count that quietly excluded optional steps is how a host came to read
+    // "5 of 5 required" with two rows plainly saying Not installed.
+    const status = deriveHostStatus(
+      reachability('reachable'),
+      plan([step('git', 'satisfied'), step('gh', 'pending', true)])
+    );
+
+    expect(status.done).toBe(1);
+    expect(status.total).toBe(2);
   });
 
   describe('readiness is withheld when the host cannot be reached', () => {

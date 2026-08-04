@@ -45,7 +45,14 @@ export type HostStatus = {
    * the setup state we hold may be stale and must not be presented as current.
    */
   readinessKnown: boolean;
-  /** Required steps satisfied / total, when readiness is known. */
+  /**
+   * Steps satisfied / total, counting everything the page lists.
+   *
+   * Deliberately not "required only": a count that silently excludes optional
+   * steps cannot be reconciled with the list beside it, which is how a host
+   * came to read "5 of 5 required" with two rows plainly saying *Not
+   * installed*. The verdict below still turns on required steps alone.
+   */
   done: number;
   total: number;
 };
@@ -87,9 +94,8 @@ export function deriveHostStatus(
     };
   }
 
-  const required = plan.steps.filter((step) => !step.optional);
-  const total = required.length;
-  const done = required.filter((step) => step.state === 'satisfied').length;
+  const total = plan.steps.length;
+  const done = plan.steps.filter((step) => step.state === 'satisfied').length;
 
   // Work in flight lives on the step, not the plan: there is no automated run
   // to be "running", only whatever the user asked for a moment ago.
