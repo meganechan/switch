@@ -10,6 +10,10 @@ remember. Two consequences, and the second is the point:
   supervisor holding the connection learns the room **from Switch** instead of
   reading the agent's tool result. Reading the tool result is what switchdash
   did, and it broke silently the moment the result's shape changed.
+
+The claim is also the gate on a second session (CHOO-1419): a live claimant is
+another session of this agent already in the room, and the connect is refused
+rather than admitting a duplicate or leaving the caller to receive nothing.
 """
 
 from __future__ import annotations
@@ -18,12 +22,16 @@ import logging
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from switch_core.bridges.agent.operations.definitions import (
     claim_room_on_caller_connection,
 )
 from switch_core.bridges.agent.protocol.connections import (
     PROTOCOL_VERSION,
     ConnectionRegistry,
+    NoStreamAttachedError,
+    RoomOccupiedError,
 )
 
 AGENT = "agent-1"
@@ -95,28 +103,81 @@ def test_a_dead_sibling_does_not_lock_the_agent_out() -> None:
     assert claimant.id == CONN
 
 
-def test_a_live_sibling_keeps_the_room() -> None:
-    """A tool call does not take a room off a connection that is delivering.
+def test_a_live_sibling_makes_the_connect_fail(caplog: Any) -> None:
+    """A second session of the agent is refused the room, loudly (CHOO-1419).
 
-    The only thing a takeover here could ever win against is a live connection
-    covering the room — typically a supervisor feeding this very session. Taking
-    the slot from it stops delivery *silently*: the call succeeds, the agent
-    believes it is in the room, and nothing reaches it again.
+    A live claimant is another session of this same agent already acting in the
+    room. Letting the caller through would put two of them in it — the thing
+    that produces duplicated replies and interleaved work.
 
-    Ownership goes the other way: a supervisor declaring a room when it opens
-    its stream takes over; a `connect_to_room` yields.
+    Yielding quietly is the worse half of that: the caller would believe it
+    joined a room whose events go elsewhere, and would sit there receiving
+    nothing. So the incumbent keeps the room AND the caller is told.
     """
     registry = ConnectionRegistry()
-    supervisor = _open(registry, "supervisor")
-    registry.claim_room(supervisor, ROOM)
+    incumbent = _open(registry, "first-session")
+    registry.claim_room(incumbent, ROOM)
     _open(registry, CONN)
+
+    with pytest.raises(RoomOccupiedError) as excinfo:
+        claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    assert excinfo.value.holder_id == "first-session"
+    claimant = registry.claimant_of(AGENT, ROOM)
+    assert claimant is not None
+    assert claimant.id == "first-session"
+    assert ROOM in incumbent.rooms
+
+
+def test_the_refused_caller_keeps_its_other_rooms() -> None:
+    """Losing a claim must not disturb what the caller already holds.
+
+    `claim_room` clears a `single` connection's previous room before taking the
+    new one, so a refusal that happened after that would strip the caller of a
+    room it was legitimately in.
+    """
+    registry = ConnectionRegistry()
+    incumbent = _open(registry, "first-session")
+    registry.claim_room(incumbent, ROOM)
+    caller = _open(registry, CONN)
+    registry.claim_room(caller, "other-room")
+
+    with pytest.raises(RoomOccupiedError):
+        claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    assert caller.rooms == {"other-room"}
+
+
+def test_the_same_connection_reconnecting_is_not_a_duplicate() -> None:
+    """One session returning is not two sessions arriving.
+
+    A session keeps its connection id across reconnects, so it meets its own
+    claim. That must stay idempotent or every restart would lock itself out.
+    """
+    registry = ConnectionRegistry()
+    conn = _open(registry, CONN)
+    registry.claim_room(conn, ROOM)
 
     claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
 
     claimant = registry.claimant_of(AGENT, ROOM)
     assert claimant is not None
-    assert claimant.id == "supervisor"
-    assert ROOM in supervisor.rooms
+    assert claimant.id == CONN
+
+
+def test_another_agent_holding_the_room_is_not_a_conflict() -> None:
+    """The rule is one session per agent per room, not one agent per room."""
+    registry = ConnectionRegistry()
+    theirs = _open(registry, "their-session", agent_id="agent-2")
+    registry.claim_room(theirs, ROOM)
+    _open(registry, CONN)
+
+    claim_room_on_caller_connection(_protocol(registry), AGENT, CONN, ROOM)
+
+    ours = registry.claimant_of(AGENT, ROOM)
+    assert ours is not None
+    assert ours.id == CONN
+    assert ROOM in theirs.rooms
 
 
 def test_an_unknown_connection_is_not_an_error() -> None:
@@ -139,20 +200,20 @@ def test_another_agents_connection_is_never_claimed_on() -> None:
     assert registry.claimant_of(AGENT, ROOM) is None
 
 
-def test_a_failure_to_claim_is_logged_and_not_raised(
+def test_a_fault_that_is_not_occupancy_is_logged_and_not_raised(
     caplog: Any,
 ) -> None:
-    """Membership is already written; only routing is affected.
+    """Only occupancy is fatal; other faults cost routing, not membership.
 
-    Raising here would fail a `connect_to_room` that genuinely succeeded.
+    Occupancy means someone else is in the agent's seat, which changes what the
+    caller may do. Any other connection fault leaves the room the caller's to
+    have, so failing the whole connect over it would be the harsher answer.
     """
     registry = ConnectionRegistry()
     conn = _open(registry, CONN)
 
     def _explode(*_a: Any, **_kw: Any) -> None:
-        from switch_core.bridges.agent.protocol.connections import RoomOccupiedError
-
-        raise RoomOccupiedError(ROOM, "other")
+        raise NoStreamAttachedError(CONN)
 
     registry.claim_room = _explode  # type: ignore[method-assign]
 

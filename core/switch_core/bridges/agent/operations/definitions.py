@@ -22,7 +22,10 @@ from switch_core.bridges.agent.operations.context import (
     session_key,
 )
 from switch_core.bridges.agent.operations.registry import operation
-from switch_core.bridges.agent.protocol.connections import ConnectionError_
+from switch_core.bridges.agent.protocol.connections import (
+    ConnectionError_,
+    RoomOccupiedError,
+)
 from switch_core.bridges.agent.protocol.instructions import build_room_instructions
 from switch_core.bridges.agent.protocol.service import ProtocolService
 from switch_core.bridges.agent.protocol.types import IntegrationProfile
@@ -47,19 +50,20 @@ def claim_room_on_caller_connection(
     room *from Switch* rather than by reading the agent's tool result and
     hoping its shape never changes.
 
-    **Without takeover.** A dead connection is not a claimant at all —
-    ``claimant_of`` filters on liveness — so the only thing takeover could ever
-    win against is a connection that is genuinely alive and covering the room.
-    Usually that is a supervisor delivering for this very session, and taking
-    the slot from it stops delivery: the tool call succeeds, the agent believes
-    it is in the room, and nothing reaches it again.
+    **Without takeover, and occupancy is fatal.** At most one session of an
+    agent may act in a room. A dead connection is not a claimant at all —
+    ``claimant_of`` filters on liveness — so the only thing a claim can ever
+    lose to is a connection that is genuinely alive and holding the room, which
+    is a second session of this agent arriving in a room that already has one.
 
-    That is not hypothetical. A session started before its supervisor learned to
-    share connections holds its own; when it reconnects, taking over would
-    silence the supervisor that is actually feeding it.
+    Refusing is the whole point. Yielding here leaves the caller believing it
+    joined a room whose events go to somebody else: the call succeeds, the room
+    payload comes back in full, and nothing ever reaches the agent. A caller
+    that cannot have the room has to be told so it can fail, not proceed on a
+    false picture of where it is.
 
-    Never fatal. The room binding is written before this runs, so a failure here
-    costs delivery routing, not membership, and says so.
+    Faults other than occupancy stay non-fatal — they cost delivery routing
+    rather than the agent's place in the room, and say so in the log.
     """
     connection = protocol.connections.get(connection_id)
     if connection is None or connection.agent_id != agent_id:
@@ -69,6 +73,8 @@ def claim_room_on_caller_connection(
         return
     try:
         protocol.connections.claim_room(connection, room_id)
+    except RoomOccupiedError:
+        raise
     except ConnectionError_ as exc:
         logger.warning(
             "[CONNECT] agent=%s connection=%s could not claim room %s: %s",
@@ -203,6 +209,12 @@ async def connect_to_room(
     lifecycle = (
         "explicit" if profile.connection_model == "session_passive" else "heartbeat"
     )
+    # Claim before binding. The claim is the one step that can refuse, and a
+    # refused connect must leave nothing behind: a binding row written first
+    # would outlive the error and report this session as connected to a room it
+    # was never let into.
+    claim_room_on_caller_connection(protocol, agent_id, key, room.id)
+
     async with protocol.session_factory() as db:
         await protocol.agent_session_store.set_connected_room(
             db,
@@ -212,8 +224,6 @@ async def connect_to_room(
             lifecycle=lifecycle,
         )
         await db.commit()
-
-    claim_room_on_caller_connection(protocol, agent_id, key, room.id)
 
     return {
         "agent_id": agent_id,
