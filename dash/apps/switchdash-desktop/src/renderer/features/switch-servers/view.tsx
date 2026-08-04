@@ -232,8 +232,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
 
             <div className={`${card} space-y-3`}>
               <p className="text-sm text-foreground-muted">
-                Agents, rooms and sessions are managed here. The web app is this server's full admin
-                interface — resources, messaging apps, API keys and users.
+                Configure resources, messaging apps, API keys and users in the full admin interface.
               </p>
               <Button
                 variant="outline"
