@@ -21,6 +21,20 @@ below:
 
 ### [Unreleased]
 
+### [0.12.0] - 2026-08-04
+
+#### Added
+- Codex registered as its own gateway known-agent (connector_type "Codex") with
+  a Codex-flavored "no live session" command, instead of falling back to Claude's
+  builder (CHOO-1436, #91).
+- `cancel_task` agent operation — a requester can abandon a task it delegated,
+  recording the reason and notifying the room; served on both the MCP server and
+  the HTTP front door (CHOO-1436, #79).
+
+#### Changed
+- `list_participants` now includes each participant's `status` and `alias` (both
+  null when unset) (CHOO-1436, #79).
+
 ### [0.11.0] - 2026-08-03
 
 #### Added
