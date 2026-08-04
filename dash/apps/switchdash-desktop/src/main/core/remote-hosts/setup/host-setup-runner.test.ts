@@ -381,6 +381,84 @@ describe('plan helpers', () => {
   });
 });
 
+describe('checkAll — looking without touching', () => {
+  it('installs nothing, whatever it finds', async () => {
+    const { runner, installOrder } = makeRunner({
+      checks: { git: [{ outcome: 'satisfied' }], node: [{ outcome: 'missing' }] },
+      installs: {},
+    });
+
+    await runner.checkAll(plan([step('git'), step('node')]));
+
+    expect(installOrder).toEqual([]);
+  });
+
+  it('records what it saw on steps it leaves pending', async () => {
+    // The distinction the UI depends on: "not checked" vs "checked, and absent".
+    const { runner } = makeRunner({
+      checks: { node: [{ outcome: 'missing' }] },
+      installs: {},
+    });
+
+    const result = await runner.checkAll(plan([step('node')]));
+
+    expect(stateOf(result, 'node')).toBe('pending');
+    expect(result.steps[0]!.outcome).toBe('missing');
+  });
+
+  it('marks what is genuinely there as satisfied', async () => {
+    const { runner } = makeRunner({
+      checks: { git: [{ outcome: 'satisfied', version: '2.43.0' }] },
+      installs: {},
+    });
+
+    const result = await runner.checkAll(plan([step('git')]));
+
+    expect(stateOf(result, 'git')).toBe('satisfied');
+    expect(result.status).toBe('complete');
+  });
+
+  it('checks every step rather than stopping at the first problem', async () => {
+    // Unlike a run, there is nothing to halt for — the point is a full picture.
+    const { runner } = makeRunner({
+      checks: {
+        git: [{ outcome: 'missing' }],
+        node: [{ outcome: 'missing' }],
+        tmux: [{ outcome: 'satisfied' }],
+      },
+      installs: {},
+    });
+
+    const result = await runner.checkAll(plan([step('git'), step('node'), step('tmux')]));
+
+    expect(result.steps.map((s) => s.outcome)).toEqual(['missing', 'missing', 'satisfied']);
+    expect(stateOf(result, 'tmux')).toBe('satisfied');
+  });
+
+  it('supersedes a previous failure rather than leaving its error behind', async () => {
+    const { runner } = makeRunner({
+      checks: { node: [{ outcome: 'satisfied', version: '22.0.0' }] },
+      installs: {},
+    });
+
+    const result = await runner.checkAll(
+      plan([step('node', { state: 'failed', error: 'apt-get failed', output: 'E: broken' })])
+    );
+
+    expect(stateOf(result, 'node')).toBe('satisfied');
+    expect(result.steps[0]!.error).toBeNull();
+    expect(result.steps[0]!.output).toBeNull();
+  });
+
+  it('aborts as unreachable rather than reporting everything missing', async () => {
+    const { runner } = makeRunner({ checks: {}, installs: {}, reachable: false });
+
+    await expect(runner.checkAll(plan([step('git')]))).rejects.toBeInstanceOf(
+      HostSetupAbortedError
+    );
+  });
+});
+
 describe('gh-auth steps', () => {
   const ghStep = (patch: Partial<HostSetupStep> = {}) =>
     step('gh:auth', { kind: 'gh-auth', name: 'GitHub CLI login', optional: true, ...patch });

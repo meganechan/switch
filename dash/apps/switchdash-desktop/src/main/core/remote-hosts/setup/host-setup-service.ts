@@ -175,6 +175,27 @@ export async function runSetup(sshHost: string): Promise<HostSetupPlan> {
   }
 }
 
+/**
+ * Observe a host without changing it — the "Re-check" button.
+ *
+ * Rebuilds the plan first so newly-known dependencies are included, then probes
+ * every step and installs nothing.
+ */
+export async function recheckSetup(sshHost: string): Promise<HostSetupPlan> {
+  const plan = await ensureSetupPlan(sshHost);
+  const manager = await getRemoteDependencyManager(sshHost);
+  try {
+    return await runnerFor(sshHost, manager).checkAll(plan);
+  } catch (error) {
+    log.warn('[HostSetup] re-check stopped', {
+      event: 'host-setup-recheck-stopped',
+      sshHost,
+      error: String((error as Error)?.message ?? error),
+    });
+    throw error;
+  }
+}
+
 /** Move past a step the user has chosen not to fix, unblocking the rest. */
 export async function skipSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
   const plan = await getSetupPlan(sshHost);

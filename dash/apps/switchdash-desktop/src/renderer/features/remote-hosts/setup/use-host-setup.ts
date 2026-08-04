@@ -78,6 +78,19 @@ export function usePrepareSetup(sshHost: string) {
 }
 
 /**
+ * Probe every step without installing anything. `prepareSetup` only rebuilds
+ * the list of steps — this is the one that actually looks at the host.
+ */
+export function useRecheckSetup(sshHost: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => rpc.remoteHosts.recheckSetup(sshHost),
+    onSuccess: (plan) => queryClient.setQueryData(setupPlanQueryKey(sshHost), plan),
+    onError: (error) => log.error('Could not re-check remote host', { sshHost, error }),
+  });
+}
+
+/**
  * Run or resume setup. The run halts at the first required failure; the
  * rejection carries the reason (an unreachable host, most often), which the
  * caller surfaces rather than swallowing.

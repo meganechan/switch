@@ -1,15 +1,18 @@
 /**
  * The remote-hosts list (CHOO-1809).
  *
- * Rendering this page costs nothing. Each row shows reachability read from the
- * central model and a setup summary read from the host's persisted plan — no
- * SSH round trips, no probing on mount. The previous version fired a full
- * dependency sweep per row the instant the page opened, which is what made it
- * slow and unreliable with more than one host onboarded.
+ * Rendering this page costs nothing. Each row shows a status derived from the
+ * central reachability model and the host's persisted plan — no SSH round
+ * trips, no probing on mount. The previous version fired a full dependency
+ * sweep per row the instant the page opened, which is what made it slow and
+ * unreliable with more than one host onboarded.
+ *
+ * Rows use the same language as the agents settings page — icon tile, name,
+ * status pill — so hosts and agents read as one product.
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, ChevronRight, Circle, Loader2, Plus, Server, Trash2 } from 'lucide-react';
+import { ChevronRight, Plus, Server, Trash2 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import type { ViewDefinition } from '@renderer/app/view-registry';
@@ -27,64 +30,80 @@ import {
   SelectValue,
 } from '@renderer/lib/ui/select';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { StatusBadge } from '@renderer/lib/ui/status-badge';
+import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { log } from '@renderer/utils/logger';
-import { cn } from '@renderer/utils/utils';
-import { isHostBlocked } from '@shared/core/remote-hosts/reachability';
+import { deriveHostStatus, type HostStatus } from '@shared/core/remote-hosts/host-status';
 import type { HostSetupPlan } from '@shared/core/remote-hosts/setup';
 import { hostReachabilityStore } from '../host-reachability-store';
-import { summarisePlan } from '../setup/step-presentation';
 import { useAllHostSetupPlans } from '../setup/use-host-setup';
 
 export const REMOTE_HOSTS_QUERY_KEY = ['remote-hosts'];
 
-const SUMMARY_TONE = {
-  ready: 'text-green-500',
-  blocked: 'text-destructive',
-  'in-progress': 'text-amber-500',
-  unstarted: 'text-foreground-muted',
-} as const;
+type HostFilter = 'all' | 'ready' | 'attention';
+
+type RemoteHost = { sshHost: string; name: string };
+
+function SectionLabel({ children, count }: { children: React.ReactNode; count: number }) {
+  return (
+    <div className="px-3 py-2">
+      <Label>
+        {children}
+        {` (${count})`}
+      </Label>
+    </div>
+  );
+}
 
 /**
- * A host row's status. Reachability wins over setup state: a host we cannot
- * reach is reported as unreachable, never as "dependency missing" — that
- * conflation is exactly what CHOO-1682/1780 set out to end.
+ * One host row.
+ *
+ * Reachability wins over setup state: a host we cannot reach is reported as
+ * unreachable, never as "dependency missing" — that conflation is exactly what
+ * CHOO-1682/1780 set out to end. The derivation lives in `deriveHostStatus`, so
+ * this row and the host's own page cannot disagree.
  */
-const HostStatus = observer(function HostStatus({
-  sshHost,
+const HostRow = observer(function HostRow({
+  host,
   plan,
+  onOpen,
+  onRemoved,
 }: {
-  sshHost: string;
+  host: RemoteHost;
   plan: HostSetupPlan | null;
+  onOpen: () => void;
+  onRemoved: () => void;
 }) {
-  const reachability = hostReachabilityStore.get(sshHost);
+  const status = deriveHostStatus(hostReachabilityStore.get(host.sshHost), plan);
 
-  if (isHostBlocked(reachability)) {
-    return (
-      <span className="text-destructive flex items-center gap-1 text-xs">
-        <Circle className="size-3.5" />
-        {reachability.status === 'suspended' ? 'SSH auth failed' : 'Unreachable'}
-      </span>
-    );
-  }
-
-  const summary = summarisePlan(plan);
   return (
-    <span className={cn('flex items-center gap-1 text-xs', SUMMARY_TONE[summary.tone])}>
-      {summary.tone === 'ready' ? (
-        <CheckCircle2 className="size-3.5" />
-      ) : summary.tone === 'in-progress' ? (
-        <Loader2 className={cn('size-3.5', plan?.status === 'running' && 'animate-spin')} />
-      ) : (
-        <Circle className="size-3.5" />
-      )}
-      {summary.headline}
-    </span>
+    <div className="group flex w-full items-center gap-3 rounded-lg p-3 hover:bg-background-1">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+      >
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-background-1 p-1.5 group-hover:bg-background-2">
+          <Server className="size-4 text-foreground-muted" />
+        </div>
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate text-sm text-foreground">{host.name}</span>
+          <span className="truncate text-xs text-foreground-muted">{host.sshHost}</span>
+        </span>
+      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+        <RemoveHostButton sshHost={host.sshHost} name={host.name} onRemoved={onRemoved} />
+        <ChevronRight className="size-4 text-foreground-muted" />
+      </div>
+    </div>
   );
 });
 
 export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
   const queryClient = useQueryClient();
   const { navigate } = useNavigate();
+  const [filter, setFilter] = useState<HostFilter>('all');
 
   const { data: hosts, isLoading } = useQuery({
     queryKey: REMOTE_HOSTS_QUERY_KEY,
@@ -99,20 +118,73 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
     void hostReachabilityStore.hydrate();
   }, []);
 
+  const statuses = useMemo(() => {
+    const byHost = new Map<string, HostStatus>();
+    for (const host of list) {
+      byHost.set(
+        host.sshHost,
+        deriveHostStatus(
+          hostReachabilityStore.get(host.sshHost),
+          plans.data?.[host.sshHost] ?? null
+        )
+      );
+    }
+    return byHost;
+  }, [list, plans.data]);
+
+  const ready = useMemo(
+    () => list.filter((host) => statuses.get(host.sshHost)?.kind === 'ready'),
+    [list, statuses]
+  );
+  const attention = useMemo(
+    () => list.filter((host) => statuses.get(host.sshHost)?.kind !== 'ready'),
+    [list, statuses]
+  );
+
+  const openHost = (sshHost: string) => navigate('remoteHost', { sshHost });
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: REMOTE_HOSTS_QUERY_KEY });
+  };
+
+  const renderRows = (rows: RemoteHost[]) =>
+    rows.map((host) => (
+      <div key={host.sshHost} className="w-full py-0.5">
+        <HostRow
+          host={host}
+          plan={plans.data?.[host.sshHost] ?? null}
+          onOpen={() => openHost(host.sshHost)}
+          onRemoved={invalidate}
+        />
+      </div>
+    ));
+
   return (
-    <div className="space-y-8 px-8 pb-10">
+    <div className="space-y-4 px-8 pb-10">
       <PageHeader
         sticky
         title="Remote hosts"
         description="SSH hosts that can run agents. Each host has its own page for setup and for the agent types installed on it."
       >
-        <OnboardHostForm
-          onboarded={sshHosts}
-          onOnboarded={(sshHost) => {
-            void queryClient.invalidateQueries({ queryKey: REMOTE_HOSTS_QUERY_KEY });
-            navigate('remoteHost', { sshHost });
-          }}
-        />
+        <div className="flex items-center justify-between gap-2">
+          <ToggleGroup
+            multiple={false}
+            value={[filter]}
+            onValueChange={([value]) => {
+              if (value) setFilter(value as HostFilter);
+            }}
+          >
+            <ToggleGroupItem value="all">All</ToggleGroupItem>
+            <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
+            <ToggleGroupItem value="attention">Needs setup</ToggleGroupItem>
+          </ToggleGroup>
+          <OnboardHostForm
+            onboarded={sshHosts}
+            onOnboarded={(sshHost) => {
+              invalidate();
+              openHost(sshHost);
+            }}
+          />
+        </div>
       </PageHeader>
 
       {isLoading ? (
@@ -123,35 +195,38 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
         <p className="text-sm text-foreground-muted">
           No remote hosts yet. Add one above to get started.
         </p>
+      ) : filter === 'ready' ? (
+        ready.length > 0 ? (
+          <div>
+            <SectionLabel count={ready.length}>Ready</SectionLabel>
+            {renderRows(ready)}
+          </div>
+        ) : (
+          <p className="text-sm text-foreground-muted">No host is ready yet.</p>
+        )
+      ) : filter === 'attention' ? (
+        attention.length > 0 ? (
+          <div>
+            <SectionLabel count={attention.length}>Needs setup</SectionLabel>
+            {renderRows(attention)}
+          </div>
+        ) : (
+          <p className="text-sm text-foreground-muted">Every host is ready.</p>
+        )
       ) : (
-        <div className="flex flex-col gap-2">
-          {list.map((host) => (
-            <div
-              key={host.sshHost}
-              className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
-            >
-              <button
-                type="button"
-                className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                onClick={() => navigate('remoteHost', { sshHost: host.sshHost })}
-              >
-                <Server className="size-4 shrink-0 text-foreground-muted" />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm">{host.name}</span>
-                  <span className="truncate text-xs text-foreground-muted">{host.sshHost}</span>
-                </span>
-              </button>
-              <HostStatus sshHost={host.sshHost} plan={plans.data?.[host.sshHost] ?? null} />
-              <RemoveHostButton
-                sshHost={host.sshHost}
-                name={host.name}
-                onRemoved={() => {
-                  void queryClient.invalidateQueries({ queryKey: REMOTE_HOSTS_QUERY_KEY });
-                }}
-              />
-              <ChevronRight className="size-4 shrink-0 text-foreground-muted" />
-            </div>
-          ))}
+        <div className="flex flex-col">
+          {attention.length > 0 && (
+            <section>
+              <SectionLabel count={attention.length}>Needs setup</SectionLabel>
+              {renderRows(attention)}
+            </section>
+          )}
+          {ready.length > 0 && (
+            <section className="pt-2">
+              <SectionLabel count={ready.length}>Ready</SectionLabel>
+              {renderRows(ready)}
+            </section>
+          )}
         </div>
       )}
     </div>

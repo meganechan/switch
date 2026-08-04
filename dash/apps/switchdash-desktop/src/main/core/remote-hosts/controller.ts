@@ -30,6 +30,7 @@ import {
   discardSetupPlan,
   ensureSetupPlan,
   readSetupPlan,
+  recheckSetup,
   runSetup,
   skipSetupStep,
 } from './setup/host-setup-service';
@@ -203,8 +204,12 @@ export const remoteHostsController = createRPCController({
   /**
    * Build or refresh the plan without running it — what the host page loads on
    * open. Merges onto any persisted progress rather than discarding it.
+   * Structural only: it lists what to check, it does not check it.
    */
   prepareSetup: (sshHost: string): Promise<HostSetupPlan> => ensureSetupPlan(sshHost),
+
+  /** Probe every step and install nothing — the "Re-check" button. */
+  recheckSetup: (sshHost: string): Promise<HostSetupPlan> => recheckSetup(sshHost),
 
   /**
    * Run (or resume) setup. Steps are checked and installed one at a time and

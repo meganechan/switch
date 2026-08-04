@@ -131,6 +131,58 @@ export class HostSetupRunner {
   }
 
   /**
+   * Observe every step, installing nothing — what "Re-check" means.
+   *
+   * Without this the only way to learn a host's state was to press "Run setup",
+   * which also installs; a user who just wanted to know where a host stood had
+   * to risk changing it. A pass here records what is actually there and leaves
+   * unsatisfied steps `pending` — they carry their observed `outcome`, so the
+   * UI can say "not installed" rather than "not checked", without claiming an
+   * attempt was made.
+   *
+   * A previous failure's error and command output are cleared deliberately: a
+   * fresh observation supersedes the story of an older install attempt.
+   */
+  async checkAll(plan: HostSetupPlan): Promise<HostSetupPlan> {
+    if (this.running) {
+      throw new Error(`A setup run is already in progress for ${this.deps.sshHost}`);
+    }
+    this.running = true;
+    try {
+      let next = plan;
+      for (const step of plan.steps) {
+        try {
+          this.deps.requireReachable(this.deps.sshHost);
+        } catch (error) {
+          next = await this.transition(next, { status: 'halted', currentStepId: null });
+          throw new HostSetupAbortedError(
+            `Could not check ${this.deps.sshHost}: the host became unreachable.`,
+            error
+          );
+        }
+
+        next = await this.patchStep(next, step.id, {
+          state: 'checking',
+          error: null,
+          output: null,
+        });
+        next = await this.observe(next, step.id);
+
+        if (findStep(next, step.id).state !== 'satisfied') {
+          next = await this.patchStep(next, step.id, { state: 'pending' });
+        }
+      }
+
+      return await this.transition(next, {
+        status: isPlanComplete(next) ? 'complete' : 'idle',
+        currentStepId: null,
+      });
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
    * Check one step, install it if that is both needed and possible, then
    * re-check to verify. Never marks a step satisfied on the strength of an
    * installer's exit code alone.

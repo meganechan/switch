@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
+  agentTypeBadge,
+  canSkip,
+  groupPlanSteps,
   outcomeLabel,
-  showsAsComplete,
-  stepStatusLabel,
-  stepTone,
-  summarisePlan,
+  stepBadge,
 } from './step-presentation';
 
 function step(patch: Partial<HostSetupStep> = {}): HostSetupStep {
@@ -37,157 +37,151 @@ function plan(steps: HostSetupStep[], patch: Partial<HostSetupPlan> = {}): HostS
   };
 }
 
-describe('showsAsComplete — the green tick must be earned', () => {
-  it('is true only for a satisfied step', () => {
-    expect(showsAsComplete(step({ state: 'satisfied' }))).toBe(true);
+describe('stepBadge — green must be earned', () => {
+  it('is success only for a satisfied step', () => {
+    expect(stepBadge(step({ state: 'satisfied' }))).toEqual({
+      tone: 'success',
+      label: 'Installed',
+    });
   });
 
   it.each(['pending', 'checking', 'installing', 'failed', 'skipped', 'blocked'] as const)(
-    'is false for %s',
+    'is never success for %s',
     (state) => {
-      expect(showsAsComplete(step({ state }))).toBe(false);
+      expect(stepBadge(step({ state })).tone).not.toBe('success');
     }
   );
 
-  it('is false for a skipped step even though the run moved past it', () => {
-    expect(showsAsComplete(step({ state: 'skipped' }))).toBe(false);
+  it('does not show a skipped step as done even though the run moved past it', () => {
+    expect(stepBadge(step({ state: 'skipped' }))).toEqual({ tone: 'neutral', label: 'Skipped' });
   });
 
-  it('is false when the check could not determine anything', () => {
-    expect(showsAsComplete(step({ state: 'failed', outcome: 'unknown' }))).toBe(false);
+  describe('"not checked" and "checked, and absent" are different facts', () => {
+    it('says not checked when nothing has been observed', () => {
+      expect(stepBadge(step({ state: 'pending', outcome: null }))).toEqual({
+        tone: 'neutral',
+        label: 'Not checked',
+      });
+    });
+
+    it('reports what a probe-only pass observed, without claiming an attempt', () => {
+      // Re-check leaves steps pending but records the outcome. Showing that as
+      // "Not checked" would throw away the only thing the user asked for.
+      expect(stepBadge(step({ state: 'pending', outcome: 'missing' }))).toEqual({
+        tone: 'warning',
+        label: 'Not installed',
+      });
+    });
+
+    it('does not dress an undetermined probe up as a definite answer', () => {
+      expect(stepBadge(step({ state: 'pending', outcome: 'unknown' })).label).toBe(
+        'Could not be checked'
+      );
+    });
   });
 });
 
-describe('stepTone', () => {
-  it('maps each state to a distinct tone', () => {
-    expect(stepTone(step({ state: 'satisfied' }))).toBe('done');
-    expect(stepTone(step({ state: 'checking' }))).toBe('busy');
-    expect(stepTone(step({ state: 'installing' }))).toBe('busy');
-    expect(stepTone(step({ state: 'failed' }))).toBe('failed');
-    expect(stepTone(step({ state: 'skipped' }))).toBe('skipped');
-    expect(stepTone(step({ state: 'blocked' }))).toBe('waiting');
-    expect(stepTone(step({ state: 'pending' }))).toBe('idle');
+describe('agentTypeBadge — a CLI alone is not usable', () => {
+  const cli = (patch: Partial<HostSetupStep> = {}) =>
+    step({ id: 'claude-code', kind: 'agent-cli', name: 'Claude Code', ...patch });
+  const plugin = (patch: Partial<HostSetupStep> = {}) =>
+    step({
+      id: 'claude-code:plugin',
+      kind: 'agent-plugin',
+      name: 'Claude Code · Switch connector',
+      ...patch,
+    });
+  const row = (c: HostSetupStep, p: HostSetupStep | null) => ({
+    agentId: 'claude-code',
+    name: 'Claude Code',
+    cli: c,
+    plugin: p,
   });
 
-  it('never gives a non-satisfied step the done tone', () => {
-    const states = ['pending', 'checking', 'installing', 'failed', 'skipped', 'blocked'] as const;
-    for (const state of states) {
-      expect(stepTone(step({ state }))).not.toBe('done');
-    }
+  it('is installed only when both the CLI and the connector are satisfied', () => {
+    expect(
+      agentTypeBadge(row(cli({ state: 'satisfied' }), plugin({ state: 'satisfied' })))
+    ).toEqual({ tone: 'success', label: 'Installed' });
+  });
+
+  it('calls out the connector when the CLI is there but the connector is not', () => {
+    // Without the connector the agent starts and has no Switch tools — rounding
+    // this up to "Installed" is what makes that failure invisible.
+    expect(agentTypeBadge(row(cli({ state: 'satisfied' }), plugin({ state: 'pending' })))).toEqual({
+      tone: 'warning',
+      label: 'Switch setup required',
+    });
+  });
+
+  it('reports the CLI state when the CLI itself is missing', () => {
+    expect(agentTypeBadge(row(cli({ state: 'pending', outcome: 'missing' }), plugin())).label).toBe(
+      'Not installed'
+    );
+  });
+
+  it('surfaces a failure from either half', () => {
+    expect(
+      agentTypeBadge(
+        row(cli({ state: 'satisfied' }), plugin({ state: 'failed', outcome: 'missing' }))
+      ).tone
+    ).toBe('danger');
+  });
+
+  it('shows work in flight ahead of the resting state', () => {
+    expect(
+      agentTypeBadge(row(cli({ state: 'satisfied' }), plugin({ state: 'installing' }))).label
+    ).toBe('Installing…');
   });
 });
 
-describe('labels', () => {
-  it('distinguishes "could not check" from "not installed"', () => {
+describe('groupPlanSteps', () => {
+  it('splits prerequisites from agent types and pairs each CLI with its connector', () => {
+    const grouped = groupPlanSteps(
+      plan([
+        step({ id: 'git', name: 'Git' }),
+        step({ id: 'gh:auth', kind: 'gh-auth', name: 'GitHub CLI login' }),
+        step({ id: 'claude-code', kind: 'agent-cli', name: 'Claude Code' }),
+        step({
+          id: 'claude-code:plugin',
+          kind: 'agent-plugin',
+          name: 'Claude Code · Switch connector',
+        }),
+      ])
+    );
+
+    expect(grouped.prerequisites.map((s) => s.id)).toEqual(['git', 'gh:auth']);
+    expect(grouped.agentTypes).toHaveLength(1);
+    expect(grouped.agentTypes[0]!.agentId).toBe('claude-code');
+    expect(grouped.agentTypes[0]!.plugin?.id).toBe('claude-code:plugin');
+  });
+
+  it('keeps an agent type whose connector step is absent', () => {
+    const grouped = groupPlanSteps(plan([step({ id: 'codex', kind: 'agent-cli', name: 'Codex' })]));
+
+    expect(grouped.agentTypes[0]!.plugin).toBeNull();
+  });
+
+  it('is empty for a host with no plan', () => {
+    expect(groupPlanSteps(null)).toEqual({ prerequisites: [], agentTypes: [] });
+  });
+});
+
+describe('outcomeLabel', () => {
+  it('says plainly when a check could not determine anything', () => {
     expect(outcomeLabel('unknown')).toBe('Could not be checked');
-    expect(outcomeLabel('missing')).toBe('Not installed');
-    expect(outcomeLabel('unknown')).not.toBe(outcomeLabel('missing'));
-  });
-
-  it('names the installed-but-unusable states specifically', () => {
-    expect(outcomeLabel('not-running')).toBe('Installed but not running');
-    expect(outcomeLabel('wrong-version')).toBe('Installed but too old');
-  });
-
-  it('says a pending step has not been checked, rather than implying a result', () => {
-    expect(stepStatusLabel(step({ state: 'pending' }))).toBe('Not checked yet');
     expect(outcomeLabel(null)).toBe('Not checked yet');
   });
 
-  it('shows the detected version on a ready step', () => {
-    expect(stepStatusLabel(step({ state: 'satisfied', version: '22.0.0' }))).toBe('Ready · 22.0.0');
-  });
-
-  it('explains that a blocked step is waiting on something upstream', () => {
-    expect(stepStatusLabel(step({ state: 'blocked' }))).toBe('Waiting on an earlier step');
-  });
-
-  it('reports the observed outcome for a failed step', () => {
-    expect(stepStatusLabel(step({ state: 'failed', outcome: 'not-running' }))).toBe(
-      'Installed but not running'
-    );
+  it('distinguishes a stopped service from a missing one', () => {
+    expect(outcomeLabel('not-running')).toBe('Installed but not running');
+    expect(outcomeLabel('missing')).toBe('Not installed');
   });
 });
 
-describe('summarisePlan', () => {
-  it('treats a host with no plan as unstarted, not ready', () => {
-    const summary = summarisePlan(null);
-    expect(summary.ready).toBe(false);
-    expect(summary.tone).toBe('unstarted');
-  });
-
-  it('is ready only when every required step is satisfied', () => {
-    const summary = summarisePlan(
-      plan([step({ id: 'git', state: 'satisfied' }), step({ id: 'node', state: 'satisfied' })])
-    );
-    expect(summary.ready).toBe(true);
-    expect(summary.headline).toBe('Ready');
-  });
-
-  it('ignores optional steps when deciding readiness', () => {
-    const summary = summarisePlan(
-      plan([
-        step({ id: 'node', state: 'satisfied' }),
-        step({ id: 'gh', state: 'failed', optional: true }),
-      ])
-    );
-    expect(summary.ready).toBe(true);
-  });
-
-  it('is not ready when a required step was skipped', () => {
-    const summary = summarisePlan(
-      plan([step({ id: 'node', state: 'skipped' }), step({ id: 'git', state: 'satisfied' })])
-    );
-    expect(summary.ready).toBe(false);
-  });
-
-  it('names the step a halted run stopped at', () => {
-    const summary = summarisePlan(
-      plan([
-        step({ id: 'git', state: 'satisfied' }),
-        step({ id: 'node', state: 'failed' }),
-        step({ id: 'tmux', state: 'blocked' }),
-      ])
-    );
-    expect(summary.tone).toBe('blocked');
-    expect(summary.headline).toBe('Stopped at Node.js');
-  });
-
-  it('does not report an optional failure as blocking', () => {
-    const summary = summarisePlan(
-      plan([
-        step({ id: 'node', state: 'satisfied' }),
-        step({ id: 'gh', state: 'failed', optional: true, name: 'GitHub CLI' }),
-      ])
-    );
-    expect(summary.tone).not.toBe('blocked');
-  });
-
-  it('names the step currently running', () => {
-    const summary = summarisePlan(
-      plan([step({ id: 'node', state: 'installing' })], {
-        status: 'running',
-        currentStepId: 'node',
-      })
-    );
-    expect(summary.headline).toBe('Setting up Node.js…');
-  });
-
-  it('counts only required steps in the progress fraction', () => {
-    const summary = summarisePlan(
-      plan([
-        step({ id: 'git', state: 'satisfied' }),
-        step({ id: 'node', state: 'pending' }),
-        step({ id: 'gh', state: 'pending', optional: true }),
-      ])
-    );
-    expect(summary).toMatchObject({ done: 1, total: 2 });
-  });
-
-  it('reports partial progress once something is done', () => {
-    const summary = summarisePlan(
-      plan([step({ id: 'git', state: 'satisfied' }), step({ id: 'node', state: 'pending' })])
-    );
-    expect(summary.headline).toBe('1 of 2 steps done');
+describe('canSkip', () => {
+  it('offers a skip only once a step has actually failed', () => {
+    expect(canSkip(step({ state: 'failed' }))).toBe(true);
+    expect(canSkip(step({ state: 'pending' }))).toBe(false);
+    expect(canSkip(step({ state: 'satisfied' }))).toBe(false);
   });
 });
