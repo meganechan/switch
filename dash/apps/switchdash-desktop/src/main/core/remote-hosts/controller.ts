@@ -52,7 +52,7 @@ export type RemoteDependencyView = {
   /**
    * GitHub CLI auth status. Present only on the `gh` dependency once its binary
    * is available — `gh` being installed is not enough to use it, it must also be
-   * authenticated (`gh auth status`).
+   * authenticated and hold the `read:packages` scope.
    */
   ghAuth?: GhAuthStatus;
 };
@@ -105,13 +105,31 @@ async function probeDeps(sshHost: string): Promise<RemoteDependencyView[]> {
  * can attach a live terminal (subscribe to output, send keystrokes) via the pty
  * RPC/events. gh prints a one-time code and a verification URL; the user opens the
  * URL in their own browser and enters the code. Returns the PTY session id.
+ *
+ * `read:packages` is requested explicitly because `gh auth login` does not ask
+ * for it — its defaults are `gist`, `read:org`, `repo` and `workflow`. Sessions
+ * on this host fetch their MCP runtime from GitHub Packages, and without that
+ * scope the registry refuses with
+ * `403 … token provided does not match expected scopes`, several layers below
+ * anything that mentions `gh`. Asking for it during the one interactive login
+ * the user already performs is the only point where it costs nothing; every
+ * other route ends in `gh auth refresh` on a box they thought was set up.
  */
 async function startGhAuth(sshHost: string): Promise<{ sessionId: string }> {
   const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
   const profile = await proxy.getRemoteShellProfile();
+  // Login when logged out, refresh when already logged in. `gh auth login` on
+  // an authenticated host stops to ask whether you meant to re-authenticate,
+  // which is a confusing thing to meet when all you needed was a scope; `gh
+  // auth refresh` adds it without disturbing the existing login. Both are the
+  // same device-code flow in this PTY, so the user sees no difference.
   const remoteCommand = buildRemoteShellCommand(
     profile,
-    'gh auth login --hostname github.com --git-protocol https --web'
+    'if gh auth status >/dev/null 2>&1; then ' +
+      'gh auth refresh --hostname github.com --scopes read:packages; ' +
+      'else ' +
+      'gh auth login --hostname github.com --git-protocol https --web --scopes read:packages; ' +
+      'fi'
   );
   const sessionId = `gh-auth:${crypto.randomUUID()}`;
 

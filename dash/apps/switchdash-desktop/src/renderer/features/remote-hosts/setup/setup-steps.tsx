@@ -6,14 +6,7 @@
  * back as a Result rather than a thrown error, showed nothing at all.
  */
 
-import {
-  CheckCircle2,
-  ChevronRight,
-  Circle,
-  Loader2,
-  MinusCircle,
-  XCircle,
-} from 'lucide-react';
+import { CheckCircle2, ChevronRight, Circle, Loader2, MinusCircle, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@renderer/lib/ui/button';
 import { cn } from '@renderer/utils/utils';

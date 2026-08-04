@@ -18,7 +18,6 @@ import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import {
   hostSetupPlanEventChannel,
-  type DependencyCheckOutcome,
   type HostSetupPlan,
   type HostSetupStep,
 } from '@shared/core/remote-hosts/setup';
@@ -32,31 +31,7 @@ import {
   reconcileInterruptedPlan,
 } from './plan-builder';
 import { deleteSetupPlan, getSetupPlan, saveSetupPlan } from './setup-plan-store';
-
-/**
- * Translate a probed dependency into an observation.
- *
- * The dependency manager collapses "installed but below minVersion" into
- * `status: 'error'` with a message; we recover the distinction here, because
- * "too old" is actionable (upgrade) in a way that "we could not tell" is not.
- * Anything else reporting `error` is genuinely undetermined and must surface as
- * `unknown` rather than being guessed at.
- */
-export function outcomeForDependency(
-  state: { status: string; version: string | null; error?: string },
-  hasMinVersion: boolean
-): { outcome: DependencyCheckOutcome; version: string | null; error?: string } {
-  if (state.status === 'available') {
-    return { outcome: 'satisfied', version: state.version };
-  }
-  if (state.status === 'missing') {
-    return { outcome: 'missing', version: null };
-  }
-  if (hasMinVersion && state.version) {
-    return { outcome: 'wrong-version', version: state.version, error: state.error };
-  }
-  return { outcome: 'unknown', version: state.version, error: state.error };
-}
+import { outcomeForDependency, outcomeForGhAuth } from './step-outcomes';
 
 /** Runners are per-host so two hosts can be set up at once, but a host only once. */
 const runners = new Map<string, HostSetupRunner>();
@@ -135,10 +110,7 @@ async function checkStep(
   step: HostSetupStep
 ): Promise<StepCheckResult> {
   if (step.kind === 'gh-auth') {
-    const status = await probeGhAuthStatus(sshHost);
-    return status.authenticated
-      ? { outcome: 'satisfied', version: status.account }
-      : { outcome: 'missing' };
+    return outcomeForGhAuth(await probeGhAuthStatus(sshHost));
   }
 
   if (step.kind === 'agent-plugin') {
