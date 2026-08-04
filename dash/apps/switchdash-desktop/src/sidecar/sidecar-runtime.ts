@@ -55,12 +55,20 @@ export interface SessionRegistry {
     providerId: string;
     tmuxTarget: string;
   }): void;
+  /** Drop the session's room while keeping the session. Distinct from `record`
+   * with a null room, which means "no room information" and preserves what is
+   * already known. */
+  clearRoom(sessionId: string): void;
   forget(sessionId: string): void;
 }
 
 interface SessionConnection {
   connection: ManagedConnection;
-  roomId: string;
+  /** Null once the session holds no room — it has not connected to one yet, or
+   * it was evicted from the one it had. Both must be reportable: a session
+   * still shown under a room it no longer attends is the duplicate-session
+   * illusion (CHOO-1419). */
+  roomId: string | null;
   tmuxTarget: string;
 }
 
@@ -258,7 +266,14 @@ export class SidecarRuntime {
         if (room) {
           this.deps.registry.record({ sessionId, roomId: room, providerId, tmuxTarget });
           this.roomConnectedListener?.(room, sessionId);
+          return;
         }
+        // Losing the room has to reach the durable registry too. It is what
+        // `/sessions` reports for a pane with no live connection and what a
+        // restart restores from, so leaving the old room there would put the
+        // session back under a room it no longer attends — and reconnect it,
+        // taking the room off whoever holds it now.
+        this.deps.registry.clearRoom(sessionId);
       },
       log: this.deps.log,
     });
@@ -321,8 +336,8 @@ export class SidecarRuntime {
    * into its UI. Only panes that are still live are reported so a session whose
    * agent has exited does not surface as a ghost row.
    */
-  connectedSessions(): Array<{ sessionId: string; roomId: string }> {
-    const out: Array<{ sessionId: string; roomId: string }> = [];
+  connectedSessions(): Array<{ sessionId: string; roomId: string | null }> {
+    const out: Array<{ sessionId: string; roomId: string | null }> = [];
     for (const [sessionId, session] of this.sessions) {
       if (this.deps.isPaneLive(session.tmuxTarget)) {
         out.push({ sessionId, roomId: session.roomId });
