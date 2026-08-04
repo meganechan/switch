@@ -62,14 +62,22 @@ export function condenseCommandOutput(raw: string): string {
 const PACKAGE_MANAGER_BUSY =
   /could not get lock|unable to acquire the dpkg frontend lock|waiting for cache lock|another process using it/i;
 
+/** The pid apt names as the lock holder, when it names one. */
+const LOCK_HOLDER_PID = /held by process (\d+)/i;
+
 /**
  * Explain why an install failed, in terms the user can act on.
  *
- * The lock case is worth naming: on a fresh Ubuntu host the distro's own
- * automatic-updates timer holds the dpkg lock for the first minutes after boot,
- * so an install fails through no fault of the user's and succeeds on retry. Raw
- * apt output does not say that — it says `E: Could not get lock`, buried under
- * a screen of progress redraws.
+ * The lock case is worth naming, because raw apt output does not explain it —
+ * it says `E: Could not get lock`, buried under a screen of progress redraws.
+ *
+ * What it must *not* do is guess whose lock it is. An earlier version of this
+ * message blamed the system's automatic updates and told the user to retry in a
+ * few minutes. On a real host the holder turned out to be **our own** previous
+ * install, stopped on a prompt it could never be given an answer to and holding
+ * the lock indefinitely; retrying could not have worked, and that advice would
+ * have been an infinite loop. So the message reports what apt actually said,
+ * names the pid, and gives both plausible causes without picking one.
  */
 export function describeInstallFailure(
   name: string,
@@ -77,7 +85,9 @@ export function describeInstallFailure(
   output: string | null
 ): string {
   if (PACKAGE_MANAGER_BUSY.test(message) || (output && PACKAGE_MANAGER_BUSY.test(output))) {
-    return `Could not install ${name}: another process on the host is using the package manager — usually the system's own automatic updates. It normally clears within a few minutes; retry then.`;
+    const pid = LOCK_HOLDER_PID.exec(output ?? '')?.[1] ?? LOCK_HOLDER_PID.exec(message)?.[1];
+    const holder = pid ? ` (pid ${pid})` : '';
+    return `Could not install ${name}: another process${holder} on the host holds the package manager lock. That is usually the system's own automatic updates, which clear within a few minutes — but it can also be an earlier install left stuck, which will not clear on its own. If retrying keeps failing with the same pid, check that process on the host.`;
   }
   return message;
 }

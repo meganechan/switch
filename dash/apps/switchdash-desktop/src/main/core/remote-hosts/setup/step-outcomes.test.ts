@@ -77,8 +77,9 @@ describe('outcomeForDependency', () => {
 });
 
 describe('describeInstallFailure', () => {
-  // Trimmed from a real failure on an EC2 Ubuntu host: the distro's own
-  // automatic-updates timer held the lock while we tried to install git.
+  // Trimmed from a real failure on an EC2 Ubuntu host. The lock holder turned
+  // out to be an earlier install of ours, stopped on a needrestart dialog — not
+  // the automatic updates it was first assumed to be.
   const APT_LOCK_OUTPUT = [
     'Hit:1 http://us-east-2.ec2.archive.ubuntu.com/ubuntu jammy InRelease',
     'Reading package lists... Done',
@@ -94,9 +95,30 @@ describe('describeInstallFailure', () => {
       APT_LOCK_OUTPUT
     );
 
-    expect(message).toContain('another process on the host is using the package manager');
-    expect(message).toContain('retry');
+    expect(message).toContain('holds the package manager lock');
     expect(message).toContain('Git');
+  });
+
+  it('quotes the pid, so a lock that never clears can be identified', () => {
+    // Without it there is no way to tell "the nightly updater, wait a bit" from
+    // "the same stuck process every time" — and the advice differs completely.
+    expect(
+      describeInstallFailure('Git', 'Command failed with exit code 100', APT_LOCK_OUTPUT)
+    ).toContain('pid 4030760');
+  });
+
+  it('does not promise that retrying will fix it', () => {
+    // It said exactly that once. The holder was our own install stopped on a
+    // dialog nobody could answer, which would have held the lock until reboot,
+    // so "retry in a few minutes" was an infinite loop dressed as advice.
+    const message = describeInstallFailure(
+      'Git',
+      'Command failed with exit code 100',
+      APT_LOCK_OUTPUT
+    );
+
+    expect(message).toContain('will not clear on its own');
+    expect(message).toContain('If retrying keeps failing with the same pid');
   });
 
   it('recognises the lock from the message alone', () => {
