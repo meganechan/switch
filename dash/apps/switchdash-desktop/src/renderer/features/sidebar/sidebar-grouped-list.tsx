@@ -40,8 +40,13 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     return () => window.removeEventListener('focus', onFocus);
   }, []);
 
+  // Agent filters narrowing everything away is only an empty *agent* list. The
+  // room view lists rooms, which are still there, and reports its own filters
+  // being too narrow itself.
   const showFilterEmptyState =
-    sidebarStore.hasActiveFilters && sidebarStore.filteredLocations.length === 0;
+    sidebarStore.grouping !== 'room' &&
+    sidebarStore.hasActiveFilters &&
+    sidebarStore.filteredLocations.length === 0;
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">

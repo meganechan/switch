@@ -4,7 +4,7 @@ import type { RemoteRoomSummary } from '@shared/core/switch-servers/switch-serve
 const listRemoteRooms = vi.hoisted(() => vi.fn());
 const listAgentRooms = vi.hoisted(() => vi.fn());
 const serversStore = vi.hoisted(() => ({
-  servers: [] as { id: string }[],
+  servers: [] as { id: string; managed?: boolean }[],
   activeServerId: null as string | null,
   isConnected: () => true,
   statusFor: (serverId: string) => ({ user: { id: `user-of-${serverId}` } }),
@@ -35,11 +35,31 @@ function room(id: string, ownerId: string | null, overrides: Partial<RemoteRoomS
   } satisfies RemoteRoomSummary;
 }
 
-describe('owned rooms', () => {
+describe('listed rooms', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     serversStore.servers = [{ id: 'srv-a' }, { id: 'srv-b' }];
     serversStore.activeServerId = null;
+  });
+
+  it('lists every room on a server this install manages', async () => {
+    // You run that deployment. Nothing on it should need a second app to see.
+    serversStore.servers = [{ id: 'srv-a', managed: true }, { id: 'srv-b' }];
+    serversStore.activeServerId = 'srv-a';
+    listRemoteRooms.mockImplementation(async (serverId: string) =>
+      serverId === 'srv-a'
+        ? [
+            room('mine', 'user-of-srv-a'),
+            room('someone-elses', 'user-of-someone-else'),
+            room('gone', 'user-of-srv-a', { archived: true }),
+          ]
+        : []
+    );
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+
+    expect(store.listedRoomsInActiveScope.map((r) => r.id)).toEqual(['mine', 'someone-elses']);
   });
 
   it('lists only rooms owned by that server’s signed-in user, excluding archived ones', async () => {
@@ -57,7 +77,7 @@ describe('owned rooms', () => {
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
 
-    expect(store.ownedRoomsInActiveScope.map((r) => r.id)).toEqual(['mine']);
+    expect(store.listedRoomsInActiveScope.map((r: { id: string }) => r.id)).toEqual(['mine']);
   });
 
   it('shows only the active server’s rooms, not every connected server’s', async () => {
@@ -69,7 +89,7 @@ describe('owned rooms', () => {
     await store.loadRoomNames();
     serversStore.activeServerId = 'srv-b';
 
-    expect(store.ownedRoomsInActiveScope.map((r) => r.id)).toEqual(['srv-b-room']);
+    expect(store.listedRoomsInActiveScope.map((r: { id: string }) => r.id)).toEqual(['srv-b-room']);
   });
 
   it('hides nothing when no server is active, matching how locations are scoped', async () => {
@@ -80,7 +100,10 @@ describe('owned rooms', () => {
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
 
-    expect(store.ownedRoomsInActiveScope.map((r) => r.id)).toEqual(['srv-a-room', 'srv-b-room']);
+    expect(store.listedRoomsInActiveScope.map((r: { id: string }) => r.id)).toEqual([
+      'srv-a-room',
+      'srv-b-room',
+    ]);
   });
 
   it('keeps a server that failed to respond from dropping the others', async () => {
@@ -92,7 +115,7 @@ describe('owned rooms', () => {
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
 
-    expect(store.ownedRoomsInActiveScope.map((r) => r.id)).toEqual(['srv-b-room']);
+    expect(store.listedRoomsInActiveScope.map((r: { id: string }) => r.id)).toEqual(['srv-b-room']);
   });
 });
 

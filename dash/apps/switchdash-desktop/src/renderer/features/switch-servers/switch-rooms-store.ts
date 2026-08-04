@@ -4,6 +4,7 @@ import type {
   RemoteAgentRoom,
   RemoteRoomSummary,
 } from '@shared/core/switch-servers/switch-servers';
+import { UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
 import { switchServersStore } from './switch-servers-store';
 
 /** Cache key for an agent's room membership: server + Switch agent id. */
@@ -37,6 +38,9 @@ export class SwitchRoomsStore {
    * room you create in switchdash is visible the moment it exists rather than
    * only once an agent joins it. */
   private readonly ownedRoomsByServer = new Map<string, RemoteRoomSummary[]>();
+  /** Server id → every active room on it. Listed in full for a server this
+   * install manages; elsewhere it backs lookups rather than the room list. */
+  private readonly allRoomsByServer = new Map<string, RemoteRoomSummary[]>();
   /** Keys with an in-flight fetch. */
   readonly loading = new Set<string>();
   /** Last error per key, if the most recent fetch failed. */
@@ -103,18 +107,57 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Rooms owned by the signed-in user on the active server, sorted by name.
-   * Listed in the sidebar whether or not a session is connected to them.
+   * The rooms the sidebar lists on their own account, before membership is
+   * considered — the ones that are there because of what they are, not because
+   * one of this install's agents is in them.
+   *
+   * On a server this install manages, that is **every** room: you run the
+   * deployment, so there is nothing on it you should have to go elsewhere to
+   * see. On any other server it is the rooms you created, which would otherwise
+   * disappear the moment you made one and put no agent in it.
    *
    * The sidebar tree shows one server at a time, so these follow the same scope
    * rule as locations do — including that no active server hides nothing.
    */
-  get ownedRoomsInActiveScope(): RemoteRoomSummary[] {
+  get listedRoomsInActiveScope(): RemoteRoomSummary[] {
     const activeServerId = switchServersStore.activeServerId;
-    const scoped = activeServerId
-      ? [this.ownedRoomsByServer.get(activeServerId) ?? []]
-      : [...this.ownedRoomsByServer.values()];
-    return scoped.flat().sort((a, b) => a.name.localeCompare(b.name));
+    const serverIds = activeServerId
+      ? [activeServerId]
+      : [...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()])];
+    const listed = serverIds.flatMap((serverId) => {
+      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
+      return (
+        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
+        []
+      );
+    });
+    return listed.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The messaging-app values worth offering as a room filter on the active
+   * server: the bridge types actually in use, plus the unbridged sentinel when
+   * some room has no messaging app. Offering a platform with no rooms behind it
+   * would be a filter that can only ever empty the list.
+   */
+  get bridgeFilterValuesInActiveScope(): string[] {
+    const present = new Set<string>();
+    for (const room of this.listedRoomsInActiveScope) {
+      present.add(room.bridgeType ?? UNBRIDGED_FILTER_VALUE);
+    }
+    // The sentinel sorts last so the real platforms lead the menu.
+    return [...present].sort((a, b) => {
+      if (a === UNBRIDGED_FILTER_VALUE) return 1;
+      if (b === UNBRIDGED_FILTER_VALUE) return -1;
+      return a.localeCompare(b);
+    });
+  }
+
+  /** Full detail for a room, when its server's room list has been loaded. */
+  roomSummaryById(roomId: string): RemoteRoomSummary | null {
+    const serverId = this.roomServerById.get(roomId);
+    if (!serverId) return null;
+    return this.allRoomsByServer.get(serverId)?.find((room) => room.id === roomId) ?? null;
   }
 
   /**
@@ -143,9 +186,11 @@ export class SwitchRoomsStore {
                 this.channelUrlByRoom.set(room.id, room.externalChannelUrl);
               else this.channelUrlByRoom.delete(room.id);
             }
+            const active = rooms.filter((r) => !r.archived);
+            this.allRoomsByServer.set(server.id, active);
             this.ownedRoomsByServer.set(
               server.id,
-              signedInUserId ? rooms.filter((r) => !r.archived && r.ownerId === signedInUserId) : []
+              signedInUserId ? active.filter((r) => r.ownerId === signedInUserId) : []
             );
           });
         } catch {

@@ -6,6 +6,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { agentExpandKey, SidebarAgentItem } from './agent-item';
 import { RoomAgentRow } from './room-agent-row';
+import { filterRoomGroups, sortRoomGroups } from './room-tree-data';
 import { SidebarSessionItem } from './session-item';
 import {
   groupByRoom,
@@ -81,19 +82,41 @@ export const RoomTree = observer(function RoomTree() {
   }
 
   const members = membersByRoom();
-  // A room is listed when it has a session, when one of this app's agents is a
-  // member of it, or when the signed-in user owns it — so a room you created,
-  // or one your agents live in, does not wait on a session to become visible.
+  // A room is listed when one of this app's agents is a member of it, when it
+  // has a session, or when it is listed on its own account — every room on a
+  // server this install manages, and rooms you created elsewhere. None of that
+  // waits on a session, so a room you just made is there immediately.
   const alwaysShow = [
     ...new Set([
-      ...switchRoomsStore.ownedRoomsInActiveScope.map((room) => room.id),
+      ...switchRoomsStore.listedRoomsInActiveScope.map((room) => room.id),
       ...members.keys(),
     ]),
   ];
 
+  const groups = sortRoomGroups(
+    filterRoomGroups(
+      groupByRoom(allSessions, alwaysShow).map(([roomKey, sessions]) => ({
+        roomKey,
+        label: roomLabel(roomKey),
+        bridgeType: switchRoomsStore.roomBridgeTypeById(roomKey),
+        createdAt: switchRoomsStore.roomSummaryById(roomKey)?.createdAt ?? null,
+        sessions,
+      })),
+      {
+        bridgeTypes: sidebarStore.filterBridgeTypes,
+        hasLiveSession: sidebarStore.filterRoomHasLiveSession,
+      }
+    ),
+    sidebarStore.roomSortBy
+  );
+
+  if (groups.length === 0 && sidebarStore.hasActiveRoomFilters) {
+    return <p className="px-2 py-3 text-xs text-foreground-muted">No rooms match filters</p>;
+  }
+
   return (
     <>
-      {groupByRoom(allSessions, alwaysShow).map(([roomKey, roomSessions]) => {
+      {groups.map(({ roomKey, sessions: roomSessions }) => {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
         const isRoom = roomKey !== UNASSIGNED_ROOM_KEY;
