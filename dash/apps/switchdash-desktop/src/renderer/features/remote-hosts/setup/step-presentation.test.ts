@@ -4,6 +4,7 @@ import {
   agentTypeBadge,
   canInstall,
   canSkip,
+  dependenciesMet,
   groupPlanSteps,
   outcomeLabel,
   stepBadge,
@@ -46,7 +47,7 @@ describe('stepBadge — green must be earned', () => {
     });
   });
 
-  it.each(['pending', 'checking', 'installing', 'failed', 'skipped', 'blocked'] as const)(
+  it.each(['pending', 'checking', 'installing', 'failed', 'skipped'] as const)(
     'is never success for %s',
     (state) => {
       expect(stepBadge(step({ state })).tone).not.toBe('success');
@@ -200,7 +201,6 @@ describe('canInstall', () => {
   it('offers an install for anything outstanding', () => {
     expect(canInstall(step({ state: 'pending', outcome: 'missing' }))).toBe(true);
     expect(canInstall(step({ state: 'failed', outcome: 'missing' }))).toBe(true);
-    expect(canInstall(step({ state: 'blocked' }))).toBe(true);
   });
 
   it('does not offer an install for something already there or in flight', () => {
@@ -211,5 +211,35 @@ describe('canInstall', () => {
 
   it('never offers an install for the GitHub login — it is a device flow, not a package', () => {
     expect(canInstall(step({ kind: 'gh-auth', state: 'pending', outcome: 'missing' }))).toBe(false);
+  });
+});
+
+describe('dependenciesMet — do not offer an action that cannot work', () => {
+  const ghAuth = (patch: Partial<HostSetupStep> = {}) =>
+    step({ id: 'gh:auth', kind: 'gh-auth', name: 'GitHub CLI login', dependsOn: ['gh'], ...patch });
+
+  it('is false while the CLI the flow needs is still missing', () => {
+    // The device flow runs `gh` on the host; offering Sign in before gh exists
+    // sends the user into a failure that says nothing about the real problem.
+    const p = plan([step({ id: 'gh', name: 'GitHub CLI', outcome: 'missing' }), ghAuth()]);
+
+    expect(dependenciesMet(p.steps[1]!, p)).toBe(false);
+  });
+
+  it('is true once the CLI is there', () => {
+    const p = plan([
+      step({ id: 'gh', name: 'GitHub CLI', state: 'satisfied', outcome: 'satisfied' }),
+      ghAuth(),
+    ]);
+
+    expect(dependenciesMet(p.steps[1]!, p)).toBe(true);
+  });
+
+  it('is true for a step that depends on nothing', () => {
+    expect(dependenciesMet(step({ id: 'git' }), plan([step({ id: 'git' })]))).toBe(true);
+  });
+
+  it('is false when there is no plan to check against', () => {
+    expect(dependenciesMet(ghAuth(), null)).toBe(false);
   });
 });

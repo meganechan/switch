@@ -140,13 +140,10 @@ describe('deriveHostStatus', () => {
     });
   });
 
-  it('names the step in flight while a run is going', () => {
+  it('names the step in flight while an install is going', () => {
     const status = deriveHostStatus(
       reachability('reachable'),
-      plan([step('git', 'satisfied'), step('node', 'installing')], {
-        status: 'running',
-        currentStepId: 'node',
-      })
+      plan([step('git', 'satisfied'), step('node', 'installing')])
     );
 
     expect(status.kind).toBe('setting-up');

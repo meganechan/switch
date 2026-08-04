@@ -90,20 +90,6 @@ export function useRecheckSetup(sshHost: string) {
   });
 }
 
-/**
- * Run or resume setup. The run halts at the first required failure; the
- * rejection carries the reason (an unreachable host, most often), which the
- * caller surfaces rather than swallowing.
- */
-export function useRunSetup(sshHost: string) {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: () => rpc.remoteHosts.runSetup(sshHost),
-    onSuccess: (plan) => queryClient.setQueryData(setupPlanQueryKey(sshHost), plan),
-    onError: (error) => log.error('Remote host setup run failed', { sshHost, error }),
-  });
-}
-
 /** Install one step on its own — the per-row Install button. */
 export function useInstallSetupStep(sshHost: string) {
   const queryClient = useQueryClient();

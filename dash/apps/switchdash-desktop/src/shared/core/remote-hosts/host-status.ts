@@ -16,7 +16,7 @@
  */
 
 import { isHostBlocked, type HostReachability } from './reachability';
-import { outstandingRequiredSteps, type HostSetupPlan } from './setup';
+import { inFlightStep, outstandingRequiredSteps, type HostSetupPlan } from './setup';
 
 export type HostStatusKind =
   /** SSH authentication failed — will not self-heal, the user must fix it. */
@@ -25,7 +25,7 @@ export type HostStatusKind =
   | 'unreachable'
   /** Reachable, but nothing has ever been observed about it. */
   | 'unchecked'
-  /** A setup run is in flight. */
+  /** A check or install is in flight on one of its steps. */
   | 'setting-up'
   /** Reachable and every required step was observed satisfied. */
   | 'ready'
@@ -91,11 +91,13 @@ export function deriveHostStatus(
   const total = required.length;
   const done = required.filter((step) => step.state === 'satisfied').length;
 
-  if (plan.status === 'running') {
-    const current = plan.steps.find((step) => step.id === plan.currentStepId);
+  // Work in flight lives on the step, not the plan: there is no automated run
+  // to be "running", only whatever the user asked for a moment ago.
+  const inFlight = inFlightStep(plan);
+  if (inFlight) {
     return {
       kind: 'setting-up',
-      label: current ? `Setting up ${current.name}…` : 'Setting up…',
+      label: `Setting up ${inFlight.name}…`,
       tone: 'info',
       readinessKnown: true,
       done,

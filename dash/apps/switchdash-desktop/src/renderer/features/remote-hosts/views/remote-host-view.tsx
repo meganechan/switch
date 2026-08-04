@@ -18,7 +18,7 @@
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Play, RefreshCw, RotateCcw, Server } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import type { GuardResult, ViewDefinition } from '@renderer/app/view-registry';
@@ -46,7 +46,6 @@ import {
   useInstallSetupStep,
   usePrepareSetup,
   useRecheckSetup,
-  useRunSetup,
   useSkipSetupStep,
 } from '../setup/use-host-setup';
 import { REMOTE_HOSTS_QUERY_KEY } from './remote-hosts-view';
@@ -68,7 +67,6 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   const plan = useHostSetupPlan(sshHost);
   const prepare = usePrepareSetup(sshHost);
   const recheck = useRecheckSetup(sshHost);
-  const run = useRunSetup(sshHost);
   const skip = useSkipSetupStep(sshHost);
   const installStep = useInstallSetupStep(sshHost);
 
@@ -96,7 +94,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
     () => groupPlanSteps(plan.data ?? null),
     [plan.data]
   );
-  const busy = run.isPending || prepare.isPending || recheck.isPending || installStep.isPending;
+  const busy = prepare.isPending || recheck.isPending || installStep.isPending;
   const installingStepId = installStep.isPending ? (installStep.variables ?? null) : null;
   const currentStepId = plan.data?.currentStepId ?? null;
 
@@ -121,35 +119,30 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
         description={`Remote host · ${sshHost}. Auth uses your SSH agent — switchdash stores no credentials.`}
       >
         <div className="flex items-center gap-2">
+          {!blocked && (
+            <span className="flex items-center gap-2">
+              <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+              {status.readinessKnown && status.total > 0 && (
+                <span className="text-xs text-foreground-muted">
+                  {status.done} of {status.total} required
+                </span>
+              )}
+            </span>
+          )}
           <Button size="sm" variant="ghost" onClick={() => navigate('remoteHosts')}>
             <ArrowLeft className="size-4" /> All hosts
           </Button>
           {!blocked && (
-            <>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy}
-                onClick={() => recheck.mutate()}
-                aria-label="Re-check this host"
-              >
-                <RefreshCw className={`size-3.5 ${recheck.isPending ? 'animate-spin' : ''}`} />
-                Re-check
-              </Button>
-              {status.kind !== 'ready' && (
-                <Button size="sm" disabled={busy} onClick={() => run.mutate()}>
-                  {plan.data?.status === 'halted' ? (
-                    <>
-                      <RotateCcw className="size-3.5" /> {run.isPending ? 'Resuming…' : 'Resume'}
-                    </>
-                  ) : (
-                    <>
-                      <Play className="size-3.5" /> {run.isPending ? 'Running…' : 'Run setup'}
-                    </>
-                  )}
-                </Button>
-              )}
-            </>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => recheck.mutate()}
+              aria-label="Re-check this host"
+            >
+              <RefreshCw className={`size-3.5 ${recheck.isPending ? 'animate-spin' : ''}`} />
+              Re-check
+            </Button>
           )}
         </div>
       </PageHeader>
@@ -158,30 +151,10 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
         <HostUnreachablePanel reachability={reachability} />
       ) : (
         <>
-          <section className="flex items-center gap-3">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-lg bg-background-quaternary-1 p-1.5">
-              <Server className="size-6 text-foreground-muted" />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex items-center gap-2">
-                <span className="truncate text-lg text-foreground">{host?.name ?? sshHost}</span>
-                <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-              </div>
-              <span className="text-xs text-foreground-muted">
-                {status.readinessKnown && status.total > 0
-                  ? `${status.done} of ${status.total} required · ${sshHost}`
-                  : sshHost}
-              </span>
-            </div>
-          </section>
-
           {/*
-            A run that stops because the host went away is reported as exactly
-            that, rather than being attributed to whichever step was next.
+            An operation that stops because the host went away is reported as
+            exactly that, rather than being blamed on whichever step it touched.
           */}
-          {run.isError && (
-            <p className="text-destructive text-xs">{(run.error as Error).message}</p>
-          )}
           {installStep.isError && (
             <p className="text-destructive text-xs">
               Could not install: {(installStep.error as Error).message}
@@ -263,6 +236,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
           <SetupDetailSheet
             target={liveTarget}
             sshHost={sshHost}
+            plan={plan.data ?? null}
             icon={
               liveTarget?.kind === 'prerequisite' ? (
                 <PrerequisiteIcon step={liveTarget.step} size={24} />

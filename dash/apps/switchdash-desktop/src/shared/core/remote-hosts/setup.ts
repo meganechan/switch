@@ -8,8 +8,12 @@
  * record beyond whatever the UI happened to be holding in memory.
  *
  * A setup plan is that missing object: an ordered list of steps, persisted per
- * host, advanced one at a time. It is the single answer to "what still needs to
- * happen on this host, and what went wrong last time we tried?".
+ * host. It is the single answer to "what still needs to happen on this host,
+ * and what went wrong last time we tried?".
+ *
+ * Nothing advances the plan on its own. Each step is installed when the user
+ * asks for that step — there is no run-everything button, deliberately: the
+ * ordering is guidance, not automation.
  */
 
 import { defineEvent } from '@shared/lib/ipc/events';
@@ -60,9 +64,6 @@ export function isInstallableOutcome(outcome: DependencyCheckOutcome | null): bo
  * - `failed` — the check or install failed; carries `error` (and `output` when
  *   a command produced any). The run halts here.
  * - `skipped` — the user chose to move past it. Never rendered as satisfied.
- * - `blocked` — an earlier required step failed, so this one was never
- *   attempted. Distinct from `pending`: pending means "not yet", blocked means
- *   "not unless something upstream is fixed".
  */
 export type HostSetupStepState =
   | 'pending'
@@ -70,8 +71,7 @@ export type HostSetupStepState =
   | 'installing'
   | 'satisfied'
   | 'failed'
-  | 'skipped'
-  | 'blocked';
+  | 'skipped';
 
 /** What kind of thing a step manages, for rendering and for install routing. */
 export type HostSetupStepKind = 'core-dependency' | 'agent-cli' | 'agent-plugin' | 'gh-auth';
@@ -106,14 +106,13 @@ export type HostSetupStep = {
 /**
  * Plan-level status.
  *
- * - `idle` — built (or resumed) and waiting for the user to start.
- * - `running` — a step is in flight.
- * - `halted` — a required step failed. **Position is held**: satisfied steps
- *   stay satisfied, the failure keeps its error, and untried steps are blocked.
- *   Resuming re-attempts from the failure rather than starting over.
+ * - `idle` — something required is still outstanding.
  * - `complete` — every required step is satisfied or skipped.
+ *
+ * Deliberately not a lifecycle: with no automated run there is nothing to be
+ * "running" or "halted". Work in flight lives on the individual step.
  */
-export type HostSetupPlanStatus = 'idle' | 'running' | 'halted' | 'complete';
+export type HostSetupPlanStatus = 'idle' | 'complete';
 
 export type HostSetupPlan = {
   sshHost: string;
@@ -125,12 +124,15 @@ export type HostSetupPlan = {
   updatedAt: string;
 };
 
-/** The first step that still needs work, in plan order. Null when nothing is left. */
-export function nextActionableStep(plan: HostSetupPlan): HostSetupStep | null {
+/** True while any step is being checked or installed. */
+export function isPlanBusy(plan: HostSetupPlan): boolean {
+  return plan.steps.some((step) => step.state === 'checking' || step.state === 'installing');
+}
+
+/** The step currently being worked on, if any. */
+export function inFlightStep(plan: HostSetupPlan): HostSetupStep | null {
   return (
-    plan.steps.find(
-      (step) => step.state === 'pending' || step.state === 'blocked' || step.state === 'failed'
-    ) ?? null
+    plan.steps.find((step) => step.state === 'checking' || step.state === 'installing') ?? null
   );
 }
 

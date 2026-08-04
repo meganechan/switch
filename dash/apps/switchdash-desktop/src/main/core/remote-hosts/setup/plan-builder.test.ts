@@ -83,7 +83,7 @@ describe('buildSetupPlan — rebuilding onto an existing plan', () => {
   function existingPlan(steps: Partial<HostSetupStep>[]): HostSetupPlan {
     return {
       sshHost: 'dev-vm',
-      status: 'halted',
+      status: 'idle',
       currentStepId: 'node',
       createdAt: '2026-01-01T00:00:00.000Z',
       updatedAt: '2026-01-01T00:00:00.000Z',
@@ -137,7 +137,7 @@ describe('buildSetupPlan — rebuilding onto an existing plan', () => {
   it('keeps the original creation time and the halted status', () => {
     const plan = build(existingPlan([{ id: 'git', state: 'satisfied' }]));
     expect(plan.createdAt).toBe('2026-01-01T00:00:00.000Z');
-    expect(plan.status).toBe('halted');
+    expect(plan.status).toBe('idle');
     expect(plan.currentStepId).toBe('node');
   });
 
@@ -192,30 +192,30 @@ describe('reconcileInterruptedPlan', () => {
   }
 
   it('resets a step the app died mid-install on — never to satisfied', () => {
-    const reconciled = reconcileInterruptedPlan(planWith('installing', 'running'), NOW);
+    const reconciled = reconcileInterruptedPlan(planWith('installing', 'idle'), NOW);
     const node = reconciled.steps.find((s) => s.id === 'node')!;
     expect(node.state).toBe('pending');
     expect(node.outcome).toBeNull();
   });
 
   it('resets a step interrupted mid-check', () => {
-    const reconciled = reconcileInterruptedPlan(planWith('checking', 'running'), NOW);
+    const reconciled = reconcileInterruptedPlan(planWith('checking', 'idle'), NOW);
     expect(reconciled.steps.find((s) => s.id === 'node')!.state).toBe('pending');
   });
 
   it('clears a stale running status so the plan is startable again', () => {
-    expect(reconcileInterruptedPlan(planWith('installing', 'running'), NOW).status).toBe('idle');
+    expect(reconcileInterruptedPlan(planWith('installing', 'idle'), NOW).status).toBe('idle');
   });
 
   it('leaves genuinely finished work alone', () => {
-    const reconciled = reconcileInterruptedPlan(planWith('installing', 'running'), NOW);
+    const reconciled = reconcileInterruptedPlan(planWith('installing', 'idle'), NOW);
     const git = reconciled.steps.find((s) => s.id === 'git')!;
     expect(git.state).toBe('satisfied');
     expect(git.version).toBe('2.43.0');
   });
 
   it('is a no-op for a cleanly halted plan', () => {
-    const plan = planWith('failed', 'halted');
+    const plan = planWith('failed', 'idle');
     expect(reconcileInterruptedPlan(plan, NOW)).toBe(plan);
   });
 });

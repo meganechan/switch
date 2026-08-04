@@ -20,11 +20,12 @@ import { Label } from '@renderer/lib/ui/label';
 import { Sheet, SheetContent, SheetHeader } from '@renderer/lib/ui/sheet';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { cn } from '@renderer/utils/utils';
-import type { HostSetupStep } from '@shared/core/remote-hosts/setup';
+import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
   canInstall,
   canSkip,
+  dependenciesMet,
   outcomeLabel,
   stepBadge,
   type AgentTypeRow,
@@ -119,13 +120,9 @@ function ObservationCard({ step, actions }: { step: HostSetupStep; actions?: Rea
   );
 }
 
-/** A gh-auth step whose own dependency has not been satisfied yet. */
-function isBlockedByDep(step: HostSetupStep): boolean {
-  return step.state === 'blocked' || step.state === 'pending';
-}
-
 function StepActions({
   step,
+  dependenciesSatisfied,
   onInstall,
   installing,
   onSkip,
@@ -133,6 +130,8 @@ function StepActions({
   onAuthenticate,
 }: {
   step: HostSetupStep;
+  /** False while something this step depends on is still outstanding. */
+  dependenciesSatisfied: boolean;
   onInstall: () => void;
   installing: boolean;
   onSkip: () => void;
@@ -142,7 +141,7 @@ function StepActions({
   // Only offer the GitHub sign-in once gh itself is there — the device flow
   // runs `gh` on the host, so offering it before the CLI exists sends the user
   // into a failure that says nothing about the real problem.
-  const canSignIn = step.kind === 'gh-auth' && step.state !== 'satisfied' && !isBlockedByDep(step);
+  const canSignIn = step.kind === 'gh-auth' && step.state !== 'satisfied' && dependenciesSatisfied;
   const installable = canInstall(step);
   const busy = installing || step.state === 'installing' || step.state === 'checking';
   if (!canSignIn && !installable && !canSkip(step)) return null;
@@ -209,6 +208,7 @@ export type SheetTarget =
 export function SetupDetailSheet({
   target,
   sshHost,
+  plan,
   icon,
   onClose,
   onInstall,
@@ -219,6 +219,8 @@ export function SetupDetailSheet({
 }: {
   target: SheetTarget | null;
   sshHost: string;
+  /** Needed to tell whether a step's own prerequisites are in place. */
+  plan: HostSetupPlan | null;
   /** Icon for the prerequisite being shown; agent types use their own. */
   icon: React.ReactNode;
   onClose: () => void;
@@ -254,6 +256,7 @@ export function SetupDetailSheet({
                       actions={
                         <StepActions
                           step={target.step}
+                          dependenciesSatisfied={dependenciesMet(target.step, plan)}
                           onInstall={() => onInstall(target.step.id)}
                           installing={installingStepId === target.step.id}
                           onSkip={() => onSkip(target.step.id)}
@@ -268,6 +271,7 @@ export function SetupDetailSheet({
                 <AgentTypeDetail
                   row={target.row}
                   sshHost={sshHost}
+                  plan={plan}
                   onInstall={onInstall}
                   installingStepId={installingStepId}
                   onSkip={onSkip}
@@ -286,6 +290,7 @@ export function SetupDetailSheet({
 function AgentTypeDetail({
   row,
   sshHost,
+  plan,
   onInstall,
   installingStepId,
   onSkip,
@@ -294,6 +299,7 @@ function AgentTypeDetail({
 }: {
   row: AgentTypeRow;
   sshHost: string;
+  plan: HostSetupPlan | null;
   onInstall: (stepId: string) => void;
   installingStepId: string | null;
   onSkip: (stepId: string) => void;
@@ -317,6 +323,7 @@ function AgentTypeDetail({
           actions={
             <StepActions
               step={row.cli}
+              dependenciesSatisfied={dependenciesMet(row.cli, plan)}
               onInstall={() => onInstall(row.cli.id)}
               installing={installingStepId === row.cli.id}
               onSkip={() => onSkip(row.cli.id)}
@@ -343,6 +350,7 @@ function AgentTypeDetail({
               </div>
               <StepActions
                 step={row.plugin}
+                dependenciesSatisfied={dependenciesMet(row.plugin, plan)}
                 onInstall={() => onInstall(row.plugin!.id)}
                 installing={installingStepId === row.plugin.id}
                 onSkip={() => onSkip(row.plugin!.id)}

@@ -1,24 +1,21 @@
 /**
- * Sequential, resumable setup runner for a remote host (CHOO-1809).
+ * Setup operations for a remote host (CHOO-1809).
  *
- * Runs a host's setup plan one step at a time, persisting after every
- * transition so a run survives the app closing mid-install. Three rules drive
- * the design:
+ * Every operation here is one the user asked for explicitly: check everything,
+ * install this one thing, skip this one thing. There is deliberately no
+ * run-the-whole-plan loop — the ordering in a plan is guidance for a person,
+ * not a script. Three rules drive the design:
  *
- * 1. **One step in flight.** Dependencies install one after another, in order,
- *    never concurrently — the old page fired every probe and install
- *    independently and left the user to guess the sequence.
- * 2. **Halt on failure, hold position.** A failed required step stops the run.
- *    Steps already satisfied stay satisfied, the failure keeps its error and
- *    command output, and untried steps become `blocked` rather than being
- *    discarded. Resuming re-attempts the failure; it does not start over.
+ * 1. **One thing at a time.** Nothing runs concurrently against a host; a
+ *    second request while one is in flight is refused rather than interleaved.
+ *    The old page fired every probe and install independently and left the user
+ *    to guess the sequence.
+ * 2. **Verification is explicit.** After an install we re-check rather than
+ *    assuming the installer worked. A step is only `satisfied` on the strength
+ *    of a fresh observation — an exit code is a claim.
  * 3. **Reachability is not a dependency verdict.** The reachability gate is
- *    consulted before any probing, and an unreachable host aborts the run as
+ *    consulted before any probing, and an unreachable host aborts as
  *    *unreachable* instead of reporting every prerequisite as missing.
- *
- * Verification is explicit: after an install we re-check rather than assuming
- * the installer worked. A step is only `satisfied` on the strength of a fresh
- * observation.
  */
 
 import {
@@ -27,7 +24,6 @@ import {
   type DependencyCheckOutcome,
   type HostSetupPlan,
   type HostSetupStep,
-  type HostSetupStepState,
 } from '@shared/core/remote-hosts/setup';
 
 /** What a probe observed for one step. */
@@ -81,61 +77,10 @@ export class HostSetupRunner {
   }
 
   /**
-   * Run (or resume) the plan. Returns as soon as the plan completes or halts.
-   * Concurrent calls are rejected rather than interleaved — two runs against
-   * one host would break the one-at-a-time guarantee.
-   */
-  async run(plan: HostSetupPlan): Promise<HostSetupPlan> {
-    if (this.running) {
-      throw new Error(`A setup run is already in progress for ${this.deps.sshHost}`);
-    }
-    this.running = true;
-    try {
-      return await this.drive(plan);
-    } finally {
-      this.running = false;
-    }
-  }
-
-  private async drive(initial: HostSetupPlan): Promise<HostSetupPlan> {
-    let plan = await this.transition(initial, { status: 'running' });
-
-    for (const step of plan.steps) {
-      if (step.state === 'satisfied' || step.state === 'skipped') continue;
-
-      // Gate on reachability before every step, not just at the start: a host
-      // can drop mid-run, and continuing would attribute the loss of the
-      // transport to whichever dependency happened to be next in line.
-      try {
-        this.deps.requireReachable(this.deps.sshHost);
-      } catch (error) {
-        plan = await this.transition(plan, { status: 'halted' });
-        throw new HostSetupAbortedError(
-          `Setup for ${this.deps.sshHost} stopped: the host became unreachable.`,
-          error
-        );
-      }
-
-      plan = await this.runStep(plan, step.id);
-      const current = findStep(plan, step.id);
-
-      if (current.state === 'failed' && !current.optional) {
-        return await this.haltAfter(plan, step.id);
-      }
-    }
-
-    return await this.transition(plan, {
-      status: isPlanComplete(plan) ? 'complete' : 'halted',
-      currentStepId: null,
-    });
-  }
-
-  /**
    * Observe every step, installing nothing — what "Re-check" means.
    *
-   * Without this the only way to learn a host's state was to press "Run setup",
-   * which also installs; a user who just wanted to know where a host stood had
-   * to risk changing it. A pass here records what is actually there and leaves
+   * A user who wants to know where a host stands should not have to change it
+   * to find out. A pass here records what is actually there and leaves
    * unsatisfied steps `pending` — they carry their observed `outcome`, so the
    * UI can say "not installed" rather than "not checked", without claiming an
    * attempt was made.
@@ -145,7 +90,7 @@ export class HostSetupRunner {
    */
   async checkAll(plan: HostSetupPlan): Promise<HostSetupPlan> {
     if (this.running) {
-      throw new Error(`A setup run is already in progress for ${this.deps.sshHost}`);
+      throw new Error(`Another setup operation is already running for ${this.deps.sshHost}`);
     }
     this.running = true;
     try {
@@ -154,7 +99,7 @@ export class HostSetupRunner {
         try {
           this.deps.requireReachable(this.deps.sshHost);
         } catch (error) {
-          next = await this.transition(next, { status: 'halted', currentStepId: null });
+          next = await this.transition(next, { status: 'idle', currentStepId: null });
           throw new HostSetupAbortedError(
             `Could not check ${this.deps.sshHost}: the host became unreachable.`,
             error
@@ -185,14 +130,13 @@ export class HostSetupRunner {
   /**
    * Install ONE step on its own — the per-item Install button.
    *
-   * The ordered run is the right default, but it is not the only thing a user
-   * wants: seeing that git is missing and being offered only "run the whole
-   * plan" is why this existed as a gap. Same discipline as a step inside a run
-   * — reachability first, verify after — just without the rest of the plan.
+   * This is how setup happens: the user sees what a host is missing and fixes
+   * one thing. Reachability is checked first and the install is verified after,
+   * the same discipline the whole-plan run used to apply.
    */
   async runSingleStep(plan: HostSetupPlan, stepId: string): Promise<HostSetupPlan> {
     if (this.running) {
-      throw new Error(`A setup run is already in progress for ${this.deps.sshHost}`);
+      throw new Error(`Another setup operation is already running for ${this.deps.sshHost}`);
     }
     this.running = true;
     try {
@@ -290,25 +234,10 @@ export class HostSetupRunner {
     });
   }
 
-  /** Mark the plan halted and block everything downstream of the failure. */
-  private async haltAfter(plan: HostSetupPlan, failedStepId: string): Promise<HostSetupPlan> {
-    const failedIndex = plan.steps.findIndex((s) => s.id === failedStepId);
-    const steps = plan.steps.map((step, index) =>
-      index > failedIndex && (step.state === 'pending' || step.state === 'blocked')
-        ? { ...step, state: 'blocked' as HostSetupStepState, updatedAt: this.now() }
-        : step
-    );
-    return await this.commit({
-      ...plan,
-      steps,
-      status: 'halted',
-      currentStepId: failedStepId,
-    });
-  }
-
   /**
-   * Move past a step the user has chosen not to fix. Unblocks the rest of the
-   * plan so the run can continue, but is never reported as satisfied.
+   * Move past a step the user has chosen not to fix. Never reported as
+   * satisfied — skipping is a decision to live without something, not evidence
+   * that it is there.
    */
   async skip(plan: HostSetupPlan, stepId: string): Promise<HostSetupPlan> {
     const skipped = await this.patchStep(plan, stepId, {
@@ -316,10 +245,10 @@ export class HostSetupRunner {
       error: null,
       output: null,
     });
-    const steps = skipped.steps.map((step) =>
-      step.state === 'blocked' ? { ...step, state: 'pending' as HostSetupStepState } : step
-    );
-    return await this.commit({ ...skipped, steps, status: 'idle' });
+    return await this.commit({
+      ...skipped,
+      status: isPlanComplete(skipped) ? 'complete' : 'idle',
+    });
   }
 
   private async patchStep(

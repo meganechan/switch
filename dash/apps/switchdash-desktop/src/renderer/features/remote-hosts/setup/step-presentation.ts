@@ -62,6 +62,21 @@ export function canInstall(step: HostSetupStep): boolean {
   return true;
 }
 
+/**
+ * Whether everything this step declares a dependency on has been satisfied.
+ *
+ * The GitHub login is the case that matters: its device flow runs `gh` on the
+ * host, so offering it before `gh` exists sends the user into a failure that
+ * says nothing about the real problem.
+ */
+export function dependenciesMet(step: HostSetupStep, plan: HostSetupPlan | null): boolean {
+  if (step.dependsOn.length === 0) return true;
+  if (!plan) return false;
+  return step.dependsOn.every(
+    (id) => plan.steps.find((candidate) => candidate.id === id)?.state === 'satisfied'
+  );
+}
+
 export type BadgeSpec = { tone: StatusTone; label: string };
 
 /**
@@ -83,8 +98,6 @@ export function stepBadge(step: HostSetupStep): BadgeSpec {
       return { tone: 'danger', label: outcomeLabel(step.outcome) };
     case 'skipped':
       return { tone: 'neutral', label: 'Skipped' };
-    case 'blocked':
-      return { tone: 'neutral', label: 'Waiting' };
     case 'pending':
       // A re-check leaves steps pending but records what it saw. "Not checked"
       // and "checked, and it isn't there" are different facts and must not

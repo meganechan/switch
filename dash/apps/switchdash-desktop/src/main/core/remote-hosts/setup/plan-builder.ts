@@ -148,7 +148,7 @@ function mergeSteps(fresh: HostSetupStep[], previous: HostSetupStep[]): HostSetu
 }
 
 /**
- * Reset a plan's transient states so a resumed run re-observes rather than
+ * Reset a plan's transient states so the next look re-observes rather than
  * trusting what a previous process was mid-way through. Anything left
  * `checking` or `installing` when the app died is of unknown truth — the one
  * thing it must not become is `satisfied`.
@@ -157,11 +157,10 @@ export function reconcileInterruptedPlan(plan: HostSetupPlan, now: string): Host
   const interrupted = plan.steps.some(
     (step) => step.state === 'checking' || step.state === 'installing'
   );
-  if (!interrupted && plan.status !== 'running') return plan;
+  if (!interrupted) return plan;
 
   return {
     ...plan,
-    status: plan.status === 'running' ? 'idle' : plan.status,
     steps: plan.steps.map((step) =>
       step.state === 'checking' || step.state === 'installing'
         ? {

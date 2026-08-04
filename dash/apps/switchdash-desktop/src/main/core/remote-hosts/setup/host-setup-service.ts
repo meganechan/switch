@@ -168,22 +168,6 @@ async function installStep(
   };
 }
 
-/** Run (or resume) a host's setup. Returns the plan as it stands when the run stops. */
-export async function runSetup(sshHost: string): Promise<HostSetupPlan> {
-  const plan = await ensureSetupPlan(sshHost);
-  const manager = await getRemoteDependencyManager(sshHost);
-  try {
-    return await runnerFor(sshHost, manager).run(plan);
-  } catch (error) {
-    log.warn('[HostSetup] run stopped', {
-      event: 'host-setup-run-stopped',
-      sshHost,
-      error: String((error as Error)?.message ?? error),
-    });
-    throw error;
-  }
-}
-
 /**
  * Observe a host without changing it — the "Re-check" button.
  *

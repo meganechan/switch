@@ -239,7 +239,11 @@ export const remoteHostReachability = sqliteTable('remote_host_reachability', {
 export const remoteHostSetupPlans = sqliteTable('remote_host_setup_plans', {
   /** The `~/.ssh/config` Host alias. One plan per host. */
   sshHost: text('ssh_host').primaryKey(),
-  /** One of HostSetupPlanStatus — 'idle' | 'running' | 'halted' | 'complete'. */
+  /**
+   * One of HostSetupPlanStatus — 'idle' | 'complete'. Rows written before the
+   * automated run was removed may still say 'running' or 'halted'; the plan
+   * store maps those on read.
+   */
   status: text('status').notNull().default('idle'),
   /** JSON-encoded HostSetupStep[]. */
   steps: text('steps').notNull(),

@@ -19,7 +19,7 @@ import type {
   HostSetupStepState,
 } from '@shared/core/remote-hosts/setup';
 
-const PLAN_STATUSES: HostSetupPlanStatus[] = ['idle', 'running', 'halted', 'complete'];
+const PLAN_STATUSES: HostSetupPlanStatus[] = ['idle', 'complete'];
 const STEP_STATES: HostSetupStepState[] = [
   'pending',
   'checking',
@@ -27,8 +27,24 @@ const STEP_STATES: HostSetupStepState[] = [
   'satisfied',
   'failed',
   'skipped',
-  'blocked',
 ];
+
+/**
+ * Values written before the automated run was removed.
+ *
+ * A plan persisted by an older build can still say `running`, `halted` or
+ * `blocked`; those concepts no longer exist, but the row does. Map them to
+ * their nearest live meaning rather than refusing to load — a strict parser
+ * would make an upgrade look like a corrupt database.
+ */
+const LEGACY_PLAN_STATUSES: Record<string, HostSetupPlanStatus> = {
+  running: 'idle',
+  halted: 'idle',
+};
+const LEGACY_STEP_STATES: Record<string, HostSetupStepState> = {
+  // "never attempted because something upstream failed" is just "not yet".
+  blocked: 'pending',
+};
 const STEP_KINDS: HostSetupStepKind[] = ['core-dependency', 'agent-cli', 'agent-plugin', 'gh-auth'];
 const OUTCOMES: DependencyCheckOutcome[] = [
   'satisfied',
@@ -38,7 +54,14 @@ const OUTCOMES: DependencyCheckOutcome[] = [
   'unknown',
 ];
 
-function oneOf<T extends string>(allowed: T[], raw: unknown, field: string, sshHost: string): T {
+function oneOf<T extends string>(
+  allowed: T[],
+  raw: unknown,
+  field: string,
+  sshHost: string,
+  legacy: Record<string, T> = {}
+): T {
+  if (typeof raw === 'string' && legacy[raw]) return legacy[raw];
   const match = allowed.find((value) => value === raw);
   if (!match) {
     throw new Error(
@@ -64,7 +87,7 @@ function toStep(raw: unknown, sshHost: string): HostSetupStep {
     id: value.id,
     kind: oneOf(STEP_KINDS, value.kind, 'step kind', sshHost),
     name: typeof value.name === 'string' ? value.name : value.id,
-    state: oneOf(STEP_STATES, value.state, 'step state', sshHost),
+    state: oneOf(STEP_STATES, value.state, 'step state', sshHost, LEGACY_STEP_STATES),
     outcome: value.outcome == null ? null : oneOf(OUTCOMES, value.outcome, 'outcome', sshHost),
     version: nullableString(value.version),
     error: nullableString(value.error),
@@ -94,7 +117,7 @@ function toPlan(row: RemoteHostSetupPlanRow): HostSetupPlan {
 
   return {
     sshHost: row.sshHost,
-    status: oneOf(PLAN_STATUSES, row.status, 'plan status', row.sshHost),
+    status: oneOf(PLAN_STATUSES, row.status, 'plan status', row.sshHost, LEGACY_PLAN_STATUSES),
     steps: parsed.map((step) => toStep(step, row.sshHost)),
     currentStepId: row.currentStepId,
     createdAt: row.createdAt,
