@@ -205,6 +205,26 @@ export async function recheckSetup(sshHost: string): Promise<HostSetupPlan> {
   }
 }
 
+/**
+ * Install one step on its own — the per-item Install button. Checks, installs,
+ * and re-verifies just that step, leaving the rest of the plan alone.
+ */
+export async function installSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
+  const plan = await ensureSetupPlan(sshHost);
+  const manager = await getRemoteDependencyManager(sshHost);
+  try {
+    return await runnerFor(sshHost, manager).runSingleStep(plan, stepId);
+  } catch (error) {
+    log.warn('[HostSetup] step install stopped', {
+      event: 'host-setup-step-install-stopped',
+      sshHost,
+      stepId,
+      error: String((error as Error)?.message ?? error),
+    });
+    throw error;
+  }
+}
+
 /** Move past a step the user has chosen not to fix, unblocking the rest. */
 export async function skipSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
   const plan = await getSetupPlan(sshHost);

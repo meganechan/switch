@@ -23,6 +23,7 @@ import { cn } from '@renderer/utils/utils';
 import type { HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
+  canInstall,
   canSkip,
   outcomeLabel,
   stepBadge,
@@ -125,11 +126,15 @@ function isBlockedByDep(step: HostSetupStep): boolean {
 
 function StepActions({
   step,
+  onInstall,
+  installing,
   onSkip,
   skipping,
   onAuthenticate,
 }: {
   step: HostSetupStep;
+  onInstall: () => void;
+  installing: boolean;
   onSkip: () => void;
   skipping: boolean;
   onAuthenticate: () => void;
@@ -138,7 +143,9 @@ function StepActions({
   // runs `gh` on the host, so offering it before the CLI exists sends the user
   // into a failure that says nothing about the real problem.
   const canSignIn = step.kind === 'gh-auth' && step.state !== 'satisfied' && !isBlockedByDep(step);
-  if (!canSignIn && !canSkip(step)) return null;
+  const installable = canInstall(step);
+  const busy = installing || step.state === 'installing' || step.state === 'checking';
+  if (!canSignIn && !installable && !canSkip(step)) return null;
 
   return (
     <div className="flex shrink-0 items-center gap-1.5">
@@ -147,8 +154,19 @@ function StepActions({
           {step.error?.includes('read:packages') ? 'Re-authenticate' : 'Sign in'}
         </Button>
       )}
+      {installable && (
+        <Button size="xs" disabled={busy} onClick={onInstall}>
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : step.state === 'failed' ? (
+            'Retry'
+          ) : (
+            'Install'
+          )}
+        </Button>
+      )}
       {canSkip(step) && (
-        <Button size="xs" variant="ghost" disabled={skipping} onClick={onSkip}>
+        <Button size="xs" variant="ghost" disabled={busy || skipping} onClick={onSkip}>
           {skipping ? 'Skipping…' : 'Skip'}
         </Button>
       )}
@@ -193,6 +211,8 @@ export function SetupDetailSheet({
   sshHost,
   icon,
   onClose,
+  onInstall,
+  installingStepId,
   onSkip,
   skippingStepId,
   onAuthenticate,
@@ -202,6 +222,8 @@ export function SetupDetailSheet({
   /** Icon for the prerequisite being shown; agent types use their own. */
   icon: React.ReactNode;
   onClose: () => void;
+  onInstall: (stepId: string) => void;
+  installingStepId: string | null;
   onSkip: (stepId: string) => void;
   skippingStepId: string | null;
   onAuthenticate: () => void;
@@ -232,6 +254,8 @@ export function SetupDetailSheet({
                       actions={
                         <StepActions
                           step={target.step}
+                          onInstall={() => onInstall(target.step.id)}
+                          installing={installingStepId === target.step.id}
                           onSkip={() => onSkip(target.step.id)}
                           skipping={skippingStepId === target.step.id}
                           onAuthenticate={onAuthenticate}
@@ -244,6 +268,8 @@ export function SetupDetailSheet({
                 <AgentTypeDetail
                   row={target.row}
                   sshHost={sshHost}
+                  onInstall={onInstall}
+                  installingStepId={installingStepId}
                   onSkip={onSkip}
                   skippingStepId={skippingStepId}
                   onAuthenticate={onAuthenticate}
@@ -260,12 +286,16 @@ export function SetupDetailSheet({
 function AgentTypeDetail({
   row,
   sshHost,
+  onInstall,
+  installingStepId,
   onSkip,
   skippingStepId,
   onAuthenticate,
 }: {
   row: AgentTypeRow;
   sshHost: string;
+  onInstall: (stepId: string) => void;
+  installingStepId: string | null;
   onSkip: (stepId: string) => void;
   skippingStepId: string | null;
   onAuthenticate: () => void;
@@ -287,6 +317,8 @@ function AgentTypeDetail({
           actions={
             <StepActions
               step={row.cli}
+              onInstall={() => onInstall(row.cli.id)}
+              installing={installingStepId === row.cli.id}
               onSkip={() => onSkip(row.cli.id)}
               skipping={skippingStepId === row.cli.id}
               onAuthenticate={onAuthenticate}
@@ -311,6 +343,8 @@ function AgentTypeDetail({
               </div>
               <StepActions
                 step={row.plugin}
+                onInstall={() => onInstall(row.plugin!.id)}
+                installing={installingStepId === row.plugin.id}
                 onSkip={() => onSkip(row.plugin!.id)}
                 skipping={skippingStepId === row.plugin.id}
                 onAuthenticate={onAuthenticate}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
+  canInstall,
   canSkip,
   groupPlanSteps,
   outcomeLabel,
@@ -179,9 +180,36 @@ describe('outcomeLabel', () => {
 });
 
 describe('canSkip', () => {
-  it('offers a skip only once a step has actually failed', () => {
+  it('offers a skip on a failure', () => {
     expect(canSkip(step({ state: 'failed' }))).toBe(true);
-    expect(canSkip(step({ state: 'pending' }))).toBe(false);
-    expect(canSkip(step({ state: 'satisfied' }))).toBe(false);
+  });
+
+  it('offers a skip on something observed to be missing', () => {
+    // After a re-check nothing has "failed" yet, but the user still needs a way
+    // past it.
+    expect(canSkip(step({ state: 'pending', outcome: 'missing' }))).toBe(true);
+  });
+
+  it('does not offer a skip for something never looked at, or already there', () => {
+    expect(canSkip(step({ state: 'pending', outcome: null }))).toBe(false);
+    expect(canSkip(step({ state: 'satisfied', outcome: 'satisfied' }))).toBe(false);
+  });
+});
+
+describe('canInstall', () => {
+  it('offers an install for anything outstanding', () => {
+    expect(canInstall(step({ state: 'pending', outcome: 'missing' }))).toBe(true);
+    expect(canInstall(step({ state: 'failed', outcome: 'missing' }))).toBe(true);
+    expect(canInstall(step({ state: 'blocked' }))).toBe(true);
+  });
+
+  it('does not offer an install for something already there or in flight', () => {
+    expect(canInstall(step({ state: 'satisfied' }))).toBe(false);
+    expect(canInstall(step({ state: 'installing' }))).toBe(false);
+    expect(canInstall(step({ state: 'checking' }))).toBe(false);
+  });
+
+  it('never offers an install for the GitHub login — it is a device flow, not a package', () => {
+    expect(canInstall(step({ kind: 'gh-auth', state: 'pending', outcome: 'missing' }))).toBe(false);
   });
 });

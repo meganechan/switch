@@ -459,6 +459,60 @@ describe('checkAll — looking without touching', () => {
   });
 });
 
+describe('runSingleStep — installing one thing on its own', () => {
+  it('installs and verifies just that step, leaving the rest alone', async () => {
+    const { runner, installOrder } = makeRunner({
+      checks: {
+        git: [{ outcome: 'missing' }, { outcome: 'satisfied', version: '2.43.0' }],
+        node: [{ outcome: 'missing' }],
+      },
+      installs: { git: { ok: true } },
+    });
+
+    const result = await runner.runSingleStep(plan([step('git'), step('node')]), 'git');
+
+    expect(installOrder).toEqual(['git']);
+    expect(stateOf(result, 'git')).toBe('satisfied');
+    expect(stateOf(result, 'node')).toBe('pending');
+  });
+
+  it('does not mark it satisfied when the install cannot be verified', async () => {
+    const { runner } = makeRunner({
+      checks: { git: [{ outcome: 'missing' }, { outcome: 'missing' }] },
+      installs: { git: { ok: true } },
+    });
+
+    const result = await runner.runSingleStep(plan([step('git')]), 'git');
+
+    expect(stateOf(result, 'git')).toBe('failed');
+  });
+
+  it('reports the plan complete once the last outstanding step is installed', async () => {
+    const { runner } = makeRunner({
+      checks: {
+        git: [{ outcome: 'missing' }, { outcome: 'satisfied' }],
+        node: [{ outcome: 'satisfied' }],
+      },
+      installs: { git: { ok: true } },
+    });
+
+    const result = await runner.runSingleStep(
+      plan([step('git'), step('node', { state: 'satisfied' })]),
+      'git'
+    );
+
+    expect(result.status).toBe('complete');
+  });
+
+  it('refuses on an unreachable host rather than reporting an install failure', async () => {
+    const { runner } = makeRunner({ checks: {}, installs: {}, reachable: false });
+
+    await expect(runner.runSingleStep(plan([step('git')]), 'git')).rejects.toBeInstanceOf(
+      HostSetupAbortedError
+    );
+  });
+});
+
 describe('gh-auth steps', () => {
   const ghStep = (patch: Partial<HostSetupStep> = {}) =>
     step('gh:auth', { kind: 'gh-auth', name: 'GitHub CLI login', optional: true, ...patch });

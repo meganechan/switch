@@ -29,6 +29,7 @@ import { deletePersistedReachability } from './reachability-store';
 import {
   discardSetupPlan,
   ensureSetupPlan,
+  installSetupStep,
   readAllSetupPlans,
   readSetupPlan,
   recheckSetup,
@@ -221,6 +222,10 @@ export const remoteHostsController = createRPCController({
    * be resumed rather than restarted.
    */
   runSetup: (sshHost: string): Promise<HostSetupPlan> => runSetup(sshHost),
+
+  /** Install one prerequisite or agent type on its own, then verify it. */
+  installSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    installSetupStep(params.sshHost, params.stepId),
 
   /** Move past a step the user has chosen not to fix, unblocking the rest. */
   skipSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>

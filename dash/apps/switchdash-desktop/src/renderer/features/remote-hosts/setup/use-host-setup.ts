@@ -104,6 +104,16 @@ export function useRunSetup(sshHost: string) {
   });
 }
 
+/** Install one step on its own — the per-row Install button. */
+export function useInstallSetupStep(sshHost: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (stepId: string) => rpc.remoteHosts.installSetupStep({ sshHost, stepId }),
+    onSuccess: (plan) => queryClient.setQueryData(setupPlanQueryKey(sshHost), plan),
+    onError: (error) => log.error('Could not install a setup step', { sshHost, error }),
+  });
+}
+
 export function useSkipSetupStep(sshHost: string) {
   const queryClient = useQueryClient();
   return useMutation({

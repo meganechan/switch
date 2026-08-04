@@ -183,6 +183,38 @@ export class HostSetupRunner {
   }
 
   /**
+   * Install ONE step on its own — the per-item Install button.
+   *
+   * The ordered run is the right default, but it is not the only thing a user
+   * wants: seeing that git is missing and being offered only "run the whole
+   * plan" is why this existed as a gap. Same discipline as a step inside a run
+   * — reachability first, verify after — just without the rest of the plan.
+   */
+  async runSingleStep(plan: HostSetupPlan, stepId: string): Promise<HostSetupPlan> {
+    if (this.running) {
+      throw new Error(`A setup run is already in progress for ${this.deps.sshHost}`);
+    }
+    this.running = true;
+    try {
+      try {
+        this.deps.requireReachable(this.deps.sshHost);
+      } catch (error) {
+        throw new HostSetupAbortedError(
+          `Cannot install on ${this.deps.sshHost}: the host is not reachable.`,
+          error
+        );
+      }
+      const next = await this.runStep(plan, stepId);
+      return await this.transition(next, {
+        status: isPlanComplete(next) ? 'complete' : 'idle',
+        currentStepId: null,
+      });
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
    * Check one step, install it if that is both needed and possible, then
    * re-check to verify. Never marks a step satisfied on the strength of an
    * installer's exit code alone.

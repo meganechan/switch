@@ -43,6 +43,7 @@ import {
 import { groupPlanSteps } from '../setup/step-presentation';
 import {
   useHostSetupPlan,
+  useInstallSetupStep,
   usePrepareSetup,
   useRecheckSetup,
   useRunSetup,
@@ -69,6 +70,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   const recheck = useRecheckSetup(sshHost);
   const run = useRunSetup(sshHost);
   const skip = useSkipSetupStep(sshHost);
+  const installStep = useInstallSetupStep(sshHost);
 
   const [authenticatingGh, setAuthenticatingGh] = useState(false);
   const [sheetTarget, setSheetTarget] = useState<SheetTarget | null>(null);
@@ -94,7 +96,8 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
     () => groupPlanSteps(plan.data ?? null),
     [plan.data]
   );
-  const busy = run.isPending || prepare.isPending || recheck.isPending;
+  const busy = run.isPending || prepare.isPending || recheck.isPending || installStep.isPending;
+  const installingStepId = installStep.isPending ? (installStep.variables ?? null) : null;
   const currentStepId = plan.data?.currentStepId ?? null;
 
   // Keep an open sheet in step with pushed plan updates, so a row's detail
@@ -179,6 +182,11 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
           {run.isError && (
             <p className="text-destructive text-xs">{(run.error as Error).message}</p>
           )}
+          {installStep.isError && (
+            <p className="text-destructive text-xs">
+              Could not install: {(installStep.error as Error).message}
+            </p>
+          )}
           {recheck.isError && (
             <p className="text-destructive text-xs">
               Could not check this host: {(recheck.error as Error).message}
@@ -208,6 +216,8 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                       <PrerequisiteRow
                         step={step}
                         isCurrent={step.id === currentStepId}
+                        installing={installingStepId === step.id}
+                        onInstall={() => installStep.mutate(step.id)}
                         onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
                       />
                     </div>
@@ -223,6 +233,8 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                       <AgentTypeRowItem
                         row={row}
                         isCurrent={row.cli.id === currentStepId || row.plugin?.id === currentStepId}
+                        installingStepId={installingStepId}
+                        onInstall={(stepId) => installStep.mutate(stepId)}
                         onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
                       />
                     </div>
@@ -257,6 +269,8 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
               ) : null
             }
             onClose={() => setSheetTarget(null)}
+            onInstall={(stepId) => installStep.mutate(stepId)}
+            installingStepId={installingStepId}
             onSkip={(stepId) => skip.mutate(stepId)}
             skippingStepId={skip.isPending ? (skip.variables ?? null) : null}
             onAuthenticate={() => {

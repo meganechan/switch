@@ -8,12 +8,20 @@
  */
 
 import { GitBranch, Github, KeyRound, Package, Server, SquareTerminal } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { Button } from '@renderer/lib/ui/button';
 import { Label } from '@renderer/lib/ui/label';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { cn } from '@renderer/utils/utils';
 import type { HostSetupStep } from '@shared/core/remote-hosts/setup';
-import { agentTypeBadge, stepBadge, type AgentTypeRow, type BadgeSpec } from './step-presentation';
+import {
+  agentTypeBadge,
+  canInstall,
+  stepBadge,
+  type AgentTypeRow,
+  type BadgeSpec,
+} from './step-presentation';
 
 /** Lucide icons for the host tools. Agent types use their own brand icon. */
 const PREREQUISITE_ICON: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -49,6 +57,7 @@ function Row({
   subtitle,
   badge,
   highlighted,
+  action,
   onClick,
 }: {
   icon: React.ReactNode;
@@ -56,38 +65,81 @@ function Row({
   subtitle?: string | null;
   badge: BadgeSpec;
   highlighted?: boolean;
+  /** Inline fix-it control, so acting on one item costs no navigation. */
+  action?: React.ReactNode;
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <div
       className={cn(
-        'group flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left hover:bg-background-1',
+        'group flex w-full items-center gap-3 rounded-lg p-3 hover:bg-background-1',
         highlighted && 'bg-background-1 ring-1 ring-amber-500/40'
       )}
     >
-      <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-background-1 p-1.5 group-hover:bg-background-2">
-        {icon}
-      </div>
-      <div className="flex w-full min-w-0 items-center justify-between gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+      >
+        <div className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-background-1 p-1.5 group-hover:bg-background-2">
+          {icon}
+        </div>
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-sm text-foreground">{name}</span>
           {subtitle && <span className="truncate text-xs text-foreground-muted">{subtitle}</span>}
         </span>
+      </button>
+      <div className="flex shrink-0 items-center gap-2">
         <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+        {action}
       </div>
-    </button>
+    </div>
+  );
+}
+
+/** The inline Install / Retry control, shown only when there is something to do. */
+function InstallAction({
+  step,
+  installing,
+  onInstall,
+}: {
+  step: HostSetupStep;
+  installing: boolean;
+  onInstall: () => void;
+}) {
+  if (!canInstall(step)) return null;
+  const busy = installing || step.state === 'installing' || step.state === 'checking';
+  return (
+    <Button
+      size="xs"
+      disabled={busy}
+      onClick={(event) => {
+        event.stopPropagation();
+        onInstall();
+      }}
+    >
+      {busy ? (
+        <Loader2 className="size-3.5 animate-spin" />
+      ) : step.state === 'failed' ? (
+        'Retry'
+      ) : (
+        'Install'
+      )}
+    </Button>
   );
 }
 
 export function PrerequisiteRow({
   step,
   isCurrent,
+  installing,
+  onInstall,
   onOpen,
 }: {
   step: HostSetupStep;
   isCurrent: boolean;
+  installing: boolean;
+  onInstall: () => void;
   onOpen: () => void;
 }) {
   return (
@@ -97,6 +149,7 @@ export function PrerequisiteRow({
       subtitle={step.state === 'satisfied' ? step.version : null}
       badge={stepBadge(step)}
       highlighted={isCurrent}
+      action={<InstallAction step={step} installing={installing} onInstall={onInstall} />}
       onClick={onOpen}
     />
   );
@@ -105,12 +158,23 @@ export function PrerequisiteRow({
 export function AgentTypeRowItem({
   row,
   isCurrent,
+  installingStepId,
+  onInstall,
   onOpen,
 }: {
   row: AgentTypeRow;
   isCurrent: boolean;
+  installingStepId: string | null;
+  onInstall: (stepId: string) => void;
   onOpen: () => void;
 }) {
+  // Fix whichever half is outstanding: the CLI first, then its connector. One
+  // button, because the row states one question — is this usable?
+  const next = canInstall(row.cli)
+    ? row.cli
+    : row.plugin && canInstall(row.plugin)
+      ? row.plugin
+      : null;
   return (
     <Row
       icon={<AgentIcon id={row.agentId} size={16} />}
@@ -118,6 +182,15 @@ export function AgentTypeRowItem({
       subtitle={row.cli.state === 'satisfied' ? row.cli.version : null}
       badge={agentTypeBadge(row)}
       highlighted={isCurrent}
+      action={
+        next ? (
+          <InstallAction
+            step={next}
+            installing={installingStepId === next.id}
+            onInstall={() => onInstall(next.id)}
+          />
+        ) : null
+      }
       onClick={onOpen}
     />
   );

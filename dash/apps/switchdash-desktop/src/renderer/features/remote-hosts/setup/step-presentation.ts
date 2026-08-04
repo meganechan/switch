@@ -36,9 +36,30 @@ export function outcomeLabel(outcome: DependencyCheckOutcome | null): string {
   }
 }
 
-/** Steps whose failure the user can act on directly, rather than only retrying. */
+/**
+ * Steps the user can move past. A failure is the obvious case, but a step we
+ * have observed to be missing is equally skippable — after a re-check nothing
+ * has "failed" yet, and offering no way forward would strand the run.
+ */
 export function canSkip(step: HostSetupStep): boolean {
-  return step.state === 'failed';
+  if (step.state === 'failed') return true;
+  return step.state === 'pending' && step.outcome !== null && step.outcome !== 'satisfied';
+}
+
+/**
+ * Whether switchdash can attempt an install for this step.
+ *
+ * The GitHub login is excluded because it is an interactive device flow, not an
+ * install. Whether an install command actually exists for this host's platform
+ * is known only in the main process — if it does not, the attempt reports that
+ * plainly rather than the button being silently absent.
+ */
+export function canInstall(step: HostSetupStep): boolean {
+  if (step.kind === 'gh-auth') return false;
+  if (step.state === 'satisfied' || step.state === 'checking' || step.state === 'installing') {
+    return false;
+  }
+  return true;
 }
 
 export type BadgeSpec = { tone: StatusTone; label: string };
