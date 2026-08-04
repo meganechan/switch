@@ -23,9 +23,9 @@ const PREREQUISITE_ICON: Record<string, React.ComponentType<{ className?: string
   gh: Github,
 };
 
-function PrerequisiteIcon({ step }: { step: HostSetupStep }) {
+export function PrerequisiteIcon({ step, size = 16 }: { step: HostSetupStep; size?: 16 | 24 }) {
   const Icon = step.kind === 'gh-auth' ? KeyRound : (PREREQUISITE_ICON[step.id] ?? Server);
-  return <Icon className="size-4 text-foreground-muted" />;
+  return <Icon className={cn('text-foreground-muted', size === 24 ? 'size-6' : 'size-4')} />;
 }
 
 export function SectionLabel({ children, count }: { children: React.ReactNode; count: number }) {

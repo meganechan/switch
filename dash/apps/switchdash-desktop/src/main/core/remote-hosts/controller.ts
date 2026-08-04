@@ -29,6 +29,7 @@ import { deletePersistedReachability } from './reachability-store';
 import {
   discardSetupPlan,
   ensureSetupPlan,
+  readAllSetupPlans,
   readSetupPlan,
   recheckSetup,
   runSetup,
@@ -200,6 +201,9 @@ export const remoteHostsController = createRPCController({
 
   /** The host's persisted setup plan, or null if setup has never been run. */
   getSetupPlan: (sshHost: string): Promise<HostSetupPlan | null> => readSetupPlan(sshHost),
+
+  /** Every host's plan, for the initial hydrate of the renderer's readiness store. */
+  listSetupPlans: (): Promise<HostSetupPlan[]> => readAllSetupPlans(),
 
   /**
    * Build or refresh the plan without running it — what the host page loads on

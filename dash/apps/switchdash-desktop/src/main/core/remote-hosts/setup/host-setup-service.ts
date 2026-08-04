@@ -30,7 +30,7 @@ import {
   GH_AUTH_STEP_ID,
   reconcileInterruptedPlan,
 } from './plan-builder';
-import { deleteSetupPlan, getSetupPlan, saveSetupPlan } from './setup-plan-store';
+import { deleteSetupPlan, getSetupPlan, listSetupPlans, saveSetupPlan } from './setup-plan-store';
 import { outcomeForDependency, outcomeForGhAuth } from './step-outcomes';
 
 /** Runners are per-host so two hosts can be set up at once, but a host only once. */
@@ -68,6 +68,15 @@ export async function ensureSetupPlan(sshHost: string): Promise<HostSetupPlan> {
   await saveSetupPlan(plan);
   events.emit(hostSetupPlanEventChannel, plan);
   return plan;
+}
+
+/**
+ * Every host's persisted plan. Feeds the renderer store that the sidebar and
+ * the agent-creation gate read — both need readiness for hosts whose page
+ * nobody has opened.
+ */
+export async function readAllSetupPlans(): Promise<HostSetupPlan[]> {
+  return await listSetupPlans();
 }
 
 /** The persisted plan, without rebuilding it. Null when the host has never run setup. */

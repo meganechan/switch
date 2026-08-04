@@ -19,16 +19,9 @@ import type { ViewDefinition } from '@renderer/app/view-registry';
 import { PageHeader } from '@renderer/lib/components/page-header';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
+import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
-import { Input } from '@renderer/lib/ui/input';
 import { Label } from '@renderer/lib/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@renderer/lib/ui/select';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
@@ -104,6 +97,7 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
   const queryClient = useQueryClient();
   const { navigate } = useNavigate();
   const [filter, setFilter] = useState<HostFilter>('all');
+  const showAddHost = useShowModal('addHostModal');
 
   const { data: hosts, isLoading } = useQuery({
     queryKey: REMOTE_HOSTS_QUERY_KEY,
@@ -177,13 +171,21 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
             <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
             <ToggleGroupItem value="attention">Needs setup</ToggleGroupItem>
           </ToggleGroup>
-          <OnboardHostForm
-            onboarded={sshHosts}
-            onOnboarded={(sshHost) => {
-              invalidate();
-              openHost(sshHost);
-            }}
-          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              void showAddHost({
+                onboarded: sshHosts,
+                onAdded: (sshHost) => {
+                  invalidate();
+                  openHost(sshHost);
+                },
+              })
+            }
+          >
+            <Plus className="size-4" /> Add host
+          </Button>
         </div>
       </PageHeader>
 
@@ -232,124 +234,6 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
     </div>
   );
 });
-
-function OnboardHostForm({
-  onboarded,
-  onOnboarded,
-}: {
-  onboarded: string[];
-  onOnboarded: (sshHost: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [sshHost, setSshHost] = useState('');
-  const [name, setName] = useState('');
-
-  const configHosts = useQuery({
-    queryKey: ['ssh-config-hosts'],
-    queryFn: () => rpc.remoteHosts.listSshConfigHosts(),
-    enabled: open,
-  });
-
-  const available = useMemo(
-    () => (configHosts.data ?? []).filter((alias) => !onboarded.includes(alias)),
-    [configHosts.data, onboarded]
-  );
-
-  const mutation = useMutation({
-    mutationFn: () => rpc.remoteHosts.onboardHost({ sshHost: sshHost.trim(), name: name.trim() }),
-    onError: (error) => log.error('Failed to onboard remote host', { sshHost, error }),
-    onSuccess: (host) => {
-      setOpen(false);
-      setSshHost('');
-      setName('');
-      onOnboarded(host.sshHost);
-    },
-  });
-
-  if (!open) {
-    return (
-      <div>
-        <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-          <Plus className="size-4" /> Add host
-        </Button>
-      </div>
-    );
-  }
-
-  const canSubmit = sshHost.trim().length > 0 && name.trim().length > 0 && !mutation.isPending;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">SSH host</Label>
-        <p className="text-xs text-foreground-muted">
-          A Host alias from your ~/.ssh/config. Auth uses your SSH agent — switchdash stores no
-          credentials.
-        </p>
-        {/*
-          Wait for the alias list before choosing which control to show. Swapping
-          a text input for a select once the query resolves used to discard
-          whatever the user had already typed.
-        */}
-        {configHosts.isLoading ? (
-          <div className="flex items-center gap-2 text-xs text-foreground-muted">
-            <Spinner /> Reading ~/.ssh/config…
-          </div>
-        ) : available.length > 0 ? (
-          <Select value={sshHost} onValueChange={(value) => setSshHost(value ?? '')}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select a host alias" />
-            </SelectTrigger>
-            <SelectContent>
-              {available.map((alias) => (
-                <SelectItem key={alias} value={alias}>
-                  {alias}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <>
-            <Input
-              value={sshHost}
-              placeholder="dev-vm"
-              onChange={(event) => setSshHost(event.target.value)}
-            />
-            <p className="text-xs text-foreground-muted">
-              {(configHosts.data ?? []).length === 0
-                ? 'No aliases found in ~/.ssh/config — type one to add it anyway.'
-                : 'Every alias in ~/.ssh/config is already onboarded.'}
-            </p>
-          </>
-        )}
-      </div>
-      <div className="flex flex-col gap-1">
-        <Label className="text-xs">Display name</Label>
-        <Input
-          value={name}
-          placeholder="Dev VM"
-          onChange={(event) => setName(event.target.value)}
-        />
-      </div>
-      {mutation.isError && (
-        <p className="text-destructive text-xs">{(mutation.error as Error).message}</p>
-      )}
-      <div className="flex items-center justify-end gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => setOpen(false)}
-          disabled={mutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button size="sm" onClick={() => mutation.mutate()} disabled={!canSubmit}>
-          {mutation.isPending ? 'Verifying…' : 'Add host'}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Removing a host drops its setup progress as well as the row, so it asks

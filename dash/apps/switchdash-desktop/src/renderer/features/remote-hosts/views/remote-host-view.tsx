@@ -34,7 +34,12 @@ import { GhAuthPanel } from '../gh-auth-panel';
 import { hostReachabilityStore } from '../host-reachability-store';
 import { HostUnreachablePanel } from '../host-unreachable-panel';
 import { SetupDetailSheet, type SheetTarget } from '../setup/setup-detail-sheet';
-import { AgentTypeRowItem, PrerequisiteRow, SectionLabel } from '../setup/setup-rows';
+import {
+  AgentTypeRowItem,
+  PrerequisiteIcon,
+  PrerequisiteRow,
+  SectionLabel,
+} from '../setup/setup-rows';
 import { groupPlanSteps } from '../setup/step-presentation';
 import {
   useHostSetupPlan,
@@ -245,6 +250,12 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
 
           <SetupDetailSheet
             target={liveTarget}
+            sshHost={sshHost}
+            icon={
+              liveTarget?.kind === 'prerequisite' ? (
+                <PrerequisiteIcon step={liveTarget.step} size={24} />
+              ) : null
+            }
             onClose={() => setSheetTarget(null)}
             onSkip={(stepId) => skip.mutate(stepId)}
             skippingStepId={skip.isPending ? (skip.variables ?? null) : null}

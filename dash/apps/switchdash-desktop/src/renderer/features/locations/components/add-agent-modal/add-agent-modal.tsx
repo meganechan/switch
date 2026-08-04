@@ -11,6 +11,10 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { HostReachabilityNotice } from '@renderer/features/remote-hosts/host-reachability-notice';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
+import {
+  HostReadinessNotice,
+  useRemoteHostReadiness,
+} from '@renderer/features/remote-hosts/host-readiness-notice';
 import { policyHasDeadRule } from '@renderer/features/switch-servers/addressing-policy-editor';
 import type { ServerVerifyState } from '@renderer/features/switch-servers/agent-server-picker';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
@@ -279,6 +283,13 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // into the failing state this ticket exists to surface (CHOO-1676).
   const runHostReachable = !isRemoteRun || !hostReachabilityStore.isBlocked(runHost);
 
+  // A reachable host that is missing git (or node, or the connector) will
+  // produce an agent that cannot start. Refuse, rather than letting the failure
+  // surface later as a mystery (CHOO-1809). An unchecked host is probed first
+  // and only then judged — `checking` withholds the verdict, it is not one.
+  const hostReadiness = useRemoteHostReadiness(isRemoteRun ? runHost : null);
+  const runHostReady = !isRemoteRun || (!hostReadiness.blocked && !hostReadiness.checking);
+
   const canSubmitDetected = isRemoteRun
     ? !!pickState.providerId &&
       trimmedRemoteDir.length > 0 &&
@@ -286,6 +297,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       !!switchAgent &&
       verifyState === 'found' &&
       runHostReachable &&
+      runHostReady &&
       submitState === 'idle'
     : pickState.isValid &&
       !isChecking &&
@@ -301,6 +313,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     remoteRunValid &&
     runHostReachable &&
+    runHostReady &&
     submitState === 'idle';
 
   // Remote configure gate: no agent in the remote dir yet — a valid remote
@@ -316,6 +329,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     trimmedRemoteDir.length > 0 &&
     runHostReachable &&
+    runHostReady &&
     submitState === 'idle';
 
   const reportCreationError = (error: AgentOnboardingError) => {
@@ -613,6 +627,13 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             </p>
           )}
           {isRemoteRun && <HostReachabilityNotice sshHost={runHost} />}
+          {isRemoteRun && runHostReachable && (
+            <HostReadinessNotice
+              sshHost={runHost}
+              readiness={hostReadiness}
+              onNavigateAway={onClose}
+            />
+          )}
           {isRemoteRun && runHostReachable && (
             <div className="flex items-center gap-2">
               <Input

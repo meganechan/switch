@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Bot, ChevronRight, DoorOpen, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { getLocationStore } from '@renderer/features/locations/stores/location-selectors';
+import { HostTroubleIndicator } from '@renderer/features/remote-hosts/host-trouble-indicator';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -136,7 +137,13 @@ export const RoomAgentRow = observer(function RoomAgentRow({
               />
             </SidebarItemMiniButton>
             <SidebarMenuAction aria-label={`Open agent ${label}`} className="truncate select-none">
-              <span className="truncate">{label}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate">{label}</span>
+                {/* Same agent, same host problem — this row used to show
+                    nothing, so whether you saw it depended on which grouping
+                    the sidebar happened to be in. */}
+                <HostTroubleIndicator sshHost={location.data?.sshHost ?? null} />
+              </span>
             </SidebarMenuAction>
           </div>
           <Tooltip>
