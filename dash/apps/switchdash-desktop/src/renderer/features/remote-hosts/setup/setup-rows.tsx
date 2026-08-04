@@ -14,10 +14,12 @@ import { Button } from '@renderer/lib/ui/button';
 import { Label } from '@renderer/lib/ui/label';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { cn } from '@renderer/utils/utils';
-import type { HostSetupStep } from '@shared/core/remote-hosts/setup';
+import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
   canInstall,
+  canSignIn,
+  signInLabel,
   stepBadge,
   type AgentTypeRow,
   type BadgeSpec,
@@ -138,17 +140,25 @@ function InstallAction({
 
 export function PrerequisiteRow({
   step,
+  plan,
   isCurrent,
   installing,
   activity,
+  authenticating,
   onInstall,
+  onAuthenticate,
   onOpen,
 }: {
   step: HostSetupStep;
+  /** Needed to tell whether this step's own prerequisites are in place. */
+  plan: HostSetupPlan | null;
   isCurrent: boolean;
   installing: boolean;
   activity: string | null;
+  /** True while the sign-in terminal for this step is already open. */
+  authenticating: boolean;
   onInstall: () => void;
+  onAuthenticate: () => void;
   onOpen: () => void;
 }) {
   return (
@@ -159,7 +169,25 @@ export function PrerequisiteRow({
       progress={activity}
       badge={stepBadge(step)}
       highlighted={isCurrent}
-      action={<InstallAction step={step} installing={installing} onInstall={onInstall} />}
+      action={
+        // Signing in is this row's install: it is the one action that makes the
+        // step satisfied, so it belongs beside it rather than one click away
+        // inside the detail sheet.
+        canSignIn(step, plan) ? (
+          <Button
+            size="xs"
+            disabled={authenticating}
+            onClick={(event) => {
+              event.stopPropagation();
+              onAuthenticate();
+            }}
+          >
+            {signInLabel(step)}
+          </Button>
+        ) : (
+          <InstallAction step={step} installing={installing} onInstall={onInstall} />
+        )
+      }
       onClick={onOpen}
     />
   );

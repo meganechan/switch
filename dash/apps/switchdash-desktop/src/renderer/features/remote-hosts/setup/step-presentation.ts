@@ -77,6 +77,26 @@ export function dependenciesMet(step: HostSetupStep, plan: HostSetupPlan | null)
   );
 }
 
+/**
+ * Whether to offer the GitHub sign-in for this step.
+ *
+ * Only once `gh` itself is installed: the device flow runs `gh` on the host, so
+ * offering it earlier sends the user into a failure that says nothing about the
+ * real problem.
+ */
+export function canSignIn(step: HostSetupStep, plan: HostSetupPlan | null): boolean {
+  return step.kind === 'gh-auth' && step.state !== 'satisfied' && dependenciesMet(step, plan);
+}
+
+/**
+ * A login that exists but lacks a scope is not signed out, and telling someone
+ * already signed in to "sign in" reads as wrong advice — even though re-running
+ * the flow is in fact the fix.
+ */
+export function signInLabel(step: HostSetupStep): string {
+  return step.error?.includes('read:packages') ? 'Re-authenticate' : 'Sign in';
+}
+
 export type BadgeSpec = { tone: StatusTone; label: string };
 
 /**

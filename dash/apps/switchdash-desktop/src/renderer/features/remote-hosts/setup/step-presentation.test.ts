@@ -4,9 +4,11 @@ import {
   agentTypeBadge,
   canInstall,
   canSkip,
+  canSignIn,
   dependenciesMet,
   groupPlanSteps,
   outcomeLabel,
+  signInLabel,
   stepBadge,
 } from './step-presentation';
 
@@ -241,5 +243,52 @@ describe('dependenciesMet — do not offer an action that cannot work', () => {
 
   it('is false when there is no plan to check against', () => {
     expect(dependenciesMet(ghAuth(), null)).toBe(false);
+  });
+});
+
+describe('canSignIn — the row and the sheet must agree', () => {
+  // Both surfaces offer this button, so the rule lives in one place: two copies
+  // of it is how the sheet once hid Sign in in exactly the state that needs it.
+  const ghAuth = (patch: Partial<HostSetupStep> = {}) =>
+    step({ id: 'gh:auth', kind: 'gh-auth', name: 'GitHub CLI login', dependsOn: ['gh'], ...patch });
+  const withGh = (auth: HostSetupStep) =>
+    plan([step({ id: 'gh', name: 'GitHub CLI', state: 'satisfied', outcome: 'satisfied' }), auth]);
+
+  it('is offered for an outstanding login once gh is installed', () => {
+    const p = withGh(ghAuth({ outcome: 'missing' }));
+
+    expect(canSignIn(p.steps[1]!, p)).toBe(true);
+  });
+
+  it('is offered after a re-check leaves the step pending', () => {
+    // The state a host actually sits in when the user wants this button.
+    const p = withGh(ghAuth({ state: 'pending', outcome: 'missing' }));
+
+    expect(canSignIn(p.steps[1]!, p)).toBe(true);
+  });
+
+  it('is not offered once the login is good', () => {
+    const p = withGh(ghAuth({ state: 'satisfied', outcome: 'satisfied' }));
+
+    expect(canSignIn(p.steps[1]!, p)).toBe(false);
+  });
+
+  it('is not offered while gh itself is missing', () => {
+    const p = plan([step({ id: 'gh', name: 'GitHub CLI', outcome: 'missing' }), ghAuth()]);
+
+    expect(canSignIn(p.steps[1]!, p)).toBe(false);
+  });
+
+  it('is never offered for something that is not a login', () => {
+    expect(canSignIn(step({ id: 'git', outcome: 'missing' }), null)).toBe(false);
+  });
+
+  it('says re-authenticate when the login exists but lacks the scope', () => {
+    // "Sign in" reads as wrong advice to someone already signed in, even though
+    // re-running the flow is the fix.
+    expect(signInLabel(ghAuth({ error: 'gh is missing the read:packages scope' }))).toBe(
+      'Re-authenticate'
+    );
+    expect(signInLabel(ghAuth())).toBe('Sign in');
   });
 });

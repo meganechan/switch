@@ -24,9 +24,10 @@ import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/set
 import {
   agentTypeBadge,
   canInstall,
+  canSignIn,
   canSkip,
-  dependenciesMet,
   outcomeLabel,
+  signInLabel,
   stepBadge,
   type AgentTypeRow,
 } from './step-presentation';
@@ -141,7 +142,7 @@ function ObservationCard({
 
 function StepActions({
   step,
-  dependenciesSatisfied,
+  plan,
   onInstall,
   installing,
   onSkip,
@@ -149,27 +150,24 @@ function StepActions({
   onAuthenticate,
 }: {
   step: HostSetupStep;
-  /** False while something this step depends on is still outstanding. */
-  dependenciesSatisfied: boolean;
+  /** Needed to tell whether this step's own prerequisites are in place. */
+  plan: HostSetupPlan | null;
   onInstall: () => void;
   installing: boolean;
   onSkip: () => void;
   skipping: boolean;
   onAuthenticate: () => void;
 }) {
-  // Only offer the GitHub sign-in once gh itself is there — the device flow
-  // runs `gh` on the host, so offering it before the CLI exists sends the user
-  // into a failure that says nothing about the real problem.
-  const canSignIn = step.kind === 'gh-auth' && step.state !== 'satisfied' && dependenciesSatisfied;
+  const signInOffered = canSignIn(step, plan);
   const installable = canInstall(step);
   const busy = installing || step.state === 'installing' || step.state === 'checking';
-  if (!canSignIn && !installable && !canSkip(step)) return null;
+  if (!signInOffered && !installable && !canSkip(step)) return null;
 
   return (
     <div className="flex shrink-0 items-center gap-1.5">
-      {canSignIn && (
+      {signInOffered && (
         <Button size="xs" onClick={onAuthenticate}>
-          {step.error?.includes('read:packages') ? 'Re-authenticate' : 'Sign in'}
+          {signInLabel(step)}
         </Button>
       )}
       {installable && (
@@ -279,7 +277,7 @@ export function SetupDetailSheet({
                       actions={
                         <StepActions
                           step={target.step}
-                          dependenciesSatisfied={dependenciesMet(target.step, plan)}
+                          plan={plan}
                           onInstall={() => onInstall(target.step.id)}
                           installing={installingStepId === target.step.id}
                           onSkip={() => onSkip(target.step.id)}
@@ -350,7 +348,7 @@ function AgentTypeDetail({
           actions={
             <StepActions
               step={row.cli}
-              dependenciesSatisfied={dependenciesMet(row.cli, plan)}
+              plan={plan}
               onInstall={() => onInstall(row.cli.id)}
               installing={installingStepId === row.cli.id}
               onSkip={() => onSkip(row.cli.id)}
@@ -377,7 +375,7 @@ function AgentTypeDetail({
               </div>
               <StepActions
                 step={row.plugin}
-                dependenciesSatisfied={dependenciesMet(row.plugin, plan)}
+                plan={plan}
                 onInstall={() => onInstall(row.plugin!.id)}
                 installing={installingStepId === row.plugin.id}
                 onSkip={() => onSkip(row.plugin!.id)}

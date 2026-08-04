@@ -192,12 +192,33 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                     <div key={step.id} className="w-full py-0.5">
                       <PrerequisiteRow
                         step={step}
+                        plan={plan.data ?? null}
                         isCurrent={step.id === currentStepId}
                         installing={installingStepId === step.id}
                         activity={activityFor(step.id)}
+                        authenticating={authenticatingGh && step.kind === 'gh-auth'}
                         onInstall={() => installStep.mutate(step.id)}
+                        onAuthenticate={() => setAuthenticatingGh(true)}
                         onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
                       />
+                      {/*
+                        Opens against the row it belongs to rather than at the
+                        foot of the page: the terminal is the continuation of
+                        that one row's Sign in, and appending it below
+                        everything else meant scrolling away from the thing you
+                        just clicked to find it.
+                      */}
+                      {authenticatingGh && step.kind === 'gh-auth' && (
+                        <div className="px-3 pt-2 pb-1">
+                          <GhAuthPanel
+                            sshHost={sshHost}
+                            onDone={() => {
+                              setAuthenticatingGh(false);
+                              recheck.mutate();
+                            }}
+                          />
+                        </div>
+                      )}
                     </div>
                   ))}
                 </section>
@@ -221,22 +242,6 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                 </section>
               )}
             </div>
-          )}
-
-          {/*
-            The GitHub device flow needs a real terminal the user types into, so
-            it runs inline rather than in a dialog — switchdash disables terminal
-            input while a dialog is open. Re-check on close so the step reflects
-            what actually happened rather than assuming it worked.
-          */}
-          {authenticatingGh && (
-            <GhAuthPanel
-              sshHost={sshHost}
-              onDone={() => {
-                setAuthenticatingGh(false);
-                recheck.mutate();
-              }}
-            />
           )}
 
           <SetupDetailSheet

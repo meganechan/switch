@@ -1,0 +1,138 @@
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// The row's sibling components reach the renderer IPC bridge at import time,
+// which only exists inside Electron. Hoisted so it is in place before those
+// modules are evaluated. Nothing under test calls through it.
+vi.hoisted(() => {
+  window.electronAPI ??= {
+    invoke: () => Promise.resolve(undefined),
+    eventOn: () => () => {},
+    eventSend: () => {},
+  } as unknown as typeof window.electronAPI;
+});
+
+/**
+ * The action a prerequisite row offers has to be on the row (CHOO-1809).
+ *
+ * The GitHub login is the case that went wrong: it was the only prerequisite
+ * whose fix lived exclusively in the detail sheet, so the row showed "Not
+ * installed" and no way to do anything about it — you had to know to click
+ * through. Every other row had its Install button in plain sight.
+ */
+import { PrerequisiteRow } from '@renderer/features/remote-hosts/setup/setup-rows';
+import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
+
+let container: HTMLDivElement | null = null;
+let root: Root | null = null;
+
+afterEach(async () => {
+  if (root) await act(async () => root!.unmount());
+  container?.remove();
+  container = null;
+  root = null;
+});
+
+function step(patch: Partial<HostSetupStep>): HostSetupStep {
+  return {
+    id: 'gh:auth',
+    kind: 'gh-auth',
+    name: 'GitHub CLI login',
+    state: 'pending',
+    outcome: 'missing',
+    version: null,
+    error: null,
+    output: null,
+    optional: false,
+    dependsOn: ['gh'],
+    updatedAt: '2026-02-02T00:00:00.000Z',
+    ...patch,
+  };
+}
+
+function planWith(auth: HostSetupStep, ghState: HostSetupStep['state']): HostSetupPlan {
+  return {
+    sshHost: 'dev-vm',
+    status: 'idle',
+    steps: [
+      {
+        ...step({ id: 'gh', kind: 'core-dependency', name: 'GitHub CLI', dependsOn: [] }),
+        state: ghState,
+        outcome: ghState === 'satisfied' ? 'satisfied' : 'missing',
+      },
+      auth,
+    ],
+    currentStepId: null,
+    createdAt: '2026-02-02T00:00:00.000Z',
+    updatedAt: '2026-02-02T00:00:00.000Z',
+  };
+}
+
+async function render(node: React.ReactNode): Promise<HTMLDivElement> {
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+  await act(async () => root!.render(node));
+  return container;
+}
+
+function row(auth: HostSetupStep, ghState: HostSetupStep['state'] = 'satisfied') {
+  return (
+    <PrerequisiteRow
+      step={auth}
+      plan={planWith(auth, ghState)}
+      isCurrent={false}
+      installing={false}
+      activity={null}
+      authenticating={false}
+      onInstall={() => {}}
+      onAuthenticate={() => {}}
+      onOpen={() => {}}
+    />
+  );
+}
+
+function buttonLabels(el: HTMLElement): string[] {
+  return [...el.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
+}
+
+describe('the GitHub login row', () => {
+  it('offers Sign in on the row itself, not only inside the sheet', async () => {
+    const el = await render(row(step({})));
+
+    expect(buttonLabels(el)).toContain('Sign in');
+  });
+
+  it('says Re-authenticate when the login exists but lacks read:packages', async () => {
+    const el = await render(row(step({ error: 'gh is missing the read:packages scope' })));
+
+    expect(buttonLabels(el)).toContain('Re-authenticate');
+  });
+
+  it('offers nothing while gh itself is still missing', async () => {
+    // The device flow runs `gh` on the host. A Sign in button here would only
+    // produce a failure that says nothing about the real problem.
+    const el = await render(row(step({}), 'pending'));
+
+    expect(buttonLabels(el)).not.toContain('Sign in');
+  });
+
+  it('offers no action once the login is good', async () => {
+    // The row itself is a button (it opens the detail sheet), so this asks that
+    // no *action* is offered rather than that no button exists.
+    const el = await render(
+      row(step({ state: 'satisfied', outcome: 'satisfied', version: 'amaudruz' }))
+    );
+
+    expect(buttonLabels(el)).not.toContain('Sign in');
+    expect(buttonLabels(el)).not.toContain('Re-authenticate');
+    expect(buttonLabels(el)).not.toContain('Install');
+  });
+
+  it('never offers Install for a login — it is a device flow, not a package', async () => {
+    const el = await render(row(step({})));
+
+    expect(buttonLabels(el)).not.toContain('Install');
+  });
+});

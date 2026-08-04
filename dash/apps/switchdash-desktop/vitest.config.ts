@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import tailwindcss from '@tailwindcss/vite';
 import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 
@@ -81,9 +82,15 @@ export default defineConfig({
         },
       },
       {
-        // Renderer terminal tests that need a real browser environment
-        // (real CSS layout, ResizeObserver, requestAnimationFrame, WebGL).
+        // Renderer tests that need a real browser environment (real CSS
+        // layout, ResizeObserver, requestAnimationFrame, WebGL).
         extends: true,
+        // Tailwind runs here for the same reason it runs in the app build:
+        // without it every utility class resolves to nothing, so anything
+        // rendered in these tests is unstyled and no test can say a word about
+        // how it looks. `electron.vite.config.ts` is the app's build and does
+        // not apply to Vitest.
+        plugins: [tailwindcss()],
         test: {
           name: 'browser',
           browser: {
