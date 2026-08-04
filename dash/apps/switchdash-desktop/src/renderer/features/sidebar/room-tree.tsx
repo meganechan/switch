@@ -4,7 +4,6 @@ import type { SessionStore } from '@renderer/features/sessions/stores/session-st
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
-import { agentExpandKey, SidebarAgentItem } from './agent-item';
 import { RoomAgentRow } from './room-agent-row';
 import { filterRoomGroups, sortRoomGroups } from './room-tree-data';
 import { SidebarSessionItem } from './session-item';
@@ -50,24 +49,6 @@ function membersByRoom(): Map<string, AgentEntry[]> {
   return byRoom;
 }
 
-/** The agents to list under the Unassigned bucket: whoever owns a session that
- * is in no room. There is no membership to go on there, so the sessions are all
- * there is. */
-function agentsWithoutRoom(
-  roomSessions: SessionStore[],
-  bySession: Map<string, AgentEntry>
-): AgentEntry[] {
-  const seen = new Set<string>();
-  const ordered: AgentEntry[] = [];
-  for (const session of roomSessions) {
-    const entry = bySession.get(session.data.id);
-    if (!entry || seen.has(entry.agent.id)) continue;
-    seen.add(entry.agent.id);
-    ordered.push(entry);
-  }
-  return ordered;
-}
-
 export const RoomTree = observer(function RoomTree() {
   const showAddAgentsToRoomModal = useShowModal('addAgentsToRoomModal');
 
@@ -95,13 +76,18 @@ export const RoomTree = observer(function RoomTree() {
 
   const groups = sortRoomGroups(
     filterRoomGroups(
-      groupByRoom(allSessions, alwaysShow).map(([roomKey, sessions]) => ({
-        roomKey,
-        label: roomLabel(roomKey),
-        bridgeType: switchRoomsStore.roomBridgeTypeById(roomKey),
-        createdAt: switchRoomsStore.roomSummaryById(roomKey)?.createdAt ?? null,
-        sessions,
-      })),
+      groupByRoom(allSessions, alwaysShow)
+        // This view lists rooms. A session connected to none of them is not in
+        // a room, and a bucket standing in for that is not one either — the
+        // agent view is where a session with no room belongs.
+        .filter(([roomKey]) => roomKey !== UNASSIGNED_ROOM_KEY)
+        .map(([roomKey, sessions]) => ({
+          roomKey,
+          label: roomLabel(roomKey),
+          bridgeType: switchRoomsStore.roomBridgeTypeById(roomKey),
+          createdAt: switchRoomsStore.roomSummaryById(roomKey)?.createdAt ?? null,
+          sessions,
+        })),
       {
         bridgeTypes: sidebarStore.filterBridgeTypes,
         hasLiveSession: sidebarStore.filterRoomHasLiveSession,
@@ -119,10 +105,7 @@ export const RoomTree = observer(function RoomTree() {
       {groups.map(({ roomKey, sessions: roomSessions }) => {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
-        const isRoom = roomKey !== UNASSIGNED_ROOM_KEY;
-        const agentsInRoom = isRoom
-          ? (members.get(roomKey) ?? [])
-          : agentsWithoutRoom(roomSessions, bySession);
+        const agentsInRoom = members.get(roomKey) ?? [];
         return (
           <div key={roomKey}>
             <RoomRow
@@ -132,7 +115,7 @@ export const RoomTree = observer(function RoomTree() {
               depth={0}
               bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
               onToggle={() => sidebarStore.toggleGroupExpanded(roomViewKey)}
-              onSelect={isRoom ? () => openRoomView(roomKey) : null}
+              onSelect={() => openRoomView(roomKey)}
               isActive={isRoomViewActive(roomKey)}
               onOpenGateway={() => openRoomInGateway(roomKey)}
               onOpenChannel={
@@ -140,28 +123,19 @@ export const RoomTree = observer(function RoomTree() {
                   ? () => openRoomInMessagingApp(roomKey)
                   : null
               }
-              onAddAgent={isRoom ? () => showAddAgentsToRoomModal({ roomId: roomKey }) : null}
+              onAddAgent={() => showAddAgentsToRoomModal({ roomId: roomKey })}
             />
             {expanded &&
               agentsInRoom.map((entry) => {
                 const sessionsHere = roomSessions.filter(
                   (session) => bySession.get(session.data.id)?.agent.id === entry.agent.id
                 );
-                // Under a real room the row belongs to the pair (room, agent).
-                // Under Unassigned there is no room to belong to, so it is just
-                // the agent — the agent-view row, keyed the way that view keys it.
                 const agentExpanded = sidebarStore.isGroupExpanded(
-                  isRoom
-                    ? roomAgentGroupKey(roomKey, entry.agent.id)
-                    : agentExpandKey(entry.agent.id)
+                  roomAgentGroupKey(roomKey, entry.agent.id)
                 );
                 return (
                   <Fragment key={entry.agent.id}>
-                    {isRoom ? (
-                      <RoomAgentRow agent={entry.agent} roomId={roomKey} depth={1} />
-                    ) : (
-                      <SidebarAgentItem agent={entry.agent} depth={1} />
-                    )}
+                    <RoomAgentRow agent={entry.agent} roomId={roomKey} depth={1} />
                     {agentExpanded &&
                       sessionsHere.map((session) => (
                         <SidebarSessionItem

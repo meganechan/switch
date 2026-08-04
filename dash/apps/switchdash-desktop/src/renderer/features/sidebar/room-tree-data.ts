@@ -1,7 +1,7 @@
 import { isProvisioned, type SessionStore } from '@renderer/features/sessions/stores/session-store';
 import type { SidebarRoomSortBy } from '@shared/view-state';
 import { UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
-import { getSortInstant, UNASSIGNED_ROOM_KEY } from './sidebar-store';
+import { getSortInstant } from './sidebar-store';
 
 /**
  * What the room view needs to know about a room to order and filter it, without
@@ -39,15 +39,10 @@ export function hasRoomFilters(filters: RoomFilters): boolean {
 /**
  * Apply the room filters. Dimensions are ANDed, values within one ORed — the
  * same rule the agent filters follow.
- *
- * Unassigned is exempt: it is a bucket for sessions in no room, not a room, so
- * it has no messaging app to match and hiding it would hide sessions rather
- * than rooms. It drops out on its own when it has nothing in it.
  */
 export function filterRoomGroups(groups: RoomGroup[], filters: RoomFilters): RoomGroup[] {
   if (!hasRoomFilters(filters)) return groups;
   return groups.filter((group) => {
-    if (group.roomKey === UNASSIGNED_ROOM_KEY) return group.sessions.length > 0;
     if (
       filters.bridgeTypes.size > 0 &&
       !filters.bridgeTypes.has(bridgeFilterValue(group.bridgeType))
@@ -72,8 +67,7 @@ function lastActivity(group: RoomGroup): string | null {
 }
 
 /**
- * Order rooms for the room view. Unassigned always sits last — it is the
- * leftovers, not a peer of the rooms above it.
+ * Order rooms for the room view.
  *
  * `created-at` and `updated-at` put the most recent first, matching the session
  * sort. A room the sort key is unknown for (never loaded, or never used) sorts
@@ -88,8 +82,6 @@ export function sortRoomGroups(groups: RoomGroup[], sortBy: SidebarRoomSortBy): 
         ? lastActivity
         : () => null;
   return [...groups].sort((a, b) => {
-    if (a.roomKey === UNASSIGNED_ROOM_KEY) return 1;
-    if (b.roomKey === UNASSIGNED_ROOM_KEY) return -1;
     const ak = key(a);
     const bk = key(b);
     if (ak !== bk) {

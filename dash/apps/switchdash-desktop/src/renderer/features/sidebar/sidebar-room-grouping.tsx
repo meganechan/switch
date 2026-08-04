@@ -124,7 +124,6 @@ export function RoomRow({
   /** Bridge platform type (`slack`, `mattermost`, …) when the room is bridged. */
   bridgeType?: string | null;
 }) {
-  const linkable = label !== 'Unassigned';
   const channelLinkable = onOpenChannel !== null && hasBridgeIcon(bridgeType);
   return (
     <SidebarMenuRow
@@ -200,26 +199,24 @@ export function RoomRow({
           <TooltipContent>Add an agent to this room</TooltipContent>
         </Tooltip>
       )}
-      {linkable && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <SidebarItemMiniButton
-                type="button"
-                aria-label={`Open ${label} in gateway`}
-                className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenGateway();
-                }}
-              >
-                <ExternalLink className="h-3.5 w-3.5" />
-              </SidebarItemMiniButton>
-            }
-          />
-          <TooltipContent>Open in gateway</TooltipContent>
-        </Tooltip>
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <SidebarItemMiniButton
+              type="button"
+              aria-label={`Open ${label} in gateway`}
+              className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenGateway();
+              }}
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+            </SidebarItemMiniButton>
+          }
+        />
+        <TooltipContent>Open in gateway</TooltipContent>
+      </Tooltip>
       <span className="shrink-0 text-xs text-foreground-tertiary-passive">{count}</span>
     </SidebarMenuRow>
   );

@@ -5,10 +5,7 @@ const isProvisioned = vi.hoisted(() => vi.fn());
 const getSortInstant = vi.hoisted(() => vi.fn());
 
 vi.mock('@renderer/features/sessions/stores/session-store', () => ({ isProvisioned }));
-vi.mock('./sidebar-store', () => ({
-  getSortInstant,
-  UNASSIGNED_ROOM_KEY: '__unassigned__',
-}));
+vi.mock('./sidebar-store', () => ({ getSortInstant }));
 
 const { bridgeFilterValue, filterRoomGroups, sortRoomGroups } = await import('./room-tree-data');
 
@@ -112,25 +109,6 @@ describe('filterRoomGroups', () => {
 
     expect(kept.map((g) => g.roomKey)).toEqual(['slack-live']);
   });
-
-  it('never filters Unassigned on room properties, only on being empty', () => {
-    // It is a bucket for sessions in no room, not a room: it has no messaging
-    // app to match, and dropping it would hide sessions rather than rooms.
-    const withSessions = [group('__unassigned__', { sessions: [{ id: 's1' }] })];
-    expect(
-      filterRoomGroups(withSessions, {
-        bridgeTypes: new Set(['slack']),
-        hasLiveSession: false,
-      }).map((g) => g.roomKey)
-    ).toEqual(['__unassigned__']);
-
-    expect(
-      filterRoomGroups([group('__unassigned__')], {
-        bridgeTypes: new Set(['slack']),
-        hasLiveSession: false,
-      })
-    ).toEqual([]);
-  });
 });
 
 describe('sortRoomGroups', () => {
@@ -173,16 +151,6 @@ describe('sortRoomGroups', () => {
       'Alpha',
       'Zeta',
     ]);
-  });
-
-  it('keeps Unassigned last whatever the sort', () => {
-    const groups = [
-      group('__unassigned__', { label: 'Unassigned', sessions: [{ id: 's1', usedAt: '2099' }] }),
-      group('a', { label: 'Alpha', createdAt: '2026-01-01T00:00:00Z' }),
-    ];
-    for (const sortBy of ['name', 'created-at', 'updated-at'] as const) {
-      expect(sortRoomGroups(groups, sortBy).map((g) => g.roomKey)).toEqual(['a', '__unassigned__']);
-    }
   });
 
   it('does not reorder the array it was given', () => {
