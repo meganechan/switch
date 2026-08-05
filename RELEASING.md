@@ -38,6 +38,31 @@ standalone Docker Compose file. The switchdash desktop app releases separately
 You can also trigger `workflow_dispatch` manually from the Actions tab to test a
 build without creating a release.
 
+## switchdash desktop app release (separate)
+
+The desktop app (`dash/`) releases on its own tag, `switchdash-v<version>`, via
+`.github/workflows/switchdash-release.yml`. The tag MUST match
+`dash/apps/switchdash-desktop/package.json` `version` (the workflow verifies
+this and fails on mismatch). Procedure: bump `package.json`, cut the
+`## switchdash` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
+publishes a **GitHub Release** (macOS arm64 signed + notarized; Linux x64
+AppImage/deb/rpm, unsigned).
+
+**Approval gate (required).** The `build-macos` job runs in the GitHub
+`release` environment (required reviewers), which holds the Apple signing /
+notarization secrets. On tag push the (assetless) GitHub Release is created and
+the Linux build runs immediately, but the **signed + notarized macOS
+`.dmg`/`.zip` only build and upload after a required reviewer approves the
+run**. The release is therefore **incomplete until approved**.
+
+**Mandatory step — ping the approver on tag push.** The moment a
+`switchdash-v*` tag is pushed, the releaser MUST send `louis.amaudruz` a
+targeted message with the Actions run URL, stating the run is paused awaiting
+his approval in the `release` environment, and asking him to approve. Do not
+wait silently — the macOS build cannot proceed until he approves. Only after
+the run goes green are the notes finalised and the 🚀 banner posted.
+switch-core releases are **not** gated and need no such ping.
+
 ## Where artifacts are published
 
 The images, the chart, and the standalone compose artifact all go to **GitHub
