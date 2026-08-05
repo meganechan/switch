@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { err, ok } from '@switchdash/shared';
 import type { Result } from '@switchdash/shared';
+import { knownAgentTypeForProvider } from '@main/core/agents/known-agent-type';
 import { locationManager } from '@main/core/locations/location-manager';
 import { checkIsValidDirectory } from '@main/core/locations/path-utils';
 import { ensureLocation } from '@main/core/locations/store';
@@ -19,6 +20,7 @@ import { createAgent } from './createAgent';
 import { getAgents } from './getAgents';
 import { registerAgentIdentity } from './register-agent-identity';
 import { reconcileAgentAutoSessionFromGateway } from './setAgentAutoSession';
+import { writeNeutralAgentSettingsFs } from './write-switch-settings';
 
 export type OnboardLocationParams = {
   sshHost: string | null;
@@ -38,8 +40,6 @@ export type OnboardLocationResult = Result<Agent[], OnboardAgentError>;
 
 /** The Switch identity an onboarded definition should run under. */
 type ResolvedIdentity = { switchAgentId: string; apiEndpoint: string };
-
-type RepoAgentsBehavior = NonNullable<ReturnType<typeof getPlugin>['behavior']['repoAgents']>;
 
 /** Map a recoverable registration failure to an onboard error. */
 function registrationError(
@@ -76,7 +76,6 @@ async function resolveIdentity(
   description: string | null,
   ctx: {
     server: SwitchServer;
-    behavior: RepoAgentsBehavior;
     workspace: WorkspaceFs;
     credsByName: Map<string, { switchAgentId: string | null; apiEndpoint: string | null }>;
     dir: string;
@@ -114,6 +113,9 @@ async function resolveIdentity(
     description: description ?? `Claude Code agent ${name}`,
     repoDir: ctx.dir,
     autoSession: true,
+    // This path onboards `.claude/agents/*.md` definitions, so the identity is a
+    // Claude Code one by construction.
+    agentType: knownAgentTypeForProvider('claude'),
   });
   if (registered.kind !== 'created') {
     const message = 'message' in registered ? registered.message : '';
@@ -123,8 +125,8 @@ async function resolveIdentity(
     };
   }
 
-  await ctx.behavior.writeCredentials(ctx.workspace.fs, {
-    agentName: name,
+  await writeNeutralAgentSettingsFs(ctx.workspace.fs, {
+    slug: name,
     apiEndpoint: ctx.server.apiUrl,
     apiToken: registered.apiKey,
     agentId: registered.id,
@@ -209,7 +211,6 @@ export async function onboardLocationAgents(
     for (const def of selected) {
       const resolved = await resolveIdentity(def.name, def.description, {
         server,
-        behavior,
         workspace,
         credsByName,
         dir: params.dir,

@@ -21,6 +21,20 @@ below:
 
 ### [Unreleased]
 
+### [0.12.0] - 2026-08-04
+
+#### Added
+- Codex registered as its own gateway known-agent (connector_type "Codex") with
+  a Codex-flavored "no live session" command, instead of falling back to Claude's
+  builder (CHOO-1436, #91).
+- `cancel_task` agent operation — a requester can abandon a task it delegated,
+  recording the reason and notifying the room; served on both the MCP server and
+  the HTTP front door (CHOO-1436, #79).
+
+#### Changed
+- `list_participants` now includes each participant's `status` and `alias` (both
+  null when unset) (CHOO-1436, #79).
+
 ### [0.11.0] - 2026-08-03
 
 #### Added
@@ -150,6 +164,67 @@ below:
 ## switchdash
 
 ### [Unreleased]
+
+### [0.18.1] - 2026-08-05
+
+#### Changed
+- Bundled Switch agent runtime bumped to 0.1.5 (#127).
+
+#### Fixed
+- A session's Switch connection id is now derived deterministically, so a
+  supervisor/sidecar restart no longer strands a remote session with a stale
+  connection id (CHOO-1931, #125).
+
+### [0.18.0] - 2026-08-04
+
+#### Added
+- Codex is now a supported agent provider. Add a Codex agent from the add-agent
+  modal (with a dedicated Codex config), connected to Switch via a new Codex
+  connector plugin registered in the marketplace, running locally or on a remote
+  host. `CODEX_SANDBOX_MODE` / `CODEX_APPROVAL_POLICY` drive Codex's sandbox and
+  approval (validated — an unknown value fails rather than silently widening the
+  sandbox); a Codex agent defaults to a `codex.<repo>.<user>` identity; and
+  switchdash registers the Switch MCP runtime for Codex itself via a per-agent
+  Codex profile, since Codex can't expand `${VAR}` in a bundled `.mcp.json`
+  (CHOO-1436, #91, #79).
+
+#### Fixed
+- Codex session correctness: per-agent Switch credentials are written to disk for
+  providers without repo-agents (so Codex sessions actually receive `SWITCH_*`);
+  Codex room tracking follows `connect_to_room` mid-session; and Codex hook
+  payloads post correctly (local Codex sessions had been posting empty bodies to
+  a portless URL) (CHOO-1436, #79).
+
+### [0.17.2] - 2026-08-04
+
+#### Added
+- Status-aware "update available" UX: the sidebar indicator shows the target
+  version when an update is available, live percentage + transfer rate while
+  downloading, a restart prompt once ready, and a warning tint on failure — and
+  opens a panel (current → new version, the right action, a link to the GitHub
+  release) instead of just jumping to Settings. User-triggered failures are
+  toasted and the real error message is shown (CHOO-1434, #107).
+
+#### Fixed
+- The onboarding/home page can drag the window again: the empty home surface is
+  now a drag region (action buttons opted out), so the window is no longer stuck
+  when Home is the active view (CHOO-1430, #106).
+
+### [0.17.1] - 2026-08-04
+
+#### Added
+- Linux x64 desktop builds are shipped again (AppImage, deb, rpm), with a stable
+  desktop-entry name so the launcher, icon and pinning behave; INSTALL docs and
+  release notes now cover Linux (CHOO-1905, #104).
+
+#### Changed
+- Release builds macOS and Linux artifacts in parallel (the GitHub Release is
+  created in its own job), cutting ~5 minutes off a release (CHOO-1905, #104).
+
+#### Fixed
+- A dropped-events "gap" no longer wakes an agent and spends a turn: switchdash
+  defers the warning onto the next event it was already going to surface, instead
+  of injecting an addressed prompt (CHOO-1906, #105).
 
 ### [0.17.0] - 2026-08-04
 

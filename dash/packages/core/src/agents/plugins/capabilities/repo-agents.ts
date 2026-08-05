@@ -28,25 +28,27 @@ export type RepoAgentDefinition = {
   registered: boolean;
 };
 
-/** Credentials written for an agent so its sessions act under its own identity. */
-export type RepoAgentCredentials = {
-  agentName: string;
-  apiEndpoint: string;
-  apiToken: string;
-  agentId: string;
-};
-
 /**
  * The MCP permission rules that keep a Switch agent connected to the platform:
- * the connector's two MCP servers. Used both as `tools` allowlist entries (so an
+ * the connector's MCP server. Used both as `tools` allowlist entries (so an
  * agent that restricts its tools stays Switch-capable) and as `permissions.allow`
  * entries (so the connector's tools are auto-approved — "don't ask"). Authored
  * once here so every provider's onboarding path agrees.
  */
-export const SWITCH_CONNECTOR_TOOL_RULES = [
-  'mcp__plugin_switch-connector_switch',
+export const SWITCH_CONNECTOR_TOOL_RULES = ['mcp__plugin_switch-connector_switch'] as const;
+
+/**
+ * Every rule switchdash has ever authored, including ones it no longer writes.
+ * The paths that strip switchdash's own contributions back out — the subagent
+ * form's read-back and the teardown that removes Switch settings — match against
+ * this, so a working directory set up before the connector's two MCP servers
+ * became one runtime is still cleaned up completely instead of keeping a rule
+ * that names a server nobody registers.
+ */
+export const RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES: readonly string[] = [
+  ...SWITCH_CONNECTOR_TOOL_RULES,
   'mcp__plugin_switch-connector_switch-channel',
-] as const;
+];
 
 /**
  * Provider-neutral directory (relative to a location's working directory) for
@@ -109,8 +111,6 @@ export type IRepoAgentsBehavior = {
   launchArgs(workingDir: string, agentName: string): string[];
   /** The named agent's Switch credentials as env vars, for the launched session. */
   readLaunchEnv(workspaceFs: PluginFs, agentName: string): Promise<Record<string, string>>;
-  /** Write a named agent's credentials so it is immediately runnable. */
-  writeCredentials(workspaceFs: PluginFs, credentials: RepoAgentCredentials): Promise<void>;
   /** The attribute fields this provider supports, in display order. Drives the
    * create/edit form; the first two are always `name` and `description`. */
   attributeFields(): RepoAgentField[];
@@ -120,7 +120,10 @@ export type IRepoAgentsBehavior = {
   /** The current attribute values for an existing agent definition, keyed to
    * {@link attributeFields}, or null if no definition exists. */
   readDefinition(workspaceFs: PluginFs, name: string): Promise<RepoAgentAttributes | null>;
-  /** Remove a named agent's definition and credentials files (workspace scope). */
+  /** Remove a named agent's provider-specific files — its definition and any
+   * legacy per-agent settings (workspace scope). The provider-neutral Switch
+   * credentials are not this hook's to remove: they are written for every
+   * provider, so they are torn down by the caller for every provider too. */
   removeLocal(workspaceFs: PluginFs, name: string): Promise<void>;
 };
 

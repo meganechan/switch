@@ -1,5 +1,6 @@
 import type { Result } from '@switchdash/shared';
 import { suggestAgentDefaults } from '@main/core/agents/agent-defaults';
+import { knownAgentTypeForProvider } from '@main/core/agents/known-agent-type';
 import { propagateServerApiUrl } from '@main/core/agents/propagate-server-api-url';
 import { registerAgentIdentity } from '@main/core/agents/register-agent-identity';
 import { resolveAgentServers } from '@main/core/agents/resolve-servers';
@@ -14,6 +15,7 @@ import {
 } from '@main/core/managed-switch-server/managed-server-status';
 import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
+import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import type {
   AddressingPolicy,
   AddServerParams,
@@ -278,16 +280,17 @@ export const switchServersController = createRPCController({
     }
   },
 
-  suggestAgentDefaults: async (params: { dir: string }): Promise<AgentDefaults> =>
-    suggestAgentDefaults(params.dir),
+  suggestAgentDefaults: async (params: {
+    dir: string;
+    providerId: AgentProviderId;
+  }): Promise<AgentDefaults> => suggestAgentDefaults(params.dir, params.providerId),
 
   /**
-   * Register a new Claude Code agent on the chosen server (owned by the
-   * signed-in user) and write its credentials into the directory's
-   * `.claude/settings.local.json`. This is the desktop equivalent of running
-   * the switch-connector `configure` skill. Recoverable gateway failures are
-   * mapped to a typed result; the minted token is written to disk and never
-   * returned.
+   * Register a new agent on the chosen server (owned by the signed-in user) and
+   * write its credentials into the directory's `.claude/settings.local.json`.
+   * This is the desktop equivalent of running the switch-connector `configure`
+   * skill. Recoverable gateway failures are mapped to a typed result; the minted
+   * token is written to disk and never returned.
    */
   provisionAgent: async (params: ProvisionAgentParams): Promise<ProvisionAgentResult> => {
     const server = await requireServer(params.serverId);
@@ -297,6 +300,9 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.dir,
       autoSession: params.autoSession,
+      // Provisioning writes `.claude/settings.local.json` — this is the Claude
+      // Code path by construction, not a fallback.
+      agentType: knownAgentTypeForProvider('claude'),
     });
     if (registered.kind !== 'created') return registered;
 
@@ -328,6 +334,8 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.remoteRepoDir,
       autoSession: params.autoSession,
+      // Remote provisioning likewise writes `.claude/settings.local.json`.
+      agentType: knownAgentTypeForProvider('claude'),
     });
     if (registered.kind !== 'created') return registered;
 
