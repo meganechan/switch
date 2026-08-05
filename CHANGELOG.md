@@ -182,6 +182,15 @@ below:
 
 ### [Unreleased]
 
+### [0.18.2] - 2026-08-05
+
+#### Fixed
+- Client side of one-session-per-room enforcement: a session whose room the
+  server takes away (or refuses with HTTP 409 because another session of the
+  agent holds it) is now reported as roomless and is not reconnected under a
+  room it no longer attends — the remote-session reconciler and sidecar no
+  longer strand two sessions in one room (CHOO-1419, #109).
+
 ### [0.18.1] - 2026-08-05
 
 #### Changed
