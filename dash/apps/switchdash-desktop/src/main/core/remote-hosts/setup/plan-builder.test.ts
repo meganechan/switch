@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
+import { listPlugins } from '@main/core/providers/plugin-registry';
+import { deriveHostStatus } from '@shared/core/remote-hosts/host-status';
+import type { HostReachability } from '@shared/core/remote-hosts/reachability';
 import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import {
   agentPluginStepId,
@@ -219,5 +223,78 @@ describe('reconcileInterruptedPlan', () => {
   it('is a no-op for a cleanly halted plan', () => {
     const plan = planWith('failed', 'idle');
     expect(reconcileInterruptedPlan(plan, NOW)).toBe(plan);
+  });
+});
+
+/**
+ * Every other test here builds from fixtures, which is exactly why the Codex
+ * regression got through: making Codex Switch-supported added two required
+ * steps to every real plan, and nothing built from the real registry to notice.
+ * These tests use the shipped dependency list and plugin registry, so adding an
+ * agent type that quietly changes what a provisioned host reports fails here.
+ */
+describe('buildSetupPlan — against the real registry', () => {
+  const reachable: HostReachability = {
+    sshHost: 'dev-vm',
+    status: 'reachable',
+    lastError: null,
+    lastCheckedAt: null,
+    lastReachableAt: null,
+    consecutiveFailures: 0,
+    nextProbeAt: null,
+    probing: false,
+  };
+
+  /** The same filter `plannableAgentTypes` applies before building a plan. */
+  const switchSupported = () =>
+    listPlugins()
+      .filter((plugin) => plugin.capabilities.switchSetup.kind === 'cli')
+      .map((plugin) => ({ agentId: plugin.metadata.id, name: plugin.metadata.id }));
+
+  const realPlan = () =>
+    buildSetupPlan({
+      sshHost: 'dev-vm',
+      coreDependencies: CORE_DEPENDENCIES.map((dep) => ({ id: dep.id, name: dep.name })),
+      agentTypes: switchSupported(),
+      existing: null,
+      now: NOW,
+    });
+
+  function satisfy(plan: HostSetupPlan, predicate: (step: HostSetupStep) => boolean) {
+    return {
+      ...plan,
+      steps: plan.steps.map((step) =>
+        predicate(step)
+          ? { ...step, state: 'satisfied' as const, outcome: 'satisfied' as const }
+          : step
+      ),
+    };
+  }
+
+  it('offers more than one Switch-supported agent type', () => {
+    // Guards the premise of the test below: with a single type, host-wide and
+    // per-type verdicts coincide and the regression is invisible.
+    expect(switchSupported().length).toBeGreaterThan(1);
+  });
+
+  it('reports a host with every prerequisite installed as ready, whatever agent types ship', () => {
+    // The reported bug: all prerequisites present, one agent CLI absent, and the
+    // host badge read "Setup required".
+    const plan = satisfy(
+      realPlan(),
+      (step) => step.kind === 'core-dependency' || step.kind === 'gh-auth'
+    );
+
+    expect(deriveHostStatus(reachable, plan).kind).toBe('ready');
+  });
+
+  it('still reports a host missing a prerequisite as not ready', () => {
+    // The inverse, so the test above cannot pass by never blocking anything.
+    const plan = satisfy(
+      realPlan(),
+      (step) => (step.kind === 'core-dependency' || step.kind === 'gh-auth') && step.id !== 'node'
+    );
+
+    expect(deriveHostStatus(reachable, plan).kind).toBe('setup-required');
   });
 });

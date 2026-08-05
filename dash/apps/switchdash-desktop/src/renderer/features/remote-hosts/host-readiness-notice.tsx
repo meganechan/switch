@@ -20,7 +20,7 @@ import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { log } from '@renderer/utils/logger';
-import { deriveHostStatus } from '@shared/core/remote-hosts/host-status';
+import { deriveAgentTypeStatus } from '@shared/core/remote-hosts/host-status';
 import { hostReachabilityStore } from './host-reachability-store';
 import { resolveReadiness, type HostReadiness } from './host-readiness';
 import { hostSetupStore } from './host-setup-store';
@@ -34,7 +34,11 @@ export { resolveReadiness, type HostReadiness };
  * Reachability is deliberately not treated as "blocked" here — the modal
  * already gates on it separately and says something more useful about it.
  */
-export function useRemoteHostReadiness(sshHost: string | null): HostReadiness {
+export function useRemoteHostReadiness(
+  sshHost: string | null,
+  /** The agent type being created, so the gate judges that type and not all of them. */
+  agentId: string | null
+): HostReadiness {
   const [checking, setChecking] = useState(false);
   // Probe at most once per host per mount: this costs an SSH round trip, and
   // re-running it on every render of a modal would hammer the host.
@@ -46,7 +50,8 @@ export function useRemoteHostReadiness(sshHost: string | null): HostReadiness {
 
   const reachability = sshHost ? hostReachabilityStore.get(sshHost) : null;
   const plan = hostSetupStore.get(sshHost);
-  const status = sshHost && reachability ? deriveHostStatus(reachability, plan) : null;
+  const status =
+    sshHost && reachability ? deriveAgentTypeStatus(reachability, plan, agentId) : null;
   const needsProbe = status?.kind === 'unchecked';
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export function useRemoteHostReadiness(sshHost: string | null): HostReadiness {
       .finally(() => setChecking(false));
   }, [sshHost, needsProbe]);
 
-  return resolveReadiness(status, plan, checking || needsProbe);
+  return resolveReadiness(status, plan, agentId, checking || needsProbe);
 }
 
 /** Explains a blocked host, and sends the user to the page that fixes it. */
@@ -95,7 +100,10 @@ export const HostReadinessNotice = observer(function HostReadinessNotice({
       <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
       <div className="flex min-w-0 flex-col gap-1.5">
         <span>
-          <span className="font-medium">{sshHost}</span> is not set up to run agents
+          <span className="font-medium">{sshHost}</span>{' '}
+          {readiness.scope === 'agent-type'
+            ? 'is ready, but is not set up for this agent type'
+            : 'is not set up to run agents'}
           {readiness.missing.length > 0 ? `: ${readiness.missing.join(', ')} ` : ' '}
           {readiness.missing.length === 1 ? 'is missing.' : 'are missing.'} An agent created here
           would fail to start.

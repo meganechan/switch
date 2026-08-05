@@ -9,10 +9,12 @@
  */
 
 import type { StatusTone } from '@renderer/lib/ui/status-badge';
-import type {
-  DependencyCheckOutcome,
-  HostSetupPlan,
-  HostSetupStep,
+import {
+  agentPluginStepId,
+  hostLevelSteps,
+  type DependencyCheckOutcome,
+  type HostSetupPlan,
+  type HostSetupStep,
 } from '@shared/core/remote-hosts/setup';
 
 /**
@@ -174,9 +176,9 @@ export type GroupedPlan = {
 export function groupPlanSteps(plan: HostSetupPlan | null): GroupedPlan {
   if (!plan) return { prerequisites: [], agentTypes: [] };
 
-  const prerequisites = plan.steps.filter(
-    (step) => step.kind === 'core-dependency' || step.kind === 'gh-auth'
-  );
+  // Same partition the host verdict uses, so the section a step is listed under
+  // cannot disagree with the badge that judges it.
+  const prerequisites = hostLevelSteps(plan);
 
   const agentTypes = plan.steps
     .filter((step) => step.kind === 'agent-cli')
@@ -185,7 +187,8 @@ export function groupPlanSteps(plan: HostSetupPlan | null): GroupedPlan {
       name: cli.name,
       cli,
       plugin:
-        plan.steps.find((s) => s.kind === 'agent-plugin' && s.id === `${cli.id}:plugin`) ?? null,
+        plan.steps.find((s) => s.kind === 'agent-plugin' && s.id === agentPluginStepId(cli.id)) ??
+        null,
     }));
 
   return { prerequisites, agentTypes };

@@ -9,14 +9,21 @@
  *
  * This is that answer, derived once and read everywhere.
  *
- * The ordering rule is the important part: **readiness is conditional on
- * reachability.** A host we cannot reach reports *unreachable* with its
- * readiness withheld — never "not ready", which would blame the prerequisites
- * for a network problem (the conflation CHOO-1780 removed).
+ * Two ordering rules matter here:
+ *
+ * 1. **Readiness is conditional on reachability.** A host we cannot reach
+ *    reports *unreachable* with its readiness withheld — never "not ready",
+ *    which would blame the prerequisites for a network problem (the conflation
+ *    CHOO-1780 removed).
+ * 2. **The host and its agent types are separate verdicts.** `deriveHostStatus`
+ *    answers "can this machine run agents at all?" from its prerequisites
+ *    alone; `deriveAgentTypeStatus` answers "can it run *this* type?". A host
+ *    with every prerequisite installed is ready even if one of several agent
+ *    CLIs is absent — that absence blocks its own type, nothing else.
  */
 
 import { isHostBlocked, type HostReachability } from './reachability';
-import { inFlightStep, outstandingRequiredSteps, type HostSetupPlan } from './setup';
+import { agentTypeSteps, hostLevelSteps, type HostSetupPlan, type HostSetupStep } from './setup';
 
 export type HostStatusKind =
   /** SSH authentication failed — will not self-heal, the user must fix it. */
@@ -46,7 +53,8 @@ export type HostStatus = {
    */
   readinessKnown: boolean;
   /**
-   * Steps satisfied / total, counting everything the page lists.
+   * Steps satisfied / total, counting everything in the group this verdict is
+   * about — the host's prerequisites, or one agent type's steps.
    *
    * Deliberately not "required only": a count that silently excludes optional
    * steps cannot be reconciled with the list beside it, which is how a host
@@ -83,23 +91,59 @@ export function deriveHostStatus(
     };
   }
 
-  if (!plan || plan.steps.length === 0) {
-    return {
-      kind: 'unchecked',
-      label: 'Not checked',
-      tone: 'neutral',
-      readinessKnown: false,
-      done: 0,
-      total: 0,
-    };
-  }
+  if (!plan) return UNCHECKED;
+  return deriveFromSteps(hostLevelSteps(plan));
+}
 
-  const total = plan.steps.length;
-  const done = plan.steps.filter((step) => step.state === 'satisfied').length;
+/**
+ * The same verdict, narrowed to "can this host run an agent of *this* type?".
+ *
+ * The host's own state comes first and dominates: a host missing git cannot run
+ * anything, so every agent type inherits that verdict rather than each reporting
+ * its own CLI as the problem. Only once the host itself is ready does the
+ * question become type-specific.
+ *
+ * A type with no steps in the plan — one whose connector switchdash does not
+ * manage — is not held against the host: there is nothing type-specific to
+ * satisfy, so the host's verdict stands.
+ */
+export function deriveAgentTypeStatus(
+  reachability: HostReachability,
+  plan: HostSetupPlan | null,
+  agentId: string | null
+): HostStatus {
+  const host = deriveHostStatus(reachability, plan);
+  if (host.kind !== 'ready' || !plan || !agentId) return host;
+
+  const steps = agentTypeSteps(plan, agentId);
+  if (steps.length === 0) return host;
+  return deriveFromSteps(steps);
+}
+
+const UNCHECKED: HostStatus = {
+  kind: 'unchecked',
+  label: 'Not checked',
+  tone: 'neutral',
+  readinessKnown: false,
+  done: 0,
+  total: 0,
+};
+
+/**
+ * The verdict for one group of steps, host-level or agent-type.
+ *
+ * Shared so the two cannot drift into judging the same evidence differently —
+ * the only thing that varies between them is which steps they are handed.
+ */
+function deriveFromSteps(steps: HostSetupStep[]): HostStatus {
+  if (steps.length === 0) return UNCHECKED;
+
+  const total = steps.length;
+  const done = steps.filter((step) => step.state === 'satisfied').length;
 
   // Work in flight lives on the step, not the plan: there is no automated run
   // to be "running", only whatever the user asked for a moment ago.
-  const inFlight = inFlightStep(plan);
+  const inFlight = steps.find((step) => step.state === 'checking' || step.state === 'installing');
   if (inFlight) {
     return {
       kind: 'setting-up',
@@ -111,7 +155,7 @@ export function deriveHostStatus(
     };
   }
 
-  if (outstandingRequiredSteps(plan).length === 0) {
+  if (steps.every((step) => step.optional || step.state === 'satisfied')) {
     return { kind: 'ready', label: 'Ready', tone: 'success', readinessKnown: true, done, total };
   }
 
@@ -123,7 +167,7 @@ export function deriveHostStatus(
   // pending but stores what it saw) and no step moved off pending (skipping one
   // is a decision the user made, and reporting that host as unchecked would
   // hide it).
-  const untouched = plan.steps.every((step) => step.outcome === null && step.state === 'pending');
+  const untouched = steps.every((step) => step.outcome === null && step.state === 'pending');
   if (untouched) {
     return {
       kind: 'unchecked',

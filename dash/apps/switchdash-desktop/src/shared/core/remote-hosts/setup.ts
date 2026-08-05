@@ -141,6 +141,79 @@ export function outstandingRequiredSteps(plan: HostSetupPlan): HostSetupStep[] {
   return plan.steps.filter((step) => !step.optional && step.state !== 'satisfied');
 }
 
+const AGENT_PLUGIN_STEP_SUFFIX = ':plugin';
+
+/** Step id for an agent type's Switch connector plugin. */
+export function agentPluginStepId(agentId: string): string {
+  return `${agentId}${AGENT_PLUGIN_STEP_SUFFIX}`;
+}
+
+/**
+ * Whether a step describes the host itself rather than one agent type.
+ *
+ * This split is the difference between "this machine cannot run agents" and
+ * "this machine cannot run *Codex*". Collapsing the two is what made a host with
+ * every prerequisite installed report "Setup required" because one agent CLI of
+ * several was absent, and then refused to create an agent of a type that was
+ * perfectly well installed.
+ */
+export function isHostLevelStep(step: HostSetupStep): boolean {
+  return step.kind === 'core-dependency' || step.kind === 'gh-auth';
+}
+
+/** The agent type a step belongs to, or null when the step is host-level. */
+export function agentIdForStep(step: HostSetupStep): string | null {
+  if (step.kind === 'agent-cli') return step.id;
+  if (step.kind === 'agent-plugin') {
+    return step.id.endsWith(AGENT_PLUGIN_STEP_SUFFIX)
+      ? step.id.slice(0, -AGENT_PLUGIN_STEP_SUFFIX.length)
+      : step.id;
+  }
+  return null;
+}
+
+/** The host's own prerequisites — every agent type needs all of these. */
+export function hostLevelSteps(plan: HostSetupPlan): HostSetupStep[] {
+  return plan.steps.filter(isHostLevelStep);
+}
+
+/** One agent type's steps: its CLI and its Switch connector. */
+export function agentTypeSteps(plan: HostSetupPlan, agentId: string): HostSetupStep[] {
+  return plan.steps.filter((step) => agentIdForStep(step) === agentId);
+}
+
+/** Host prerequisites still outstanding — these block every agent type. */
+export function outstandingRequiredHostSteps(plan: HostSetupPlan): HostSetupStep[] {
+  return hostLevelSteps(plan).filter((step) => !step.optional && step.state !== 'satisfied');
+}
+
+/** One agent type's outstanding steps — these block only that type. */
+export function outstandingRequiredAgentTypeSteps(
+  plan: HostSetupPlan,
+  agentId: string
+): HostSetupStep[] {
+  return agentTypeSteps(plan, agentId).filter(
+    (step) => !step.optional && step.state !== 'satisfied'
+  );
+}
+
+/**
+ * What stands between this host and running an agent of `agentId`, in the order
+ * the user must deal with it: the host's own prerequisites first, because until
+ * they are met the agent type's steps cannot even be attempted.
+ *
+ * Mirrors the precedence in `deriveAgentTypeStatus` so a verdict and the reasons
+ * given for it cannot disagree.
+ */
+export function outstandingRequiredStepsFor(
+  plan: HostSetupPlan,
+  agentId: string | null
+): HostSetupStep[] {
+  const host = outstandingRequiredHostSteps(plan);
+  if (host.length > 0 || !agentId) return host;
+  return outstandingRequiredAgentTypeSteps(plan, agentId);
+}
+
 /**
  * Whether the host is usable for running agents. Optional steps and skipped
  * steps do not count against it; a step we could not verify does.

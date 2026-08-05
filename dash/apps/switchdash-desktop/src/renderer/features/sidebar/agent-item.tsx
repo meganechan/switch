@@ -172,7 +172,7 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
                 {/* Unreachable host, or one missing something this agent needs.
                     Shared with the room-grouped rows so the two trees cannot
                     disagree about the same agent (CHOO-1682/1809). */}
-                <HostTroubleIndicator sshHost={sshHost} />
+                <HostTroubleIndicator sshHost={sshHost} agentId={agent.providerId ?? null} />
                 {locationViewKind(location) === 'ready' && hasSessionError(agent.locationId) && (
                   <Tooltip>
                     <TooltipTrigger>

@@ -142,7 +142,10 @@ export const RoomAgentRow = observer(function RoomAgentRow({
                 {/* Same agent, same host problem — this row used to show
                     nothing, so whether you saw it depended on which grouping
                     the sidebar happened to be in. */}
-                <HostTroubleIndicator sshHost={location.data?.sshHost ?? null} />
+                <HostTroubleIndicator
+                  sshHost={location.data?.sshHost ?? null}
+                  agentId={agent.providerId ?? null}
+                />
               </span>
             </SidebarMenuAction>
           </div>

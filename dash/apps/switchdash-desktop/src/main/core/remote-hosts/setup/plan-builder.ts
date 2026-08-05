@@ -17,10 +17,13 @@
  */
 
 import {
+  agentPluginStepId,
   type HostSetupPlan,
   type HostSetupStep,
   type HostSetupStepKind,
 } from '@shared/core/remote-hosts/setup';
+
+export { agentPluginStepId };
 
 /** A dependency switchdash knows how to check on the host. */
 export type PlannableDependency = {
@@ -44,11 +47,6 @@ export type BuildPlanInput = {
   existing: HostSetupPlan | null;
   now: string;
 };
-
-/** Step id for an agent type's Switch connector plugin. */
-export function agentPluginStepId(agentId: string): string {
-  return `${agentId}:plugin`;
-}
 
 /** Step id for the interactive `gh auth login`. */
 export const GH_AUTH_STEP_ID = 'gh:auth';

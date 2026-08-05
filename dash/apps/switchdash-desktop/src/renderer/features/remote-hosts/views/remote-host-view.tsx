@@ -128,7 +128,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
               <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
               {status.readinessKnown && status.total > 0 && (
                 <span className="text-xs text-foreground-muted">
-                  {status.done} of {status.total} required
+                  {status.done} of {status.total} prerequisites
                 </span>
               )}
             </span>
