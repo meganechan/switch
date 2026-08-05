@@ -21,6 +21,23 @@ below:
 
 ### [Unreleased]
 
+### [0.12.1] - 2026-08-05
+
+#### Security
+- Retire the unauthenticated `/collab` bridge-admin API (CHOO-1251, H5, #120).
+- Re-scan and bump dependency CVEs (CHOO-1251, M5, #123).
+- Local stacks are secure by default: published ports bind to `127.0.0.1`
+  (`SWITCH_BIND_ADDR=0.0.0.0` is now an explicit opt-in for network exposure),
+  `.env.example` ships every secret blank, and `just init-env` generates strong
+  random credentials — no more `admin/admin` reachable on `0.0.0.0` (CHOO-1251,
+  M1, #122).
+
+#### Fixed
+- Enforce one session of an agent per room: `connect_to_room` now refuses with
+  HTTP 409 when another session of the same agent already holds the room, and a
+  takeover evicts and reports the displaced session — instead of silently
+  stranding a session in a room whose events go elsewhere (CHOO-1419, #109).
+
 ### [0.12.0] - 2026-08-04
 
 #### Added
