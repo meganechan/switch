@@ -165,6 +165,16 @@ below:
 
 ### [Unreleased]
 
+### [0.18.1] - 2026-08-05
+
+#### Changed
+- Bundled Switch agent runtime bumped to 0.1.5 (#127).
+
+#### Fixed
+- A session's Switch connection id is now derived deterministically, so a
+  supervisor/sidecar restart no longer strands a remote session with a stale
+  connection id (CHOO-1931, #125).
+
 ### [0.18.0] - 2026-08-04
 
 #### Added
