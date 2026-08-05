@@ -29,14 +29,15 @@ type JournalEntry = { idx: number; when: number; tag: string; breakpoints: boole
 export function orphanedMigrationTags(sqlKeys: string[], journalTags: string[]): string[] {
   const known = new Set(journalTags);
   return sqlKeys
-    .map((key) =>
-      key
-        .split('/')
-        .at(-1)
-        ?.replace(/\.sql$/, '')
-    )
+    .map(migrationTagFromKey)
     .filter((tag): tag is string => !!tag && !known.has(tag))
     .sort();
+}
+
+/** A bundled SQL file's migration tag — its basename without the extension. */
+function migrationTagFromKey(key: string): string | null {
+  const base = key.split('/').at(-1);
+  return base?.endsWith('.sql') ? base.slice(0, -'.sql'.length) : null;
 }
 
 function runBundledMigrations(connection: BetterSqlite3.Database): void {
@@ -66,6 +67,13 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
     );
   }
 
+  // Resolved by exact tag rather than substring: `0012_foo` would otherwise also
+  // match a bundled `0012_foo_bar.sql`, and whichever the glob happened to list
+  // first would be applied under the other's name.
+  const sqlByTag = new Map(
+    Object.keys(sqlFiles).map((key) => [migrationTagFromKey(key), key] as const)
+  );
+
   const lastRow = connection
     .prepare('SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1')
     .get() as { created_at: number } | undefined;
@@ -84,7 +92,7 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
       for (const entry of entries) {
         if (entry.when <= lastTimestamp) continue;
 
-        const sqlKey = Object.keys(sqlFiles).find((k) => k.includes(entry.tag));
+        const sqlKey = sqlByTag.get(entry.tag);
         if (!sqlKey) throw new Error(`Missing bundled SQL for migration: ${entry.tag}`);
 
         const sql = sqlFiles[sqlKey];

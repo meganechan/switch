@@ -53,11 +53,32 @@ describe('migration journal registration', () => {
   it('has no duplicate tags', () => {
     expect(new Set(journalTags).size).toBe(journalTags.length);
   });
+
+  /**
+   * The runner skips with `entry.when <= lastTimestamp`, where `lastTimestamp`
+   * is the highest `created_at` in the ledger — not a record of which
+   * migrations ran. So an entry whose `when` is below a preceding entry's can
+   * never be applied on any machine: it is skipped on every boot, silently,
+   * while migration reports success and the table it creates is simply absent.
+   *
+   * Two branches landing migrations out of order is enough to cause it, which
+   * is the same class of merge accident that produced the 0045/0046 renumber.
+   * Keying the ledger per migration would remove the dependency entirely; until
+   * then the precondition is at least asserted rather than assumed.
+   */
+  it('orders journal entries by strictly increasing timestamp', () => {
+    const whens = journal.entries.map((entry) => entry.when);
+
+    expect(whens).toEqual([...whens].sort((a, b) => a - b));
+    expect(new Set(whens).size).toBe(whens.length);
+  });
 });
 
 describe('orphanedMigrationTags', () => {
   it('reports a bundled file the journal does not list', () => {
-    expect(orphanedMigrationTags(['0001_a', '0002_b'], ['0001_a'])).toEqual(['0002_b']);
+    expect(orphanedMigrationTags(['/x/0001_a.sql', '/x/0002_b.sql'], ['0001_a'])).toEqual([
+      '0002_b',
+    ]);
   });
 
   it('accepts full paths, as the bundler produces', () => {
@@ -66,5 +87,12 @@ describe('orphanedMigrationTags', () => {
 
   it('reports nothing when every file is registered', () => {
     expect(orphanedMigrationTags(['/x/0001_a.sql'], ['0001_a', '0002_unbundled'])).toEqual([]);
+  });
+
+  it('matches tags exactly, not by prefix', () => {
+    // `0012_foo` must not vouch for a bundled `0012_foo_bar.sql`. The runner
+    // resolves SQL the same way, where a prefix match would apply one
+    // migration's file under another's name.
+    expect(orphanedMigrationTags(['/x/0012_foo_bar.sql'], ['0012_foo'])).toEqual(['0012_foo_bar']);
   });
 });
