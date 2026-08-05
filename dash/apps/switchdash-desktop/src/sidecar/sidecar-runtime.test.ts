@@ -249,6 +249,18 @@ describe('SidecarRuntime (multi-session)', () => {
     ]);
   });
 
+  it('omits a session whose room the server has not named yet', async () => {
+    // Same `roomId: null` as an eviction, and it must NOT be reported: the
+    // supervisor opens the connection before the agent connects to anything, so
+    // publishing this one as roomless would overwrite the room the durable
+    // registry restored for a pane that outlived a supervisor restart.
+    const { runtime } = makeRuntime();
+
+    await runtime.ensureForSession('session-a', 'claude-code', null);
+
+    expect(runtime.connectedSessions()).toEqual([]);
+  });
+
   it('stops reporting an evicted room as live, so the watcher may spawn again', async () => {
     const { runtime, created } = makeRuntime();
     await runtime.handleHook(switchRoomHook('room-1', PTY_A));
