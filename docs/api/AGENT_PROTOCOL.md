@@ -4,7 +4,8 @@ Status: **design, under review** (CHOO-1857)
 
 This document specifies the protocol between an agent and Switch: how an agent
 connects, what it receives, what it sends, and what happens when things break.
-It replaces the long-poll delivery described in `ARCHITECTURE.md` §4.3.
+It replaces the long-poll delivery Switch originally shipped, and is the
+authoritative spec for the connection model `ARCHITECTURE.md` §4.3 summarises.
 
 ---
 
@@ -209,6 +210,15 @@ A gap is never silent. The next connection for that agent is told it missed
 events and must re-read room context. The same applies when a client asks to
 start from a sequence number older than the buffer retains: that is an
 **error**, not a fast-forward to head.
+
+Never silent is not the same as immediate. A gap is reported to the *client*
+the moment it is detected, but a client must not wake its agent for one on its
+own: the only available response is to re-read context, and the agent cannot
+know whether anything it cared about was dropped, so an interrupt per hiccup
+buys a turn spent on a maybe. Clients hold the reason and attach it to the next
+event they surface — still ahead of any reply that stale context could skew,
+at no cost of its own. A gap that is never followed by a surfaced event is one
+the agent had no turn to misuse anyway; it stays in the client's log.
 
 ### 4.3 Confirmation
 
@@ -427,7 +437,7 @@ New, carried on the same stream:
 |---|---|---|
 | `connection_state` | `connection_id`, `scope`, `filter`, `rooms`, `cursor`, `protocol` | first event on every stream |
 | `subscription_changed` | `rooms`, `reason` | scope changed — including a room going dark because another connection claimed it |
-| `gap` | `from_sequence`, `reason` | events were dropped; re-read context |
+| `gap` | `from_sequence`, `reason` | events were dropped; re-read context. Carried to the agent on the next surfaced event, not as a wake of its own (§4.2) |
 | `evicted` | `reason` | this connection lost its slot or was taken over; it must stop acting |
 
 `gap` and `evicted` exist so that degradation is always visible. A client that
@@ -605,8 +615,10 @@ Planned second mode off the same code: *daemon* (long-lived, `scope: all`,
 
 - **Claude Code** — plugin `.mcp.json` at the plugin root, `${CLAUDE_PLUGIN_ROOT}`
   for the path, `${VAR}` expansion for endpoint and token.
-- **Codex** — Codex expands neither, so switchdash registers the server on argv
-  at launch. It controls the launch, so it can also inject per-session
+- **Codex** — Codex expands neither, and a stdio server cannot be expressed on
+  argv the way an HTTP one can, so switchdash writes a per-agent Codex profile
+  (`$CODEX_HOME/<slug>.config.toml`) registering the server and launches with
+  `--profile <slug>`. It controls the launch, so it can also inject per-session
   credentials.
 
 ### 9.2 Remote MCP (fallback)
@@ -630,9 +642,9 @@ fallback tier and costs minting, expiry, rotation and injection.
 
 It asks; it does not observe.
 
-Today switchdash learns a session's room by watching: a `PostToolUse` hook
-fires after `connect_to_room` succeeds and switchdash records the room in its
-own map, persisted to SQLite. The hook is accurate — the flaw is the *copy*. A
+switchdash used to learn a session's room by watching: a `PostToolUse` hook
+fired after `connect_to_room` succeeded and switchdash recorded the room in its
+own map, persisted to SQLite. The hook was accurate — the flaw was the *copy*. A
 copy drifts when the session dies, when the connection fails after the tool
 returned, when the server restarts, or when the room is deleted.
 
@@ -640,6 +652,15 @@ Under this design the session's own connection carries its subscription, and
 that is authoritative. A client reads it from the local runtime it spawned
 (same process as the connection) or from Switch. **The hook, the persisted
 session→room blob, and the remote mirror all go away.**
+
+*State of the migration.* switchdash now opens the stream itself and hands the
+session `SWITCH_CONNECTION_ID`, so a switchdash-launched session claims its room
+on a connection switchdash already holds — for Claude Code and for Codex alike.
+The `PostToolUse` hook survives only as the fallback for a **Claude** session
+switchdash did not start and adopted afterwards, which holds a connection of its
+own. Codex registers no such hook: its Switch MCP server exists only in the
+per-agent profile switchdash writes, so a Codex session switchdash did not start
+has no `connect_to_room` to observe in the first place.
 
 Cross-checking a room against incoming events becomes unnecessary: a
 connection only receives events for rooms it is subscribed to, and any change
@@ -699,7 +720,7 @@ Fail loud, never fake. Concretely:
 | situation | behaviour |
 |---|---|
 | resume from a cursor older than the buffer | error: missed events, re-read context |
-| buffer overflow | drop oldest, flag gap, `gap` event on next connection |
+| buffer overflow | drop oldest, flag gap, `gap` event on next connection; client attaches it to the next event it surfaces |
 | heartbeat with no stream attached | reject: reopen the stream |
 | call with unknown/dead `connection_id` | reject: reconnect and resume |
 | `connection_id` belonging to another agent | reject |
@@ -729,11 +750,12 @@ A connection that has silently missed events must never appear healthy.
    `POST /ops/{operation}`, dispatched from the same registry so parity cannot
    drift. Unblocks the local runtime and closes the overlap with CHOO-490.
 
-   **Still to do — merging the two MCP servers into one local runtime.** Now
-   possible: the runtime serves the tool surface over stdio and translates each
-   call to `POST /ops/${toolName}` on its own connection. Until it lands the
-   plugin keeps registering the remote `switch` MCP server alongside the local
-   channel.
+   **The two MCP servers are merged into one local runtime.** *(implemented)*
+   `@sandbox-quantum/switch-agent-runtime` serves the tool surface over stdio —
+   fetched from the server at startup, so it cannot drift — and translates each
+   call to `POST /ops/${toolName}` on its connection. Each connector plugin now
+   registers exactly one MCP server (`switch`); the separate remote `switch` and
+   local `switch-channel` pair is gone.
 
 **Stage B — migrate the clients. Nothing is removed.**
 

@@ -1,3 +1,5 @@
+import { pluginRegistry } from '@switchdash/plugins/agents';
+import { parse as parseTOML } from 'smol-toml';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_FRESH_RECOVERY_GRACE_MS } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import type { Pty, PtyExitInfo } from '@main/core/pty/pty';
@@ -59,7 +61,13 @@ vi.mock('@main/core/switch-rooms/switch-notification-poller', () => ({
 }));
 
 vi.mock('@main/core/switch-rooms/switch-credentials', () => ({
-  readAgentSwitchEnv: vi.fn(async () => ({})),
+  readAgentSwitchEnvFromFs: vi.fn(async () => ({})),
+}));
+
+// Loading the agent record to fold in per-agent Codex config would pull in the
+// DB client, which has no database in this unit test.
+vi.mock('@main/core/agents/getAgentById', () => ({
+  getAgentById: vi.fn(async () => null),
 }));
 
 // Reads the app's userData path and shells out to `gh`; neither exists here,
@@ -94,18 +102,20 @@ vi.mock('@main/core/providers/plugin-registry', () => ({
         getPluginVersion: vi.fn(),
         getPluginPath: vi.fn(),
       },
+      // The real builder, not a stand-in: these tests exist to check what the
+      // profile actually tells Codex, which a fake profile cannot show.
+      mcp:
+        id === 'codex'
+          ? (pluginRegistry.get('codex')!.behavior as { mcp?: unknown }).mcp
+          : undefined,
     },
   })),
 }));
 
+// Keyed by root because the runtime opens two: the workspace (creds) and the
+// home dir (the Codex profile). A single shared fake cannot tell them apart.
 vi.mock('@main/core/providers/plugin-fs', () => ({
-  createPluginFs: vi.fn(() => ({
-    read: vi.fn(async () => null),
-    write: vi.fn(async () => {}),
-    delete: vi.fn(async () => {}),
-    exists: vi.fn(async () => false),
-    list: vi.fn(async () => []),
-  })),
+  createPluginFs: vi.fn((root: string) => pluginFsFor(root)),
 }));
 
 vi.mock('@main/core/pty/local-pty', () => ({
@@ -163,6 +173,7 @@ vi.mock('@main/core/settings/settings-service', () => ({
 }));
 
 const { events } = await import('@main/lib/events');
+const { readAgentSwitchEnvFromFs } = await import('@main/core/switch-rooms/switch-credentials');
 const { agentHookService } = await import('@main/core/agent-hooks/agent-hook-service');
 const { appSettingsService } = await import('@main/core/settings/settings-service');
 
@@ -204,6 +215,7 @@ function session(): Session {
   return {
     id: 'session-1',
     agentId: 'agent-1',
+    agentName: 'codex-hoot',
     providerId: 'codex',
     title: 'Session 1',
     shellId: 'system',
@@ -216,6 +228,35 @@ function session(): Session {
     createdAt: now,
     updatedAt: now,
   };
+}
+
+/** One in-memory PluginFs per root, so a test can read what was written where. */
+const pluginFsRoots = new Map<string, Map<string, string>>();
+
+function pluginFsFor(root: string) {
+  const files = pluginFsRoots.get(root) ?? new Map<string, string>();
+  pluginFsRoots.set(root, files);
+  return {
+    read: vi.fn(async (p: string) => files.get(p) ?? null),
+    write: vi.fn(async (p: string, content: string) => {
+      files.set(p, content);
+    }),
+    delete: vi.fn(async (p: string) => {
+      files.delete(p);
+    }),
+    exists: vi.fn(async (p: string) => files.has(p)),
+    list: vi.fn(async () => []),
+  };
+}
+
+/** The Codex profile written to the agent's home, whichever root that was. */
+function writtenCodexProfile(): string {
+  for (const files of pluginFsRoots.values()) {
+    for (const [path, content] of files) {
+      if (path.endsWith('.config.toml')) return content;
+    }
+  }
+  throw new Error('no Codex profile was written');
 }
 
 function fakePty(exitHandlers: Array<(info: PtyExitInfo) => void>): Pty {
@@ -256,6 +297,82 @@ describe('local agent runtime respawn state', () => {
     vi.mocked(agentHookService.getPort).mockReturnValue(0);
     vi.mocked(agentHookService.getToken).mockReturnValue('token');
     ptySessionRegistry.unregister('location-1:session-1');
+    pluginFsRoots.clear();
+  });
+
+  it('writes the Codex profile to the home dir and loads it on argv', async () => {
+    const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
+    spawnLocalPty.mockReturnValue(fakePty(exitHandlers));
+    vi.mocked(readAgentSwitchEnvFromFs).mockResolvedValueOnce({
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'tok-123',
+      SWITCH_AGENT_ID: 'sw-1',
+    });
+
+    await localProvider().start(session());
+
+    expect(writtenCodexProfile()).toContain('[mcp_servers.switch]');
+    // Profile name is digest-suffixed on (dir, slug) so same-named agents in
+    // different dirs don't collide.
+    expect(buildCommandMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        agentArgs: ['--profile', expect.stringMatching(/^codex-hoot-[a-z0-9]+$/)],
+      })
+    );
+  });
+
+  it('puts every variable the profile forwards onto the session it spawns', async () => {
+    // Codex forwards these by name out of its own environment, so a name the
+    // profile lists but the session lacks reaches the runtime as nothing at
+    // all — and a missing credential kills the handshake, not just one tool.
+    const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
+    spawnLocalPty.mockReturnValue(fakePty(exitHandlers));
+    vi.mocked(readAgentSwitchEnvFromFs).mockResolvedValueOnce({
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'tok-123',
+      SWITCH_AGENT_ID: 'sw-1',
+    });
+
+    await localProvider().start(session());
+
+    const server = (
+      parseTOML(writtenCodexProfile()) as {
+        mcp_servers: Record<string, { env_vars?: string[] }>;
+      }
+    ).mcp_servers.switch;
+    const spawned = (spawnLocalPty.mock.calls[0][0] as { env: Record<string, string> }).env;
+
+    expect(server.env_vars?.length).toBeGreaterThan(0);
+    for (const name of server.env_vars ?? []) {
+      // SWITCH_CONNECTION_ID and the npm settings come from services stubbed
+      // out here; the credentials are the ones this path is responsible for.
+      if (!name.startsWith('SWITCH_API') && name !== 'SWITCH_AGENT_ID') continue;
+      expect(spawned).toHaveProperty(name);
+    }
+  });
+
+  it('reads the identity file keyed by the agent row name, not the session id', async () => {
+    // Every writer keys `.switch/agents/<slug>.json` by the agent's name; a
+    // reader that keyed by id would silently fall back to the shared
+    // settings.local.json identity (CHOO-1440).
+    const exitHandlers: Array<(info: PtyExitInfo) => void> = [];
+    spawnLocalPty.mockReturnValue(fakePty(exitHandlers));
+    vi.mocked(readAgentSwitchEnvFromFs).mockResolvedValueOnce({
+      SWITCH_API_ENDPOINT: 'https://switch.example.com',
+      SWITCH_API_TOKEN: 'tok-123',
+      SWITCH_AGENT_ID: 'sw-1',
+    });
+
+    await localProvider().start(session());
+
+    expect(readAgentSwitchEnvFromFs).toHaveBeenCalledWith(
+      expect.anything(),
+      'codex-hoot',
+      expect.anything()
+    );
+    const request = spawnLocalPty.mock.calls[0][0] as { env: Record<string, string> };
+    expect(request.env.SWITCH_API_TOKEN).toBe('tok-123');
+    expect(request.env.SWITCH_AGENT_ID).toBe('sw-1');
   });
 
   it('passes global editor variables to local agent sessions', async () => {

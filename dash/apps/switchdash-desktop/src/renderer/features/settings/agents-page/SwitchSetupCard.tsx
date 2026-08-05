@@ -3,6 +3,7 @@ import { useSwitchSetup } from '@renderer/lib/stores/use-switch-setup';
 import { Button } from '@renderer/lib/ui/button';
 import { Field } from '@renderer/lib/ui/field';
 import { Label } from '@renderer/lib/ui/label';
+import { updateCheckUnavailable } from '@shared/core/switch-setup/update-check';
 import {
   InstalledBadge,
   InstallingBadge,
@@ -37,6 +38,8 @@ export function SwitchSetupCard({ agentId }: { agentId: string }) {
   if (isLoading || !status?.supported) return null;
 
   const busy = isInstalling || isUpdating || isUninstalling || isChecking;
+  // Distinct from "no update available": there is nothing to compare against.
+  const currencyUnknown = updateCheckUnavailable(status);
   // Until the probe answers, do not disable Install — a slow check should not
   // look like a blocked one.
   const ghReady = !ghAuth || (ghAuth.ghInstalled && ghAuth.authenticated && ghAuth.canReadPackages);
@@ -96,6 +99,13 @@ export function SwitchSetupCard({ agentId }: { agentId: string }) {
                     )}
                   </Button>
                 )}
+                {/* `updateAvailable` can never go true here, so without this the
+                    plugin could only be refreshed by uninstalling first. */}
+                {currencyUnknown && !status.updateAvailable && (
+                  <Button size="xs" variant="outline" disabled={busy} onClick={() => update()}>
+                    {isUpdating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Reinstall'}
+                  </Button>
+                )}
                 <Button size="xs" variant="ghost" disabled={busy} onClick={() => uninstall()}>
                   {isUninstalling ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Uninstall'}
                 </Button>
@@ -106,6 +116,12 @@ export function SwitchSetupCard({ agentId }: { agentId: string }) {
         {status.refreshError && (
           <p className="text-destructive text-xs">
             Couldn't refresh the plugin marketplace — showing cached status. {status.refreshError}
+          </p>
+        )}
+        {currencyUnknown && !status.refreshError && (
+          <p className="text-xs text-foreground-warning">
+            This agent type doesn't report plugin versions here, so switchdash can't tell whether an
+            update exists. Reinstall to be sure you are on the latest.
           </p>
         )}
         {!status.installed && !ghReady && (

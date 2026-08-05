@@ -1,8 +1,11 @@
+import type { PluginFs, SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
+import { resolveSwitchLaunchProfile } from '@main/core/agent-runtime/switch-mcp-launch-args';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
+import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import { reapStaleSidecarsForAgent } from '@main/core/agents/reap-stale-sidecars';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
@@ -21,28 +24,37 @@ import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-co
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';
 import type { SshConnectionManagerEvent } from '@main/core/ssh/lifecycle/ssh-connection-manager';
 import { remoteNpmRegistryAuthEnv } from '@main/core/switch-rooms/npm-registry-auth';
+import { readAgentSwitchEnvFromFs } from '@main/core/switch-rooms/switch-credentials';
 import { events } from '@main/lib/events';
 import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
+import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import type { AgentSessionConfig } from '@shared/core/providers/agent-session';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
 import type { Session } from '@shared/core/sessions/sessions';
+import { SIDECAR_VERSION } from '../../../../sidecar/sidecar-version';
 import { ensureAgentSidecar, probeAgentSidecar } from './ensure-agent-sidecar';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
+import { createRemoteHomePluginFs } from './remote-home-plugin-fs';
 import { RemoteHookEventRelay } from './remote-hook-event-relay';
 import { createRemotePluginFs } from './remote-plugin-fs';
 import type { SidecarEndpoint, SidecarHost } from './remote-sidecar-launcher';
 import { resolveAgentExecutable } from './resolve-agent-executable';
-import { httpPostJsonOverChannel } from './sidecar-http';
+import {
+  httpPostForJsonOverChannel,
+  httpPostJsonOverChannel,
+  SidecarHttpStatusError,
+} from './sidecar-http';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const RESPAWN_DELAY_MS = 500;
 const SHELL_NOT_FOUND_EXIT_CODE = 127;
 const SIDECAR_DISCONNECT_TIMEOUT_MS = 5_000;
+const SIDECAR_CONNECTION_TIMEOUT_MS = 10_000;
 
 function parseExtraArgs(value: string | undefined): string[] {
   if (!value?.trim()) return [];
@@ -172,33 +184,81 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
   }
 
   /**
-   * Install the provider's agent hooks into the remote workspace's
-   * `.claude/settings.local.json` (or equivalent) over SFTP, mirroring what
+   * Where a provider's hook config lives on the VM. A workspace-scoped provider
+   * (Claude's `.claude/settings.local.json`) writes under the repo dir over
+   * SFTP; a global-scoped one (Codex's `~/.codex/hooks.json`) writes under the
+   * VM's home, which `this.fs` cannot reach at all.
+   */
+  private remoteHookFs(scope: 'global' | 'workspace'): PluginFs {
+    if (scope === 'global') return createRemoteHomePluginFs(this.ctx);
+    if (scope === 'workspace') return createRemotePluginFs(this.fs);
+    throw new Error(
+      `SshAgentRuntime: no remote hook root for scope '${String(scope)}' — the session would ` +
+        'run with no hooks, reporting neither its provider session id nor when it stops'
+    );
+  }
+
+  /**
+   * Install the provider's agent hooks onto the VM, mirroring what
    * `ensureHooksInstalled` does for local sessions. The remote agent is spawned
-   * with the `SWITCHDASH_HOOK_*` env vars, but those only matter if the settings
-   * actually register the hook commands — otherwise the agent posts no room/
-   * status events to the sidecar. Best-effort: a failure is logged, not fatal.
+   * with the `SWITCHDASH_HOOK_*` env vars, but those only matter if its config
+   * actually registers the hook commands — otherwise the agent posts no
+   * lifecycle events to the sidecar, so its provider session id is never
+   * captured (every resume silently starts a new conversation) and the room's
+   * "working on it" never clears. Writing is best-effort: a failure is logged,
+   * not fatal.
    */
   private async installRemoteHooks(providerId: string): Promise<void> {
     const plugin = getPlugin(providerId);
     const hooks = plugin.capabilities.hooks;
-    if (hooks.kind !== 'config' || !plugin.behavior.hooks) return;
-    if (hooks.scope !== 'workspace') {
-      log.warn('SshAgentRuntime: skipping non-workspace-scoped remote hooks', {
+    if (hooks.kind === 'none') return;
+    if (hooks.kind !== 'config' || !plugin.behavior.hooks) {
+      log.error('SshAgentRuntime: provider hooks cannot be installed on a remote host', {
         providerId,
-        scope: hooks.scope,
+        kind: hooks.kind,
       });
       return;
     }
+    const fs = this.remoteHookFs(hooks.scope);
     try {
-      await plugin.behavior.hooks.writeHooks(createRemotePluginFs(this.fs), []);
-      log.info('SshAgentRuntime: installed remote agent hooks', { providerId });
-    } catch (error) {
-      log.warn('SshAgentRuntime: failed to install remote agent hooks', {
+      await plugin.behavior.hooks.writeHooks(fs, []);
+      log.info('SshAgentRuntime: installed remote agent hooks', {
         providerId,
+        scope: hooks.scope,
+      });
+    } catch (error) {
+      log.error('SshAgentRuntime: failed to install remote agent hooks', {
+        providerId,
+        scope: hooks.scope,
         error: String(error),
       });
     }
+  }
+
+  /**
+   * Register the Switch MCP server for a provider that writes per-agent launch
+   * files under the VM's home (Codex: a profile). Returns the argv that loads
+   * the profile, or `[]` when there is nothing to write.
+   */
+  private async registerRemoteSwitchMcp(
+    plugin: ReturnType<typeof getPlugin>,
+    slug: string,
+    hasSwitchIdentity: boolean,
+    specialization: SwitchLaunchSpecialization | undefined
+  ): Promise<string[]> {
+    const profile = resolveSwitchLaunchProfile(plugin, {
+      slug,
+      workingDir: this.sessionPath,
+      hasSwitchIdentity,
+      specialization,
+    });
+    if (!profile) return [];
+
+    const homeFs = createRemoteHomePluginFs(this.ctx);
+    for (const file of profile.files) {
+      await homeFs.write(file.relativePath, file.content);
+    }
+    return profile.args;
   }
 
   private async launchSidecar(session: Session): Promise<SidecarEndpoint> {
@@ -214,8 +274,9 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       repoDir: this.sessionPath,
       deeplinkScheme: DEEPLINK_SCHEME,
       autoApprove: agent?.autoApprove ?? false,
-      credsSlug: agent?.name ?? session.agentName ?? session.agentId,
+      credsSlug: agentCredsSlug(session),
       agentName: agent?.name ?? session.agentName ?? null,
+      specialization: toSwitchSpecialization(agent?.providerConfig),
       ctx: this.ctx,
       connectionId: this.connectionId,
       host,
@@ -258,6 +319,55 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     } finally {
       if (timer) clearTimeout(timer);
     }
+  }
+
+  /**
+   * Open this session's Switch connection on the VM's sidecar and return the id
+   * to hand it in its environment.
+   *
+   * The session's room is claimed on the connection whose id it carries, and
+   * only whoever reads that connection sees the room's events. On a remote host
+   * that reader is the sidecar — switchdash's own poller stands down for remote
+   * sessions and the in-session runtime's poll is disabled — so a session left
+   * to mint its own connection is addressable by nobody and never learns its
+   * room. Opened before the launch because the server refuses a call naming a
+   * connection that is not open, and the agent may call connect_to_room at once.
+   */
+  private async openSidecarConnection(
+    endpoint: SidecarEndpoint,
+    providerId: string
+  ): Promise<string> {
+    const channel = await this.proxy.forwardOut(endpoint.port);
+    let response: { connectionId?: unknown };
+    try {
+      response = await httpPostForJsonOverChannel<{ connectionId?: unknown }>(channel, {
+        port: endpoint.port,
+        token: endpoint.token,
+        path: '/connection',
+        body: { sessionId: this.sessionId, providerId },
+        timeoutMs: SIDECAR_CONNECTION_TIMEOUT_MS,
+      });
+    } catch (error) {
+      // Starting anyway would reproduce exactly the silence this exists to
+      // prevent, so refuse either way — but a 404 is its own diagnosis: the
+      // sidecar on this host predates the endpoint, and restarting it from the
+      // agent's sidecar panel upgrades it (an idle one upgrades itself).
+      const stale =
+        error instanceof SidecarHttpStatusError && error.status === 404
+          ? ` The sidecar on this host is older than ${SIDECAR_VERSION} and has no /connection endpoint; restart it to upgrade.`
+          : '';
+      throw new Error(
+        `SshAgentRuntime: the sidecar did not open a Switch connection for this session ` +
+          `(${String(error)}).${stale}`
+      );
+    } finally {
+      channel.destroy();
+    }
+    const connectionId = response.connectionId;
+    if (typeof connectionId !== 'string' || !connectionId) {
+      throw new Error('SshAgentRuntime: sidecar /connection returned no connection id');
+    }
+    return connectionId;
   }
 
   private async postDisconnect(
@@ -304,8 +414,9 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
           repoDir: this.sessionPath,
           deeplinkScheme: DEEPLINK_SCHEME,
           autoApprove: agent?.autoApprove ?? false,
-          credsSlug: agent?.name ?? session.agentName ?? session.agentId,
+          credsSlug: agentCredsSlug(session),
           agentName: agent?.name ?? session.agentName ?? null,
+          specialization: toSwitchSpecialization(agent?.providerConfig),
           ctx: this.ctx,
           connectionId: this.connectionId,
           host: this.createSidecarHost(),
@@ -407,6 +518,11 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
     this.known = true;
     this.session = session;
 
+    // Declared out here so a launch that fails after the sidecar opened this
+    // session's connection can hand it back. Left open it keeps renewing, and
+    // the agent shows `live` in its room with no session behind it (CHOO-1106).
+    let switchEnv: Record<string, string> = {};
+
     const spawnSize = ptySessionRegistry.getLastSize(ptySessionId) ?? initialSize;
     const spawnToken = this.supervisor.beginStart({
       requireDesired,
@@ -429,17 +545,42 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
         connectionId: this.connectionId,
       });
 
+      // The agent's Switch identity as real env vars (highest precedence): read
+      // from its neutral `.switch/agents/<slug>.json` on the VM. A `--settings`
+      // file's env block is not reliably propagated to the spawned MCP server, so
+      // inject it directly, matching the local runtime.
+      // Resolved before the command is built because a provider that registers the
+      // Switch server at launch keys it on this identity (see below).
+      const remoteFs = createRemotePluginFs(this.fs);
+      const identityVars =
+        session.agentName && repoAgents
+          ? await repoAgents.readLaunchEnv(remoteFs, session.agentName)
+          : await readAgentSwitchEnvFromFs(remoteFs, agentCredsSlug(session), log);
+
+      // Register the Switch MCP server (Codex writes a profile under the VM's
+      // ~/.codex), folding in the agent's per-agent model / effort / instructions.
+      const agentRecord = await getAgentById(session.agentId);
+      const switchMcpArgs = await this.registerRemoteSwitchMcp(
+        plugin,
+        agentCredsSlug(session),
+        !!identityVars.SWITCH_API_ENDPOINT,
+        toSwitchSpecialization(agentRecord?.providerConfig)
+      );
+
       const agentCommand = plugin.behavior.prompt!.buildCommand({
         cli: executableCli,
         extraArgs: parseExtraArgs(providerConfig?.extraArgs),
         // A remote agent runs as its own definition: the provider produces the
         // run-as-name args (Claude → `--agent <name> --settings <neutral creds>`),
         // resolved on the VM (sessionPath is remote). Distinct from user extra
-        // args (CHOO-1440).
-        agentArgs:
-          session.agentName && repoAgents
+        // args (CHOO-1440). The provider also owns how it receives a per-session
+        // Switch MCP server when it cannot read one from a config file.
+        agentArgs: [
+          ...(session.agentName && repoAgents
             ? repoAgents.launchArgs(this.sessionPath, session.agentName)
-            : [],
+            : []),
+          ...switchMcpArgs,
+        ],
         autoApprove: session.autoApprove ?? false,
         initialPrompt: agentSession.isResuming ? undefined : initialPrompt,
         sessionId: agentSession.sessionId,
@@ -450,15 +591,6 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
 
       const customEnv = providerConfig?.env ?? {};
       const providerEnv: Record<string, string> = { ...agentCommand.env, ...customEnv };
-
-      // The agent's Switch identity as real env vars (highest precedence): read
-      // from its neutral `.switch/agents/<name>.json` on the VM. A `--settings`
-      // file's env block is not reliably propagated to the spawned MCP server, so
-      // inject it directly, matching the local runtime.
-      const identityVars =
-        session.agentName && repoAgents
-          ? await repoAgents.readLaunchEnv(createRemotePluginFs(this.fs), session.agentName)
-          : {};
 
       const tmuxSessionName = this.tmux ? makeAgentTmuxSessionName(this.sessionId) : undefined;
 
@@ -507,6 +639,9 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
           token: endpoint.token,
           endpointFile: endpoint.endpointFile,
         });
+        switchEnv = {
+          SWITCH_CONNECTION_ID: await this.openSidecarConnection(endpoint, session.providerId),
+        };
       } else {
         log.warn(
           'SshAgentRuntime: tmux disabled — remote agent will not stay connected to Switch while detached',
@@ -535,6 +670,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
           ...hookEnv,
           ...npmAuthEnv,
           ...identityVars,
+          ...switchEnv,
         },
         profile
       );
@@ -615,6 +751,9 @@ export class SshAgentRuntime implements AgentRuntimeProvider {
       });
     } catch (error) {
       this.supervisor.failSpawn(spawnToken);
+      if (switchEnv.SWITCH_CONNECTION_ID) {
+        await this.disconnectSidecarSession(this.sessionId, false);
+      }
       throw error;
     }
   }

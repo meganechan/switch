@@ -91,6 +91,18 @@ export default defineConfig({
         // how it looks. `electron.vite.config.ts` is the app's build and does
         // not apply to Vitest.
         plugins: [tailwindcss()],
+        // Crawl the browser tests when deps are first optimized. Without this
+        // their imports are only discovered once the page loads them, so Vite
+        // re-optimizes and reloads mid-run — which vitest reports as flaky and
+        // which, before the tests imported statically, split React in two.
+        // A glob rather than a dependency list: a new import is picked up here,
+        // an inventory would go stale.
+        // `react/jsx-dev-runtime` is named explicitly because the JSX transform
+        // injects it rather than any file importing it, so crawling cannot find it.
+        optimizeDeps: {
+          entries: ['src/renderer/tests/browser/**/*.test.{ts,tsx}'],
+          include: ['react/jsx-dev-runtime'],
+        },
         test: {
           name: 'browser',
           browser: {
@@ -100,6 +112,10 @@ export default defineConfig({
             instances: [{ browser: 'chromium' }],
           },
           include: ['src/renderer/tests/browser/**/*.test.{ts,tsx}'],
+          // Supplies the preload bridge before a test module is evaluated, so
+          // renderer imports can be static. See the file's docblock for why a
+          // dynamic import of app code breaks React here.
+          setupFiles: ['./src/renderer/tests/browser/setup-electron-bridge.ts'],
         },
       },
     ],

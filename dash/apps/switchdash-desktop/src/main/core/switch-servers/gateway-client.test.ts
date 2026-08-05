@@ -7,7 +7,7 @@ const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
 
-const { createRoom, fetchBridges, fetchMe } = await import('./gateway-client');
+const { createRoom, fetchBridges, fetchMe, registerKnownAgent } = await import('./gateway-client');
 
 const SERVER = {
   id: 'srv-1',
@@ -332,5 +332,49 @@ describe('room creation', () => {
     await expect(
       createRoom(SERVER, { name: 'x', description: 'y', bridgeId: 'b1', agentIds: [] })
     ).rejects.toMatchObject({ status: 502, detail: undefined });
+  });
+});
+
+describe('registerKnownAgent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: async () => ({ id: 'sw-1', api_key: 'tok-123' }),
+          headers: { getSetCookie: () => [] },
+          text: async () => '',
+        }) as unknown as Response
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the caller-supplied agent_type rather than a hardcoded default', async () => {
+    // The type governs the connector label and the hand-onboarding command the
+    // gateway shows, so a default here would silently mislabel every non-Claude
+    // agent (CHOO-1436).
+    const registered = await registerKnownAgent(SERVER, {
+      name: 'codex-hoot',
+      description: 'Codex running in repo',
+      agentType: 'codex',
+      options: { channels_enabled: true, repo_dir: '/repo' },
+    });
+
+    expect(registered).toEqual({ id: 'sw-1', apiKey: 'tok-123' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toEqual({
+      agent_type: 'codex',
+      name: 'codex-hoot',
+      description: 'Codex running in repo',
+      options: { channels_enabled: true, repo_dir: '/repo' },
+      overwrite: false,
+    });
   });
 });

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ce5528fd-0837-495c-81eb-812635d13826",
+  "id": "9e33859d-6f5a-4fe3-b926-f902c4cb0863",
   "prevId": "0accfa68-741f-4f75-9b40-7a47c434091e",
   "tables": {
     "agents": {
@@ -70,6 +70,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": false
+        },
+        "provider_config": {
+          "name": "provider_config",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_at": {
           "name": "created_at",
@@ -477,61 +484,6 @@
           "notNull": true,
           "autoincrement": false,
           "default": 0
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "remote_host_setup_plans": {
-      "name": "remote_host_setup_plans",
-      "columns": {
-        "ssh_host": {
-          "name": "ssh_host",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'idle'"
-        },
-        "steps": {
-          "name": "steps",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "current_step_id": {
-          "name": "current_step_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "CURRENT_TIMESTAMP"
         },
         "updated_at": {
           "name": "updated_at",

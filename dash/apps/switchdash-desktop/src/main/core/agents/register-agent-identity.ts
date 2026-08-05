@@ -1,3 +1,4 @@
+import type { KnownAgentType } from '@main/core/agents/known-agent-type';
 import { GatewayError, registerKnownAgent } from '@main/core/switch-servers/gateway-client';
 import type { ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
 import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
@@ -7,6 +8,10 @@ export type RegisterAgentInput = {
   description: string;
   repoDir: string;
   autoSession?: boolean;
+  /** Gateway known-agent type; derive from the provider via
+   * `knownAgentTypeForProvider`. Required — an omitted type would silently
+   * register the agent as Claude Code whatever it actually runs (CHOO-1436). */
+  agentType: KnownAgentType;
 };
 
 /**
@@ -34,6 +39,7 @@ export async function registerAgentIdentity(
     const registered = await registerKnownAgent(server, {
       name: input.name,
       description: input.description,
+      agentType: input.agentType,
       options: {
         channels_enabled: true,
         repo_dir: input.repoDir,
