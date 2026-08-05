@@ -182,6 +182,34 @@ below:
 
 ### [Unreleased]
 
+#### Added
+- The Codex connector plugin now ships the Switch MCP server itself
+  (`mcpServers` + `env_vars` name-forwarding), so Codex can be used with Switch
+  **outside switchdash** — previously the server was registered only by a
+  switchdash-written profile, and a hand-run Codex session had the room-workflow
+  skill but none of the tools it describes. The plugin also auto-approves the
+  Switch tools, which no `approval_policy` setting could do: measured against
+  codex-cli 0.146.0, that setting does not govern MCP tool calls at all
+  (CHOO-1935).
+
+  ⚠️ Codex upgrades a plugin only when a user clicks Update in Settings and
+  caches each version separately, so an install still on an older connector has
+  no Switch tools until it is upgraded.
+
+#### Fixed
+- Bypass permissions is applied to sessions again: the toggle is stored on the
+  agent but every launch read a copy frozen into the session at creation, so
+  changing it never affected an existing session — on restart or resume — while
+  the settings copy promised the opposite (CHOO-1935).
+- Codex runtime status reports tool calls ("Running tool …") instead of sitting
+  on "Working on it…" for a whole turn; no tool hook was registered for Codex,
+  so nothing could ever produce an activity update (CHOO-1935).
+
+#### Changed
+- The per-agent Codex profile carries only model, reasoning effort and
+  instructions. An agent that sets none of them no longer gets a profile at all
+  (CHOO-1935).
+
 ### [0.18.2] - 2026-08-05
 
 #### Fixed
@@ -211,8 +239,7 @@ below:
   approval (validated — an unknown value fails rather than silently widening the
   sandbox); a Codex agent defaults to a `codex.<repo>.<user>` identity; and
   switchdash registers the Switch MCP runtime for Codex itself via a per-agent
-  Codex profile, since Codex can't expand `${VAR}` in a bundled `.mcp.json`
-  (CHOO-1436, #91, #79).
+  Codex profile (CHOO-1436, #91, #79).
 
 #### Fixed
 - Codex session correctness: per-agent Switch credentials are written to disk for
