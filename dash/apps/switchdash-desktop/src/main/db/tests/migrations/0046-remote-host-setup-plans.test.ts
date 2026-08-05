@@ -1,5 +1,5 @@
 /**
- * Migration 0045 — adds the `remote_host_setup_plans` table (CHOO-1809), which
+ * Migration 0046 — adds the `remote_host_setup_plans` table (CHOO-1809), which
  * persists a remote host's onboarding run so it can be resumed after a restart.
  * Applies all migrations on a fresh schema and asserts the table exists and
  * round-trips a plan, including a halted one with its failure detail intact —
@@ -11,7 +11,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, describe, expect, it } from 'vitest';
 import { remoteHostSetupPlans } from '@main/db/schema';
 
-describe('migration 0045: remote host setup plans', () => {
+describe('migration 0046: remote host setup plans', () => {
   let fixture: Awaited<ReturnType<typeof openFixture>>;
 
   afterEach(() => {
