@@ -13,6 +13,32 @@ const sqlFiles = import.meta.glob('@root/drizzle/*.sql', {
 
 type JournalEntry = { idx: number; when: number; tag: string; breakpoints: boolean };
 
+/**
+ * Bundled migration SQL that the journal does not list.
+ *
+ * The runner iterates the journal, so a `.sql` file missing from it is not
+ * "pending" — it is invisible, and can never be applied on any machine while the
+ * app boots reporting success with the table absent. Migration 0046 shipped in
+ * exactly that state (CHOO-1809): the SQL and its snapshot were committed and
+ * the journal entry was not, which is only detectable by looking for the
+ * mismatch, never by running the migrations.
+ *
+ * Exported for the test that locks the invariant in; the runner asserts it at
+ * boot because it is a packaging mistake, not a recoverable condition.
+ */
+export function orphanedMigrationTags(sqlKeys: string[], journalTags: string[]): string[] {
+  const known = new Set(journalTags);
+  return sqlKeys
+    .map((key) =>
+      key
+        .split('/')
+        .at(-1)
+        ?.replace(/\.sql$/, '')
+    )
+    .filter((tag): tag is string => !!tag && !known.has(tag))
+    .sort();
+}
+
 function runBundledMigrations(connection: BetterSqlite3.Database): void {
   const migrationLog = log.child({ component: 'db-migration' });
   const startedAt = Date.now();
@@ -25,6 +51,20 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
       created_at NUMERIC
     )
   `);
+
+  const entries = (journal as { entries: JournalEntry[] }).entries;
+
+  const orphans = orphanedMigrationTags(
+    Object.keys(sqlFiles),
+    entries.map((entry) => entry.tag)
+  );
+  if (orphans.length) {
+    throw new Error(
+      `Migration SQL is not registered in the journal: ${orphans.join(', ')}. ` +
+        `The journal drives which migrations run, so these would never be applied. ` +
+        `Add the entry to drizzle/meta/_journal.json (or regenerate with db:generate).`
+    );
+  }
 
   const lastRow = connection
     .prepare('SELECT created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1')
@@ -41,7 +81,7 @@ function runBundledMigrations(connection: BetterSqlite3.Database): void {
     // A failed migration is unrecoverable and cannot be reconstructed after the
     // fact, so which one was being applied is recorded as it happens.
     connection.transaction(() => {
-      for (const entry of (journal as { entries: JournalEntry[] }).entries) {
+      for (const entry of entries) {
         if (entry.when <= lastTimestamp) continue;
 
         const sqlKey = Object.keys(sqlFiles).find((k) => k.includes(entry.tag));
