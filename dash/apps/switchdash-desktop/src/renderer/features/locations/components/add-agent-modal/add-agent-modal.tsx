@@ -678,7 +678,10 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               onNavigateAway={onClose}
             />
           )}
-          {isRemoteRun && canChooseAgentType && (
+          {/* Not while we are still finding out what the host has: asking for a
+              working directory under a "checking…" spinner invites the user to
+              fill in a form we may be about to refuse. */}
+          {isRemoteRun && canChooseAgentType && !hostReadiness.checking && (
             <div className="flex items-center gap-2">
               <Input
                 value={remoteRepoDirDraft}
