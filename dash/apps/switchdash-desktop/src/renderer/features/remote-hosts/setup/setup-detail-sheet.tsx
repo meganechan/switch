@@ -115,6 +115,14 @@ function ObservationCard({
                 </span>
               )}
               <span className="ml-1">on this host</span>
+              {step.updateAvailable && step.latestVersion && (
+                <>
+                  <span className="ml-1">·</span>
+                  <span className="ml-1 text-foreground-warning">
+                    {step.latestVersion} available
+                  </span>
+                </>
+              )}
             </>
           ) : step.state === 'checking' ? (
             <span className="text-foreground-muted">Checking…</span>

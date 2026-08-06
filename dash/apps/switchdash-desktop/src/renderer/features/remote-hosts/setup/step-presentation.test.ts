@@ -12,6 +12,7 @@ import {
   outcomeLabel,
   signInLabel,
   stepBadge,
+  versionSubtitle,
 } from './step-presentation';
 
 function step(patch: Partial<HostSetupStep> = {}): HostSetupStep {
@@ -383,5 +384,55 @@ describe('stepBadge — a failed action over something that is installed', () =>
 
   it('still names the observation when it is the useful thing to say', () => {
     expect(stepBadge(step({ state: 'failed', outcome: 'missing' })).label).toBe('Not installed');
+  });
+});
+
+/**
+ * How far behind, not just that you are behind (CHOO-1809).
+ *
+ * The badge can only say an update exists. The number you want before taking
+ * one was hidden in the Update button's tooltip, invisible to anyone not
+ * already hovering it.
+ */
+describe('versionSubtitle', () => {
+  it('shows both versions when something newer exists', () => {
+    expect(
+      versionSubtitle(
+        step({
+          state: 'satisfied',
+          version: '0.146.0',
+          latestVersion: '0.147.0',
+          updateAvailable: true,
+        })
+      )
+    ).toBe('0.146.0 → 0.147.0');
+  });
+
+  it('shows just the installed version when nothing newer is known', () => {
+    expect(versionSubtitle(step({ state: 'satisfied', version: '0.146.0' }))).toBe('0.146.0');
+  });
+
+  it('does not promise an update we hold no version for', () => {
+    // `updateAvailable` without a `latestVersion` should not happen, but an
+    // arrow pointing at nothing is a worse way to find out than a plain version.
+    expect(
+      versionSubtitle(
+        step({ state: 'satisfied', version: '0.146.0', latestVersion: null, updateAvailable: true })
+      )
+    ).toBe('0.146.0');
+  });
+
+  it('says nothing about a step that is not installed', () => {
+    expect(
+      versionSubtitle(step({ state: 'pending', outcome: 'missing', version: null }))
+    ).toBeNull();
+  });
+
+  it('never describes a version on something absent, even if one lingers', () => {
+    // A stale `version` left on a step that has since gone missing must not be
+    // rendered as though it were found.
+    expect(
+      versionSubtitle(step({ state: 'pending', outcome: 'missing', version: '0.146.0' }))
+    ).toBeNull();
   });
 });

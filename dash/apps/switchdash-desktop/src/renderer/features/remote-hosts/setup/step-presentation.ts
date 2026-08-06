@@ -142,6 +142,25 @@ export function signInLabel(step: HostSetupStep): string {
   return step.error?.includes('read:packages') ? 'Re-authenticate' : 'Sign in';
 }
 
+/**
+ * The version line under a row's name.
+ *
+ * When something newer exists, both numbers are shown — `0.146.0 → 0.147.0`.
+ * The badge can only say *that* an update exists; what you usually want to know
+ * before taking one is how far behind you are, and hiding that in the Update
+ * button's tooltip made it invisible to anyone not already hovering it.
+ *
+ * Only for a satisfied step: a version on a row that is not installed would be
+ * describing something that is not there.
+ */
+export function versionSubtitle(step: HostSetupStep): string | null {
+  if (step.state !== 'satisfied') return null;
+  if (!step.updateAvailable || !step.latestVersion) return step.version;
+  // `updateAvailable` is only ever true off a real comparison, so a missing
+  // installed version here would be a contradiction — say what we do know.
+  return step.version ? `${step.version} → ${step.latestVersion}` : `→ ${step.latestVersion}`;
+}
+
 export type BadgeSpec = { tone: StatusTone; label: string };
 
 /**

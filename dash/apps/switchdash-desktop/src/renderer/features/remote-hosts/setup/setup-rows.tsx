@@ -35,6 +35,7 @@ import {
   canUpdate,
   signInLabel,
   stepBadge,
+  versionSubtitle,
   type AgentTypeRow,
   type BadgeSpec,
 } from './step-presentation';
@@ -262,7 +263,7 @@ export function PrerequisiteRow({
     <Row
       icon={<PrerequisiteIcon step={step} />}
       name={step.name}
-      subtitle={step.state === 'satisfied' ? step.version : null}
+      subtitle={versionSubtitle(step)}
       progress={activity}
       badge={stepBadge(step)}
       highlighted={isCurrent}
@@ -405,7 +406,7 @@ export function AgentTypeRowItem({
       <Row
         icon={<AgentIcon id={row.agentId} size={16} />}
         name={row.name}
-        subtitle={row.cli.state === 'satisfied' ? row.cli.version : null}
+        subtitle={versionSubtitle(row.cli)}
         progress={activityFor(row.cli.id)}
         badge={stepBadge(row.cli)}
         highlighted={currentStepId === row.cli.id}
@@ -432,13 +433,7 @@ export function AgentTypeRowItem({
           <Row
             icon={<Puzzle className="size-4 text-foreground-muted" />}
             name="Switch connector"
-            subtitle={
-              cliReady
-                ? plugin.state === 'satisfied'
-                  ? plugin.version
-                  : null
-                : `Needs ${row.name} first`
-            }
+            subtitle={cliReady ? versionSubtitle(plugin) : `Needs ${row.name} first`}
             progress={activityFor(plugin.id)}
             badge={stepBadge(plugin)}
             highlighted={currentStepId === plugin.id}

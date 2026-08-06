@@ -15,19 +15,39 @@
  * as broken because Codex is absent.
  */
 
-import { PlugZap, Wrench } from 'lucide-react';
+import { CircleFadingArrowUp, PlugZap, Wrench } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { deriveAgentTypeStatus } from '@shared/core/remote-hosts/host-status';
 import {
+  agentTypeSteps,
   outstandingRequiredHostSteps,
   outstandingRequiredStepsFor,
+  type HostSetupPlan,
+  type HostSetupStep,
 } from '@shared/core/remote-hosts/setup';
 import { hostReachabilityStore } from './host-reachability-store';
 import { hostSetupStore } from './host-setup-store';
 
 const ICON = 'h-3.5 w-3.5 shrink-0 text-foreground-warning';
+const UPDATE_ICON = 'h-3.5 w-3.5 shrink-0 text-foreground-muted';
+
+/**
+ * This agent type's steps that are installed but behind — its CLI, its Switch
+ * connector, or both.
+ *
+ * Only steps carrying a known newer version qualify. `updateAvailable` is never
+ * set off a version we could not read, and it is additionally gated on the
+ * update being one switchdash could actually perform, so an icon here always
+ * corresponds to a button that works.
+ */
+function staleStepsFor(plan: HostSetupPlan | null, agentId: string): HostSetupStep[] {
+  if (!plan) return [];
+  return agentTypeSteps(plan, agentId).filter(
+    (step) => step.state === 'satisfied' && step.updateAvailable && step.latestVersion
+  );
+}
 
 export const HostTroubleIndicator = observer(function HostTroubleIndicator({
   sshHost,
@@ -55,7 +75,7 @@ export const HostTroubleIndicator = observer(function HostTroubleIndicator({
     return (
       <Tooltip>
         <TooltipTrigger>
-          <PlugZap className={ICON} />
+          <PlugZap className={ICON} aria-label="Host unavailable" />
         </TooltipTrigger>
         <TooltipContent>
           {status.kind === 'auth-failed'
@@ -67,14 +87,32 @@ export const HostTroubleIndicator = observer(function HostTroubleIndicator({
     );
   }
 
-  if (status.kind !== 'setup-required') return null;
+  // Nothing wrong, but something newer exists. Reported last and only when the
+  // row is otherwise clean: an out-of-date connector still works, so it must
+  // never displace a reason the agent is actually stuck.
+  if (status.kind !== 'setup-required') {
+    const stale = agentId ? staleStepsFor(plan, agentId) : [];
+    if (stale.length === 0) return null;
+    return (
+      <Tooltip>
+        <TooltipTrigger>
+          <CircleFadingArrowUp className={UPDATE_ICON} aria-label="Update available" />
+        </TooltipTrigger>
+        <TooltipContent>
+          {`Update available on ${sshHost}: ${stale
+            .map((step) => `${step.name} ${step.latestVersion}`)
+            .join(', ')}`}
+        </TooltipContent>
+      </Tooltip>
+    );
+  }
 
   const missing = plan ? outstandingRequiredStepsFor(plan, agentId).map((step) => step.name) : [];
   const hostItself = !plan || outstandingRequiredHostSteps(plan).length > 0;
   return (
     <Tooltip>
       <TooltipTrigger>
-        <Wrench className={ICON} />
+        <Wrench className={ICON} aria-label="Setup required" />
       </TooltipTrigger>
       <TooltipContent>
         {hostItself
