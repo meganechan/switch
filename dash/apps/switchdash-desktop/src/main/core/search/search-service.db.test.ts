@@ -218,6 +218,39 @@ describe('searchService', () => {
       expect(result.items.filter((i) => i.kind === 'session')).toHaveLength(0);
     });
 
+    // The trigram index matches any 3-char substring anywhere, so it happily
+    // returns "Manage storage quotas" for "age" and "migration-bot" for "rat".
+    // Those are hits the index likes and a person does not.
+    it('does not match mid-word, however happy the index is to', () => {
+      searchService.initialize();
+
+      expect(titles(searchService.search({ query: 'rat' }).items)).toEqual([]);
+      expect(titles(searchService.search({ query: 'iewer' }).items)).toEqual([]);
+      expect(titles(searchService.search({ query: 'ion' }).items)).toEqual([]);
+    });
+
+    it('matches a word after a separator, so a suffixed name is still findable', () => {
+      searchService.initialize();
+
+      expect(titles(searchService.search({ query: 'bot' }).items)).toEqual([
+        'migration-bot',
+        'reviewer-bot',
+      ]);
+    });
+
+    it('ranks a title match above one found only in keywords', () => {
+      searchService.initialize();
+      agentEvents._emit(
+        'agent:created',
+        agentRecord({ id: 'agent-4', name: 'codex-runner', locationId: 'loc-1' })
+      );
+
+      // 'codex' is agent-2's provider (a keyword) and agent-4's name.
+      const items = searchService.search({ query: 'codex' }).items;
+
+      expect(items.map((i) => i.title)).toEqual(['codex-runner', 'migration-bot']);
+    });
+
     it('finds sessions alongside agents', () => {
       searchService.initialize();
 

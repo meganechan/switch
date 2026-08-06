@@ -41,10 +41,23 @@ describe('matchRooms', () => {
 
   // Rooms are matched in the renderer, so they are not subject to the trigram
   // tokenizer's three-character floor that the indexed kinds are.
+  // No trigram tokenizer here, so there is no three-character floor.
   it('answers a one- and two-character query', () => {
-    // 'se' matches "relea(se)" and "(se)arch"; the earlier position wins.
-    expect(matchRooms(ROOMS, 'se').map((r) => r.id)).toEqual(['r3', 'r1']);
-    expect(matchRooms(ROOMS, 'w').map((r) => r.id)).toEqual(['r2', 'r1']);
+    expect(matchRooms(ROOMS, 'se').map((r) => r.id)).toEqual(['r1']);
+    // 'Workforce', not 's(w)itchdash'.
+    expect(matchRooms(ROOMS, 'w').map((r) => r.id)).toEqual(['r2']);
+  });
+
+  // "relea(se)" is a substring match a person did not ask for. Matching only at
+  // word starts is what keeps the result set honest.
+  it('does not match mid-word', () => {
+    expect(matchRooms(ROOMS, 'lease')).toEqual([]);
+    expect(matchRooms(ROOMS, 'ork')).toEqual([]);
+  });
+
+  it('still matches a word after a separator', () => {
+    expect(matchRooms(ROOMS, 'bar').map((r) => r.id)).toEqual(['r1']);
+    expect(matchRooms(ROOMS, 'hub').map((r) => r.id)).toEqual(['r2']);
   });
 
   it('ranks a name that starts with the query above one that merely contains it', () => {

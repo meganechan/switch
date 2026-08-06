@@ -1,4 +1,4 @@
-import type { SearchItem, SearchItemKind } from '@shared/core/search';
+import { matchQuality, type SearchItem, type SearchItemKind } from '@shared/core/search';
 import type { RemoteRoomSummary, SwitchServer } from '@shared/core/switch-servers/switch-servers';
 
 /**
@@ -25,22 +25,30 @@ const RENDERER_RESULT_LIMIT = 8;
 /**
  * Rank one renderer-matched candidate, or null when the query does not match.
  *
+ * Held to the same word-boundary rule as the indexed kinds (see `matchQuality`),
+ * so the two populations agree on what counts as a match — a palette where
+ * rooms match mid-word and agents do not would be incoherent to use, whichever
+ * rule is the better one.
+ *
  * `score` orders these against each other and nothing else. It is an ordinal,
  * not a BM25 rank, so renderer-matched kinds render in their own groups rather
  * than merged into the indexed results — the two number spaces are not
  * comparable, and pretending otherwise would quietly corrupt the ordering of
  * both.
  *
- * Matching is a plain case-insensitive substring, so these kinds answer one- and
- * two-character queries, below the trigram tokenizer's three-character floor
- * that the indexed kinds are subject to.
+ * Unlike the indexed kinds these have no three-character floor, since nothing
+ * here goes through the trigram tokenizer.
  */
 function rank(haystack: string, query: string): number | null {
-  const at = haystack.toLowerCase().indexOf(query);
-  if (at === -1) return null;
-  // A name that starts with the query beats one that merely contains it; ties
-  // break on the shorter name, which is the more exact match.
-  return at === 0 ? -haystack.length : 1000 + at;
+  switch (matchQuality(haystack, query)) {
+    // Ties break on the shorter name, which is the more exact match.
+    case 'prefix':
+      return -haystack.length;
+    case 'word':
+      return 1000 + haystack.length;
+    default:
+      return null;
+  }
 }
 
 function finalise(items: SearchItem[]): SearchItem[] {

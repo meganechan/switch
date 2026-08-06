@@ -14,7 +14,7 @@ import {
 import { observer, useObserver } from 'mobx-react-lite';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
-import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/query-keys';
+import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/views/remote-hosts-view';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { agentExpandKey } from '@renderer/features/sidebar/agent-item';
@@ -383,7 +383,7 @@ export function CommandPaletteModal({
 
   const handleNavigateToHost = (item: SearchItem) => {
     handleClose();
-    navigate('settings', { tab: 'remote-hosts', host: item.id });
+    navigate('remoteHost', { sshHost: item.id });
   };
 
   const handleSelect = (item: SearchItem) => {

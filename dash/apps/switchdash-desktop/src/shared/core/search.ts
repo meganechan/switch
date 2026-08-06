@@ -45,6 +45,39 @@ export interface SearchResult {
   status: SearchStatus;
 }
 
+/**
+ * Where a term matched, best first. `null` means "not usefully matched".
+ *
+ * The FTS index is trigram-tokenised, which matches any substring of three or
+ * more characters anywhere in a column. That is far broader than anyone means
+ * when they type: "age" matches *Man*age* and *stor*age*, "ion" matches
+ * migrat*ion*-bot and Sess*ion*, "rat" matches mig*rat*ion. Every one of those
+ * is a hit the index is happy with and a person is not.
+ *
+ * So the index is treated as a candidate generator and the results are held to
+ * a stricter rule: a term must begin a word. That keeps "bot" finding
+ * `reviewer-bot` and "ses" finding `New Session`, and drops the mid-word noise.
+ *
+ * The cost is deliberate and worth stating: a term that starts mid-word no
+ * longer matches, so "dash" no longer finds `switchdash`. Precision is bought
+ * with recall — there is no setting of this dial that gives both.
+ */
+export type MatchQuality = 'prefix' | 'word' | null;
+
+/** Characters that separate words for matching. Covers the shapes names take
+ *  here: `reviewer-bot`, `gpu_box`, `switch.local`, `host:port`, paths, URLs. */
+const WORD_SEPARATORS = /[\s\-_./:@\\]+/;
+
+/** How well `term` matches `text`: at its start, at the start of a word inside
+ *  it, or not well enough to offer. */
+export function matchQuality(text: string, term: string): MatchQuality {
+  const haystack = text.toLowerCase();
+  const needle = term.toLowerCase();
+  if (!needle) return null;
+  if (haystack.startsWith(needle)) return 'prefix';
+  return haystack.split(WORD_SEPARATORS).some((word) => word.startsWith(needle)) ? 'word' : null;
+}
+
 export interface CommandPaletteQuery {
   query: string;
   context?: {

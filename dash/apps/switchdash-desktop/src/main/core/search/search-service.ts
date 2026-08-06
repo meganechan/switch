@@ -4,11 +4,12 @@ import { agents, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { ALL_COMMAND_DEFS } from '@shared/commands';
 import type { Agent } from '@shared/core/agents/agents';
-import type {
-  CommandPaletteQuery,
-  SearchItem,
-  SearchItemKind,
-  SearchResult,
+import {
+  type CommandPaletteQuery,
+  matchQuality,
+  type SearchItem,
+  type SearchItemKind,
+  type SearchResult,
 } from '@shared/core/search';
 import type { Session } from '@shared/core/sessions/sessions';
 import { agentEvents } from '../agents/agent-events';
@@ -22,8 +23,54 @@ type FtsRow = {
   location_id: string | null;
   session_id: string | null;
   title: string;
+  keywords: string;
   rank: number;
 };
+
+/**
+ * Rows pulled from the index before the word-boundary filter, and rows returned
+ * after it. The index over-matches (see `matchQuality`), so the filter discards
+ * a share of what it returns — asking for more candidates than the caller wants
+ * keeps a precise query from coming back thin just because a lot of mid-word
+ * noise sorted above the real hits.
+ */
+const FTS_CANDIDATE_LIMIT = 120;
+const RESULT_LIMIT = 30;
+
+/** Ranking tiers, best first: the title starts with the term, a word in the
+ *  title does, or only a keyword does. */
+const TIER_TITLE_PREFIX = 0;
+const TIER_TITLE_WORD = 1;
+const TIER_KEYWORD = 2;
+/** Wider than any BM25 magnitude, so the tier decides before the score does. */
+const TIER_STRIDE = 1_000_000;
+
+/**
+ * The worst tier across all terms, or null when any term fails to begin a word
+ * in either the title or the keywords.
+ *
+ * Judged on the worst term so that a query only ranks as a title match when
+ * *every* word of it is one — "reviewer bot" matching an item whose title holds
+ * one word and whose description holds the other is a keyword-grade hit, not a
+ * name hit.
+ */
+function matchTier(row: FtsRow, terms: string[]): number | null {
+  let worst = TIER_TITLE_PREFIX;
+  for (const term of terms) {
+    const inTitle = matchQuality(row.title, term);
+    const tier =
+      inTitle === 'prefix'
+        ? TIER_TITLE_PREFIX
+        : inTitle === 'word'
+          ? TIER_TITLE_WORD
+          : matchQuality(row.keywords, term)
+            ? TIER_KEYWORD
+            : null;
+    if (tier === null) return null;
+    worst = Math.max(worst, tier);
+  }
+  return worst;
+}
 
 type RecentSessionRow = {
   id: string;
@@ -71,27 +118,41 @@ class SearchService {
     try {
       rows = sqlite
         .prepare(
-          `SELECT item_type, item_id, location_id, session_id, title, bm25(search_index) AS rank
+          `SELECT item_type, item_id, location_id, session_id, title, keywords,
+                  bm25(search_index) AS rank
            FROM search_index
            WHERE search_index MATCH ?
            ORDER BY rank
-           LIMIT 30`
+           LIMIT ?`
         )
-        .all(ftsQuery) as FtsRow[];
+        .all(ftsQuery, FTS_CANDIDATE_LIMIT) as FtsRow[];
     } catch (e) {
       log.error('SearchService: FTS query failed', { query, error: String(e) });
       return { items: [], status: 'failed' };
     }
 
-    const results: SearchItem[] = rows.map((r) => ({
-      kind: r.item_type as SearchItemKind,
-      id: r.item_id,
-      locationId: r.location_id,
-      sessionId: r.session_id,
-      title: r.title,
-      subtitle: '',
-      score: r.rank,
-    }));
+    const results: SearchItem[] = rows
+      .flatMap((r) => {
+        const tier = matchTier(r, terms);
+        return tier === null
+          ? []
+          : [
+              {
+                kind: r.item_type as SearchItemKind,
+                id: r.item_id,
+                locationId: r.location_id,
+                sessionId: r.session_id,
+                title: r.title,
+                subtitle: '',
+                // Tier dominates BM25 so a name match always outranks a hit
+                // buried in a command's description, whatever the text lengths
+                // do to the relevance score.
+                score: tier * TIER_STRIDE + r.rank,
+              },
+            ];
+      })
+      .sort((a, b) => a.score - b.score)
+      .slice(0, RESULT_LIMIT);
 
     // Only offered when a session is in context: opening a file navigates to a
     // session, so without one there is nothing to open and the hit would render
