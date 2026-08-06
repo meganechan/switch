@@ -47,7 +47,6 @@ const h = vi.hoisted(() => {
       dir,
       status: 'directory' as const,
       existingAncestor: '',
-      missingSegments: [],
     })),
   };
 });
@@ -118,7 +117,6 @@ describe('addAgent', () => {
       dir,
       status: 'directory' as const,
       existingAncestor: '',
-      missingSegments: [],
     }));
   });
 
@@ -203,7 +201,6 @@ describe('addAgent', () => {
         dir: remote.dir,
         status: 'missing',
         existingAncestor: '/home/ubuntu',
-        missingSegments: ['switch-agents', 'deploys'],
       } as never);
 
       const result = await addAgent(params(remote));
@@ -222,7 +219,6 @@ describe('addAgent', () => {
         dir: remote.dir,
         status: 'file',
         existingAncestor: '',
-        missingSegments: [],
       } as never);
 
       expect((await addAgent(params(remote))).kind).toBe('directory-missing');

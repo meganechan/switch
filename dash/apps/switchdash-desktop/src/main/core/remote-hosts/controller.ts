@@ -8,7 +8,7 @@ import type {
 } from '@switchdash/core/deps/runtime';
 import { isTransportFailure } from '@switchdash/core/exec';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
-import { createRemoteDir, inspectRemoteDir } from '@main/core/agents/remote-dir';
+import { inspectRemoteDir } from '@main/core/agents/remote-dir';
 import {
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
@@ -357,10 +357,6 @@ export const remoteHostsController = createRPCController({
    */
   inspectRemoteDir: (params: { sshHost: string; dir: string }): Promise<RemoteDirInspection> =>
     inspectRemoteDir(params.sshHost, params.dir),
-
-  /** Create a remote working directory and any missing parents, on request. */
-  createRemoteDir: (params: { sshHost: string; dir: string }): Promise<void> =>
-    createRemoteDir(params.sshHost, params.dir),
 
   probeDeps: (sshHost: string): Promise<RemoteDependencyView[]> => probeDeps(sshHost),
 

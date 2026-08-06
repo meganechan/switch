@@ -2,9 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileSystemError, FileSystemErrorCodes } from '@main/core/fs/types';
 
 const stat = vi.hoisted(() => vi.fn());
-const mkdir = vi.hoisted(() => vi.fn());
 const close = vi.hoisted(() => vi.fn());
-const exec = vi.hoisted(() => vi.fn(async () => ({ stdout: 'writable\n', stderr: '' })));
 const constructedWith = vi.hoisted(() => [] as string[]);
 
 vi.mock('@main/core/fs/impl/ssh-fs', () => ({
@@ -13,7 +11,6 @@ vi.mock('@main/core/fs/impl/ssh-fs', () => ({
       constructedWith.push(base);
     }
     stat = stat;
-    mkdir = mkdir;
     close = close;
   },
 }));
@@ -23,14 +20,8 @@ vi.mock('@main/core/locations/location-transport', () => ({
 vi.mock('@main/core/ssh/connect/connect-agent-ssh', () => ({
   ensureSshConnected: vi.fn(async () => ({})),
 }));
-vi.mock('@main/core/execution-context/ssh-execution-context', () => ({
-  SshExecutionContext: class {
-    exec = exec;
-  },
-}));
-vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
-const { createRemoteDir, inspectRemoteDir } = await import('./remote-dir');
+const { inspectRemoteDir } = await import('./remote-dir');
 
 /** Report `paths` as existing directories and everything else as absent. */
 function existingDirs(paths: string[]) {
@@ -44,7 +35,6 @@ const REPO_DIR = '/home/ubuntu/switch-agents/internal-deployments';
 beforeEach(() => {
   vi.clearAllMocks();
   constructedWith.length = 0;
-  exec.mockResolvedValue({ stdout: 'writable\n', stderr: '' });
 });
 
 describe('inspectRemoteDir', () => {
@@ -55,33 +45,22 @@ describe('inspectRemoteDir', () => {
       dir: REPO_DIR,
       status: 'directory',
       existingAncestor: '',
-      missingSegments: [],
-      creatable: false,
     });
-    // No point asking whether an existing directory could be created.
-    expect(exec).not.toHaveBeenCalled();
   });
 
   // The ticket's repro: the directory *and* its parent are absent, which is
-  // what the per-directory FS could not recover from (CHOO-1416).
-  it('names every missing segment when several ancestors are absent', async () => {
+  // what the per-directory FS could not even see past (CHOO-1416).
+  it('finds the deepest existing ancestor when several are absent', async () => {
     existingDirs(['/home/ubuntu']);
 
     expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({
       dir: REPO_DIR,
       status: 'missing',
       existingAncestor: '/home/ubuntu',
-      missingSegments: ['switch-agents', 'internal-deployments'],
-      creatable: true,
     });
-    // Writability is asked of the deepest *existing* ancestor — the directory
-    // the eventual mkdir actually has to write into.
-    expect(exec).toHaveBeenCalledWith('sh', [
-      '-c',
-      'if [ -w "$1" ]; then echo writable; else echo readonly; fi',
-      'sh',
-      '/home/ubuntu',
-    ]);
+    // Opened at the host root: an FS rooted at the missing directory could not
+    // stat its way out to find what does exist.
+    expect(constructedWith).toEqual(['/']);
   });
 
   it('reports a single missing leaf under an existing parent', async () => {
@@ -90,7 +69,17 @@ describe('inspectRemoteDir', () => {
     expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({
       status: 'missing',
       existingAncestor: '/home/ubuntu/switch-agents',
-      missingSegments: ['internal-deployments'],
+    });
+  });
+
+  // A misspelt username leaves `/home` as the deepest match, which is the
+  // signal that the path is wrong rather than merely unmade.
+  it('falls back to a shallow ancestor for a misspelt path', async () => {
+    existingDirs(['/home']);
+
+    expect(await inspectRemoteDir('host', '/home/louis_amauduz/repo')).toMatchObject({
+      status: 'missing',
+      existingAncestor: '/home',
     });
   });
 
@@ -100,34 +89,10 @@ describe('inspectRemoteDir', () => {
     expect(await inspectRemoteDir('host', '/srv/agent')).toMatchObject({
       status: 'missing',
       existingAncestor: '/',
-      missingSegments: ['srv', 'agent'],
     });
   });
 
-  // A misspelt username lands on `/home/<typo>`, whose parent `/home` nobody
-  // can write to. Reporting this as plainly "missing" offered a Create button
-  // that could only ever fail with EACCES.
-  it('reports a missing path under an unwritable ancestor as not creatable', async () => {
-    existingDirs(['/home']);
-    exec.mockResolvedValue({ stdout: 'readonly\n', stderr: '' });
-
-    expect(await inspectRemoteDir('host', '/home/louis_amauduz/repo')).toEqual({
-      dir: '/home/louis_amauduz/repo',
-      status: 'missing',
-      existingAncestor: '/home',
-      missingSegments: ['louis_amauduz', 'repo'],
-      creatable: false,
-    });
-  });
-
-  it('ignores login-shell banner noise before the verdict', async () => {
-    existingDirs(['/home/ubuntu']);
-    exec.mockResolvedValue({ stdout: 'Welcome to Ubuntu\nwritable\n', stderr: '' });
-
-    expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({ creatable: true });
-  });
-
-  it('reports a path that is a file rather than offering to create it', async () => {
+  it('reports a path that is a file', async () => {
     stat.mockImplementation(async (path: string) =>
       path === REPO_DIR ? { path, type: 'file' } : null
     );
@@ -138,20 +103,8 @@ describe('inspectRemoteDir', () => {
     });
   });
 
-  it('blames the ancestor when a parent is a file', async () => {
-    stat.mockImplementation(async (path: string) => {
-      if (path === '/home/ubuntu/switch-agents') return { path, type: 'file' };
-      return null;
-    });
-
-    expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({
-      dir: '/home/ubuntu/switch-agents',
-      status: 'file',
-    });
-  });
-
-  // Treating an unreadable path as missing would offer to create a directory
-  // that is already there, and the create would fail the same way the probe did.
+  // An unreadable path is not a missing one; saying so would send the user off
+  // to create a directory that is already there.
   it('propagates a probe failure that is not absence', async () => {
     stat.mockRejectedValue(
       new FileSystemError('Permission denied: /home', FileSystemErrorCodes.PERMISSION_DENIED)
@@ -177,54 +130,6 @@ describe('inspectRemoteDir', () => {
     stat.mockRejectedValue(new Error('boom'));
 
     await expect(inspectRemoteDir('host', REPO_DIR)).rejects.toThrow('boom');
-    expect(close).toHaveBeenCalled();
-  });
-});
-
-describe('createRemoteDir', () => {
-  it('creates the directory and its missing parents from the filesystem root', async () => {
-    existingDirs(['/home/ubuntu']);
-
-    await createRemoteDir('host', REPO_DIR);
-
-    expect(mkdir).toHaveBeenCalledWith(REPO_DIR, { recursive: true });
-    // Rooting at `/` is what lets the ancestors be created at all — an FS
-    // rooted at the repo dir cannot create its own parents.
-    expect(constructedWith).toEqual(['/', '/']);
-  });
-
-  it('is a no-op when the directory already exists', async () => {
-    existingDirs([REPO_DIR]);
-
-    await createRemoteDir('host', REPO_DIR);
-
-    expect(mkdir).not.toHaveBeenCalled();
-  });
-
-  it('refuses to create under an unwritable ancestor instead of failing at mkdir', async () => {
-    existingDirs(['/home']);
-    exec.mockResolvedValue({ stdout: 'readonly\n', stderr: '' });
-
-    await expect(createRemoteDir('host', '/home/louis_amauduz/repo')).rejects.toThrow(
-      'no write access to /home'
-    );
-    expect(mkdir).not.toHaveBeenCalled();
-  });
-
-  it('refuses to create over an existing file', async () => {
-    stat.mockImplementation(async (path: string) =>
-      path === REPO_DIR ? { path, type: 'file' } : null
-    );
-
-    await expect(createRemoteDir('host', REPO_DIR)).rejects.toThrow('a file already exists there');
-    expect(mkdir).not.toHaveBeenCalled();
-  });
-
-  it('closes the SFTP channel even when mkdir throws', async () => {
-    existingDirs(['/home/ubuntu']);
-    mkdir.mockRejectedValue(new Error('mkdir failed'));
-
-    await expect(createRemoteDir('host', REPO_DIR)).rejects.toThrow('mkdir failed');
     expect(close).toHaveBeenCalled();
   });
 });

@@ -117,9 +117,9 @@ describe('SshFileSystem.mkdir', () => {
   // Recursive mkdir stops at its own base: an FS rooted at an agent's working
   // directory must not be able to create that directory's ancestors. This is
   // the containment behaviour that made a missing parent surface as a bare
-  // "File or directory not found" during remote agent creation (CHOO-1416) —
-  // the fix probes and creates the directory through `remote-dir.ts` (an FS
-  // opened at `/`), rather than widening the guard here.
+  // "File or directory not found" during remote agent creation (CHOO-1416).
+  // The fix reports the missing directory before anything is written, via a
+  // probe rooted at `/` in `remote-dir.ts`, rather than widening this guard.
   it('refuses to create parents above its base', async () => {
     const repoDir = '/home/ubuntu/switch-agents/internal-deployments';
     const { fs, mkdirCalls } = makeMkdirFs([noSuchFile(), noSuchFile(), noSuchFile()], repoDir);

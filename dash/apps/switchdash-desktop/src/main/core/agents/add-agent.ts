@@ -53,9 +53,10 @@ export type AddAgentResult =
   | { kind: 'unauthenticated' }
   | { kind: 'name-conflict' }
   | { kind: 'invalid-name'; message: string }
-  /** The remote working directory does not exist (or is a file). Recoverable:
-   * the caller offers to create it and retries. Reported before anything is
-   * minted, so no Switch-side agent is left behind (CHOO-1416). */
+  /** The remote working directory does not exist (or is a file). The user
+   * creates it on the host and retries; switchdash does not create it for them.
+   * Reported before anything is minted, so no Switch-side agent is left behind
+   * (CHOO-1416). */
   | { kind: 'directory-missing'; sshHost: string; inspection: RemoteDirInspection }
   | { kind: 'error'; message: string };
 

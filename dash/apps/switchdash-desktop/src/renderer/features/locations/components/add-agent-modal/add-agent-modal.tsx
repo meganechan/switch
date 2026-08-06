@@ -1,5 +1,5 @@
 import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -65,16 +65,6 @@ export type AddLocationModalProps = BaseModalProps<void>;
 
 /** Sentinel `runHost` value meaning "run on this machine" (no remote host). */
 const LOCAL_RUN_LOCATION = 'local';
-
-/** Electron prefixes a rejected IPC call with its own plumbing
- * (`Error invoking remote method 'x.y': `), and stacks the error names on top of
- * that. Strip both so a toast shows what the main process actually said. */
-function rpcErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return raw
-    .replace(/^Error invoking remote method '[^']*':\s*/, '')
-    .replace(/^(?:\w*Error:\s*)+/, '');
-}
 
 /** The recoverable outcomes of `addAgent` — everything the modal has to report
  * rather than treat as success. Derived from the RPC so a new variant in the
@@ -225,20 +215,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     queryFn: () => rpc.remoteHosts.inspectRemoteDir({ sshHost: runHost, dir: trimmedRemoteDir }),
     enabled: shouldDetectRemote,
     retry: false,
-  });
-  const createRemoteDirMutation = useMutation({
-    mutationFn: () => rpc.remoteHosts.createRemoteDir({ sshHost: runHost, dir: trimmedRemoteDir }),
-    onSuccess: () => remoteDirQuery.refetch().then(() => remoteAgentQuery.refetch()),
-    onError: (error) => {
-      toast({
-        title: 'Failed to create the directory',
-        description: rpcErrorMessage(error),
-        variant: 'destructive',
-      });
-      // Whatever stopped the create (a race, a permission change) is a fact
-      // about the host, so re-probe rather than leaving a stale offer up.
-      void remoteDirQuery.refetch();
-    },
   });
   const remoteDirUsable = !shouldDetectRemote || remoteDirQuery.data?.status === 'directory';
 
@@ -535,7 +511,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     if (result.kind === 'directory-missing') {
       toast({
         title: 'Working directory not found',
-        description: `${result.inspection.dir} no longer exists on ${result.sshHost}.`,
+        description: `${result.inspection.dir} does not exist on ${result.sshHost}. Create it on the host and try again.`,
         variant: 'destructive',
       });
       void remoteDirQuery.refetch();
@@ -808,8 +784,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               inspection={remoteDirQuery.data}
               checking={remoteDirQuery.isFetching}
               error={remoteDirQuery.error}
-              creating={createRemoteDirMutation.isPending}
-              onCreate={() => createRemoteDirMutation.mutate()}
             />
           )}
         </Field>
