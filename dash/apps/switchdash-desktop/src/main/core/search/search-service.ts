@@ -28,31 +28,52 @@ type FtsRow = {
 };
 
 /**
- * Rows pulled from the index before the word-boundary filter, and rows returned
- * after it. The index over-matches (see `matchQuality`), so the filter discards
- * a share of what it returns — asking for more candidates than the caller wants
- * keeps a precise query from coming back thin just because a lot of mid-word
- * noise sorted above the real hits.
+ * Rows pulled from the index before filtering, and rows returned after it. The
+ * index answers more loosely than the filter does, so asking for more
+ * candidates than the caller wants keeps a precise query from coming back thin
+ * because loose matches sorted above the real ones.
  */
 const FTS_CANDIDATE_LIMIT = 120;
 const RESULT_LIMIT = 30;
 
+/** The shortest term the trigram tokenizer can index. */
+const MIN_INDEXABLE_TERM = 3;
+
 /** Ranking tiers, best first: the title starts with the term, a word in the
- *  title does, or only a keyword does. */
+ *  title does, the title contains it somewhere, or only a keyword does. */
 const TIER_TITLE_PREFIX = 0;
 const TIER_TITLE_WORD = 1;
-const TIER_KEYWORD = 2;
+const TIER_TITLE_SUBSTRING = 2;
+const TIER_KEYWORD = 3;
 /** Wider than any BM25 magnitude, so the tier decides before the score does. */
 const TIER_STRIDE = 1_000_000;
 
 /**
- * The worst tier across all terms, or null when any term fails to begin a word
- * in either the title or the keywords.
+ * Split a query into the terms every result must contain.
  *
- * Judged on the worst term so that a query only ranks as a title match when
- * *every* word of it is one — "reviewer bot" matching an item whose title holds
- * one word and whose description holds the other is a keyword-grade hit, not a
- * name hit.
+ * **Whitespace only.** Splitting on `-` and `_` as well is what made
+ * `test-tt` return `co-test`: it became the terms `test` and `tt`, `tt` was
+ * dropped for being too short to index, and the search silently degraded to
+ * `test` — which every one of those names contains. A hyphen is part of a name
+ * here (`reviewer-bot`, `test-tt`), not a separator between two things the user
+ * wants ANDed.
+ */
+function queryTerms(query: string): string[] {
+  return query.trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The worst tier across all terms, or null when any term is absent from both
+ * the title and the keywords.
+ *
+ * This is the real filter. The index is trigram-tokenised and answers a phrase
+ * more loosely than it looks — and a term too short to index is not sent to it
+ * at all — so a row coming back is not evidence that it contains what was
+ * typed. Checking the text directly is.
+ *
+ * Judged on the worst term so a query only ranks as a title match when *every*
+ * word of it is one: "reviewer bot" matching an item whose title holds one word
+ * and whose description holds the other is a keyword-grade hit, not a name hit.
  */
 function matchTier(row: FtsRow, terms: string[]): number | null {
   let worst = TIER_TITLE_PREFIX;
@@ -63,9 +84,11 @@ function matchTier(row: FtsRow, terms: string[]): number | null {
         ? TIER_TITLE_PREFIX
         : inTitle === 'word'
           ? TIER_TITLE_WORD
-          : matchQuality(row.keywords, term)
-            ? TIER_KEYWORD
-            : null;
+          : inTitle === 'substring'
+            ? TIER_TITLE_SUBSTRING
+            : matchQuality(row.keywords, term)
+              ? TIER_KEYWORD
+              : null;
     if (tier === null) return null;
     worst = Math.max(worst, tier);
   }
@@ -99,20 +122,21 @@ class SearchService {
   search({ query, context }: CommandPaletteQuery): SearchResult {
     if (!query.trim()) return { items: this.recents(context), status: 'recents' };
 
-    // Trigram tokenizer requires each term to be at least 3 characters, so
-    // shorter terms are dropped. When nothing survives there is no query to
-    // run: recents are returned, but reported as recents so the palette can
-    // say so rather than presenting them as matches.
-    const terms = query
-      .trim()
-      .split(/[\s\-_]+/)
-      .filter((t) => t.length >= 3);
+    const terms = queryTerms(query);
 
-    if (terms.length === 0) {
+    // The tokenizer cannot index anything shorter than a trigram, so a query of
+    // only short terms has nothing to ask the index. Recents are returned, but
+    // reported as recents so the palette can say so rather than presenting them
+    // as matches.
+    const indexable = terms.filter((t) => t.length >= MIN_INDEXABLE_TERM);
+    if (indexable.length === 0) {
       return { items: this.recents(context), status: 'query-too-short' };
     }
 
-    const ftsQuery = terms.map((t) => `"${t}"`).join(' AND ');
+    // Only the indexable terms narrow the candidate set; `matchTier` then holds
+    // every row to *all* the terms, short ones included. Dropping a short term
+    // outright is what silently widened `test-tt` into `test`.
+    const ftsQuery = indexable.map((t) => `"${t.replace(/"/g, '""')}"`).join(' AND ');
 
     let rows: FtsRow[];
     try {

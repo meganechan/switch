@@ -218,15 +218,45 @@ describe('searchService', () => {
       expect(result.items.filter((i) => i.kind === 'session')).toHaveLength(0);
     });
 
-    // The trigram index matches any 3-char substring anywhere, so it happily
-    // returns "Manage storage quotas" for "age" and "migration-bot" for "rat".
-    // Those are hits the index likes and a person does not.
-    it('does not match mid-word, however happy the index is to', () => {
+    it('matches mid-word, so a term inside a compound name is still found', () => {
       searchService.initialize();
 
-      expect(titles(searchService.search({ query: 'rat' }).items)).toEqual([]);
-      expect(titles(searchService.search({ query: 'iewer' }).items)).toEqual([]);
-      expect(titles(searchService.search({ query: 'ion' }).items)).toEqual([]);
+      expect(titles(searchService.search({ query: 'iewer' }).items)).toEqual([
+        'Fix the reviewer crash',
+        'reviewer-bot',
+      ]);
+      expect(titles(searchService.search({ query: 'rat' }).items)).toEqual(['migration-bot']);
+    });
+
+    /**
+     * A hyphen is part of a name here, not a separator. Splitting on it turned
+     * `test-tt` into the terms `test` and `tt`, dropped `tt` for being too short
+     * to index, and searched for `test` alone — so every name containing "test"
+     * came back and the query looked far broader than it was.
+     */
+    it('treats a hyphenated query as one string, not two terms', () => {
+      searchService.initialize();
+      for (const [id, name] of [
+        ['a-want', 'test-tt'],
+        ['a-noise', 'co-test'],
+        ['a-noise2', 'test-agent-tt'],
+      ]) {
+        agentEvents._emit('agent:created', agentRecord({ id, name, locationId: 'loc-1' }));
+      }
+
+      expect(titles(searchService.search({ query: 'test-tt' }).items)).toEqual(['test-tt']);
+    });
+
+    // The short term still has to be present, it just cannot be asked of the
+    // index — dropping it silently is what widened the query.
+    it('enforces a term too short to index rather than discarding it', () => {
+      searchService.initialize();
+      agentEvents._emit(
+        'agent:created',
+        agentRecord({ id: 'a-cc', name: 'reviewer cc', locationId: 'loc-1' })
+      );
+
+      expect(titles(searchService.search({ query: 'reviewer cc' }).items)).toEqual(['reviewer cc']);
     });
 
     it('matches a word after a separator, so a suffixed name is still findable', () => {

@@ -46,36 +46,36 @@ export interface SearchResult {
 }
 
 /**
- * Where a term matched, best first. `null` means "not usefully matched".
+ * Where a term matched, best first. `null` means the text does not contain the
+ * term at all.
  *
- * The FTS index is trigram-tokenised, which matches any substring of three or
- * more characters anywhere in a column. That is far broader than anyone means
- * when they type: "age" matches *Man*age* and *stor*age*, "ion" matches
- * migrat*ion*-bot and Sess*ion*, "rat" matches mig*rat*ion. Every one of those
- * is a hit the index is happy with and a person is not.
+ * A term matches if it appears **anywhere** in the text, so "dash" finds
+ * `switchdash`. That is the recall a substring search is for, and the grade
+ * exists to order results rather than to exclude them: an item whose name
+ * begins with what you typed should outrank one that merely contains it
+ * somewhere in the middle, but both are real answers.
  *
- * So the index is treated as a candidate generator and the results are held to
- * a stricter rule: a term must begin a word. That keeps "bot" finding
- * `reviewer-bot` and "ses" finding `New Session`, and drops the mid-word noise.
- *
- * The cost is deliberate and worth stating: a term that starts mid-word no
- * longer matches, so "dash" no longer finds `switchdash`. Precision is bought
- * with recall — there is no setting of this dial that gives both.
+ * Filtering is done by the term being present, not by where — see
+ * `search-service`, where the index's own matching is too loose to be trusted
+ * as the filter.
  */
-export type MatchQuality = 'prefix' | 'word' | null;
+export type MatchQuality = 'prefix' | 'word' | 'substring' | null;
 
-/** Characters that separate words for matching. Covers the shapes names take
+/** Characters that separate words for ranking. Covers the shapes names take
  *  here: `reviewer-bot`, `gpu_box`, `switch.local`, `host:port`, paths, URLs. */
 const WORD_SEPARATORS = /[\s\-_./:@\\]+/;
 
 /** How well `term` matches `text`: at its start, at the start of a word inside
- *  it, or not well enough to offer. */
+ *  it, elsewhere inside it, or not at all. */
 export function matchQuality(text: string, term: string): MatchQuality {
   const haystack = text.toLowerCase();
   const needle = term.toLowerCase();
   if (!needle) return null;
   if (haystack.startsWith(needle)) return 'prefix';
-  return haystack.split(WORD_SEPARATORS).some((word) => word.startsWith(needle)) ? 'word' : null;
+  if (!haystack.includes(needle)) return null;
+  return haystack.split(WORD_SEPARATORS).some((word) => word.startsWith(needle))
+    ? 'word'
+    : 'substring';
 }
 
 export interface CommandPaletteQuery {

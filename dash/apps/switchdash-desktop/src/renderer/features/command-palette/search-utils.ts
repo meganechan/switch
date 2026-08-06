@@ -23,12 +23,13 @@ export function applyContextAffinity(
 const RENDERER_RESULT_LIMIT = 8;
 
 /**
- * Rank one renderer-matched candidate, or null when the query does not match.
+ * Rank one renderer-matched candidate, or null when the text does not contain
+ * the query.
  *
- * Held to the same word-boundary rule as the indexed kinds (see `matchQuality`),
- * so the two populations agree on what counts as a match — a palette where
- * rooms match mid-word and agents do not would be incoherent to use, whichever
- * rule is the better one.
+ * Graded the same way as the indexed kinds (see `matchQuality`) so the two
+ * populations agree on what a match is and on which matches are better — a
+ * palette where rooms and agents disagree about that would be incoherent to
+ * use, whichever rule is the better one.
  *
  * `score` orders these against each other and nothing else. It is an ordinal,
  * not a BM25 rank, so renderer-matched kinds render in their own groups rather
@@ -46,6 +47,8 @@ function rank(haystack: string, query: string): number | null {
       return -haystack.length;
     case 'word':
       return 1000 + haystack.length;
+    case 'substring':
+      return 2000 + haystack.length;
     default:
       return null;
   }

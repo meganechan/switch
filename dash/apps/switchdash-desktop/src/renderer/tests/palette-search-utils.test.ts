@@ -43,21 +43,32 @@ describe('matchRooms', () => {
   // tokenizer's three-character floor that the indexed kinds are.
   // No trigram tokenizer here, so there is no three-character floor.
   it('answers a one- and two-character query', () => {
-    expect(matchRooms(ROOMS, 'se').map((r) => r.id)).toEqual(['r1']);
-    // 'Workforce', not 's(w)itchdash'.
-    expect(matchRooms(ROOMS, 'w').map((r) => r.id)).toEqual(['r2']);
+    expect(matchRooms(ROOMS, 'se').map((r) => r.id)).toEqual(['r1', 'r3']);
   });
 
-  // "relea(se)" is a substring match a person did not ask for. Matching only at
-  // word starts is what keeps the result set honest.
-  it('does not match mid-word', () => {
-    expect(matchRooms(ROOMS, 'lease')).toEqual([]);
-    expect(matchRooms(ROOMS, 'ork')).toEqual([]);
+  it('matches mid-word, so a term inside a compound name is still found', () => {
+    expect(matchRooms(ROOMS, 'dash').map((r) => r.id)).toEqual(['r1']);
+    expect(matchRooms(ROOMS, 'lease').map((r) => r.id)).toEqual(['r3']);
   });
 
-  it('still matches a word after a separator', () => {
+  it('matches a word after a separator', () => {
     expect(matchRooms(ROOMS, 'bar').map((r) => r.id)).toEqual(['r1']);
     expect(matchRooms(ROOMS, 'hub').map((r) => r.id)).toEqual(['r2']);
+  });
+
+  // The whole query is one substring: a hyphen is part of a name here, not a
+  // separator between two independently-matched terms.
+  it('treats a hyphenated query as one string, not two terms', () => {
+    const hosts = [room({ id: 'want', name: 'test-tt' }), room({ id: 'noise', name: 'co-test' })];
+    expect(matchRooms(hosts, 'test-tt').map((r) => r.id)).toEqual(['want']);
+  });
+
+  it('ranks a name that starts with the query above one that contains it', () => {
+    const hits = matchRooms(
+      [room({ id: 'mid', name: 'the search bar' }), room({ id: 'start', name: 'search bar' })],
+      'search'
+    );
+    expect(hits.map((h) => h.id)).toEqual(['start', 'mid']);
   });
 
   it('ranks a name that starts with the query above one that merely contains it', () => {
