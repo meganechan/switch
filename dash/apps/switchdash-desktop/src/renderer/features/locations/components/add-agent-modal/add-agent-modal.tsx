@@ -157,12 +157,21 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     }
   }, [allowedHosts, runHost]);
 
-  // Reset the remote working dir when the run host changes so a committed dir
-  // from a previous host does not leak into discovery for the new one.
+  // Everything chosen below the run location belongs to the machine it was
+  // chosen on, so changing machines clears it.
+  //
+  // The working directory is the obvious case — a path from one host means
+  // nothing on another. The agent type is the one that bit: availability is
+  // per-machine, so picking Codex locally and then switching to a host without
+  // Codex left Codex selected, and the form went on looking valid for a choice
+  // the new machine cannot honour. Clearing it sends the picker back through
+  // its own availability check for the host now selected.
+  const { setProviderId } = pickState;
   useEffect(() => {
     setRemoteRepoDir('');
     setRemoteRepoDirDraft('');
-  }, [runHost]);
+    setProviderId(null);
+  }, [runHost, setProviderId]);
 
   // Advanced definition attributes (model, effort, tools, system prompt, …) the
   // user set in the collapsed Advanced section. Held in a ref (not state) so the
