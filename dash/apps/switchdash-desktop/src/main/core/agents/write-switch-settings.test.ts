@@ -1,9 +1,8 @@
-import { promises as fs } from 'node:fs';
+import { promises as nodeFs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
-import { detectSwitchAgent } from './detect';
 import {
   agentSettingsRelativePath,
   SWITCH_AGENTS_GITIGNORE_RELATIVE,
@@ -20,11 +19,11 @@ import {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'switchdash-settings-'));
+  dir = await nodeFs.mkdtemp(path.join(os.tmpdir(), 'switchdash-settings-'));
 });
 
 afterEach(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
+  await nodeFs.rm(dir, { recursive: true, force: true });
 });
 
 describe('writeNeutralAgentSettingsFs', () => {
@@ -36,7 +35,10 @@ describe('writeNeutralAgentSettingsFs', () => {
       agentId: 'switch-agent-1',
     });
 
-    const raw = await fs.readFile(path.join(dir, agentSettingsRelativePath('agent-abc')), 'utf8');
+    const raw = await nodeFs.readFile(
+      path.join(dir, agentSettingsRelativePath('agent-abc')),
+      'utf8'
+    );
     const settings = JSON.parse(raw) as Record<string, unknown>;
     expect(settings.env).toEqual({
       SWITCH_API_ENDPOINT: 'https://switch.example.com',
@@ -45,14 +47,14 @@ describe('writeNeutralAgentSettingsFs', () => {
     });
 
     // The credentials directory is git-ignored so the token never enters VCS.
-    const ignore = await fs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8');
+    const ignore = await nodeFs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8');
     expect(ignore).toBe('*\n');
   });
 
   it('merges into an existing per-agent file, preserving unrelated env keys and allow rules', async () => {
     const relPath = agentSettingsRelativePath('agent-abc');
-    await fs.mkdir(path.dirname(path.join(dir, relPath)), { recursive: true });
-    await fs.writeFile(
+    await nodeFs.mkdir(path.dirname(path.join(dir, relPath)), { recursive: true });
+    await nodeFs.writeFile(
       path.join(dir, relPath),
       JSON.stringify({
         permissions: { allow: ['Bash'] },
@@ -68,7 +70,7 @@ describe('writeNeutralAgentSettingsFs', () => {
       agentId: 'switch-agent-1',
     });
 
-    const settings = JSON.parse(await fs.readFile(path.join(dir, relPath), 'utf8')) as Record<
+    const settings = JSON.parse(await nodeFs.readFile(path.join(dir, relPath), 'utf8')) as Record<
       string,
       unknown
     >;
@@ -118,13 +120,18 @@ describe('writeAgentNeutralSettings', () => {
       agentId: 'switch-agent-1',
     });
 
-    const raw = await fs.readFile(path.join(dir, agentSettingsRelativePath('agent-abc')), 'utf8');
+    const raw = await nodeFs.readFile(
+      path.join(dir, agentSettingsRelativePath('agent-abc')),
+      'utf8'
+    );
     expect((JSON.parse(raw) as { env: Record<string, string> }).env).toEqual({
       SWITCH_API_ENDPOINT: 'https://switch.example.com',
       SWITCH_API_TOKEN: 'secret-token',
       SWITCH_AGENT_ID: 'switch-agent-1',
     });
-    expect(await fs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8')).toBe('*\n');
+    expect(await nodeFs.readFile(path.join(dir, SWITCH_AGENTS_GITIGNORE_RELATIVE), 'utf8')).toBe(
+      '*\n'
+    );
   });
 });
 
@@ -252,8 +259,8 @@ describe('removeSwitchSettings', () => {
   });
 
   it('leaves the directory undetectable as a Switch agent after teardown', async () => {
-    await fs.mkdir(path.join(dir, '.claude'), { recursive: true });
-    await fs.writeFile(
+    await nodeFs.mkdir(path.join(dir, '.claude'), { recursive: true });
+    await nodeFs.writeFile(
       path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH),
       mergeSwitchSettings(null, {
         apiEndpoint: 'https://switch.example.com',
@@ -262,13 +269,13 @@ describe('removeSwitchSettings', () => {
       }),
       'utf8'
     );
-    const raw = await fs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
+    const raw = await nodeFs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
 
     const result = removeSwitchSettings(raw);
     // The file was ours alone -> delete it, which makes the dir undetectable.
     expect(result).toEqual({ kind: 'delete' });
-    await fs.rm(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), { force: true });
+    await nodeFs.rm(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), { force: true });
 
-    expect(await detectSwitchAgent(dir)).toBeNull();
+    await expect(nodeFs.access(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH))).rejects.toThrow();
   });
 });

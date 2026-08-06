@@ -1,12 +1,8 @@
 import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
 import { useQuery } from '@tanstack/react-query';
-import { CheckCircle2, CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type {
-  AgentOnboardingError,
-  ModeData as AgentOnboardingModeData,
-} from '@renderer/features/locations/stores/agent-onboarding-types';
+import type { AgentOnboardingError } from '@renderer/features/locations/stores/agent-onboarding-types';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { HostReachabilityNotice } from '@renderer/features/remote-hosts/host-reachability-notice';
@@ -16,7 +12,6 @@ import {
   useRemoteHostReadiness,
 } from '@renderer/features/remote-hosts/host-readiness-notice';
 import { policyHasDeadRule } from '@renderer/features/switch-servers/addressing-policy-editor';
-import type { ServerVerifyState } from '@renderer/features/switch-servers/agent-server-picker';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -48,7 +43,6 @@ import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
 import { isUsableRemoteDir } from '@shared/core/remote-hosts/remote-dir';
-import { basenameFromAnyPath } from '@shared/path-name';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
 import { CodexAgentConfig } from './codex-agent-config';
@@ -90,7 +84,6 @@ function canonicalDir(dir: string): string {
 
 export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLocationModalProps) {
   const [submitState, setSubmitState] = useState<'idle' | 'creating'>('idle');
-  const [verifyState, setVerifyState] = useState<ServerVerifyState>('idle');
   const { navigate } = useNavigate();
   const { setCloseGuard } = useModalContext();
   const showAddServerModal = useShowModal('addServerModal');
@@ -209,16 +202,8 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     enabled: shouldCheckPathStatus,
   });
 
-  // Remote agents have no local directory — detect + verify the Switch agent in
-  // the remote working dir over SSH instead of inspecting a local path.
   const trimmedRemoteDir = remoteRepoDir.trim();
   const shouldDetectRemote = isRemoteRun && trimmedRemoteDir.length > 0;
-  const remoteAgentQuery = useQuery({
-    queryKey: ['remoteAgentDetect', runHost, trimmedRemoteDir],
-    queryFn: () =>
-      rpc.remoteHosts.detectRemoteAgent({ sshHost: runHost, remoteRepoDir: trimmedRemoteDir }),
-    enabled: shouldDetectRemote,
-  });
 
   // Whether that directory exists at all. `detectRemoteAgent` cannot answer it:
   // it maps "not found" to "no agent configured here", so a missing directory
@@ -338,7 +323,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     });
   }, []);
 
-  const inspection = pathStatusQuery.data;
   // Discovery (`.claude/agents` scan) is a separate query from agent-detection;
   // fold its pending state into `isChecking` so the modal decides "onboard
   // existing vs create new" only once BOTH have settled — otherwise the create
@@ -348,17 +332,15 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     (!!pickState.providerId && discoverDir.trim().length > 0 && discoverQuery.isPending) ||
     (discoverDir.trim().length > 0 && configuredQuery.isPending);
   const isChecking =
-    (isRemoteRun
-      ? shouldDetectRemote && remoteAgentQuery.isPending
-      : shouldCheckPathStatus && pathStatusQuery.isPending) || isDiscovering;
-  const switchAgent = isRemoteRun
-    ? (remoteAgentQuery.data ?? null)
-    : (inspection?.switchAgent ?? null);
-  // Anything already in the directory that can be taken on as-is, rather than
-  // created: a discovered definition, or an agent configured in the legacy
-  // shared settings file. Either way the modal leads with adopting it and keeps
-  // `createMode` as the way past it.
-  const hasAdoptable = hasOnboardable || !!switchAgent;
+    (isRemoteRun ? false : shouldCheckPathStatus && pathStatusQuery.isPending) || isDiscovering;
+  // Never create an agent on a host we know we cannot reach — it would be born
+  // into the failing state that check exists to surface (CHOO-1676).
+  const runHostReachable = !isRemoteRun || !hostReachabilityStore.isBlocked(runHost);
+  // Anything already in the directory that can be taken on as-is rather than
+  // created. The modal leads with adopting it and keeps `createMode` as the way
+  // past it, because a directory is a flat container: an agent already there is
+  // no reason to refuse another.
+  const hasAdoptable = hasOnboardable;
   const showCreate = !hasAdoptable || createMode;
   // Creating an agent is offered for any directory we have finished inspecting.
   // A directory is a flat container, so an agent already living there is no
@@ -371,32 +353,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // The remote create flow registers the agent on the server and writes its
   // creds into the remote dir over SSH.
   const canCreateRemoteAgent = isRemoteRun && canCreateAgentHere && showCreate;
-
-  // An agent always binds to the active Switch server, so there is no server
-  // picker. Silently verify the detected agent exists on that server to gate
-  // submission (this replaces the former inline "Switch server" picker).
-  const verifyQuery = useQuery({
-    queryKey: ['verifyAgent', pickState.serverId, switchAgent?.agentId],
-    queryFn: async (): Promise<ServerVerifyState> => {
-      const serverId = pickState.serverId;
-      if (!serverId || !switchAgent) return 'idle';
-      return rpc.switchServers.verifyAgent({ serverId, agentId: switchAgent.agentId });
-    },
-    enabled: !!pickState.serverId && !!switchAgent,
-  });
-  useEffect(() => {
-    setVerifyState(verifyQuery.data ?? 'idle');
-  }, [verifyQuery.data]);
-
-  // Detected flow: the agent already exists; we can add it once the chosen
-  // server confirms it owns the agent. Configure flow: no agent yet — gate on a
-  // valid form + a chosen server, then register before adding.
-  // Remote submit gate: a provider, a remote dir, a detected agent, and a
-  // verified server. Name defaults from the remote dir basename (see below), so
-  // it is not separately gated. Local submit keeps the existing pick validity.
-  // Never create an agent on a host we know we cannot reach — it would be born
-  // into the failing state this ticket exists to surface (CHOO-1676).
-  const runHostReachable = !isRemoteRun || !hostReachabilityStore.isBlocked(runHost);
 
   // A reachable host that is missing git (or node, or the connector) will
   // produce an agent that cannot start. Refuse, rather than letting the failure
@@ -430,21 +386,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const canChooseLocation =
     canChooseAgentType && (!hostReadiness.checking || trimmedRemoteDir.length > 0);
 
-  const canSubmitDetected = isRemoteRun
-    ? !!pickState.providerId &&
-      trimmedRemoteDir.length > 0 &&
-      !isChecking &&
-      !!switchAgent &&
-      verifyState === 'found' &&
-      runHostReachable &&
-      !remoteDirBlocked &&
-      runHostReady &&
-      submitState === 'idle'
-    : pickState.isValid &&
-      !isChecking &&
-      !!switchAgent &&
-      verifyState === 'found' &&
-      submitState === 'idle';
   const canSubmitConfigure =
     canCreateLocalAgent &&
     !isChecking &&
@@ -505,70 +446,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
 
   /** Run the shared create-location path with the current pick state. Returns the
    * new/existing location id, or null when there is no chosen server. */
-  const startCreate = async (): Promise<string | null> => {
-    if (!pickState.serverId || !pickState.providerId) return null;
-    const id = crypto.randomUUID();
-    const data: AgentOnboardingModeData = isRemoteRun
-      ? {
-          mode: 'pick',
-          name: remoteConfigureForm.agentName.trim() || basenameFromAnyPath(trimmedRemoteDir),
-          path: undefined,
-          serverId: pickState.serverId,
-          providerId: pickState.providerId,
-          remote: { sshHost: runHost, dir: trimmedRemoteDir },
-          autoApprove: remoteConfigureForm.autoApprove,
-        }
-      : {
-          mode: 'pick',
-          name: pickState.name,
-          path: pickState.path,
-          serverId: pickState.serverId,
-          providerId: pickState.providerId,
-          remote: undefined,
-          autoApprove: configureForm.autoApprove,
-        };
-    // The new location mounts (leaving the always-shown "unregistered" state)
-    // before agentsStore re-fetches its agent, which would drop it out of the
-    // server-scoped sidebar. Seed the location→server mapping now so it stays
-    // visible, and refresh the agent list once creation succeeds.
-    agentsStore.noteLocationServer(id, pickState.serverId);
-    const result = await getLocationManagerStore().startAgentOnboarding(data, { id });
-    if (result.kind === 'existing') return result.locationId;
-    void result.completion
-      .then((completion) => {
-        if (completion.success) void agentsStore.load();
-        else reportCreationError(completion.error);
-      })
-      .catch((error) => {
-        log.error(error);
-      });
-    return result.locationId;
-  };
-
-  const handleSubmit = async () => {
-    if (!canSubmitDetected) return;
-    setSubmitState('creating');
-    setCloseGuard(true);
-    try {
-      const locationId = await startCreate();
-      if (locationId) {
-        finishWith(locationId);
-      } else {
-        setCloseGuard(false);
-        setSubmitState('idle');
-      }
-    } catch (error) {
-      log.error(error);
-      setCloseGuard(false);
-      setSubmitState('idle');
-      toast({
-        title: 'Failed to add agent',
-        description: String(error),
-        variant: 'destructive',
-      });
-    }
-  };
-
   const reportProvisionError = (result: AddAgentFailure) => {
     // The UI gate normally catches this before submit; reaching it here means
     // the directory went away between the probe and the submit. Re-probe so the
@@ -747,7 +624,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     runHostReachable &&
     runHostReady &&
     submitState === 'idle';
-  const submitLabel = submitState === 'creating' ? 'Adding...' : 'Add Agent';
 
   return (
     <ModalLayout
@@ -758,15 +634,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
       footer={
         <DialogFooter>
-          {switchAgent && !createMode ? (
-            <ConfirmButton
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={!canSubmitDetected}
-            >
-              {submitLabel}
-            </ConfirmButton>
-          ) : hasOnboardable && !createMode ? (
+          {hasOnboardable && !createMode ? (
             <ConfirmButton
               type="button"
               onClick={() => void handleOnboard()}
@@ -790,15 +658,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             >
               {submitState === 'creating' ? 'Registering...' : 'Configure & Add Agent'}
             </ConfirmButton>
-          ) : (
-            <ConfirmButton
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={!canSubmitDetected}
-            >
-              {submitLabel}
-            </ConfirmButton>
-          )}
+          ) : null}
         </DialogFooter>
       }
     >
@@ -929,37 +789,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             <AgentAdvancedConfig providerId={pickState.providerId} onChange={onAdvancedChange} />
             {pickState.providerId === 'codex' && (
               <CodexAgentConfig onChange={onCodexConfigChange} />
-            )}
-          </>
-        )}
-        {switchAgent && (
-          <>
-            <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
-              <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-green-500" />
-              <span>
-                Switch agent detected
-                <span className="ml-1 font-mono text-foreground-tertiary-passive">
-                  {switchAgent.agentId.slice(0, 8)}
-                </span>
-              </span>
-            </div>
-            {switchServersStore.servers.length === 0 && (
-              <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
-                <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                  <span>
-                    No Switch servers are registered yet. Add the server this agent belongs to.
-                  </span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="self-start"
-                    onClick={() => showAddServerModal({})}
-                  >
-                    Add a server
-                  </Button>
-                </div>
-              </div>
             )}
           </>
         )}
