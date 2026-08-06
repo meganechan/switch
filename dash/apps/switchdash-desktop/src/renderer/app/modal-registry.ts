@@ -8,6 +8,7 @@ import { RenameSessionModal } from '@renderer/features/sessions/rename-session-m
 import { AddAgentsToRoomModal } from '@renderer/features/switch-rooms/AddAgentsToRoomModal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
+import { ConnectMessagingAppModal } from '@renderer/features/switch-servers/ConnectMessagingAppModal';
 import { CreateRoomModal } from '@renderer/features/switch-servers/CreateRoomModal';
 import { DeleteServerModal } from '@renderer/features/switch-servers/DeleteServerModal';
 import { RenameServerModal } from '@renderer/features/switch-servers/RenameServerModal';
@@ -63,6 +64,10 @@ export const modalRegistry = {
   }),
   deleteServerModal: createModal(DeleteServerModal, { size: 'sm' }),
   createRoomModal: createModal(CreateRoomModal, { size: 'md', dismissOnOutsideClick: false }),
+  connectMessagingAppModal: createModal(ConnectMessagingAppModal, {
+    size: 'md',
+    dismissOnOutsideClick: false,
+  }),
   addAgentsToRoomModal: createModal(AddAgentsToRoomModal, {
     size: 'sm',
     dismissOnOutsideClick: false,

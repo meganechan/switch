@@ -1,9 +1,11 @@
 import type { KnownAgentType } from '@main/core/agents/known-agent-type';
 import type {
   AddressingPolicy,
+  BridgeConfigField,
   RemoteAgentRoom,
   RemoteAgentSummary,
   RemoteBridge,
+  RemoteBridgeType,
   RemoteExternalUser,
   RemoteRoomGroup,
   RemoteRoomRole,
@@ -492,6 +494,106 @@ export async function fetchBridges(server: SwitchServer): Promise<RemoteBridge[]
     status: b.status,
     isDefault: b.is_default ?? false,
   }));
+}
+
+/** Field names that hold a credential and must be masked on input. Mirrors the
+ * operator dashboard's `isSecretField`, widened to catch `*_private_key` (the
+ * Teams bridge's Graph encryption key), which its bare `api_key` alternation
+ * misses. */
+const SECRET_FIELD_RE = /token|password|secret|api[_-]?key|private[_-]?key|credential/i;
+
+/** JSON Schema as Pydantic's `model_json_schema()` emits it for a bridge config. */
+type BridgeConfigSchema = {
+  properties?: Record<string, { title?: string; description?: string; format?: string }>;
+  required?: string[];
+};
+
+function humanizeFieldKey(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function toConfigFields(schema: BridgeConfigSchema): BridgeConfigField[] {
+  const required = new Set(schema.required ?? []);
+  // Object key order follows the Pydantic model's field order, which puts the
+  // required credentials before the optional tuning knobs — worth preserving,
+  // so the form reads the way the platform's setup docs do.
+  return Object.entries(schema.properties ?? {}).map(([key, prop]) => ({
+    key,
+    label: prop.title ?? humanizeFieldKey(key),
+    description: prop.description ?? null,
+    required: required.has(key),
+    secret: prop.format === 'password' || SECRET_FIELD_RE.test(key),
+  }));
+}
+
+/**
+ * The bridge types a server can register, with the credential fields each needs
+ * (`GET /collaborations/types`).
+ *
+ * The field list is the server's to define — switch-core derives it from the
+ * adapter's own config model — so the attach form is generated from this rather
+ * than hard-coded per platform. A server running a newer switch-core that adds
+ * a bridge type, or a field to an existing one, works without an app release.
+ *
+ * Every schema-visible field is a string today (the sole int, the Teams listen
+ * port, is `SkipJsonSchema`), so values are collected as strings and the server
+ * coerces.
+ */
+export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBridgeType[]> {
+  const res = await gatewayFetch(server, '/collaborations/types', { authenticated: true });
+  const json = (await res.json()) as Array<{
+    key: string;
+    config_schema: BridgeConfigSchema;
+  }>;
+  return json.map((t) => ({ key: t.key, fields: toConfigFields(t.config_schema ?? {}) }));
+}
+
+/**
+ * Register a collaboration bridge on `server` (admin-only
+ * `POST /collaborations`), optionally making it the default for new rooms.
+ *
+ * The server validates the credentials against the adapter's config model,
+ * mints the bridge's Matrix client, persists it and **starts the adapter
+ * immediately** — there is no stack restart and no config file to write, so
+ * live sessions and connected agents are unaffected.
+ *
+ * `connectionConfig` holds platform credentials. Do not log it, do not return
+ * it to the renderer, and do not fold it into an error message: `GatewayError`
+ * quotes the *response* body only, never the request.
+ */
+export async function createBridge(
+  server: SwitchServer,
+  params: {
+    bridgeType: string;
+    displayName: string;
+    connectionConfig: Record<string, string>;
+    setAsDefault: boolean;
+  }
+): Promise<RemoteBridge> {
+  const res = await gatewayFetch(server, '/collaborations', {
+    authenticated: true,
+    method: 'POST',
+    body: {
+      bridge_type: params.bridgeType,
+      display_name: params.displayName,
+      connection_config: params.connectionConfig,
+      set_as_default: params.setAsDefault,
+    },
+  });
+  const b = (await res.json()) as {
+    bridge_id: string;
+    bridge_type: string;
+    display_name: string;
+    status: string;
+    is_default?: boolean;
+  };
+  return {
+    id: b.bridge_id,
+    type: b.bridge_type,
+    displayName: b.display_name,
+    status: b.status,
+    isDefault: b.is_default ?? false,
+  };
 }
 
 /**
