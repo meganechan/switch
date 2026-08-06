@@ -83,7 +83,7 @@ describe('createBridgeOnServer', () => {
     });
   });
 
-  it('sends the credentials in the gateway\'s snake_case shape', async () => {
+  it("sends the credentials in the gateway's snake_case shape", async () => {
     fetchMock.mockResolvedValue(response(200, CREATED));
 
     await createBridgeOnServer(SERVER, { ...PARAMS, setAsDefault: true });
