@@ -15,7 +15,7 @@
  * as broken because Codex is absent.
  */
 
-import { PlugZap, RefreshCw, Wrench } from 'lucide-react';
+import { CircleFadingArrowUp, PlugZap, Wrench } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -96,11 +96,11 @@ export const HostTroubleIndicator = observer(function HostTroubleIndicator({
       <Tooltip>
         <TooltipTrigger>
           {/*
-            The same glyph and tone the agents page and the sidecar card already
-            use for this exact state. A different icon here would read as a
-            different kind of event.
+            An up-arrow rather than the agents page's RefreshCw: on a row whose
+            other two icons mean "broken", a refresh glyph reads as "retrying".
+            Same warning tone as those, so it belongs to the same family.
           */}
-          <RefreshCw className={ICON} aria-label="Update available" />
+          <CircleFadingArrowUp className={ICON} aria-label="Update available" />
         </TooltipTrigger>
         <TooltipContent>
           {`Update available on ${sshHost}: ${stale
