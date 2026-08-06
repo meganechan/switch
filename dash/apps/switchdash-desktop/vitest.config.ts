@@ -85,12 +85,6 @@ export default defineConfig({
         // Renderer tests that need a real browser environment (real CSS
         // layout, ResizeObserver, requestAnimationFrame, WebGL).
         extends: true,
-        // Tailwind runs here for the same reason it runs in the app build:
-        // without it every utility class resolves to nothing, so anything
-        // rendered in these tests is unstyled and no test can say a word about
-        // how it looks. `electron.vite.config.ts` is the app's build and does
-        // not apply to Vitest.
-        plugins: [tailwindcss()],
         // Crawl the browser tests when deps are first optimized. Without this
         // their imports are only discovered once the page loads them, so Vite
         // re-optimizes and reloads mid-run — which vitest reports as flaky and
@@ -103,6 +97,11 @@ export default defineConfig({
           entries: ['src/renderer/tests/browser/**/*.test.{ts,tsx}'],
           include: ['react/jsx-dev-runtime'],
         },
+        // Layout assertions need the real utility classes, not just the class
+        // strings. Only the renderer build carries this plugin, so a browser
+        // test importing index.css would otherwise get no Tailwind output —
+        // `electron.vite.config.ts` is the app's build and does not apply here.
+        plugins: [tailwindcss()],
         test: {
           name: 'browser',
           browser: {
