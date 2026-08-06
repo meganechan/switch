@@ -43,6 +43,12 @@ const h = vi.hoisted(() => {
       apiKey: 'tok-123',
     })),
     createAgent: vi.fn(async (input: Record<string, unknown>) => ({ ...input })),
+    inspectRemoteDir: vi.fn(async (_host: string, dir: string) => ({
+      dir,
+      status: 'directory' as const,
+      existingAncestor: '',
+      missingSegments: [],
+    })),
   };
 });
 
@@ -65,6 +71,9 @@ vi.mock('@main/core/locations/store', () => ({
   getLocationByHostDir: vi.fn(async () => ({ id: 'loc-1' })),
 }));
 vi.mock('./agent-name-taken', () => ({ agentNameTaken: h.agentNameTaken }));
+// Also keeps ssh-fs (and through it the Electron-bound db) out of this file's
+// module graph.
+vi.mock('./remote-dir', () => ({ inspectRemoteDir: h.inspectRemoteDir }));
 vi.mock('@main/core/locations/path-utils', () => ({ checkIsValidDirectory: () => true }));
 vi.mock('@main/core/locations/location-manager', () => ({
   locationManager: { openLocation: vi.fn(async () => {}) },
@@ -105,6 +114,12 @@ describe('addAgent', () => {
     h.state.repoAgents = { writeDefinition: h.writeDefinition };
     h.state.workspace = fakeFs();
     h.registerAgentIdentity.mockResolvedValue({ kind: 'created', id: 'sw-1', apiKey: 'tok-123' });
+    h.inspectRemoteDir.mockImplementation(async (_host: string, dir: string) => ({
+      dir,
+      status: 'directory' as const,
+      existingAncestor: '',
+      missingSegments: [],
+    }));
   });
 
   it('writes name-keyed credentials for a provider with no repo-agent definitions', async () => {
@@ -175,5 +190,55 @@ describe('addAgent', () => {
     expect((await addAgent(params())).kind).toBe('name-conflict');
     expect(h.registerAgentIdentity).not.toHaveBeenCalled();
     expect(h.createAgent).not.toHaveBeenCalled();
+  });
+
+  describe('remote working directory', () => {
+    const remote = { sshHost: 'louis-1-cluster', dir: '/home/ubuntu/switch-agents/deploys' };
+
+    it('reports a missing remote directory without minting an identity', async () => {
+      // The whole point of checking first: this used to surface as a raw
+      // FileSystemError from the first credentials write, leaving the agent on
+      // the gateway but nowhere else (CHOO-1416).
+      h.inspectRemoteDir.mockResolvedValue({
+        dir: remote.dir,
+        status: 'missing',
+        existingAncestor: '/home/ubuntu',
+        missingSegments: ['switch-agents', 'deploys'],
+      } as never);
+
+      const result = await addAgent(params(remote));
+
+      expect(result).toEqual({
+        kind: 'directory-missing',
+        sshHost: remote.sshHost,
+        inspection: expect.objectContaining({ status: 'missing' }),
+      });
+      expect(h.registerAgentIdentity).not.toHaveBeenCalled();
+      expect(h.createAgent).not.toHaveBeenCalled();
+    });
+
+    it('refuses a remote path that is a file', async () => {
+      h.inspectRemoteDir.mockResolvedValue({
+        dir: remote.dir,
+        status: 'file',
+        existingAncestor: '',
+        missingSegments: [],
+      } as never);
+
+      expect((await addAgent(params(remote))).kind).toBe('directory-missing');
+      expect(h.registerAgentIdentity).not.toHaveBeenCalled();
+    });
+
+    it('proceeds when the remote directory exists', async () => {
+      const result = await addAgent(params(remote));
+
+      expect(h.inspectRemoteDir).toHaveBeenCalledWith(remote.sshHost, remote.dir);
+      expect(result.kind).toBe('created');
+    });
+
+    it('does not probe over SSH for a local agent', async () => {
+      await addAgent(params());
+      expect(h.inspectRemoteDir).not.toHaveBeenCalled();
+    });
   });
 });

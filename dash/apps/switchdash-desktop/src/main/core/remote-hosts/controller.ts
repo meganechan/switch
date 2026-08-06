@@ -8,6 +8,7 @@ import type {
 } from '@switchdash/core/deps/runtime';
 import { isTransportFailure } from '@switchdash/core/exec';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
+import { createRemoteDir, inspectRemoteDir } from '@main/core/agents/remote-dir';
 import {
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
@@ -25,6 +26,7 @@ import {
 } from '@main/core/switch-setup/remote-switch-setup';
 import { GH_AUTH_STATUS_ARGS, parseGhAuthStatus } from '@shared/core/npm-registry';
 import { hostBlockedReason, type HostReachability } from '@shared/core/remote-hosts/reachability';
+import type { RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
 import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';
@@ -346,6 +348,19 @@ export const remoteHostsController = createRPCController({
     remoteRepoDir: string;
   }): Promise<SwitchAgentConfig | null> =>
     detectSwitchAgentRemote(params.sshHost, params.remoteRepoDir),
+
+  /**
+   * Inspect a prospective remote working directory before it is committed to.
+   * `detectRemoteAgent` deliberately cannot answer this: it maps "not found" to
+   * "no agent configured here", so a missing directory and an empty one look
+   * identical to it (CHOO-1416).
+   */
+  inspectRemoteDir: (params: { sshHost: string; dir: string }): Promise<RemoteDirInspection> =>
+    inspectRemoteDir(params.sshHost, params.dir),
+
+  /** Create a remote working directory and any missing parents, on request. */
+  createRemoteDir: (params: { sshHost: string; dir: string }): Promise<void> =>
+    createRemoteDir(params.sshHost, params.dir),
 
   probeDeps: (sshHost: string): Promise<RemoteDependencyView[]> => probeDeps(sshHost),
 

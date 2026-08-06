@@ -1,5 +1,5 @@
 import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { CheckCircle2, CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,7 +43,6 @@ import {
 import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
-import type { ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
@@ -56,6 +55,7 @@ import {
   OnboardExistingPanel,
   type OnboardableAgent,
 } from './onboard-existing-panel';
+import { RemoteDirNotice } from './remote-dir-notice';
 
 // switchdash adds a Switch *agent* by pointing at a local directory that the
 // switch-connector `configure` skill has set up (its `.claude/settings.local.json`
@@ -65,6 +65,14 @@ export type AddLocationModalProps = BaseModalProps<void>;
 
 /** Sentinel `runHost` value meaning "run on this machine" (no remote host). */
 const LOCAL_RUN_LOCATION = 'local';
+
+/** The recoverable outcomes of `addAgent` — everything the modal has to report
+ * rather than treat as success. Derived from the RPC so a new variant in the
+ * main process surfaces here as a type error rather than a silent no-op. */
+type AddAgentFailure = Exclude<
+  Awaited<ReturnType<typeof rpc.agents.addAgent>>,
+  { kind: 'created' }
+>;
 
 /** Canonical working-directory path: trimmed, with trailing slashes removed
  * (except a bare root), so `/repo` and `/repo/` behave identically through
@@ -197,6 +205,28 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       rpc.remoteHosts.detectRemoteAgent({ sshHost: runHost, remoteRepoDir: trimmedRemoteDir }),
     enabled: shouldDetectRemote,
   });
+
+  // Whether that directory exists at all. `detectRemoteAgent` cannot answer it:
+  // it maps "not found" to "no agent configured here", so a missing directory
+  // and an empty one are indistinguishable to it — which is how a typo used to
+  // reach the create button and fail there (CHOO-1416).
+  const remoteDirQuery = useQuery({
+    queryKey: ['remoteDirInspect', runHost, trimmedRemoteDir],
+    queryFn: () => rpc.remoteHosts.inspectRemoteDir({ sshHost: runHost, dir: trimmedRemoteDir }),
+    enabled: shouldDetectRemote,
+    retry: false,
+  });
+  const createRemoteDirMutation = useMutation({
+    mutationFn: () => rpc.remoteHosts.createRemoteDir({ sshHost: runHost, dir: trimmedRemoteDir }),
+    onSuccess: () => remoteDirQuery.refetch().then(() => remoteAgentQuery.refetch()),
+    onError: (error) =>
+      toast({
+        title: 'Failed to create the directory',
+        description: String(error),
+        variant: 'destructive',
+      }),
+  });
+  const remoteDirUsable = !shouldDetectRemote || remoteDirQuery.data?.status === 'directory';
 
   // Provider agents defined in the picked dir (`.claude/agents/*.md`) — both those
   // already set up for Switch and plain provider subagents a user created directly.
@@ -355,6 +385,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       !!switchAgent &&
       verifyState === 'found' &&
       runHostReachable &&
+      remoteDirUsable &&
       submitState === 'idle'
     : pickState.isValid &&
       !isChecking &&
@@ -370,6 +401,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     remoteRunValid &&
     runHostReachable &&
+    remoteDirUsable &&
     submitState === 'idle';
 
   // Remote configure gate: no agent in the remote dir yet — a valid remote
@@ -385,6 +417,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     trimmedRemoteDir.length > 0 &&
     runHostReachable &&
+    remoteDirUsable &&
     submitState === 'idle';
 
   const reportCreationError = (error: AgentOnboardingError) => {
@@ -481,7 +514,19 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     }
   };
 
-  const reportProvisionError = (result: ProvisionAgentResult) => {
+  const reportProvisionError = (result: AddAgentFailure) => {
+    // The UI gate normally catches this before submit; reaching it here means
+    // the directory went away between the probe and the submit. Re-probe so the
+    // notice reappears with whatever is true now.
+    if (result.kind === 'directory-missing') {
+      toast({
+        title: 'Working directory not found',
+        description: `${result.inspection.dir} no longer exists on ${result.sshHost}.`,
+        variant: 'destructive',
+      });
+      void remoteDirQuery.refetch();
+      return;
+    }
     if (result.kind === 'unauthenticated' && pickState.serverId) {
       toast({
         title: 'Sign in to register the agent',
@@ -742,6 +787,16 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
                 Set location
               </Button>
             </div>
+          )}
+          {shouldDetectRemote && runHostReachable && (
+            <RemoteDirNotice
+              sshHost={runHost}
+              inspection={remoteDirQuery.data}
+              checking={remoteDirQuery.isFetching}
+              error={remoteDirQuery.error}
+              creating={createRemoteDirMutation.isPending}
+              onCreate={() => createRemoteDirMutation.mutate()}
+            />
           )}
         </Field>
         {/* The host is the first gate: with it unreachable we cannot know which
