@@ -77,16 +77,23 @@ async function render(node: React.ReactNode): Promise<HTMLDivElement> {
   return container;
 }
 
-function row(auth: HostSetupStep, ghState: HostSetupStep['state'] = 'satisfied') {
+function row(
+  auth: HostSetupStep,
+  ghState: HostSetupStep['state'] = 'satisfied',
+  overrides: { hostBusy?: boolean; rechecking?: boolean; onRecheck?: () => void } = {}
+) {
   return (
     <PrerequisiteRow
       step={auth}
       plan={planWith(auth, ghState)}
       isCurrent={false}
       installing={false}
+      rechecking={overrides.rechecking ?? false}
+      hostBusy={overrides.hostBusy ?? false}
       activity={null}
       authenticating={false}
       onInstall={() => {}}
+      onRecheck={overrides.onRecheck ?? (() => {})}
       onAuthenticate={() => {}}
       onOpen={() => {}}
     />
@@ -95,6 +102,10 @@ function row(auth: HostSetupStep, ghState: HostSetupStep['state'] = 'satisfied')
 
 function buttonLabels(el: HTMLElement): string[] {
   return [...el.querySelectorAll('button')].map((b) => b.textContent?.trim() ?? '');
+}
+
+function recheckButton(el: HTMLElement): HTMLButtonElement | null {
+  return el.querySelector('button[aria-label^="Re-check"]');
 }
 
 describe('the GitHub login row', () => {
@@ -134,5 +145,61 @@ describe('the GitHub login row', () => {
     const el = await render(row(step({})));
 
     expect(buttonLabels(el)).not.toContain('Install');
+  });
+});
+
+/**
+ * Re-checking one row exists because the whole-host re-check costs an SSH round
+ * trip per step, which is a lot to pay to answer "is this one still there?".
+ */
+describe('the per-row re-check', () => {
+  it('is offered on a row that still needs work', async () => {
+    const el = await render(row(step({})));
+
+    expect(recheckButton(el)).not.toBeNull();
+  });
+
+  it('is offered on a satisfied row too — that is the question it answers', async () => {
+    // "Is this still installed?" is fair to ask of something verified at some
+    // point in the past, and it is the only way to find out short of re-probing
+    // the entire host.
+    const el = await render(
+      row(step({ state: 'satisfied', outcome: 'satisfied', version: 'amaudruz' }))
+    );
+
+    expect(recheckButton(el)).not.toBeNull();
+  });
+
+  it('calls back with the row it belongs to', async () => {
+    const onRecheck = vi.fn();
+    const el = await render(row(step({}), 'satisfied', { onRecheck }));
+
+    await act(async () => recheckButton(el)!.click());
+
+    expect(onRecheck).toHaveBeenCalledTimes(1);
+  });
+
+  it('is disabled while the host is already doing something', async () => {
+    // One operation per host at a time: a whole-host re-check and a single row
+    // would otherwise race for the runner, and the loser reports an error that
+    // reads like the dependency's fault.
+    const el = await render(row(step({}), 'satisfied', { hostBusy: true }));
+
+    expect(recheckButton(el)!.disabled).toBe(true);
+  });
+
+  it('does not fire while the host is busy', async () => {
+    const onRecheck = vi.fn();
+    const el = await render(row(step({}), 'satisfied', { hostBusy: true, onRecheck }));
+
+    await act(async () => recheckButton(el)!.click());
+
+    expect(onRecheck).not.toHaveBeenCalled();
+  });
+
+  it('is disabled while this row is the one being re-checked', async () => {
+    const el = await render(row(step({}), 'satisfied', { rechecking: true }));
+
+    expect(recheckButton(el)!.disabled).toBe(true);
   });
 });

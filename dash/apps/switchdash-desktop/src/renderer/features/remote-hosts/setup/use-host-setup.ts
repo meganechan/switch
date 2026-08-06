@@ -90,6 +90,21 @@ export function useRecheckSetup(sshHost: string) {
   });
 }
 
+/**
+ * Re-observe one step on its own — the per-row re-check button.
+ *
+ * Whole-host re-check costs an SSH round trip per step, which is a lot to pay
+ * to answer "is this one still installed?".
+ */
+export function useRecheckSetupStep(sshHost: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (stepId: string) => rpc.remoteHosts.recheckSetupStep({ sshHost, stepId }),
+    onSuccess: (plan) => queryClient.setQueryData(setupPlanQueryKey(sshHost), plan),
+    onError: (error) => log.error('Could not re-check a setup step', { sshHost, error }),
+  });
+}
+
 /** Install one step on its own — the per-row Install button. */
 export function useInstallSetupStep(sshHost: string) {
   const queryClient = useQueryClient();

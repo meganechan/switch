@@ -52,6 +52,7 @@ function makeRunner(harness: Harness) {
   const saved: HostSetupPlan[] = [];
   const published: HostSetupPlan[] = [];
   const installOrder: string[] = [];
+  const checkOrder: string[] = [];
   const inFlight = { count: 0, max: 0 };
 
   const runner = new HostSetupRunner({
@@ -60,6 +61,7 @@ function makeRunner(harness: Harness) {
     save: async (p) => void saved.push(structuredClone(p)),
     publish: (p) => published.push(structuredClone(p)),
     check: async (s) => {
+      checkOrder.push(s.id);
       const queue = harness.checks[s.id] ?? [{ outcome: 'satisfied' }];
       return queue.length > 1 ? queue.shift()! : queue[0]!;
     },
@@ -78,7 +80,7 @@ function makeRunner(harness: Harness) {
     now: () => new Date('2026-02-02T00:00:00.000Z'),
   });
 
-  return { runner, saved, published, installOrder, inFlight };
+  return { runner, saved, published, installOrder, checkOrder, inFlight };
 }
 
 const stateOf = (p: HostSetupPlan, id: string) => p.steps.find((s) => s.id === id)!.state;
@@ -363,6 +365,129 @@ describe('checkAll — looking without touching', () => {
     await expect(runner.checkAll(plan([step('git')]))).rejects.toBeInstanceOf(
       HostSetupAbortedError
     );
+  });
+});
+
+/**
+ * The per-row re-check. `checkAll` costs an SSH round trip per step, which is a
+ * lot to pay to answer "is this one thing still installed?".
+ */
+describe('checkStep — re-checking a single row', () => {
+  it('probes only the step asked for', async () => {
+    const { runner, checkOrder } = makeRunner({
+      checks: { git: [{ outcome: 'satisfied' }], node: [{ outcome: 'missing' }] },
+      installs: {},
+    });
+
+    await runner.checkStep(plan([step('git'), step('node')]), 'node');
+
+    expect(checkOrder).toEqual(['node']);
+  });
+
+  it('installs nothing, whatever it finds', async () => {
+    const { runner, installOrder } = makeRunner({
+      checks: { node: [{ outcome: 'missing' }] },
+      installs: {},
+    });
+
+    await runner.checkStep(plan([step('node')]), 'node');
+
+    expect(installOrder).toEqual([]);
+  });
+
+  it('records what it saw and leaves the step pending, not failed', async () => {
+    // Same distinction the whole-host re-check preserves: "checked, and absent"
+    // is not "we tried to fix it and could not".
+    const { runner } = makeRunner({ checks: { node: [{ outcome: 'missing' }] }, installs: {} });
+
+    const result = await runner.checkStep(plan([step('node')]), 'node');
+
+    expect(stateOf(result, 'node')).toBe('pending');
+    expect(result.steps[0]!.outcome).toBe('missing');
+  });
+
+  it('marks a step that is genuinely there as satisfied', async () => {
+    const { runner } = makeRunner({
+      checks: { git: [{ outcome: 'satisfied', version: '2.43.0' }] },
+      installs: {},
+    });
+
+    const result = await runner.checkStep(plan([step('git')]), 'git');
+
+    expect(stateOf(result, 'git')).toBe('satisfied');
+    expect(result.steps[0]!.version).toBe('2.43.0');
+  });
+
+  it('notices something that has gone away since it was last verified', async () => {
+    // The question the button exists to answer.
+    const { runner } = makeRunner({ checks: { git: [{ outcome: 'missing' }] }, installs: {} });
+
+    const result = await runner.checkStep(
+      plan([step('git', { state: 'satisfied', outcome: 'satisfied', version: '2.43.0' })]),
+      'git'
+    );
+
+    expect(stateOf(result, 'git')).toBe('pending');
+    expect(result.steps[0]!.outcome).toBe('missing');
+  });
+
+  it('leaves every other step untouched', async () => {
+    const { runner } = makeRunner({ checks: { git: [{ outcome: 'missing' }] }, installs: {} });
+
+    const result = await runner.checkStep(
+      plan([step('git'), step('node'), step('tmux', { state: 'satisfied' })]),
+      'git'
+    );
+
+    expect(stateOf(result, 'node')).toBe('pending');
+    expect(stateOf(result, 'tmux')).toBe('satisfied');
+  });
+
+  it('supersedes a previous failure rather than leaving its error behind', async () => {
+    const { runner } = makeRunner({
+      checks: { node: [{ outcome: 'satisfied', version: '22.0.0' }] },
+      installs: {},
+    });
+
+    const result = await runner.checkStep(
+      plan([step('node', { state: 'failed', error: 'apt-get failed', output: 'E: broken' })]),
+      'node'
+    );
+
+    expect(result.steps[0]!.error).toBeNull();
+    expect(result.steps[0]!.output).toBeNull();
+  });
+
+  it('reports the plan complete once the last outstanding step checks out', async () => {
+    const { runner } = makeRunner({ checks: { node: [{ outcome: 'satisfied' }] }, installs: {} });
+
+    const result = await runner.checkStep(
+      plan([step('git', { state: 'satisfied' }), step('node')]),
+      'node'
+    );
+
+    expect(result.status).toBe('complete');
+  });
+
+  it('aborts as unreachable rather than reporting the step missing', async () => {
+    const { runner } = makeRunner({ checks: {}, installs: {}, reachable: false });
+
+    await expect(runner.checkStep(plan([step('git')]), 'git')).rejects.toBeInstanceOf(
+      HostSetupAbortedError
+    );
+  });
+
+  it('refuses to interleave with another operation on the same host', async () => {
+    // The UI disables the buttons, but the runner is what actually guarantees it.
+    const { runner } = makeRunner({ checks: { git: [{ outcome: 'satisfied' }] }, installs: {} });
+    const p = plan([step('git')]);
+
+    const [first, second] = await Promise.allSettled([
+      runner.checkStep(p, 'git'),
+      runner.checkAll(p),
+    ]);
+
+    expect([first!.status, second!.status].sort()).toEqual(['fulfilled', 'rejected']);
   });
 });
 

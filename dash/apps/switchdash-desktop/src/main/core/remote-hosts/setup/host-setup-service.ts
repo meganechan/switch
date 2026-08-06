@@ -242,6 +242,23 @@ export async function recheckSetup(sshHost: string): Promise<HostSetupPlan> {
  * Install one step on its own — the per-item Install button. Checks, installs,
  * and re-verifies just that step, leaving the rest of the plan alone.
  */
+/** Re-observe a single step, installing nothing — the per-row re-check. */
+export async function recheckSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
+  const plan = await ensureSetupPlan(sshHost);
+  const manager = await getRemoteDependencyManager(sshHost);
+  try {
+    return await runnerFor(sshHost, manager).checkStep(plan, stepId);
+  } catch (error) {
+    log.warn('[HostSetup] step re-check stopped', {
+      event: 'host-setup-step-recheck-stopped',
+      sshHost,
+      stepId,
+      error: String((error as Error)?.message ?? error),
+    });
+    throw error;
+  }
+}
+
 export async function installSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
   const plan = await ensureSetupPlan(sshHost);
   const manager = await getRemoteDependencyManager(sshHost);

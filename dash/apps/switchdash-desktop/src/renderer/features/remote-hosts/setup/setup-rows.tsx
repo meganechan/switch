@@ -7,7 +7,15 @@
  * for detail — so a host reads like the rest of the product.
  */
 
-import { GitBranch, Github, KeyRound, Package, Server, SquareTerminal } from 'lucide-react';
+import {
+  GitBranch,
+  Github,
+  KeyRound,
+  Package,
+  RefreshCw,
+  Server,
+  SquareTerminal,
+} from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { Button } from '@renderer/lib/ui/button';
@@ -106,6 +114,43 @@ function Row({
   );
 }
 
+/**
+ * Re-observe just this row.
+ *
+ * Always offered, including on a satisfied row: "is this still installed?" is a
+ * fair question about something that was verified at some point in the past,
+ * and answering it host-wide costs an SSH round trip per step. Disabled while
+ * any host-level operation is in flight, so a whole-host re-check and a single
+ * row cannot race for the runner.
+ */
+function RecheckAction({
+  rechecking,
+  disabled,
+  label,
+  onRecheck,
+}: {
+  rechecking: boolean;
+  disabled: boolean;
+  label: string;
+  onRecheck: () => void;
+}) {
+  return (
+    <Button
+      size="icon-sm"
+      variant="ghost"
+      disabled={disabled || rechecking}
+      aria-label={`Re-check ${label}`}
+      title={`Re-check ${label}`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onRecheck();
+      }}
+    >
+      <RefreshCw className={cn('size-3.5', rechecking && 'animate-spin')} />
+    </Button>
+  );
+}
+
 /** The inline Install / Retry control, shown only when there is something to do. */
 function InstallAction({
   step,
@@ -143,9 +188,12 @@ export function PrerequisiteRow({
   plan,
   isCurrent,
   installing,
+  rechecking,
+  hostBusy,
   activity,
   authenticating,
   onInstall,
+  onRecheck,
   onAuthenticate,
   onOpen,
 }: {
@@ -154,10 +202,14 @@ export function PrerequisiteRow({
   plan: HostSetupPlan | null;
   isCurrent: boolean;
   installing: boolean;
+  rechecking: boolean;
+  /** True while any operation is running on this host. */
+  hostBusy: boolean;
   activity: string | null;
   /** True while the sign-in terminal for this step is already open. */
   authenticating: boolean;
   onInstall: () => void;
+  onRecheck: () => void;
   onAuthenticate: () => void;
   onOpen: () => void;
 }) {
@@ -170,23 +222,33 @@ export function PrerequisiteRow({
       badge={stepBadge(step)}
       highlighted={isCurrent}
       action={
-        // Signing in is this row's install: it is the one action that makes the
-        // step satisfied, so it belongs beside it rather than one click away
-        // inside the detail sheet.
-        canSignIn(step, plan) ? (
-          <Button
-            size="xs"
-            disabled={authenticating}
-            onClick={(event) => {
-              event.stopPropagation();
-              onAuthenticate();
-            }}
-          >
-            {signInLabel(step)}
-          </Button>
-        ) : (
-          <InstallAction step={step} installing={installing} onInstall={onInstall} />
-        )
+        <>
+          <RecheckAction
+            rechecking={rechecking}
+            disabled={hostBusy}
+            label={step.name}
+            onRecheck={onRecheck}
+          />
+          {/*
+            Signing in is this row's install: it is the one action that makes the
+            step satisfied, so it belongs beside it rather than one click away
+            inside the detail sheet.
+          */}
+          {canSignIn(step, plan) ? (
+            <Button
+              size="xs"
+              disabled={authenticating}
+              onClick={(event) => {
+                event.stopPropagation();
+                onAuthenticate();
+              }}
+            >
+              {signInLabel(step)}
+            </Button>
+          ) : (
+            <InstallAction step={step} installing={installing} onInstall={onInstall} />
+          )}
+        </>
       }
       onClick={onOpen}
     />
@@ -197,16 +259,25 @@ export function AgentTypeRowItem({
   row,
   isCurrent,
   installingStepId,
+  rechecking,
+  hostBusy,
   activityFor,
   onInstall,
+  onRecheck,
   onOpen,
 }: {
   row: AgentTypeRow;
   isCurrent: boolean;
   installingStepId: string | null;
+  /** True while either of this row's two steps is being re-checked. */
+  rechecking: boolean;
+  /** True while any operation is running on this host. */
+  hostBusy: boolean;
   /** A row covers two steps, so it asks per step which one is talking. */
   activityFor: (stepId: string) => string | null;
   onInstall: (stepId: string) => void;
+  /** Re-checks both of the row's steps — it presents them as one thing. */
+  onRecheck: () => void;
   onOpen: () => void;
 }) {
   // Fix whichever half is outstanding: the CLI first, then its connector. One
@@ -225,13 +296,21 @@ export function AgentTypeRowItem({
       badge={agentTypeBadge(row)}
       highlighted={isCurrent}
       action={
-        next ? (
-          <InstallAction
-            step={next}
-            installing={installingStepId === next.id}
-            onInstall={() => onInstall(next.id)}
+        <>
+          <RecheckAction
+            rechecking={rechecking}
+            disabled={hostBusy}
+            label={row.name}
+            onRecheck={onRecheck}
           />
-        ) : null
+          {next ? (
+            <InstallAction
+              step={next}
+              installing={installingStepId === next.id}
+              onInstall={() => onInstall(next.id)}
+            />
+          ) : null}
+        </>
       }
       onClick={onOpen}
     />

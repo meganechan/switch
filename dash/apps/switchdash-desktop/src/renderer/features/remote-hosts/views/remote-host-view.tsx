@@ -41,12 +41,13 @@ import {
   PrerequisiteRow,
   SectionLabel,
 } from '../setup/setup-rows';
-import { groupPlanSteps } from '../setup/step-presentation';
+import { groupPlanSteps, type AgentTypeRow } from '../setup/step-presentation';
 import {
   useHostSetupPlan,
   useInstallSetupStep,
   usePrepareSetup,
   useRecheckSetup,
+  useRecheckSetupStep,
   useSkipSetupStep,
 } from '../setup/use-host-setup';
 import { REMOTE_HOSTS_QUERY_KEY } from './remote-hosts-view';
@@ -70,6 +71,7 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   const recheck = useRecheckSetup(sshHost);
   const skip = useSkipSetupStep(sshHost);
   const installStep = useInstallSetupStep(sshHost);
+  const recheckStep = useRecheckSetupStep(sshHost);
 
   const [authenticatingGh, setAuthenticatingGh] = useState(false);
   const [sheetTarget, setSheetTarget] = useState<SheetTarget | null>(null);
@@ -95,9 +97,24 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
     () => groupPlanSteps(plan.data ?? null),
     [plan.data]
   );
-  const busy = prepare.isPending || recheck.isPending || installStep.isPending;
+  const busy =
+    prepare.isPending || recheck.isPending || installStep.isPending || recheckStep.isPending;
   const installingStepId = installStep.isPending ? (installStep.variables ?? null) : null;
+  const recheckingStepId = recheckStep.isPending ? (recheckStep.variables ?? null) : null;
   const currentStepId = plan.data?.currentStepId ?? null;
+
+  // An agent type is presented as one thing, so its re-check covers both of its
+  // steps. Sequential because the runner takes one operation per host at a time
+  // — firing them together would only make the second fail.
+  const recheckAgentType = async (row: AgentTypeRow) => {
+    try {
+      await recheckStep.mutateAsync(row.cli.id);
+      if (row.plugin) await recheckStep.mutateAsync(row.plugin.id);
+    } catch {
+      // The mutation's onError already reports it; this only stops the second
+      // step running after the first failed.
+    }
+  };
   // Read inside render so mobx tracks it: the line changes several times a
   // second while an install runs, and nothing else re-renders on that.
   const activityFor = (stepId: string) => hostSetupStore.activityFor(sshHost, stepId);
@@ -200,9 +217,12 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                           plan={plan.data ?? null}
                           isCurrent={step.id === currentStepId}
                           installing={installingStepId === step.id}
+                          rechecking={recheckingStepId === step.id}
+                          hostBusy={busy}
                           activity={activityFor(step.id)}
                           authenticating={authenticatingGh && step.kind === 'gh-auth'}
                           onInstall={() => installStep.mutate(step.id)}
+                          onRecheck={() => recheckStep.mutate(step.id)}
                           onAuthenticate={() => setAuthenticatingGh(true)}
                           onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
                         />
@@ -240,8 +260,14 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                             row.cli.id === currentStepId || row.plugin?.id === currentStepId
                           }
                           installingStepId={installingStepId}
+                          rechecking={
+                            recheckingStepId === row.cli.id ||
+                            (row.plugin != null && recheckingStepId === row.plugin.id)
+                          }
+                          hostBusy={busy}
                           activityFor={activityFor}
                           onInstall={(stepId) => installStep.mutate(stepId)}
+                          onRecheck={() => void recheckAgentType(row)}
                           onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
                         />
                       </div>

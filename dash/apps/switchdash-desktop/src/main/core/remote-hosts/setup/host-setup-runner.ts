@@ -128,6 +128,50 @@ export class HostSetupRunner {
   }
 
   /**
+   * Observe ONE step, installing nothing — the per-item re-check.
+   *
+   * Same contract as `checkAll`, narrowed to a single step: a user asking "is
+   * this still installed?" should not have to re-probe the whole host, which
+   * costs an SSH round trip per step. An unsatisfied step is left `pending`
+   * carrying its observed outcome, so the row can say "not installed" without
+   * claiming an install was attempted.
+   */
+  async checkStep(plan: HostSetupPlan, stepId: string): Promise<HostSetupPlan> {
+    if (this.running) {
+      throw new Error(`Another setup operation is already running for ${this.deps.sshHost}`);
+    }
+    this.running = true;
+    try {
+      try {
+        this.deps.requireReachable(this.deps.sshHost);
+      } catch (error) {
+        throw new HostSetupAbortedError(
+          `Could not check ${this.deps.sshHost}: the host is not reachable.`,
+          error
+        );
+      }
+
+      let next = await this.patchStep(plan, stepId, {
+        state: 'checking',
+        error: null,
+        output: null,
+      });
+      next = await this.observe(next, stepId);
+
+      if (findStep(next, stepId).state !== 'satisfied') {
+        next = await this.patchStep(next, stepId, { state: 'pending' });
+      }
+
+      return await this.transition(next, {
+        status: isPlanComplete(next) ? 'complete' : 'idle',
+        currentStepId: null,
+      });
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /**
    * Install ONE step on its own — the per-item Install button.
    *
    * This is how setup happens: the user sees what a host is missing and fixes

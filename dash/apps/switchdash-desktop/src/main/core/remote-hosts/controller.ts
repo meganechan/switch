@@ -33,6 +33,7 @@ import {
   readAllSetupPlans,
   readSetupPlan,
   recheckSetup,
+  recheckSetupStep,
   skipSetupStep,
 } from './setup/host-setup-service';
 import { listRemoteHosts, removeRemoteHost, upsertRemoteHost, type RemoteHost } from './store';
@@ -214,6 +215,10 @@ export const remoteHostsController = createRPCController({
 
   /** Probe every step and install nothing — the "Re-check" button. */
   recheckSetup: (sshHost: string): Promise<HostSetupPlan> => recheckSetup(sshHost),
+
+  /** Re-observe one prerequisite or agent type, installing nothing. */
+  recheckSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    recheckSetupStep(params.sshHost, params.stepId),
 
   /** Install one prerequisite or agent type on its own, then verify it. */
   installSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
