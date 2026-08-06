@@ -329,7 +329,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     setSelectedNames(new Set(onboardableKey ? onboardableKey.split('|') : []));
     setCreateMode(false);
   }, [onboardableKey]);
-  const showCreate = !hasOnboardable || createMode;
   const toggleSelected = useCallback((name: string, checked: boolean) => {
     setSelectedNames((prev) => {
       const next = new Set(prev);
@@ -355,14 +354,23 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const switchAgent = isRemoteRun
     ? (remoteAgentQuery.data ?? null)
     : (inspection?.switchAgent ?? null);
-  // A local directory with no legacy Switch agent config offers the create flow.
-  // This is available even when the directory already contains other agents — a
-  // directory is a flat container, so you can always add another (CHOO-1440);
-  // onboarding pre-existing definitions is offered alongside it (see below).
-  const isMissingSwitchAgent = !isRemoteRun && !isChecking && shouldCheckPathStatus && !switchAgent;
-  // A remote dir with no Switch agent offers the remote configure flow: register
-  // the agent on the server and write its creds into the remote dir over SSH.
-  const isMissingRemoteAgent = isRemoteRun && !isChecking && shouldDetectRemote && !switchAgent;
+  // Anything already in the directory that can be taken on as-is, rather than
+  // created: a discovered definition, or an agent configured in the legacy
+  // shared settings file. Either way the modal leads with adopting it and keeps
+  // `createMode` as the way past it.
+  const hasAdoptable = hasOnboardable || !!switchAgent;
+  const showCreate = !hasAdoptable || createMode;
+  // Creating an agent is offered for any directory we have finished inspecting.
+  // A directory is a flat container, so an agent already living there is no
+  // reason to refuse another — an existing one used to suppress the create flow
+  // outright, which left a configured directory with nothing on offer but the
+  // one agent already in it.
+  const canCreateAgentHere =
+    !isChecking && (isRemoteRun ? shouldDetectRemote : shouldCheckPathStatus);
+  const canCreateLocalAgent = !isRemoteRun && canCreateAgentHere && showCreate;
+  // The remote create flow registers the agent on the server and writes its
+  // creds into the remote dir over SSH.
+  const canCreateRemoteAgent = isRemoteRun && canCreateAgentHere && showCreate;
 
   // An agent always binds to the active Switch server, so there is no server
   // picker. Silently verify the detected agent exists on that server to gate
@@ -438,7 +446,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       verifyState === 'found' &&
       submitState === 'idle';
   const canSubmitConfigure =
-    isMissingSwitchAgent &&
+    canCreateLocalAgent &&
     !isChecking &&
     configureForm.isValid &&
     !policyHasDeadRule(configureForm.addressingPolicy) &&
@@ -455,7 +463,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // here (the agent does not exist yet); it is verified after registration by
   // the create path (createRemoteLocation).
   const canSubmitConfigureRemote =
-    isMissingRemoteAgent &&
+    canCreateRemoteAgent &&
     !isChecking &&
     remoteConfigureForm.isValid &&
     !policyHasDeadRule(remoteConfigureForm.addressingPolicy) &&
@@ -750,7 +758,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
       footer={
         <DialogFooter>
-          {switchAgent ? (
+          {switchAgent && !createMode ? (
             <ConfirmButton
               type="button"
               onClick={() => void handleSubmit()}
@@ -766,7 +774,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             >
               {submitState === 'creating' ? 'Adding...' : `Add ${selectedNames.size} selected`}
             </ConfirmButton>
-          ) : isMissingRemoteAgent ? (
+          ) : canCreateRemoteAgent ? (
             <ConfirmButton
               type="button"
               onClick={() => void handleConfigureRemote()}
@@ -774,7 +782,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             >
               {submitState === 'creating' ? 'Registering...' : 'Configure & Add Agent'}
             </ConfirmButton>
-          ) : isMissingSwitchAgent ? (
+          ) : canCreateLocalAgent ? (
             <ConfirmButton
               type="button"
               onClick={() => void handleConfigure()}
@@ -875,29 +883,32 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           />
         )}
         {canConfigureAgent && !isRemoteRun && (
-          <PickExistingPanel state={pickState} showName={!isMissingSwitchAgent} />
+          <PickExistingPanel state={pickState} showName={!canCreateLocalAgent} />
         )}
         {isChecking && (
           <p className="text-sm text-foreground-muted">Scanning directory for agents…</p>
         )}
         {canConfigureAgent && hasOnboardable && !createMode && (
-          <>
-            <OnboardExistingPanel
-              agents={onboardableAgents}
-              selected={selectedNames}
-              onToggle={toggleSelected}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              className="self-start"
-              onClick={() => setCreateMode(true)}
-            >
-              Create a new agent instead
-            </Button>
-          </>
+          <OnboardExistingPanel
+            agents={onboardableAgents}
+            selected={selectedNames}
+            onToggle={toggleSelected}
+          />
         )}
-        {hasOnboardable && createMode && (
+        {/* Offered for a detected agent too, not just a discovered definition:
+            either way something is already here, and adding another alongside it
+            is allowed. */}
+        {canConfigureAgent && hasAdoptable && !createMode && (
+          <Button
+            type="button"
+            variant="outline"
+            className="self-start"
+            onClick={() => setCreateMode(true)}
+          >
+            Create a new agent instead
+          </Button>
+        )}
+        {hasAdoptable && createMode && (
           <Button
             type="button"
             variant="ghost"
@@ -908,7 +919,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             ← Back to existing agents
           </Button>
         )}
-        {canConfigureAgent && isMissingRemoteAgent && showCreate && (
+        {canConfigureAgent && canCreateRemoteAgent && (
           <>
             <ConfigureAgentPanel
               form={remoteConfigureForm}
@@ -952,7 +963,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             )}
           </>
         )}
-        {canConfigureAgent && isMissingSwitchAgent && showCreate && (
+        {canConfigureAgent && canCreateLocalAgent && (
           <>
             <ConfigureAgentPanel
               form={configureForm}
