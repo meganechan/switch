@@ -22,7 +22,7 @@ import { Spinner } from '@renderer/lib/ui/spinner';
 import { log } from '@renderer/utils/logger';
 import { deriveAgentTypeStatus } from '@shared/core/remote-hosts/host-status';
 import { hostReachabilityStore } from './host-reachability-store';
-import { resolveReadiness, type HostReadiness } from './host-readiness';
+import { resolveReadiness, stepsNeedingObservation, type HostReadiness } from './host-readiness';
 import { hostSetupStore } from './host-setup-store';
 
 export { resolveReadiness, type HostReadiness };
@@ -40,8 +40,8 @@ export function useRemoteHostReadiness(
   agentId: string | null
 ): HostReadiness {
   const [checking, setChecking] = useState(false);
-  // Probe at most once per host per mount: this costs an SSH round trip, and
-  // re-running it on every render of a modal would hammer the host.
+  // One probe per host+type per mount. Two modals open on the same host would
+  // otherwise queue behind each other on a runner that takes one job at a time.
   const probed = useRef(new Set<string>());
 
   useEffect(() => {
@@ -52,14 +52,30 @@ export function useRemoteHostReadiness(
   const plan = hostSetupStore.get(sshHost);
   const status =
     sshHost && reachability ? deriveAgentTypeStatus(reachability, plan, agentId) : null;
-  const needsProbe = status?.kind === 'unchecked';
+
+  // The persisted plan answers this most of the time. Only what is missing or
+  // gone stale is re-observed, and only for this agent type.
+  const stale = sshHost ? stepsNeedingObservation(plan, agentId, Date.now()) : [];
+  // No plan at all is a different job: there is nothing to refresh, the host
+  // has to be surveyed from scratch.
+  const needsSurvey = !!sshHost && !plan;
+  const needsProbe = needsSurvey || stale.length > 0;
+  const probeKey = `${sshHost}:${agentId ?? '*'}:${stale.join(',')}`;
 
   useEffect(() => {
-    if (!sshHost || !needsProbe || probed.current.has(sshHost)) return;
-    probed.current.add(sshHost);
+    if (!sshHost || !needsProbe || probed.current.has(probeKey)) return;
+    probed.current.add(probeKey);
     setChecking(true);
-    rpc.remoteHosts
-      .recheckSetup(sshHost)
+    const run = needsSurvey
+      ? rpc.remoteHosts.recheckSetup(sshHost)
+      : // Sequentially: the runner takes one operation per host at a time, so
+        // firing these together only makes the later ones fail.
+        stale.reduce<Promise<unknown>>(
+          (queue, stepId) =>
+            queue.then(() => rpc.remoteHosts.recheckSetupStep({ sshHost, stepId })),
+          Promise.resolve()
+        );
+    run
       .catch((error: unknown) => {
         // A probe we could not run tells us nothing. Leaving the gate open is
         // the honest outcome — the alternative blocks the user over our own
@@ -67,7 +83,10 @@ export function useRemoteHostReadiness(
         log.warn('Could not check host readiness before creating an agent', { sshHost, error });
       })
       .finally(() => setChecking(false));
-  }, [sshHost, needsProbe]);
+    // `stale` is derived from the plan and changes identity every render; the
+    // key already encodes its contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sshHost, needsProbe, needsSurvey, probeKey]);
 
   return resolveReadiness(status, plan, agentId, checking || needsProbe);
 }

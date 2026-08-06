@@ -10,7 +10,7 @@ import type {
   HostSetupStepKind,
   HostSetupStepState,
 } from '@shared/core/remote-hosts/setup';
-import { resolveReadiness } from './host-readiness';
+import { resolveReadiness, stepsNeedingObservation } from './host-readiness';
 
 function reachability(status: HostReachabilityStatus): HostReachability {
   return {
@@ -223,5 +223,78 @@ describe('resolveReadiness — the agent-creation gate', () => {
 
       expect(resolveReadiness(statusFor(p, 'claude'), p, 'claude', false).blocked).toBe(false);
     });
+  });
+});
+
+/**
+ * The persisted plan is the answer most of the time (CHOO-1809).
+ *
+ * The gate used to re-probe whenever a verdict read `unchecked`, and the probe
+ * it ran was a whole-host re-check: picking Codex went and looked at git, tmux,
+ * node and Claude Code too. Roughly thirty SSH commands, each opening a login
+ * shell, to answer a question about one agent type — which is what made the
+ * modal feel slow after changing machines.
+ */
+describe('stepsNeedingObservation', () => {
+  const NOW = Date.parse('2026-08-06T12:00:00.000Z');
+  const at = (iso: string, patch: Partial<HostSetupStep> = {}) => ({ ...patch, updatedAt: iso });
+
+  function observed(id: string, iso: string, kind: HostSetupStepKind = 'core-dependency') {
+    return { ...step(id, 'satisfied', kind), ...at(iso) };
+  }
+
+  it('asks for nothing when everything was seen recently', () => {
+    const p = plan([observed('git', '2026-08-06T11:58:00.000Z')]);
+
+    expect(stepsNeedingObservation(p, null, NOW)).toEqual([]);
+  });
+
+  it('asks again once an observation is older than the window', () => {
+    const p = plan([observed('git', '2026-08-06T11:00:00.000Z')]);
+
+    expect(stepsNeedingObservation(p, null, NOW)).toEqual(['git']);
+  });
+
+  it('always asks about a step nobody has ever observed', () => {
+    // A fresh timestamp on a step with no outcome is not an observation — the
+    // plan was just built.
+    const p = plan([
+      { ...step('git', 'pending'), outcome: null, updatedAt: '2026-08-06T11:59:00.000Z' },
+    ]);
+
+    expect(stepsNeedingObservation(p, null, NOW)).toEqual(['git']);
+  });
+
+  it('does not trust a timestamp it cannot read', () => {
+    const p = plan([{ ...observed('git', 'not-a-date') }]);
+
+    expect(stepsNeedingObservation(p, null, NOW)).toEqual(['git']);
+  });
+
+  it('leaves other agent types alone', () => {
+    // The point of the change: choosing Codex must not drag Claude Code's CLI
+    // and connector into the probe.
+    const p = plan([
+      observed('git', '2026-08-06T11:00:00.000Z'),
+      observed('claude', '2026-08-06T11:00:00.000Z', 'agent-cli'),
+      observed('claude:plugin', '2026-08-06T11:00:00.000Z', 'agent-plugin'),
+      observed('codex', '2026-08-06T11:00:00.000Z', 'agent-cli'),
+      observed('codex:plugin', '2026-08-06T11:00:00.000Z', 'agent-plugin'),
+    ]);
+
+    expect(stepsNeedingObservation(p, 'codex', NOW)).toEqual(['git', 'codex', 'codex:plugin']);
+  });
+
+  it('still includes the host prerequisites — they gate every type', () => {
+    const p = plan([
+      observed('git', '2026-08-06T11:00:00.000Z'),
+      observed('codex', '2026-08-06T11:59:00.000Z', 'agent-cli'),
+    ]);
+
+    expect(stepsNeedingObservation(p, 'codex', NOW)).toEqual(['git']);
+  });
+
+  it('asks for nothing when there is no plan — that is a survey, not a refresh', () => {
+    expect(stepsNeedingObservation(null, 'codex', NOW)).toEqual([]);
   });
 });

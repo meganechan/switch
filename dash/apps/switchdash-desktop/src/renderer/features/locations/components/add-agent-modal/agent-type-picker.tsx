@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
+import { Spinner } from '@renderer/lib/ui/spinner';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 
 /**
@@ -94,6 +95,20 @@ export function AgentTypePicker({
       </span>
     </div>
   ) : null;
+
+  // Asking the host what it has costs SSH round trips, and an empty dropdown
+  // during that reads as "this host offers nothing" rather than "still asking".
+  if (isPending) {
+    return (
+      <Field>
+        <FieldLabel>Agent type</FieldLabel>
+        <div className="flex items-center gap-2 text-xs text-foreground-muted">
+          <Spinner />
+          {sshHost ? `Checking what ${sshHost} has installed…` : 'Checking what is installed…'}
+        </div>
+      </Field>
+    );
+  }
 
   const selected = options.find((o) => o.agent.id === value);
 

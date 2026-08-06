@@ -9,6 +9,7 @@
 import type { HostStatus } from '@shared/core/remote-hosts/host-status';
 import {
   agentTypeSteps,
+  hostLevelSteps,
   outstandingRequiredHostSteps,
   outstandingRequiredStepsFor,
   type HostSetupPlan,
@@ -35,6 +36,47 @@ export type HostReadiness = {
 };
 
 const READY: HostReadiness = { blocked: false, checking: false, missing: [], scope: null };
+
+/**
+ * How long an observation is trusted before it is worth looking again.
+ *
+ * A host's dependencies do not change on their own, so re-probing on every
+ * glance buys nothing and costs an SSH round trip per step. Ten minutes is long
+ * enough that opening the modal repeatedly is free, and short enough that
+ * something installed by hand shows up without the user hunting for a re-check.
+ */
+export const OBSERVATION_TTL_MS = 10 * 60_000;
+
+/**
+ * Which steps are worth re-observing before judging this agent type.
+ *
+ * Empty means the persisted plan is good enough to answer from — which is the
+ * common case, and the whole point of persisting it.
+ *
+ * Deliberately narrow: only the host's own prerequisites plus the one agent
+ * type being created. Re-checking every type meant picking Codex probed git,
+ * tmux, node and Claude Code as well, roughly thirty SSH commands to answer a
+ * question about one of them.
+ */
+export function stepsNeedingObservation(
+  plan: HostSetupPlan | null,
+  agentId: string | null,
+  now: number,
+  ttlMs: number = OBSERVATION_TTL_MS
+): string[] {
+  if (!plan) return [];
+  const relevant = [...hostLevelSteps(plan), ...(agentId ? agentTypeSteps(plan, agentId) : [])];
+  return relevant
+    .filter((step) => {
+      // Never observed at all: nothing to go stale, everything to find out.
+      if (step.outcome === null) return true;
+      const seenAt = Date.parse(step.updatedAt);
+      // An unparseable timestamp is not evidence of freshness.
+      if (Number.isNaN(seenAt)) return true;
+      return now - seenAt > ttlMs;
+    })
+    .map((step) => step.id);
+}
 
 /**
  * The gate's decision, as a pure function.
