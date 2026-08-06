@@ -95,7 +95,7 @@ describe('propagateServerApiUrl', () => {
 
   it('rewrites the endpoint for provisioned member agents, preserves the token, and updates the DB mirror', async () => {
     const dir = path.join(tmpRoot, 'provisioned');
-    await writeSettings(dir, {
+    await writeNeutral(dir, 'provisioned-agent', {
       permissions: { allow: ['Bash'] },
       env: {
         EXISTING_KEY: 'keep-me',
@@ -126,7 +126,7 @@ describe('propagateServerApiUrl', () => {
     ]);
 
     // On disk: only the endpoint changed; token, id, other keys preserved.
-    expect(await readEnv(dir)).toEqual({
+    expect(await readNeutralEnv(dir, 'provisioned-agent')).toEqual({
       EXISTING_KEY: 'keep-me',
       SWITCH_API_ENDPOINT: 'https://new-api.example.com',
       SWITCH_API_TOKEN: 'secret-token',
@@ -141,44 +141,9 @@ describe('propagateServerApiUrl', () => {
     expect(row?.apiEndpoint).toBe('https://new-api.example.com');
   });
 
-  // Every agent created since CHOO-1440 keeps its credentials here and has no
-  // legacy file at all. Propagation wrote only the legacy file, so all of them
-  // came back `not-provisioned` and silently kept the old endpoint.
-  it('rewrites the per-agent credentials file, which is where the endpoint actually lives', async () => {
-    const dir = path.join(tmpRoot, 'neutral');
-    await writeNeutral(dir, 'neutral-agent', {
-      permissions: { allow: ['mcp__plugin_switch-connector_switch'] },
-      env: {
-        SWITCH_API_ENDPOINT: 'https://old-api.example.com',
-        SWITCH_API_TOKEN: 'secret-token',
-        SWITCH_AGENT_ID: 'switch-agent-9',
-      },
-    });
-    await fixture.db.insert(locations).values({ id: 'loc-n', name: 'Local', sshHost: '', dir });
-    await fixture.db.insert(agents).values({
-      id: 'agent-n',
-      locationId: 'loc-n',
-      name: 'neutral-agent',
-      providerId: 'codex',
-      apiEndpoint: 'https://old-api.example.com',
-      serverId: 'pilot',
-    });
-
-    const results = await propagateServerApiUrl('pilot', 'https://new-api.example.com');
-
-    expect(results).toEqual([
-      { agentId: 'agent-n', agentName: 'neutral-agent', location: 'local', outcome: 'updated' },
-    ]);
-    expect(await readNeutralEnv(dir, 'neutral-agent')).toEqual({
-      SWITCH_API_ENDPOINT: 'https://new-api.example.com',
-      SWITCH_API_TOKEN: 'secret-token',
-      SWITCH_AGENT_ID: 'switch-agent-9',
-    });
-  });
-
-  // A migrated agent has both. Leaving the legacy one naming the old server
-  // matters because Claude Code reads that file natively.
-  it('rewrites both files when an agent has a legacy one alongside', async () => {
+  // The shared settings file is no longer a credentials source, so a stray one
+  // left in a directory is none of propagation's business.
+  it('leaves a legacy settings file alone', async () => {
     const dir = path.join(tmpRoot, 'both');
     const env = {
       SWITCH_API_ENDPOINT: 'https://old-api.example.com',
@@ -202,7 +167,7 @@ describe('propagateServerApiUrl', () => {
     expect((await readNeutralEnv(dir, 'both-agent')).SWITCH_API_ENDPOINT).toBe(
       'https://new-api.example.com'
     );
-    expect((await readEnv(dir)).SWITCH_API_ENDPOINT).toBe('https://new-api.example.com');
+    expect((await readEnv(dir)).SWITCH_API_ENDPOINT).toBe('https://old-api.example.com');
   });
 
   it('reports an unprovisioned agent as not-provisioned without writing a file', async () => {
@@ -228,13 +193,15 @@ describe('propagateServerApiUrl', () => {
         outcome: 'not-provisioned',
       },
     ]);
-    // No settings file was created.
-    await expect(nodeFs.access(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH))).rejects.toThrow();
+    // No credentials file was created.
+    await expect(
+      nodeFs.access(path.join(dir, agentSettingsRelativePath('bare-agent')))
+    ).rejects.toThrow();
   });
 
   it('only touches agents linked to the edited server', async () => {
     const dir = path.join(tmpRoot, 'other-server');
-    await writeSettings(dir, {
+    await writeNeutral(dir, 'other-agent', {
       env: {
         SWITCH_API_ENDPOINT: 'https://other-api.example.com',
         SWITCH_API_TOKEN: 'other-token',
@@ -255,6 +222,8 @@ describe('propagateServerApiUrl', () => {
 
     // 'pilot' has no agents -> empty result, and the 'other' agent's file is untouched.
     expect(results).toEqual([]);
-    expect((await readEnv(dir)).SWITCH_API_ENDPOINT).toBe('https://other-api.example.com');
+    expect((await readNeutralEnv(dir, 'other-agent')).SWITCH_API_ENDPOINT).toBe(
+      'https://other-api.example.com'
+    );
   });
 });

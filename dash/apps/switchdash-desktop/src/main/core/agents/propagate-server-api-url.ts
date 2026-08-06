@@ -7,21 +7,18 @@ import type { Agent } from '@shared/core/agents/agents';
 import type { AgentApiUrlPropagation } from '@shared/core/switch-servers/switch-servers';
 import { getAgentLocation } from './agent-location';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
-import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
+import { agentSettingsRelativePath } from './switch-settings-paths';
 import { updateAgent } from './updateAgent';
 import { mapAgentRowToAgent } from './utils';
 import { mergeSwitchApiEndpoint } from './write-switch-settings';
 
 /**
- * Every file that may hold this agent's `SWITCH_API_ENDPOINT`, in the same order
- * the session preflight reads them: the per-agent credentials keyed by name,
- * the earlier id-keyed variant of that file, and last the legacy shared
- * settings file.
+ * The files that may hold this agent's `SWITCH_API_ENDPOINT`: its per-agent
+ * credentials keyed by name, and the earlier id-keyed variant of the same file.
  *
- * All of them are rewritten, not just the first found. An agent can have more
- * than one on disk — a migrated agent keeps its legacy file, which Claude Code
- * still reads natively — and leaving any of them naming the old server is how
- * an agent ends up authenticating against an endpoint nobody configured.
+ * Both are rewritten rather than the first found — an agent mid-migration can
+ * have both, and one left naming the old server is one the session preflight
+ * may still pick up.
  */
 function credentialPathsFor(agent: Agent): string[] {
   return [
@@ -29,7 +26,6 @@ function credentialPathsFor(agent: Agent): string[] {
       agentSettingsRelativePath(agent.name ?? agent.id),
       agentSettingsRelativePath(agent.id),
     ]),
-    SWITCH_SETTINGS_RELATIVE_PATH,
   ];
 }
 
@@ -112,9 +108,7 @@ async function propagateToAgent(
  *
  * This used to write only the legacy shared `.claude/settings.local.json`,
  * which no agent created since CHOO-1440 has: every one of them was reported
- * `not-provisioned` and silently kept the old endpoint. It now rewrites the
- * per-agent credentials file that is actually authoritative, and any legacy
- * file alongside it.
+ * `not-provisioned` and silently kept the old endpoint.
  */
 export async function propagateServerApiUrl(
   serverId: string,
