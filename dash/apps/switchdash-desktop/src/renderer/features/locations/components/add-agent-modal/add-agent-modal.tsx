@@ -230,9 +230,15 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     enabled: shouldDetectRemote,
     retry: false,
   });
-  const remoteDirUsable =
-    !shouldDetectRemote ||
-    (remoteDirQuery.data !== undefined && isUsableRemoteDir(remoteDirQuery.data));
+  // Only a verdict blocks. A probe still in flight, or one that failed, is not
+  // evidence against the directory — treating it as such hid the whole form
+  // while the check ran, and hid it for good if the check errored, including in
+  // the case where a Switch agent had just been detected in that very directory
+  // and so it demonstrably existed.
+  const remoteDirBlocked =
+    shouldDetectRemote &&
+    remoteDirQuery.data !== undefined &&
+    !isUsableRemoteDir(remoteDirQuery.data);
 
   // Provider agents defined in the picked dir (`.claude/agents/*.md`) — both those
   // already set up for Switch and plain provider subagents a user created directly.
@@ -407,7 +413,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Without both, those fields ask the user to describe something that cannot
   // be created, directly under a notice saying so (CHOO-1416).
   const canConfigureAgent =
-    canChooseAgentType && runHostReady && !!pickState.providerId && remoteDirUsable;
+    canChooseAgentType && runHostReady && !!pickState.providerId && !remoteDirBlocked;
+  // The working directory is not a function of the agent type. Switching type
+  // re-probes host readiness for the new type, and withdrawing the field
+  // mid-probe made it look as though the location itself were being rechecked.
+  // Hold it back only before anything has been committed, which is the case
+  // `hostReadiness.checking` was gating in the first place.
+  const canChooseLocation =
+    canChooseAgentType && (!hostReadiness.checking || trimmedRemoteDir.length > 0);
 
   const canSubmitDetected = isRemoteRun
     ? !!pickState.providerId &&
@@ -416,7 +429,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       !!switchAgent &&
       verifyState === 'found' &&
       runHostReachable &&
-      remoteDirUsable &&
+      !remoteDirBlocked &&
       runHostReady &&
       submitState === 'idle'
     : pickState.isValid &&
@@ -433,7 +446,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     remoteRunValid &&
     runHostReachable &&
-    remoteDirUsable &&
+    !remoteDirBlocked &&
     runHostReady &&
     submitState === 'idle';
 
@@ -450,7 +463,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     !!pickState.providerId &&
     trimmedRemoteDir.length > 0 &&
     runHostReachable &&
-    remoteDirUsable &&
+    !remoteDirBlocked &&
     runHostReady &&
     submitState === 'idle';
 
@@ -814,8 +827,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           )}
           {/* Not while we are still finding out what the host has: asking for a
               working directory under a "checking…" spinner invites the user to
-              fill in a form we may be about to refuse. */}
-          {isRemoteRun && canChooseAgentType && !hostReadiness.checking && (
+              fill in a form we may be about to refuse. Once a directory is set,
+              it stays put — a later probe is about the agent type, not the path. */}
+          {isRemoteRun && canChooseLocation && (
             <div className="flex items-center gap-2">
               <Input
                 value={remoteRepoDirDraft}
