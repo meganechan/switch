@@ -182,6 +182,8 @@ below:
 
 ### [Unreleased]
 
+### [0.18.3] - 2026-08-06
+
 #### Added
 - The Codex connector plugin now ships the Switch MCP server itself
   (`mcpServers` + `env_vars` name-forwarding), so Codex can be used with Switch
@@ -204,6 +206,12 @@ below:
 - Codex runtime status reports tool calls ("Running tool …") instead of sitting
   on "Working on it…" for a whole turn; no tool hook was registered for Codex,
   so nothing could ever produce an activity update (CHOO-1935).
+- In-app release links resolve again: the sidebar update indicator and the
+  Settings Update card pointed at `.../releases/tag/v<version>`, which is not a
+  real tag (the app is tagged `switchdash-v<version>`), so the user hit a 404;
+  the release-notes fetch had the same broken tag and now also authenticates
+  with the gh CLI token so it can read the private release feed instead of
+  silently returning nothing (#134).
 
 #### Changed
 - The per-agent Codex profile carries only model, reasoning effort and
