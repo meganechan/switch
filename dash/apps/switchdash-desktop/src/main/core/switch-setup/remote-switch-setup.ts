@@ -10,6 +10,9 @@ import { isNewerVersion, marketplaceMatchesSource } from './switch-setup-service
 
 const EXEC_TIMEOUT_MS = 120_000;
 
+/** POSIX shells use 127 for "command not found". */
+const COMMAND_NOT_FOUND = 127;
+
 type RunResult = { code: number; stdout: string; stderr: string };
 
 /**
@@ -113,6 +116,17 @@ export class RemoteSwitchSetupService {
         stdout: e.stdout ?? '',
         stderr: e.stderr ?? e.message ?? '',
       };
+      // A shell reports 127 when the binary is not on PATH. For "is this agent
+      // type's connector installed?" that is the answer, not a fault: a host
+      // without Codex is a normal host. Warning about it filled the log with
+      // failures every time a plan was checked, which trains people to ignore
+      // the warnings that do matter.
+      if (result.code === COMMAND_NOT_FOUND) {
+        log.info('[remote-switch-setup] command not present on host', {
+          cmd: `${bin} ${args.join(' ')}`,
+        });
+        return result;
+      }
       log.warn('[remote-switch-setup] command failed', {
         cmd: `${bin} ${args.join(' ')}`,
         code: result.code,

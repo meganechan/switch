@@ -223,12 +223,6 @@ export function PrerequisiteRow({
       highlighted={isCurrent}
       action={
         <>
-          <RecheckAction
-            rechecking={rechecking}
-            disabled={hostBusy}
-            label={step.name}
-            onRecheck={onRecheck}
-          />
           {/*
             Signing in is this row's install: it is the one action that makes the
             step satisfied, so it belongs beside it rather than one click away
@@ -248,6 +242,14 @@ export function PrerequisiteRow({
           ) : (
             <InstallAction step={step} installing={installing} onInstall={onInstall} />
           )}
+          {/* Last, so the primary action keeps the same place whether or not
+              there is one to take. */}
+          <RecheckAction
+            rechecking={rechecking}
+            disabled={hostBusy}
+            label={step.name}
+            onRecheck={onRecheck}
+          />
         </>
       }
       onClick={onOpen}
@@ -297,12 +299,6 @@ export function AgentTypeRowItem({
       highlighted={isCurrent}
       action={
         <>
-          <RecheckAction
-            rechecking={rechecking}
-            disabled={hostBusy}
-            label={row.name}
-            onRecheck={onRecheck}
-          />
           {next ? (
             <InstallAction
               step={next}
@@ -310,6 +306,12 @@ export function AgentTypeRowItem({
               onInstall={() => onInstall(next.id)}
             />
           ) : null}
+          <RecheckAction
+            rechecking={rechecking}
+            disabled={hostBusy}
+            label={row.name}
+            onRecheck={onRecheck}
+          />
         </>
       }
       onClick={onOpen}

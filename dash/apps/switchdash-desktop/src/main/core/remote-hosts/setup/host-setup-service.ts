@@ -14,6 +14,7 @@ import {
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
 } from '@main/core/dependencies/remote-dependency-manager';
+import { listPlugins } from '@main/core/providers/plugin-registry';
 import { getRemoteSwitchSetupService } from '@main/core/switch-setup/remote-switch-setup';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
@@ -44,14 +45,26 @@ import {
 /** Runners are per-host so two hosts can be set up at once, but a host only once. */
 const runners = new Map<string, HostSetupRunner>();
 
-async function plannableAgentTypes(sshHost: string) {
-  const service = await getRemoteSwitchSetupService(sshHost);
-  const statuses = await service.listAgentTypeStatuses();
-  return statuses
-    .filter((status) => status.supported)
-    .map((status) => ({
-      agentId: status.agentId,
-      name: remoteDependencyDescriptor(status.agentId)?.name ?? status.agentId,
+/**
+ * Agent types worth planning for: those whose connector switchdash can drive.
+ *
+ * Read from the plugin registry, not from the host. Whether a type is
+ * *supported* is a static fact about the plugin — its `switchSetup` dialect and
+ * the binary it names — and asking the host meant running every agent type's
+ * CLI over SSH on every plan build, purely to be told what the registry already
+ * knew. Whether a type is *installed* is a per-host question, and that is what
+ * the plan's own steps are for.
+ */
+function plannableAgentTypes() {
+  return listPlugins()
+    .filter(
+      (plugin) =>
+        plugin.capabilities.switchSetup.kind === 'cli' &&
+        plugin.capabilities.hostDependency.binaryNames.length > 0
+    )
+    .map((plugin) => ({
+      agentId: plugin.metadata.id,
+      name: remoteDependencyDescriptor(plugin.metadata.id)?.name ?? plugin.metadata.id,
     }));
 }
 
@@ -68,7 +81,7 @@ export async function ensureSetupPlan(sshHost: string): Promise<HostSetupPlan> {
   const plan = buildSetupPlan({
     sshHost,
     coreDependencies: CORE_DEPENDENCIES.map((dep) => ({ id: dep.id, name: dep.name })),
-    agentTypes: await plannableAgentTypes(sshHost),
+    agentTypes: plannableAgentTypes(),
     existing: existing ? reconcileInterruptedPlan(existing, now) : null,
     now,
   });
@@ -121,7 +134,15 @@ function runnerFor(sshHost: string, manager: HostDependencyManager): HostSetupRu
   return runner;
 }
 
-async function checkStep(
+/**
+ * Observe one step, whatever kind it is.
+ *
+ * Exported so the rule that checking one row touches one agent type — and no
+ * others — can be tested directly; it is not obvious from the call site, and
+ * getting it wrong is silent apart from stray failures against an unrelated
+ * row's CLI.
+ */
+export async function checkStep(
   sshHost: string,
   manager: HostDependencyManager,
   step: HostSetupStep
@@ -132,10 +153,13 @@ async function checkStep(
 
   if (step.kind === 'agent-plugin') {
     const service = await getRemoteSwitchSetupService(sshHost);
-    const statuses = await service.listAgentTypeStatuses();
     const agentId = stepAgentId(step);
-    const status = statuses.find((s) => s.agentId === agentId);
-    if (!status) {
+    // Ask about this agent type alone. Listing every type's status and then
+    // discarding all but one ran each other type's CLI over SSH as a side
+    // effect, so checking one row reported failures for a different row's
+    // absent CLI — and cost two extra round trips per type to do it.
+    const status = await service.getStatus(agentId);
+    if (!status.supported) {
       return {
         outcome: 'unknown',
         error: `${agentId} is no longer a known agent type on this host.`,
