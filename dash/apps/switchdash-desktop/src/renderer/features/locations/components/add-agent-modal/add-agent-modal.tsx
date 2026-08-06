@@ -56,10 +56,10 @@ import {
 } from './onboard-existing-panel';
 import { RemoteDirNotice } from './remote-dir-notice';
 
-// switchdash adds a Switch *agent* by pointing at a local directory that the
-// switch-connector `configure` skill has set up (its `.claude/settings.local.json`
-// carries the SWITCH_* env block). The richer switchdash flows — SSH, clone, create
-// new GitHub repo — are out of scope for v0, so this modal is local + pick only.
+// switchdash adds a Switch *agent* by pointing at a working directory, local or
+// on an SSH host: it mints the identity and writes it to
+// `.switch/agents/<name>.json`, or adopts agents already configured there. The
+// richer flows — clone, create new GitHub repo — remain out of scope.
 export type AddLocationModalProps = BaseModalProps<void>;
 
 /** Sentinel `runHost` value meaning "run on this machine" (no remote host). */

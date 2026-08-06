@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import { agents, locations, switchServers } from '@main/db/schema';
 import { propagateServerApiUrl } from './propagate-server-api-url';
-import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
+import { agentSettingsRelativePath } from './switch-settings-paths';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -34,17 +34,6 @@ vi.mock('@main/core/fs/impl/ssh-fs', () => ({
 vi.mock('@main/core/locations/location-transport', () => ({
   sshConnectionIdForHost: (host: string) => host,
 }));
-
-async function writeSettings(dir: string, contents: Record<string, unknown>): Promise<void> {
-  const file = path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH);
-  await nodeFs.mkdir(path.dirname(file), { recursive: true });
-  await nodeFs.writeFile(file, JSON.stringify(contents, null, 2), 'utf8');
-}
-
-async function readEnv(dir: string): Promise<Record<string, unknown>> {
-  const raw = await nodeFs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
-  return (JSON.parse(raw) as { env: Record<string, unknown> }).env;
-}
 
 /** Write the per-agent credentials file every agent has had since CHOO-1440. */
 async function writeNeutral(
@@ -139,35 +128,6 @@ describe('propagateServerApiUrl', () => {
       .from(agents)
       .where(eq(agents.id, 'agent-1'));
     expect(row?.apiEndpoint).toBe('https://new-api.example.com');
-  });
-
-  // The shared settings file is no longer a credentials source, so a stray one
-  // left in a directory is none of propagation's business.
-  it('leaves a legacy settings file alone', async () => {
-    const dir = path.join(tmpRoot, 'both');
-    const env = {
-      SWITCH_API_ENDPOINT: 'https://old-api.example.com',
-      SWITCH_API_TOKEN: 'secret-token',
-      SWITCH_AGENT_ID: 'switch-agent-8',
-    };
-    await writeNeutral(dir, 'both-agent', { env });
-    await writeSettings(dir, { env });
-    await fixture.db.insert(locations).values({ id: 'loc-b', name: 'Local', sshHost: '', dir });
-    await fixture.db.insert(agents).values({
-      id: 'agent-b',
-      locationId: 'loc-b',
-      name: 'both-agent',
-      providerId: 'claude',
-      apiEndpoint: 'https://old-api.example.com',
-      serverId: 'pilot',
-    });
-
-    await propagateServerApiUrl('pilot', 'https://new-api.example.com');
-
-    expect((await readNeutralEnv(dir, 'both-agent')).SWITCH_API_ENDPOINT).toBe(
-      'https://new-api.example.com'
-    );
-    expect((await readEnv(dir)).SWITCH_API_ENDPOINT).toBe('https://old-api.example.com');
   });
 
   it('reports an unprovisioned agent as not-provisioned without writing a file', async () => {
