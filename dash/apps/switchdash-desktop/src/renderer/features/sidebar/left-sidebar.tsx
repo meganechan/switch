@@ -1,4 +1,4 @@
-import { FolderInput, Settings } from 'lucide-react';
+import { FolderInput, Server, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
 import {
@@ -66,6 +66,20 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
         <SidebarFooter>
           <SidebarMenu>
             <SidebarSearchTrigger />
+            <SidebarMenuButton
+              isActive={
+                isCurrentView(currentView, 'remoteHosts') ||
+                isCurrentView(currentView, 'remoteHost')
+              }
+              onClick={() => navigate('remoteHosts')}
+              aria-label="Remote hosts"
+              className="w-full justify-between"
+            >
+              <span className="flex items-center gap-2">
+                <Server className="h-5 w-5 sm:h-4 sm:w-4" />
+                Remote hosts
+              </span>
+            </SidebarMenuButton>
             <SidebarMenuButton
               isActive={isCurrentView(currentView, 'settings')}
               onClick={() => navigate('settings')}
