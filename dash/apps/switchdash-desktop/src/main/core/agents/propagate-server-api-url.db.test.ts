@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppDb } from '@main/db/client';
 import { agents, locations, switchServers } from '@main/db/schema';
 import { propagateServerApiUrl } from './propagate-server-api-url';
-import { SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
+import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
 
 const mocks = vi.hoisted(() => ({
   db: undefined as AppDb | undefined,
@@ -43,6 +43,22 @@ async function writeSettings(dir: string, contents: Record<string, unknown>): Pr
 
 async function readEnv(dir: string): Promise<Record<string, unknown>> {
   const raw = await nodeFs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
+  return (JSON.parse(raw) as { env: Record<string, unknown> }).env;
+}
+
+/** Write the per-agent credentials file every agent has had since CHOO-1440. */
+async function writeNeutral(
+  dir: string,
+  slug: string,
+  contents: Record<string, unknown>
+): Promise<void> {
+  const file = path.join(dir, agentSettingsRelativePath(slug));
+  await nodeFs.mkdir(path.dirname(file), { recursive: true });
+  await nodeFs.writeFile(file, JSON.stringify(contents, null, 2), 'utf8');
+}
+
+async function readNeutralEnv(dir: string, slug: string): Promise<Record<string, unknown>> {
+  const raw = await nodeFs.readFile(path.join(dir, agentSettingsRelativePath(slug)), 'utf8');
   return (JSON.parse(raw) as { env: Record<string, unknown> }).env;
 }
 
@@ -123,6 +139,70 @@ describe('propagateServerApiUrl', () => {
       .from(agents)
       .where(eq(agents.id, 'agent-1'));
     expect(row?.apiEndpoint).toBe('https://new-api.example.com');
+  });
+
+  // Every agent created since CHOO-1440 keeps its credentials here and has no
+  // legacy file at all. Propagation wrote only the legacy file, so all of them
+  // came back `not-provisioned` and silently kept the old endpoint.
+  it('rewrites the per-agent credentials file, which is where the endpoint actually lives', async () => {
+    const dir = path.join(tmpRoot, 'neutral');
+    await writeNeutral(dir, 'neutral-agent', {
+      permissions: { allow: ['mcp__plugin_switch-connector_switch'] },
+      env: {
+        SWITCH_API_ENDPOINT: 'https://old-api.example.com',
+        SWITCH_API_TOKEN: 'secret-token',
+        SWITCH_AGENT_ID: 'switch-agent-9',
+      },
+    });
+    await fixture.db.insert(locations).values({ id: 'loc-n', name: 'Local', sshHost: '', dir });
+    await fixture.db.insert(agents).values({
+      id: 'agent-n',
+      locationId: 'loc-n',
+      name: 'neutral-agent',
+      providerId: 'codex',
+      apiEndpoint: 'https://old-api.example.com',
+      serverId: 'pilot',
+    });
+
+    const results = await propagateServerApiUrl('pilot', 'https://new-api.example.com');
+
+    expect(results).toEqual([
+      { agentId: 'agent-n', agentName: 'neutral-agent', location: 'local', outcome: 'updated' },
+    ]);
+    expect(await readNeutralEnv(dir, 'neutral-agent')).toEqual({
+      SWITCH_API_ENDPOINT: 'https://new-api.example.com',
+      SWITCH_API_TOKEN: 'secret-token',
+      SWITCH_AGENT_ID: 'switch-agent-9',
+    });
+  });
+
+  // A migrated agent has both. Leaving the legacy one naming the old server
+  // matters because Claude Code reads that file natively.
+  it('rewrites both files when an agent has a legacy one alongside', async () => {
+    const dir = path.join(tmpRoot, 'both');
+    const env = {
+      SWITCH_API_ENDPOINT: 'https://old-api.example.com',
+      SWITCH_API_TOKEN: 'secret-token',
+      SWITCH_AGENT_ID: 'switch-agent-8',
+    };
+    await writeNeutral(dir, 'both-agent', { env });
+    await writeSettings(dir, { env });
+    await fixture.db.insert(locations).values({ id: 'loc-b', name: 'Local', sshHost: '', dir });
+    await fixture.db.insert(agents).values({
+      id: 'agent-b',
+      locationId: 'loc-b',
+      name: 'both-agent',
+      providerId: 'claude',
+      apiEndpoint: 'https://old-api.example.com',
+      serverId: 'pilot',
+    });
+
+    await propagateServerApiUrl('pilot', 'https://new-api.example.com');
+
+    expect((await readNeutralEnv(dir, 'both-agent')).SWITCH_API_ENDPOINT).toBe(
+      'https://new-api.example.com'
+    );
+    expect((await readEnv(dir)).SWITCH_API_ENDPOINT).toBe('https://new-api.example.com');
   });
 
   it('reports an unprovisioned agent as not-provisioned without writing a file', async () => {
