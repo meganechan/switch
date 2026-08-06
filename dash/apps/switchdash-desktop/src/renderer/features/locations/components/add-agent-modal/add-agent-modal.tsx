@@ -73,6 +73,18 @@ type AddAgentFailure = Exclude<
   { kind: 'created' }
 >;
 
+/**
+ * Whether `key` has been seen in a settled (non-pending) state at least once.
+ *
+ * Lets a gate distinguish "we know nothing yet" from "we are refreshing what we
+ * already know", so a re-query does not retract what is already on screen.
+ */
+function useSettledOnce(key: string, pending: boolean): boolean {
+  const settled = useRef(new Set<string>());
+  if (!pending) settled.current.add(key);
+  return settled.current.has(key);
+}
+
 /** Canonical working-directory path: trimmed, with trailing slashes removed
  * (except a bare root), so `/repo` and `/repo/` behave identically through
  * detection, discovery, and location keying — the flow must not care (CHOO-1440). */
@@ -323,14 +335,24 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     });
   }, []);
 
-  // Discovery (`.claude/agents` scan) is a separate query from agent-detection;
-  // fold its pending state into `isChecking` so the modal decides "onboard
-  // existing vs create new" only once BOTH have settled — otherwise the create
-  // form flashes up first and then flips to the onboard list when discovery lands
-  // (CHOO-1440).
-  const isDiscovering =
+  // Discovery (`.claude/agents` scan) is a separate query; fold its pending
+  // state into `isChecking` so the modal decides "onboard existing vs create
+  // new" only once both have settled — otherwise the create form flashes up
+  // first and then flips to the onboard list when discovery lands (CHOO-1440).
+  //
+  // Only while a directory is being scanned for the FIRST time, though. The
+  // definition scan is keyed on the agent type, so switching type starts a new
+  // one, and blocking on that retracted everything below the working directory
+  // and put a "Scanning directory…" line under it — which reads as the location
+  // being re-checked, when the location has not changed at all.
+  const discoveryPending =
     (!!pickState.providerId && discoverDir.trim().length > 0 && discoverQuery.isPending) ||
     (discoverDir.trim().length > 0 && configuredQuery.isPending);
+  const scannedOnce = useSettledOnce(
+    `${discoverSshHost ?? 'local'}:${discoverDir}`,
+    discoveryPending
+  );
+  const isDiscovering = discoveryPending && !scannedOnce;
   const isChecking =
     (isRemoteRun ? false : shouldCheckPathStatus && pathStatusQuery.isPending) || isDiscovering;
   // Never create an agent on a host we know we cannot reach — it would be born
@@ -362,7 +384,12 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     isRemoteRun ? runHost : null,
     pickState.providerId ?? null
   );
+  // Submitting waits for a verdict; showing the form only waits for a bad one.
+  // Readiness is probed per agent type, so switching type starts a new probe —
+  // and treating "checking" as a reason to hide made the whole form vanish and
+  // come back on every type change.
   const runHostReady = !isRemoteRun || (!hostReadiness.blocked && !hostReadiness.checking);
+  const runHostNotBlocked = !isRemoteRun || !hostReadiness.blocked;
 
   // Where the block stops the flow. A host missing its own prerequisites cannot
   // run anything, so nothing below the location picker is worth filling in —
@@ -377,7 +404,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Without both, those fields ask the user to describe something that cannot
   // be created, directly under a notice saying so (CHOO-1416).
   const canConfigureAgent =
-    canChooseAgentType && runHostReady && !!pickState.providerId && !remoteDirBlocked;
+    canChooseAgentType && runHostNotBlocked && !!pickState.providerId && !remoteDirBlocked;
   // The working directory is not a function of the agent type. Switching type
   // re-probes host readiness for the new type, and withdrawing the field
   // mid-probe made it look as though the location itself were being rechecked.
