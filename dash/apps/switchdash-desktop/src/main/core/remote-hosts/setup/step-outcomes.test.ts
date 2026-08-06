@@ -228,3 +228,64 @@ describe('describeInstallFailure — the install command could not run', () => {
     expect(message).toContain('package manager lock');
   });
 });
+
+/**
+ * npm refusing to write to a root-owned global prefix (CHOO-1809).
+ *
+ * npm's own report is a stack trace through arborist ending in advice to "run
+ * the command again as root" — addressed to a user who is not the one running
+ * it. Passed through, that is what the row shows.
+ */
+describe('describeInstallFailure — npm cannot write the global prefix', () => {
+  // Trimmed from a real transcript, after ANSI stripping and condensing.
+  const eacces = [
+    'npm error code EACCES',
+    'npm error syscall mkdir',
+    'npm error path /usr/lib/node_modules/@openai',
+    'npm error errno -13',
+    "npm error Error: EACCES: permission denied, mkdir '/usr/lib/node_modules/@openai'",
+    'npm error     at async mkdir (node:internal/fs/promises:858:10)',
+    'npm error The operation was rejected by your operating system.',
+    'npm error the command again as root/Administrator.',
+  ].join('\n');
+
+  it('names the directory that could not be written', () => {
+    const message = describeInstallFailure(
+      'Codex',
+      'User does not have sufficient permissions.',
+      eacces
+    );
+
+    expect(message).toContain('/usr/lib/node_modules');
+  });
+
+  it('does not capture npm’s surrounding quote as part of the path', () => {
+    const message = describeInstallFailure('Codex', 'Install command failed.', eacces);
+
+    expect(message).not.toContain("@openai'");
+  });
+
+  it('says switchdash will not escalate on its own', () => {
+    // The user should know why we did not just sudo it, rather than assuming
+    // the install is broken.
+    const message = describeInstallFailure('Codex', 'Install command failed.', eacces);
+
+    expect(message).toContain('does not run installs as root');
+  });
+
+  it('reports the host as untouched, because the write never happened', () => {
+    const message = describeInstallFailure('Codex', 'Install command failed.', eacces);
+
+    expect(message).toContain('Nothing was changed');
+  });
+
+  it('leaves an unrelated permission failure to the generic message', () => {
+    const message = describeInstallFailure(
+      'Git',
+      'Permission denied.',
+      'cannot open /etc/apt/sources.list'
+    );
+
+    expect(message).toBe('Permission denied.');
+  });
+});

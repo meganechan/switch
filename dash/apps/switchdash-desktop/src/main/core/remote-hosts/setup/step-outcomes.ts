@@ -79,6 +79,10 @@ const TOOLCHAIN_HINTS: Record<string, string> = {
   npm: 'npm ships with Node.js — a Node install that reports a version but has no npm is usually a partial one (on Debian/Ubuntu the distro splits `nodejs` and `npm` into separate packages). Re-installing Node.js from the Node.js step generally fixes it.',
 };
 
+/** npm refusing to write into a global prefix the SSH user does not own. */
+const NPM_GLOBAL_EACCES =
+  /EACCES[\s\S]*?(?:mkdir|open|access)[\s\S]*?(\/[^\s'"]*node_modules[^\s'"]*)/i;
+
 /**
  * Explain why an install failed, in terms the user can act on.
  *
@@ -102,6 +106,16 @@ export function describeInstallFailure(
     const pid = LOCK_HOLDER_PID.exec(output ?? '')?.[1] ?? LOCK_HOLDER_PID.exec(message)?.[1];
     const holder = pid ? ` (pid ${pid})` : '';
     return `Could not install ${name}: another process${holder} on the host holds the package manager lock. That is usually the system's own automatic updates, which clear within a few minutes — but it can also be an earlier install left stuck, which will not clear on its own. If retrying keeps failing with the same pid, check that process on the host.`;
+  }
+
+  // npm's own EACCES report is thorough and completely unactionable from here:
+  // a stack trace through arborist, then advice to "try running the command
+  // again as root" addressed to a user who is not the one running it. What
+  // matters is which directory, and that switchdash does not silently escalate
+  // to sudo on someone's host.
+  const eaccesPath = NPM_GLOBAL_EACCES.exec(output ?? '')?.[1];
+  if (eaccesPath) {
+    return `Could not install ${name}: the SSH user cannot write to \`${eaccesPath}\`, which is where this host's npm installs global packages. switchdash does not run installs as root on its own. Either make npm's global prefix writable by this user (\`npm config set prefix\` pointing somewhere it owns, with that bin directory on PATH), or install this agent on the host manually with sudo and re-check. Nothing was changed on the host.`;
   }
 
   // The install never started: the tool that runs it is not there. Left raw,

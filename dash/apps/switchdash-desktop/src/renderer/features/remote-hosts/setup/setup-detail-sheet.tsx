@@ -139,10 +139,14 @@ function ObservationCard({
         </p>
       )}
 
-      {step.state === 'failed' && step.error && (
-        <p className="text-destructive text-xs">{step.error}</p>
-      )}
-      {step.state === 'failed' && step.output && <FailureOutput output={step.output} />}
+      {/*
+        Not gated on `failed`. An update that fails over something still
+        installed leaves the step satisfied — correctly, it works — but the
+        attempt did fail, and hiding the reason leaves a row that silently
+        refuses to move off "Update available" with nothing to explain why.
+      */}
+      {step.error && <p className="text-destructive text-xs">{step.error}</p>}
+      {step.output && <FailureOutput output={step.output} />}
     </div>
   );
 }

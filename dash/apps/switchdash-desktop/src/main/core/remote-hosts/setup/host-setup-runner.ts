@@ -255,12 +255,21 @@ export class HostSetupRunner {
 
       const result = await this.deps.update(findStep(next, stepId));
       if (!result.ok) {
-        next = await this.patchStep(next, stepId, {
-          state: 'failed',
-          error: result.error,
-          output: result.output ?? null,
-        });
-        return await this.settle(next);
+        // Look before judging, even on failure. A failed update usually leaves
+        // what was there working — but not always: the remove-then-add some
+        // CLIs need can remove and then fail to add. Assuming either way gets
+        // it wrong half the time, so the state comes from a fresh probe and
+        // only the *error* comes from the updater.
+        const looking = await this.patchStep(next, stepId, { state: 'checking', error: null });
+        const observed = await this.observe(looking, stepId);
+        const still = findStep(observed, stepId);
+        return await this.settle(
+          await this.patchStep(observed, stepId, {
+            state: still.outcome === 'satisfied' ? 'satisfied' : 'failed',
+            error: result.error,
+            output: result.output ?? null,
+          })
+        );
       }
 
       const verifying = await this.patchStep(next, stepId, { state: 'checking' });

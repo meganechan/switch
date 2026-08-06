@@ -359,3 +359,29 @@ describe('stepBadge — an update in flight', () => {
     });
   });
 });
+
+/**
+ * A red badge reading "Ready" (CHOO-1809).
+ *
+ * The failed label names the last observation, which is right for an install
+ * ("Not installed") and self-contradictory for an action that failed over
+ * something present.
+ */
+describe('stepBadge — a failed action over something that is installed', () => {
+  it('never labels a failed step Ready', () => {
+    const badge = stepBadge(step({ state: 'failed', outcome: 'satisfied', version: '0.146.0' }));
+
+    expect(badge.label).not.toBe('Ready');
+    expect(badge.tone).toBe('danger');
+  });
+
+  it('says what actually happened instead', () => {
+    expect(stepBadge(step({ state: 'failed', outcome: 'satisfied' })).label).toBe(
+      'Last action failed'
+    );
+  });
+
+  it('still names the observation when it is the useful thing to say', () => {
+    expect(stepBadge(step({ state: 'failed', outcome: 'missing' })).label).toBe('Not installed');
+  });
+});

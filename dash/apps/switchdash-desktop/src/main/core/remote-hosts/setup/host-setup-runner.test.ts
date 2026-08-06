@@ -625,7 +625,14 @@ describe('updating one step', () => {
     expect(updateOrder).toEqual([]);
   });
 
-  it('reports the updater failing, and does not claim the new version', async () => {
+  /**
+   * A failed update is not a broken dependency.
+   *
+   * Marking the step `failed` while its last observation was still `satisfied`
+   * rendered a red badge reading "Ready" — the label names the observation. The
+   * state has to come from looking, not from the updater's exit code.
+   */
+  it('stays installed when the update failed but the thing is still there', async () => {
     const { runner } = makeRunner({
       checks: { claude: [{ outcome: 'satisfied', version: '2.1.0' }] },
       installs: {},
@@ -634,9 +641,38 @@ describe('updating one step', () => {
 
     const result = await runner.updateStep(plan([installed()]), 'claude');
 
-    expect(stateOf(result, 'claude')).toBe('failed');
-    expect(result.steps[0]!.error).toBe('network unreachable');
+    expect(stateOf(result, 'claude')).toBe('satisfied');
     expect(result.steps[0]!.version).toBe('2.1.0');
+  });
+
+  it('still reports why the update failed', async () => {
+    const { runner } = makeRunner({
+      checks: { claude: [{ outcome: 'satisfied', version: '2.1.0' }] },
+      installs: {},
+      updates: { claude: { ok: false, error: 'network unreachable' } },
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(result.steps[0]!.error).toBe('network unreachable');
+  });
+
+  it('fails when a failed update took the thing with it', async () => {
+    // Codex updates by removing and re-adding. A remove that succeeded and an
+    // add that did not leaves nothing installed, and assuming otherwise would
+    // report a working agent that is not there.
+    const { runner } = makeRunner({
+      checks: { claude: [{ outcome: 'missing' }] },
+      installs: {},
+      updates: {
+        claude: { ok: false, error: 'the plugin was removed but could not be reinstalled' },
+      },
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(stateOf(result, 'claude')).toBe('failed');
+    expect(result.steps[0]!.error).toContain('could not be reinstalled');
   });
 
   it('fails when the thing is gone after updating', async () => {

@@ -171,7 +171,14 @@ export function stepBadge(step: HostSetupStep): BadgeSpec {
     case 'updating':
       return { tone: 'info', label: 'Updating…' };
     case 'failed':
-      return { tone: 'danger', label: outcomeLabel(step.outcome) };
+      // The label normally names the last observation, which for a failed
+      // install is the useful thing to say ("Not installed"). It must not be
+      // said when that observation was `satisfied`: a failed action over
+      // something that is present rendered a red badge reading "Ready", which
+      // is two contradictions in three words.
+      return step.outcome === 'satisfied'
+        ? { tone: 'danger', label: 'Last action failed' }
+        : { tone: 'danger', label: outcomeLabel(step.outcome) };
     case 'skipped':
       return { tone: 'neutral', label: 'Skipped' };
     case 'pending':
