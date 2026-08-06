@@ -111,7 +111,16 @@ export type BadgeSpec = { tone: StatusTone; label: string };
 export function stepBadge(step: HostSetupStep): BadgeSpec {
   switch (step.state) {
     case 'satisfied':
-      return { tone: 'success', label: 'Installed' };
+      // An available update does not make a step unsatisfied — what is
+      // installed still works — but it is the one thing about a healthy row
+      // worth surfacing, so it takes the badge.
+      //
+      // Note the absence of an "Up to date" badge. `updateAvailable: false`
+      // means either "nothing newer" or "we could not tell", and only one of
+      // those earns the claim; "Installed" is true in both cases.
+      return step.updateAvailable
+        ? { tone: 'warning', label: 'Update available' }
+        : { tone: 'success', label: 'Installed' };
     case 'checking':
       return { tone: 'info', label: 'Checking…' };
     case 'installing':
@@ -162,6 +171,11 @@ export function agentTypeBadge(row: AgentTypeRow): BadgeSpec {
   if (row.cli.state !== 'satisfied') return stepBadge(row.cli);
   if (row.plugin && row.plugin.state !== 'satisfied') {
     return { tone: 'warning', label: 'Switch setup required' };
+  }
+  // Either half being out of date is worth saying, and the row states one
+  // question — is this usable, and is it current?
+  if (row.cli.updateAvailable || row.plugin?.updateAvailable) {
+    return { tone: 'warning', label: 'Update available' };
   }
   return { tone: 'success', label: 'Installed' };
 }

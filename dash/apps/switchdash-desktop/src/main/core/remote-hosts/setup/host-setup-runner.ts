@@ -30,6 +30,10 @@ import {
 export type StepCheckResult = {
   outcome: DependencyCheckOutcome;
   version?: string | null;
+  /** Version available to install, when it could be determined. Null = unknown. */
+  latestVersion?: string | null;
+  /** True only when a newer version is known to exist. */
+  updateAvailable?: boolean;
   /** Set when the outcome is `unknown` — why we could not tell. */
   error?: string;
 };
@@ -273,6 +277,8 @@ export class HostSetupRunner {
     return await this.patchStep(plan, stepId, {
       outcome: result.outcome,
       version: result.version ?? null,
+      latestVersion: result.latestVersion ?? null,
+      updateAvailable: result.updateAvailable ?? false,
       state: result.outcome === 'satisfied' ? 'satisfied' : 'checking',
       error: result.error ?? null,
     });

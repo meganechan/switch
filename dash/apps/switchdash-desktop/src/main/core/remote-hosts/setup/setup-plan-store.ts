@@ -90,6 +90,10 @@ function toStep(raw: unknown, sshHost: string): HostSetupStep {
     state: oneOf(STEP_STATES, value.state, 'step state', sshHost, LEGACY_STEP_STATES),
     outcome: value.outcome == null ? null : oneOf(OUTCOMES, value.outcome, 'outcome', sshHost),
     version: nullableString(value.version),
+    // Absent in plans written before update-awareness. Unknown latest and no
+    // known update is the honest reading of a row that predates the concept.
+    latestVersion: nullableString(value.latestVersion),
+    updateAvailable: value.updateAvailable === true,
     error: nullableString(value.error),
     output: nullableString(value.output),
     optional: value.optional === true,

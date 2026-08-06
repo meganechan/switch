@@ -37,6 +37,8 @@ function step(
     state,
     outcome: state === 'satisfied' ? 'satisfied' : 'missing',
     version: null,
+    latestVersion: null,
+    updateAvailable: false,
     error: null,
     output: null,
     optional: false,

@@ -20,6 +20,8 @@ function step(patch: Partial<HostSetupStep> = {}): HostSetupStep {
     state: 'pending',
     outcome: null,
     version: null,
+    latestVersion: null,
+    updateAvailable: false,
     error: null,
     output: null,
     optional: false,

@@ -29,6 +29,8 @@ function step(
     state,
     outcome: state === 'satisfied' ? 'satisfied' : null,
     version: null,
+    latestVersion: null,
+    updateAvailable: false,
     error: null,
     output: null,
     optional,

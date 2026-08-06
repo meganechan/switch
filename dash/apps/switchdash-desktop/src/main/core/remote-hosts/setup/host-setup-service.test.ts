@@ -2,18 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   getStatus: vi.fn(),
+  checkForUpdates: vi.fn(),
   listAgentTypeStatuses: vi.fn(),
   probe: vi.fn(),
   remoteDependencyDescriptor: vi.fn(),
   probeGhAuthStatus: vi.fn(),
+  getUpdateInfo: vi.fn(),
 }));
 
 vi.mock('@main/core/switch-setup/remote-switch-setup', () => ({
   getRemoteSwitchSetupService: () =>
     Promise.resolve({
       getStatus: mocks.getStatus,
+      checkForUpdates: mocks.checkForUpdates,
       listAgentTypeStatuses: mocks.listAgentTypeStatuses,
     }),
+}));
+
+vi.mock('@main/core/dependencies/agent-update-service', () => ({
+  agentUpdateService: { getUpdateInfo: mocks.getUpdateInfo },
 }));
 
 vi.mock('@main/core/dependencies/remote-dependency-manager', () => ({
@@ -64,6 +71,8 @@ function step(patch: Partial<HostSetupStep>): HostSetupStep {
     state: 'pending',
     outcome: null,
     version: null,
+    latestVersion: null,
+    updateAvailable: false,
     error: null,
     output: null,
     optional: false,
@@ -75,9 +84,24 @@ function step(patch: Partial<HostSetupStep>): HostSetupStep {
 
 const manager = { probe: mocks.probe } as unknown as HostDependencyManager;
 
+/** A full connector status, the shape the service always returns. */
+function status(patch: Record<string, unknown> = {}) {
+  return {
+    agentId: 'claude',
+    supported: true,
+    installed: true,
+    installedVersion: '0.7.7',
+    latestVersion: null,
+    updateAvailable: false,
+    refreshError: null,
+    ...patch,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.remoteDependencyDescriptor.mockReturnValue({ name: 'Claude Code' });
+  mocks.getUpdateInfo.mockReturnValue({ latestVersion: null, updateAvailable: false });
 });
 
 /**
@@ -91,23 +115,15 @@ beforeEach(() => {
  */
 describe('checking an agent-plugin step', () => {
   it('asks about its own agent type only', async () => {
-    mocks.getStatus.mockResolvedValue({
-      supported: true,
-      installed: true,
-      installedVersion: '1.0',
-    });
+    mocks.checkForUpdates.mockResolvedValue(status());
 
     await checkStep(SSH_HOST, manager, step({}));
 
-    expect(mocks.getStatus).toHaveBeenCalledExactlyOnceWith('claude');
+    expect(mocks.checkForUpdates).toHaveBeenCalledExactlyOnceWith('claude');
   });
 
   it('never enumerates the other agent types', async () => {
-    mocks.getStatus.mockResolvedValue({
-      supported: true,
-      installed: true,
-      installedVersion: '1.0',
-    });
+    mocks.checkForUpdates.mockResolvedValue(status());
 
     await checkStep(SSH_HOST, manager, step({}));
 
@@ -115,40 +131,94 @@ describe('checking an agent-plugin step', () => {
   });
 
   it('strips the plugin suffix to get the agent id', async () => {
-    mocks.getStatus.mockResolvedValue({ supported: true, installed: false });
+    mocks.checkForUpdates.mockResolvedValue(status({ installed: false }));
 
     await checkStep(SSH_HOST, manager, step({ id: 'codex:plugin' }));
 
-    expect(mocks.getStatus).toHaveBeenCalledWith('codex');
+    expect(mocks.checkForUpdates).toHaveBeenCalledWith('codex');
   });
 
   it('reports an installed connector as satisfied, carrying its version', async () => {
-    mocks.getStatus.mockResolvedValue({
-      supported: true,
-      installed: true,
-      installedVersion: '0.7.7',
-    });
+    mocks.checkForUpdates.mockResolvedValue(status({ installedVersion: '0.7.7' }));
 
     expect(await checkStep(SSH_HOST, manager, step({}))).toEqual({
       outcome: 'satisfied',
       version: '0.7.7',
+      latestVersion: null,
+      updateAvailable: false,
     });
   });
 
   it('reports an absent connector as missing', async () => {
-    mocks.getStatus.mockResolvedValue({ supported: true, installed: false });
+    mocks.checkForUpdates.mockResolvedValue(status({ installed: false }));
 
     expect(await checkStep(SSH_HOST, manager, step({}))).toEqual({ outcome: 'missing' });
   });
 
   it('reports unknown — not missing — for a type switchdash cannot drive', async () => {
     // "We cannot answer this" is not "it is not installed".
-    mocks.getStatus.mockResolvedValue({ supported: false, installed: false });
+    mocks.checkForUpdates.mockResolvedValue(status({ supported: false, installed: false }));
 
     const result = await checkStep(SSH_HOST, manager, step({}));
 
     expect(result.outcome).toBe('unknown');
     expect(result.error).toContain('no longer a known agent type');
+  });
+});
+
+/**
+ * A check that cannot see an update is a check that will report a stale
+ * connector as fine forever.
+ */
+describe('update detection', () => {
+  it('refreshes the catalog rather than reading what the host last fetched', async () => {
+    // `getStatus` reads the host's cached marketplace snapshot, which can be
+    // arbitrarily old; only `checkForUpdates` refreshes it first. Reading the
+    // cache would let a published update go unreported indefinitely.
+    mocks.checkForUpdates.mockResolvedValue(status());
+
+    await checkStep(SSH_HOST, manager, step({}));
+
+    expect(mocks.getStatus).not.toHaveBeenCalled();
+  });
+
+  it('carries an available connector update through', async () => {
+    mocks.checkForUpdates.mockResolvedValue(
+      status({ installedVersion: '0.7.6', latestVersion: '0.7.7', updateAvailable: true })
+    );
+
+    expect(await checkStep(SSH_HOST, manager, step({}))).toMatchObject({
+      outcome: 'satisfied',
+      latestVersion: '0.7.7',
+      updateAvailable: true,
+    });
+  });
+
+  it('does not claim an update when the latest version is unknowable', async () => {
+    // Null latest means "we could not tell", which is not "there is one" and
+    // not "you are current" either.
+    mocks.checkForUpdates.mockResolvedValue(status({ latestVersion: null }));
+
+    expect(await checkStep(SSH_HOST, manager, step({}))).toMatchObject({
+      latestVersion: null,
+      updateAvailable: false,
+    });
+  });
+
+  it('reports an agent CLI update from the shared coordinator', async () => {
+    // Latest-version data is host-agnostic, so the same service that answers
+    // for local agents answers here — no extra SSH to find it out.
+    mocks.probe.mockResolvedValue({ id: 'claude', status: 'installed', version: '2.1.0' });
+    mocks.getUpdateInfo.mockReturnValue({ latestVersion: '2.2.0', updateAvailable: true });
+
+    const result = await checkStep(
+      SSH_HOST,
+      manager,
+      step({ id: 'claude', kind: 'agent-cli', name: 'Claude Code' })
+    );
+
+    expect(mocks.getUpdateInfo).toHaveBeenCalledWith('claude', '2.1.0');
+    expect(result).toMatchObject({ latestVersion: '2.2.0', updateAvailable: true });
   });
 });
 
@@ -159,6 +229,6 @@ describe('checking a core-dependency step', () => {
     await checkStep(SSH_HOST, manager, step({ id: 'git', kind: 'core-dependency', name: 'Git' }));
 
     expect(mocks.probe).toHaveBeenCalledExactlyOnceWith('git');
-    expect(mocks.getStatus).not.toHaveBeenCalled();
+    expect(mocks.checkForUpdates).not.toHaveBeenCalled();
   });
 });

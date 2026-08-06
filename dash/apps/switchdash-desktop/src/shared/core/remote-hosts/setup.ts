@@ -87,6 +87,22 @@ export type HostSetupStep = {
   outcome: DependencyCheckOutcome | null;
   /** Detected version, when the probe found one. */
   version: string | null;
+  /**
+   * Version available to install, when that could be determined.
+   *
+   * Null means *unknown*, not "none newer" — the two are different and only one
+   * of them justifies telling someone they are up to date.
+   */
+  latestVersion: string | null;
+  /**
+   * True only when a newer version is known to exist. Never inferred from a
+   * missing `latestVersion`: not knowing is not evidence of currency.
+   *
+   * Deliberately does not make a step unsatisfied. An out-of-date connector
+   * still works, so an available update is information, not a blocker — a host
+   * is not "setup required" because something on it could be newer.
+   */
+  updateAvailable: boolean;
   /** Why this step failed. Null unless `state === 'failed'`. */
   error: string | null;
   /** Raw command output from a failed install — the detail users need. */

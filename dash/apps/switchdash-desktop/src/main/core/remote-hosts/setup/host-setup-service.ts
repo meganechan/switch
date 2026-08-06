@@ -7,7 +7,8 @@
  * per-host lifecycle (build, resume, run, skip, discard).
  */
 
-import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
+import type { DependencyId, HostDependencyManager } from '@switchdash/core/deps/runtime';
+import { agentUpdateService } from '@main/core/dependencies/agent-update-service';
 import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
 import { installOutput } from '@main/core/dependencies/install-output';
 import {
@@ -158,7 +159,14 @@ export async function checkStep(
     // discarding all but one ran each other type's CLI over SSH as a side
     // effect, so checking one row reported failures for a different row's
     // absent CLI — and cost two extra round trips per type to do it.
-    const status = await service.getStatus(agentId);
+    //
+    // `checkForUpdates` rather than `getStatus`: it refreshes the host's
+    // marketplace catalog first. `getStatus` reads whatever that host last
+    // fetched, which can be arbitrarily old, so an update could exist and go
+    // unreported indefinitely. A failed refresh does not throw — it returns the
+    // cached versions with `refreshError` set, and an update we could not
+    // confirm is simply not claimed.
+    const status = await service.checkForUpdates(agentId);
     if (!status.supported) {
       return {
         outcome: 'unknown',
@@ -166,12 +174,32 @@ export async function checkStep(
       };
     }
     return status.installed
-      ? { outcome: 'satisfied', version: status.installedVersion ?? null }
-      : { outcome: 'missing' };
+      ? {
+          outcome: 'satisfied',
+          version: status.installedVersion ?? null,
+          latestVersion: status.latestVersion,
+          updateAvailable: status.updateAvailable,
+        }
+      : // Nothing installed, so there is nothing to be out of date. What the
+        // marketplace advertises is install-time detail, not an update.
+        { outcome: 'missing' };
   }
 
   const state = await manager.probe(step.id);
-  return outcomeForDependency(state, Boolean(remoteDependencyDescriptor(step.id)?.minVersion));
+  const result = outcomeForDependency(
+    state,
+    Boolean(remoteDependencyDescriptor(step.id)?.minVersion)
+  );
+
+  // Latest-version data is host-agnostic — it comes from the release source,
+  // not the machine — so the same coordinator that answers for local agents
+  // answers here, given this host's own installed version. No extra SSH.
+  const update = agentUpdateService.getUpdateInfo(step.id as DependencyId, result.version ?? null);
+  return {
+    ...result,
+    latestVersion: update.latestVersion,
+    updateAvailable: update.updateAvailable,
+  };
 }
 
 /**
