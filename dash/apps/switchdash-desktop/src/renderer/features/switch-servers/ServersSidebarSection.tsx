@@ -55,11 +55,9 @@ export const ServersSidebarSection = observer(function ServersSidebarSection() {
     };
   }, [store]);
 
-  // Nothing registered yet — keep the sidebar uncluttered, but still expose a
-  // way to add the first server.
-  const empty = store.servers.length === 0;
-  // Offer to start a local server whenever there isn't one already, even if the
-  // user has remote servers registered.
+  // Adding a server — local or remote — is reached from the header's "+" only.
+  // A managed server still gets a placeholder row while it starts, so the list
+  // shows it before the record exists.
   const hasManagedServer = store.servers.some((s) => s.managed);
   // The selected server scopes the whole sidebar. When the list is collapsed the
   // rows are hidden, so surface the active server's name here to keep it clear
@@ -118,24 +116,6 @@ export const ServersSidebarSection = observer(function ServersSidebarSection() {
               always visible in the list — not only once it's healthy. */}
           {!hasManagedServer && localServerStore.phase !== 'stopped' && (
             <LocalServerPendingEntry onOpen={() => showAddServerModal({ mode: 'local' })} />
-          )}
-          {!hasManagedServer && localServerStore.phase === 'stopped' && (
-            <button
-              type="button"
-              onClick={() => showAddServerModal({ mode: 'local' })}
-              className="w-full px-3 py-1.5 text-left text-xs text-foreground-tertiary hover:text-foreground"
-            >
-              Start a local server…
-            </button>
-          )}
-          {empty && (
-            <button
-              type="button"
-              onClick={() => showAddServerModal({})}
-              className="w-full px-3 py-1.5 text-left text-xs text-foreground-tertiary-passive hover:text-foreground-tertiary"
-            >
-              Add a server…
-            </button>
           )}
         </SidebarMenu>
       )}
