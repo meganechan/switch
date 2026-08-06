@@ -240,10 +240,32 @@ export async function checkStep(
   // not the machine — so the same coordinator that answers for local agents
   // answers here, given this host's own installed version. No extra SSH.
   const update = agentUpdateService.getUpdateInfo(step.id as DependencyId, result.version ?? null);
+
+  // A newer version existing is not the same as switchdash being able to
+  // install it. Whether an installation can be driven at all depends on how it
+  // got there: `installationCanUpdate` says no for one whose provenance we
+  // could not confirm, because the update would run some package manager's
+  // command against files it does not own. The agents page has always applied
+  // that gate; this path compared versions and skipped it, so a host page could
+  // offer Update over an installation the manager then refuses outright with
+  // `no-update-strategy` — or, on a root-owned npm prefix, with EACCES. Either
+  // way the row bounced straight back to "Update available", which reads as the
+  // page being confused rather than the update being impossible.
+  const hostDependency = manager.getHostDependency(step.id as DependencyId);
+  const active = hostDependency
+    ? (agentUpdateService
+        .enrichHostDependency(step.id as DependencyId, hostDependency)
+        .installations.find((installation) => installation.isActive) ?? null)
+    : null;
+
   return {
     ...result,
     latestVersion: update.latestVersion,
-    updateAvailable: update.updateAvailable,
+    // Host detail is built asynchronously after the probe, so the very first
+    // check of a dependency may not have it yet. Withhold the claim rather than
+    // guess: the next check has it, and under-reporting an update is a great
+    // deal cheaper than offering one that cannot be carried out.
+    updateAvailable: active?.updateAvailable ?? false,
   };
 }
 

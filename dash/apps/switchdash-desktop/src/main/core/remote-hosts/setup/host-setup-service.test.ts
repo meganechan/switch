@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   checkForUpdates: vi.fn(),
   listAgentTypeStatuses: vi.fn(),
   probe: vi.fn(),
+  getHostDependency: vi.fn(),
+  enrichHostDependency: vi.fn(),
   remoteDependencyDescriptor: vi.fn(),
   probeGhAuthStatus: vi.fn(),
   getUpdateInfo: vi.fn(),
@@ -20,7 +22,10 @@ vi.mock('@main/core/switch-setup/remote-switch-setup', () => ({
 }));
 
 vi.mock('@main/core/dependencies/agent-update-service', () => ({
-  agentUpdateService: { getUpdateInfo: mocks.getUpdateInfo },
+  agentUpdateService: {
+    getUpdateInfo: mocks.getUpdateInfo,
+    enrichHostDependency: mocks.enrichHostDependency,
+  },
 }));
 
 vi.mock('@main/core/dependencies/remote-dependency-manager', () => ({
@@ -83,7 +88,24 @@ function step(patch: Partial<HostSetupStep>): HostSetupStep {
   };
 }
 
-const manager = { probe: mocks.probe } as unknown as HostDependencyManager;
+const manager = {
+  probe: mocks.probe,
+  getHostDependency: mocks.getHostDependency,
+} as unknown as HostDependencyManager;
+
+/** An installation as the manager reports it, enriched with update info. */
+function installation(patch: Record<string, unknown> = {}) {
+  return {
+    realpath: '/usr/lib/node_modules/@openai/codex/bin/codex.js',
+    version: '2.1.0',
+    isActive: true,
+    manageable: true,
+    latestVersion: '2.2.0',
+    updateAvailable: true,
+    provenance: { kind: 'npm', confidence: 'confirmed' },
+    ...patch,
+  };
+}
 
 /** A full connector status, the shape the service always returns. */
 function status(patch: Record<string, unknown> = {}) {
@@ -211,6 +233,8 @@ describe('update detection', () => {
     // for local agents answers here — no extra SSH to find it out.
     mocks.probe.mockResolvedValue({ id: 'claude', status: 'installed', version: '2.1.0' });
     mocks.getUpdateInfo.mockReturnValue({ latestVersion: '2.2.0', updateAvailable: true });
+    mocks.getHostDependency.mockReturnValue({ installations: [installation()] });
+    mocks.enrichHostDependency.mockReturnValue({ installations: [installation()] });
 
     const result = await checkStep(
       SSH_HOST,
@@ -301,5 +325,88 @@ describe('readAllSetupPlans', () => {
     await readAllSetupPlans();
 
     expect(saveSetupPlan).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A newer version existing is not the same as being able to install it.
+ *
+ * Reported from a real host: Codex read "Update available", Update failed, and
+ * the row went back to "Update available". The version comparison was right —
+ * a newer Codex does exist — but the installation lived in a root-owned npm
+ * prefix that switchdash cannot write to, so the update could never have run.
+ * The agents page gates this through `installationCanUpdate`; this path did not.
+ */
+describe('offering a CLI update only when it can be carried out', () => {
+  const cliStep = () =>
+    step({ id: 'codex', kind: 'agent-cli', name: 'Codex', dependsOn: ['node'] });
+
+  beforeEach(() => {
+    mocks.probe.mockResolvedValue({ id: 'codex', status: 'installed', version: '0.146.0' });
+    mocks.getUpdateInfo.mockReturnValue({ latestVersion: '0.147.0', updateAvailable: true });
+  });
+
+  it('offers the update when the installation is one we can drive', async () => {
+    const enriched = { installations: [installation({ updateAvailable: true })] };
+    mocks.getHostDependency.mockReturnValue(enriched);
+    mocks.enrichHostDependency.mockReturnValue(enriched);
+
+    expect(await checkStep(SSH_HOST, manager, cliStep())).toMatchObject({
+      updateAvailable: true,
+    });
+  });
+
+  it('withholds it when the installation is not manageable', async () => {
+    // Same version difference, but nothing switchdash could do about it.
+    const enriched = {
+      installations: [installation({ manageable: false, updateAvailable: false })],
+    };
+    mocks.getHostDependency.mockReturnValue(enriched);
+    mocks.enrichHostDependency.mockReturnValue(enriched);
+
+    expect(await checkStep(SSH_HOST, manager, cliStep())).toMatchObject({
+      updateAvailable: false,
+    });
+  });
+
+  it('still reports the newer version it found', async () => {
+    // Withholding the *offer* is not a reason to withhold the fact. The sheet
+    // can still say what exists upstream.
+    const enriched = {
+      installations: [installation({ manageable: false, updateAvailable: false })],
+    };
+    mocks.getHostDependency.mockReturnValue(enriched);
+    mocks.enrichHostDependency.mockReturnValue(enriched);
+
+    expect(await checkStep(SSH_HOST, manager, cliStep())).toMatchObject({
+      latestVersion: '0.147.0',
+    });
+  });
+
+  it('withholds it when the host detail has not been built yet', async () => {
+    // Host detail is populated asynchronously after the probe. Not knowing
+    // whether an update can be performed is not grounds for offering it.
+    mocks.getHostDependency.mockReturnValue(undefined);
+
+    expect(await checkStep(SSH_HOST, manager, cliStep())).toMatchObject({
+      updateAvailable: false,
+    });
+  });
+
+  it('judges the active installation, not whichever comes first', async () => {
+    // Several copies of a CLI on one PATH is ordinary. The one that answers is
+    // the one whose updateability matters.
+    const enriched = {
+      installations: [
+        installation({ isActive: false, manageable: true, updateAvailable: true }),
+        installation({ isActive: true, manageable: false, updateAvailable: false }),
+      ],
+    };
+    mocks.getHostDependency.mockReturnValue(enriched);
+    mocks.enrichHostDependency.mockReturnValue(enriched);
+
+    expect(await checkStep(SSH_HOST, manager, cliStep())).toMatchObject({
+      updateAvailable: false,
+    });
   });
 });
