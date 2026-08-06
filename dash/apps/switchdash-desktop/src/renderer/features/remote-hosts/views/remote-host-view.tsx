@@ -115,157 +115,165 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
     return row ? { kind: 'agent-type', row } : null;
   }, [sheetTarget, prerequisites, agentTypes]);
 
+  // The workspace gives every main panel a fixed, `overflow-hidden` box, so a
+  // view that does not scroll itself simply clips. This page grows without
+  // bound — the gh device-flow terminal alone is tall enough to push the agent
+  // types past the bottom of the window with no way to reach them.
   return (
-    <div className="space-y-6 px-8 pb-10">
-      <PageHeader
-        sticky
-        title={host?.name ?? sshHost}
-        description={`Remote host · ${sshHost}. Auth uses your SSH agent — switchdash stores no credentials.`}
-      >
-        <div className="flex items-center gap-2">
-          {!blocked && (
-            <span className="flex items-center gap-2">
-              <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
-              {status.readinessKnown && status.total > 0 && (
-                <span className="text-xs text-foreground-muted">
-                  {status.done} of {status.total} prerequisites
-                </span>
-              )}
-            </span>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => navigate('remoteHosts')}>
-            <ArrowLeft className="size-4" /> All hosts
-          </Button>
-          {!blocked && (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={busy}
-              onClick={() => recheck.mutate()}
-              aria-label="Re-check this host"
-            >
-              <RefreshCw className={`size-3.5 ${recheck.isPending ? 'animate-spin' : ''}`} />
-              Re-check
+    <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-auto bg-background">
+      <div className="space-y-6 px-8 pb-10">
+        <PageHeader
+          sticky
+          title={host?.name ?? sshHost}
+          description={`Remote host · ${sshHost}. Auth uses your SSH agent — switchdash stores no credentials.`}
+        >
+          <div className="flex items-center gap-2">
+            {!blocked && (
+              <span className="flex items-center gap-2">
+                <StatusBadge tone={status.tone}>{status.label}</StatusBadge>
+                {status.readinessKnown && status.total > 0 && (
+                  <span className="text-xs text-foreground-muted">
+                    {status.done} of {status.total} prerequisites
+                  </span>
+                )}
+              </span>
+            )}
+            <Button size="sm" variant="ghost" onClick={() => navigate('remoteHosts')}>
+              <ArrowLeft className="size-4" /> All hosts
             </Button>
-          )}
-        </div>
-      </PageHeader>
+            {!blocked && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy}
+                onClick={() => recheck.mutate()}
+                aria-label="Re-check this host"
+              >
+                <RefreshCw className={`size-3.5 ${recheck.isPending ? 'animate-spin' : ''}`} />
+                Re-check
+              </Button>
+            )}
+          </div>
+        </PageHeader>
 
-      {blocked ? (
-        <HostUnreachablePanel reachability={reachability} />
-      ) : (
-        <>
-          {/*
+        {blocked ? (
+          <HostUnreachablePanel reachability={reachability} />
+        ) : (
+          <>
+            {/*
             An operation that stops because the host went away is reported as
             exactly that, rather than being blamed on whichever step it touched.
           */}
-          {installStep.isError && (
-            <p className="text-destructive text-xs">
-              Could not install: {(installStep.error as Error).message}
-            </p>
-          )}
-          {recheck.isError && (
-            <p className="text-destructive text-xs">
-              Could not check this host: {(recheck.error as Error).message}
-            </p>
-          )}
-          {prepare.isError && (
-            <p className="text-destructive text-xs">
-              Could not work out what this host needs: {(prepare.error as Error).message}
-            </p>
-          )}
+            {installStep.isError && (
+              <p className="text-destructive text-xs">
+                Could not install: {(installStep.error as Error).message}
+              </p>
+            )}
+            {recheck.isError && (
+              <p className="text-destructive text-xs">
+                Could not check this host: {(recheck.error as Error).message}
+              </p>
+            )}
+            {prepare.isError && (
+              <p className="text-destructive text-xs">
+                Could not work out what this host needs: {(prepare.error as Error).message}
+              </p>
+            )}
 
-          {plan.isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-foreground-muted">
-              <Spinner /> Loading…
-            </div>
-          ) : prerequisites.length === 0 && agentTypes.length === 0 ? (
-            <p className="text-sm text-foreground-muted">
-              Nothing known about this host yet. Re-check to see what it has.
-            </p>
-          ) : (
-            <div className="flex flex-col">
-              {prerequisites.length > 0 && (
-                <section>
-                  <SectionLabel count={prerequisites.length}>Prerequisites</SectionLabel>
-                  {prerequisites.map((step) => (
-                    <div key={step.id} className="w-full py-0.5">
-                      <PrerequisiteRow
-                        step={step}
-                        plan={plan.data ?? null}
-                        isCurrent={step.id === currentStepId}
-                        installing={installingStepId === step.id}
-                        activity={activityFor(step.id)}
-                        authenticating={authenticatingGh && step.kind === 'gh-auth'}
-                        onInstall={() => installStep.mutate(step.id)}
-                        onAuthenticate={() => setAuthenticatingGh(true)}
-                        onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
-                      />
-                      {/*
+            {plan.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-foreground-muted">
+                <Spinner /> Loading…
+              </div>
+            ) : prerequisites.length === 0 && agentTypes.length === 0 ? (
+              <p className="text-sm text-foreground-muted">
+                Nothing known about this host yet. Re-check to see what it has.
+              </p>
+            ) : (
+              <div className="flex flex-col">
+                {prerequisites.length > 0 && (
+                  <section>
+                    <SectionLabel count={prerequisites.length}>Prerequisites</SectionLabel>
+                    {prerequisites.map((step) => (
+                      <div key={step.id} className="w-full py-0.5">
+                        <PrerequisiteRow
+                          step={step}
+                          plan={plan.data ?? null}
+                          isCurrent={step.id === currentStepId}
+                          installing={installingStepId === step.id}
+                          activity={activityFor(step.id)}
+                          authenticating={authenticatingGh && step.kind === 'gh-auth'}
+                          onInstall={() => installStep.mutate(step.id)}
+                          onAuthenticate={() => setAuthenticatingGh(true)}
+                          onOpen={() => setSheetTarget({ kind: 'prerequisite', step })}
+                        />
+                        {/*
                         Opens against the row it belongs to rather than at the
                         foot of the page: the terminal is the continuation of
                         that one row's Sign in, and appending it below
                         everything else meant scrolling away from the thing you
                         just clicked to find it.
                       */}
-                      {authenticatingGh && step.kind === 'gh-auth' && (
-                        <div className="px-3 pt-2 pb-1">
-                          <GhAuthPanel
-                            sshHost={sshHost}
-                            onDone={() => {
-                              setAuthenticatingGh(false);
-                              recheck.mutate();
-                            }}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </section>
-              )}
+                        {authenticatingGh && step.kind === 'gh-auth' && (
+                          <div className="px-3 pt-2 pb-1">
+                            <GhAuthPanel
+                              sshHost={sshHost}
+                              onDone={() => {
+                                setAuthenticatingGh(false);
+                                recheck.mutate();
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </section>
+                )}
 
-              {agentTypes.length > 0 && (
-                <section className="pt-2">
-                  <SectionLabel count={agentTypes.length}>Agent types</SectionLabel>
-                  {agentTypes.map((row) => (
-                    <div key={row.agentId} className="w-full py-0.5">
-                      <AgentTypeRowItem
-                        row={row}
-                        isCurrent={row.cli.id === currentStepId || row.plugin?.id === currentStepId}
-                        installingStepId={installingStepId}
-                        activityFor={activityFor}
-                        onInstall={(stepId) => installStep.mutate(stepId)}
-                        onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
-                      />
-                    </div>
-                  ))}
-                </section>
-              )}
-            </div>
-          )}
+                {agentTypes.length > 0 && (
+                  <section className="pt-2">
+                    <SectionLabel count={agentTypes.length}>Agent types</SectionLabel>
+                    {agentTypes.map((row) => (
+                      <div key={row.agentId} className="w-full py-0.5">
+                        <AgentTypeRowItem
+                          row={row}
+                          isCurrent={
+                            row.cli.id === currentStepId || row.plugin?.id === currentStepId
+                          }
+                          installingStepId={installingStepId}
+                          activityFor={activityFor}
+                          onInstall={(stepId) => installStep.mutate(stepId)}
+                          onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
+                        />
+                      </div>
+                    ))}
+                  </section>
+                )}
+              </div>
+            )}
 
-          <SetupDetailSheet
-            target={liveTarget}
-            sshHost={sshHost}
-            plan={plan.data ?? null}
-            icon={
-              liveTarget?.kind === 'prerequisite' ? (
-                <PrerequisiteIcon step={liveTarget.step} size={24} />
-              ) : null
-            }
-            activityFor={activityFor}
-            onClose={() => setSheetTarget(null)}
-            onInstall={(stepId) => installStep.mutate(stepId)}
-            installingStepId={installingStepId}
-            onSkip={(stepId) => skip.mutate(stepId)}
-            skippingStepId={skip.isPending ? (skip.variables ?? null) : null}
-            onAuthenticate={() => {
-              setSheetTarget(null);
-              setAuthenticatingGh(true);
-            }}
-          />
-        </>
-      )}
+            <SetupDetailSheet
+              target={liveTarget}
+              sshHost={sshHost}
+              plan={plan.data ?? null}
+              icon={
+                liveTarget?.kind === 'prerequisite' ? (
+                  <PrerequisiteIcon step={liveTarget.step} size={24} />
+                ) : null
+              }
+              activityFor={activityFor}
+              onClose={() => setSheetTarget(null)}
+              onInstall={(stepId) => installStep.mutate(stepId)}
+              installingStepId={installingStepId}
+              onSkip={(stepId) => skip.mutate(stepId)}
+              skippingStepId={skip.isPending ? (skip.variables ?? null) : null}
+              onAuthenticate={() => {
+                setSheetTarget(null);
+                setAuthenticatingGh(true);
+              }}
+            />
+          </>
+        )}
+      </div>
     </div>
   );
 });

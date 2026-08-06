@@ -152,85 +152,90 @@ export const RemoteHostsMainPanel = observer(function RemoteHostsMainPanel() {
       </div>
     ));
 
+  // Same reason as the host page: the workspace's main panel is a fixed
+  // `overflow-hidden` box, so the list has to own its own scrolling or it clips
+  // once there are more hosts than fit.
   return (
-    <div className="space-y-4 px-8 pb-10">
-      <PageHeader
-        sticky
-        title="Remote hosts"
-        description="SSH hosts that can run agents. Each host has its own page for setup and for the agent types installed on it."
-      >
-        <div className="flex items-center justify-between gap-2">
-          <ToggleGroup
-            multiple={false}
-            value={[filter]}
-            onValueChange={([value]) => {
-              if (value) setFilter(value as HostFilter);
-            }}
-          >
-            <ToggleGroupItem value="all">All</ToggleGroupItem>
-            <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
-            <ToggleGroupItem value="attention">Needs setup</ToggleGroupItem>
-          </ToggleGroup>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() =>
-              void showAddHost({
-                onboarded: sshHosts,
-                onAdded: (sshHost) => {
-                  invalidate();
-                  openHost(sshHost);
-                },
-              })
-            }
-          >
-            <Plus className="size-4" /> Add host
-          </Button>
-        </div>
-      </PageHeader>
+    <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-auto bg-background">
+      <div className="space-y-4 px-8 pb-10">
+        <PageHeader
+          sticky
+          title="Remote hosts"
+          description="SSH hosts that can run agents. Each host has its own page for setup and for the agent types installed on it."
+        >
+          <div className="flex items-center justify-between gap-2">
+            <ToggleGroup
+              multiple={false}
+              value={[filter]}
+              onValueChange={([value]) => {
+                if (value) setFilter(value as HostFilter);
+              }}
+            >
+              <ToggleGroupItem value="all">All</ToggleGroupItem>
+              <ToggleGroupItem value="ready">Ready</ToggleGroupItem>
+              <ToggleGroupItem value="attention">Needs setup</ToggleGroupItem>
+            </ToggleGroup>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                void showAddHost({
+                  onboarded: sshHosts,
+                  onAdded: (sshHost) => {
+                    invalidate();
+                    openHost(sshHost);
+                  },
+                })
+              }
+            >
+              <Plus className="size-4" /> Add host
+            </Button>
+          </div>
+        </PageHeader>
 
-      {isLoading ? (
-        <div className="flex items-center gap-2 text-sm text-foreground-muted">
-          <Spinner /> Loading hosts…
-        </div>
-      ) : list.length === 0 ? (
-        <p className="text-sm text-foreground-muted">
-          No remote hosts yet. Add one above to get started.
-        </p>
-      ) : filter === 'ready' ? (
-        ready.length > 0 ? (
-          <div>
-            <SectionLabel count={ready.length}>Ready</SectionLabel>
-            {renderRows(ready)}
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-foreground-muted">
+            <Spinner /> Loading hosts…
           </div>
-        ) : (
-          <p className="text-sm text-foreground-muted">No host is ready yet.</p>
-        )
-      ) : filter === 'attention' ? (
-        attention.length > 0 ? (
-          <div>
-            <SectionLabel count={attention.length}>Needs setup</SectionLabel>
-            {renderRows(attention)}
-          </div>
-        ) : (
-          <p className="text-sm text-foreground-muted">Every host is ready.</p>
-        )
-      ) : (
-        <div className="flex flex-col">
-          {attention.length > 0 && (
-            <section>
-              <SectionLabel count={attention.length}>Needs setup</SectionLabel>
-              {renderRows(attention)}
-            </section>
-          )}
-          {ready.length > 0 && (
-            <section className="pt-2">
+        ) : list.length === 0 ? (
+          <p className="text-sm text-foreground-muted">
+            No remote hosts yet. Add one above to get started.
+          </p>
+        ) : filter === 'ready' ? (
+          ready.length > 0 ? (
+            <div>
               <SectionLabel count={ready.length}>Ready</SectionLabel>
               {renderRows(ready)}
-            </section>
-          )}
-        </div>
-      )}
+            </div>
+          ) : (
+            <p className="text-sm text-foreground-muted">No host is ready yet.</p>
+          )
+        ) : filter === 'attention' ? (
+          attention.length > 0 ? (
+            <div>
+              <SectionLabel count={attention.length}>Needs setup</SectionLabel>
+              {renderRows(attention)}
+            </div>
+          ) : (
+            <p className="text-sm text-foreground-muted">Every host is ready.</p>
+          )
+        ) : (
+          <div className="flex flex-col">
+            {attention.length > 0 && (
+              <section>
+                <SectionLabel count={attention.length}>Needs setup</SectionLabel>
+                {renderRows(attention)}
+              </section>
+            )}
+            {ready.length > 0 && (
+              <section className="pt-2">
+                <SectionLabel count={ready.length}>Ready</SectionLabel>
+                {renderRows(ready)}
+              </section>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 });
