@@ -185,12 +185,43 @@ describe('resolveReadiness — the agent-creation gate', () => {
       expect(readiness.missing).toEqual(['node']);
     });
 
-    it('does not hold an unmanaged agent type against a ready host', () => {
-      // A type whose connector switchdash does not manage has no steps; there is
-      // nothing type-specific to satisfy, so the host's verdict stands.
+    /**
+     * Reversed deliberately (CHOO-1809). This previously asserted that a type
+     * with no steps was "not held against a ready host", on the reading that
+     * there was nothing type-specific to satisfy.
+     *
+     * That reading was wrong in the direction this whole gate exists to prevent.
+     * No steps does not mean nothing to satisfy — it means nobody looked for
+     * this type's CLI or its Switch connector. An agent whose connector is
+     * absent starts and has no Switch tools, which is precisely the silent
+     * failure being designed out. Louis hit it: a host reading Ready let an
+     * agent be created for a type that was not set up on it.
+     */
+    it('refuses a type the plan has never looked for, even on a ready host', () => {
       const p = plan([step('git', 'satisfied')]);
 
-      expect(resolveReadiness(statusFor(p, 'mistral'), p, 'mistral', false).blocked).toBe(false);
+      const readiness = resolveReadiness(statusFor(p, 'mistral'), p, 'mistral', false);
+
+      expect(readiness.blocked).toBe(true);
+      expect(readiness.scope).toBe('agent-type');
+    });
+
+    it('names nothing as missing when the truth is that nothing was checked', () => {
+      // Listing a dependency here would invent a finding. The notice reads off
+      // the empty list to say "never checked" rather than "X is missing".
+      const p = plan([step('git', 'satisfied')]);
+
+      expect(resolveReadiness(statusFor(p, 'mistral'), p, 'mistral', false).missing).toEqual([]);
+    });
+
+    it('still allows a type the plan checked and found complete', () => {
+      const p = plan([
+        step('git', 'satisfied'),
+        step('claude', 'satisfied', 'agent-cli'),
+        step('claude:plugin', 'satisfied', 'agent-plugin'),
+      ]);
+
+      expect(resolveReadiness(statusFor(p, 'claude'), p, 'claude', false).blocked).toBe(false);
     });
   });
 });

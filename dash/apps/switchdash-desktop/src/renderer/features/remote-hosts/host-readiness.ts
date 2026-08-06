@@ -8,6 +8,7 @@
 
 import type { HostStatus } from '@shared/core/remote-hosts/host-status';
 import {
+  agentTypeSteps,
   outstandingRequiredHostSteps,
   outstandingRequiredStepsFor,
   type HostSetupPlan,
@@ -57,6 +58,18 @@ export function resolveReadiness(
 ): HostReadiness {
   if (!status) return READY;
   if (probing) return { blocked: false, checking: true, missing: [], scope: null };
+
+  // A chosen agent type with no steps in the plan is one nobody has looked for.
+  // `deriveAgentTypeStatus` falls back to the host's verdict there, which is
+  // correct when describing the *host* and wrong as permission to create: it
+  // means this type's CLI and connector were never checked. An agent whose
+  // connector is absent starts with no Switch tools at all, which is the
+  // failure this gate exists to prevent — and "we never looked" is not evidence
+  // against it happening.
+  if (status.kind === 'ready' && agentId && plan && agentTypeSteps(plan, agentId).length === 0) {
+    return { blocked: true, checking: false, missing: [], scope: 'agent-type' };
+  }
+
   if (status.kind !== 'setup-required') return READY;
   if (!plan) return { blocked: true, checking: false, missing: [], scope: 'host' };
 

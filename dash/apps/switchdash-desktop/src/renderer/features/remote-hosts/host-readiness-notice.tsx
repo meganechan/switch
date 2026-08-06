@@ -101,12 +101,32 @@ export const HostReadinessNotice = observer(function HostReadinessNotice({
       <div className="flex min-w-0 flex-col gap-1.5">
         <span>
           <span className="font-medium">{sshHost}</span>{' '}
-          {readiness.scope === 'agent-type'
-            ? 'is ready, but is not set up for this agent type'
-            : 'is not set up to run agents'}
-          {readiness.missing.length > 0 ? `: ${readiness.missing.join(', ')} ` : ' '}
-          {readiness.missing.length === 1 ? 'is missing.' : 'are missing.'} An agent created here
-          would fail to start.
+          {/*
+            Two different messages, because "we looked and X is missing" and "we
+            never looked" are different facts. Reading the second as the first
+            invented a missing dependency; reading it as ready is what let an
+            agent be created for a type nobody had checked for.
+          */}
+          {readiness.missing.length > 0 ? (
+            <>
+              {readiness.scope === 'agent-type'
+                ? 'is ready, but is not set up for this agent type'
+                : 'is not set up to run agents'}
+              {`: ${readiness.missing.join(', ')} `}
+              {readiness.missing.length === 1 ? 'is missing.' : 'are missing.'} An agent created
+              here would fail to start.
+            </>
+          ) : readiness.scope === 'agent-type' ? (
+            <>
+              has never been checked for this agent type, so there is no telling whether it can run
+              one. Check the host, then try again.
+            </>
+          ) : (
+            <>
+              has never been checked, so there is no telling whether it can run agents. Check the
+              host, then try again.
+            </>
+          )}
         </span>
         <Button
           size="sm"
