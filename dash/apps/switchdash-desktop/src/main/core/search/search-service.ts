@@ -1,10 +1,9 @@
 import { eq } from 'drizzle-orm';
 import { db, sqlite } from '@main/db/client';
-import { agents, locations, sessions } from '@main/db/schema';
+import { agents, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { ALL_COMMAND_DEFS } from '@shared/commands';
 import type { Agent } from '@shared/core/agents/agents';
-import type { Location } from '@shared/core/locations/locations';
 import type {
   CommandPaletteQuery,
   SearchItem,
@@ -13,7 +12,6 @@ import type {
 } from '@shared/core/search';
 import type { Session } from '@shared/core/sessions/sessions';
 import { agentEvents } from '../agents/agent-events';
-import { locationEvents } from '../locations/location-events';
 import { sessionHooks } from '../sessions/session-hooks';
 import { sessionService } from '../sessions/session-service';
 import { locationFileIndexService } from './location-file-index-service';
@@ -42,11 +40,6 @@ class SearchService {
     // Row deletions outside the sessionService path (e.g. the remote-session
     // reconciler pruning a VM session) must also leave the index.
     sessionHooks.on('session:deleted', (sessionId) => this.removeByType('session', sessionId));
-
-    locationEvents.on('location:created', (location) => this.upsertLocation(location));
-    locationEvents.on('location:deleted', (locationId) =>
-      this.removeByType('location', locationId)
-    );
 
     agentEvents.on('agent:created', (agent) => this.upsertAgent(agent));
     agentEvents.on('agent:updated', (agent) => this.upsertAgent(agent));
@@ -211,17 +204,6 @@ class SearchService {
     }
   }
 
-  private upsertLocation(location: Location): void {
-    try {
-      this.replaceItem('location', location.id, null, location.name, location.dir);
-    } catch (e) {
-      log.warn('SearchService: upsertLocation failed', {
-        locationId: location.id,
-        error: String(e),
-      });
-    }
-  }
-
   private removeByType(itemType: string, itemId: string): void {
     try {
       sqlite
@@ -268,7 +250,6 @@ class SearchService {
         .from(sessions)
         .innerJoin(agents, eq(sessions.agentId, agents.id))
         .all();
-      const allLocations = db.select().from(locations).all();
       const allAgents = db
         .select({
           id: agents.id,
@@ -289,9 +270,6 @@ class SearchService {
           if (t.archivedAt) continue;
           upsertStmt.run('session', t.id, t.locationId, null, t.title, '');
         }
-        for (const l of allLocations) {
-          upsertStmt.run('location', l.id, null, null, l.name, l.dir);
-        }
         for (const a of allAgents) {
           upsertStmt.run('agent', a.id, a.locationId, null, a.name, a.providerId);
         }
@@ -299,7 +277,6 @@ class SearchService {
 
       log.info('SearchService: backfilled search index', {
         sessions: allSessions.filter((t) => !t.archivedAt).length,
-        locations: allLocations.length,
         agents: allAgents.length,
       });
     } catch (e) {

@@ -1,10 +1,17 @@
 /**
- * `'room'` is produced by the renderer, not the search service: rooms are not
- * mirrored into SQLite (the Switch server is their source of truth), so they are
- * matched against the already-loaded `switchRoomsStore` and rendered through the
- * same item shape as everything else.
+ * Two populations, one item shape.
+ *
+ * `'session' | 'command' | 'file' | 'agent'` come from the SQLite FTS index —
+ * high-cardinality local content worth indexing.
+ *
+ * `'room' | 'server' | 'host'` are matched in the renderer against sets it has
+ * already loaded. Rooms are not mirrored into SQLite at all (the Switch server
+ * owns them); servers and hosts are local tables, but small ones with no
+ * lifecycle events, so indexing them would mean inventing change notifications
+ * whose only job is to stop the index going stale. Matching a handful of rows
+ * in the renderer is always fresh and has nothing to invalidate.
  */
-export type SearchItemKind = 'session' | 'location' | 'command' | 'file' | 'agent' | 'room';
+export type SearchItemKind = 'session' | 'command' | 'file' | 'agent' | 'room' | 'server' | 'host';
 
 export interface SearchItem {
   kind: SearchItemKind;

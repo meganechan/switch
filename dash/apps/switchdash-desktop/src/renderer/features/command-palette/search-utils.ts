@@ -1,5 +1,5 @@
-import type { SearchItem } from '@shared/core/search';
-import type { RemoteRoomSummary } from '@shared/core/switch-servers/switch-servers';
+import type { SearchItem, SearchItemKind } from '@shared/core/search';
+import type { RemoteRoomSummary, SwitchServer } from '@shared/core/switch-servers/switch-servers';
 
 /**
  * Re-ranks FTS5 results by boosting items belonging to the active location.
@@ -18,49 +18,96 @@ export function applyContextAffinity(
   });
 }
 
-/** Rooms shown for one query. Enough to be useful, few enough that they cannot
- *  crowd out the rest of the palette. */
-const ROOM_RESULT_LIMIT = 8;
+/** Per-kind cap for renderer-matched results. Enough to be useful, few enough
+ *  that one kind cannot crowd out the rest of the palette. */
+const RENDERER_RESULT_LIMIT = 8;
 
 /**
- * Matches Switch rooms for the palette.
+ * Rank one renderer-matched candidate, or null when the query does not match.
  *
- * Rooms are not in the FTS index — the Switch server owns them and switchdash
- * deliberately does not mirror them into SQLite — so they are matched here
- * against the rooms already loaded in `switchRoomsStore`. Two consequences worth
- * knowing:
+ * `score` orders these against each other and nothing else. It is an ordinal,
+ * not a BM25 rank, so renderer-matched kinds render in their own groups rather
+ * than merged into the indexed results — the two number spaces are not
+ * comparable, and pretending otherwise would quietly corrupt the ordering of
+ * both.
  *
- * - Matching is a plain case-insensitive substring, so rooms are findable at one
- *   or two characters, below the trigram tokenizer's three-character floor that
- *   the indexed kinds are subject to.
- * - `score` orders rooms against each other and nothing else. It is an ordinal,
- *   not a BM25 rank, so these items are rendered in their own group rather than
- *   merged into the ranked list — the two number spaces are not comparable and
- *   pretending otherwise would quietly corrupt the ordering of both.
+ * Matching is a plain case-insensitive substring, so these kinds answer one- and
+ * two-character queries, below the trigram tokenizer's three-character floor
+ * that the indexed kinds are subject to.
+ */
+function rank(haystack: string, query: string): number | null {
+  const at = haystack.toLowerCase().indexOf(query);
+  if (at === -1) return null;
+  // A name that starts with the query beats one that merely contains it; ties
+  // break on the shorter name, which is the more exact match.
+  return at === 0 ? -haystack.length : 1000 + at;
+}
+
+function finalise(items: SearchItem[]): SearchItem[] {
+  return items
+    .sort((a, b) => a.score - b.score || a.title.localeCompare(b.title))
+    .slice(0, RENDERER_RESULT_LIMIT);
+}
+
+function item(
+  kind: SearchItemKind,
+  id: string,
+  title: string,
+  subtitle: string,
+  score: number
+): SearchItem {
+  return { kind, id, locationId: null, sessionId: null, title, subtitle, score };
+}
+
+/**
+ * Matches Switch rooms, across every server rather than the active one — you
+ * search because you do not know where a thing is. Selecting one switches the
+ * active server so the sidebar follows.
  */
 export function matchRooms(rooms: RemoteRoomSummary[], query: string): SearchItem[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
 
-  return rooms
-    .flatMap((room) => {
-      const name = room.name.toLowerCase();
-      const at = name.indexOf(q);
-      if (at === -1) return [];
-      return [
-        {
-          kind: 'room' as const,
-          id: room.id,
-          locationId: null,
-          sessionId: null,
-          title: room.name,
-          subtitle: room.description,
-          // A name that starts with the query beats one that merely contains it;
-          // ties break on the shorter name, which is the more exact match.
-          score: at === 0 ? -room.name.length : 1000 + at,
-        },
-      ];
+  return finalise(
+    rooms.flatMap((room) => {
+      const score = rank(room.name, q);
+      return score === null ? [] : [item('room', room.id, room.name, room.description, score)];
     })
-    .sort((a, b) => a.score - b.score || a.title.localeCompare(b.title))
-    .slice(0, ROOM_RESULT_LIMIT);
+  );
+}
+
+/** Matches Switch servers. Also matches on gateway URL, since a server is as
+ *  often recognised by where it lives as by what it was named. */
+export function matchServers(servers: SwitchServer[], query: string): SearchItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  return finalise(
+    servers.flatMap((server) => {
+      const score = rank(server.name, q) ?? rank(server.gatewayUrl, q);
+      return score === null
+        ? []
+        : [item('server', server.id, server.name, server.gatewayUrl, score)];
+    })
+  );
+}
+
+/**
+ * Matches onboarded remote hosts. The SSH alias is the host's identity (it is
+ * the primary key), so it is matched as well as the display name — the alias is
+ * usually what someone remembers.
+ */
+export function matchHosts(
+  hosts: { sshHost: string; name: string }[],
+  query: string
+): SearchItem[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+
+  return finalise(
+    hosts.flatMap((host) => {
+      const score = rank(host.name, q) ?? rank(host.sshHost, q);
+      return score === null ? [] : [item('host', host.sshHost, host.name, host.sshHost, score)];
+    })
+  );
 }

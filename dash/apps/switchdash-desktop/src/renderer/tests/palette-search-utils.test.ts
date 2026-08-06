@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { applyContextAffinity, matchRooms } from '@renderer/features/command-palette/search-utils';
+import {
+  applyContextAffinity,
+  matchHosts,
+  matchRooms,
+  matchServers,
+} from '@renderer/features/command-palette/search-utils';
 import type { SearchItem } from '@shared/core/search';
-import type { RemoteRoomSummary } from '@shared/core/switch-servers/switch-servers';
+import type { RemoteRoomSummary, SwitchServer } from '@shared/core/switch-servers/switch-servers';
 
 function room(over: Pick<RemoteRoomSummary, 'id' | 'name'>): RemoteRoomSummary {
   return {
@@ -66,6 +71,78 @@ describe('matchRooms', () => {
   it('caps how much of the palette rooms can take', () => {
     const many = Array.from({ length: 30 }, (_, i) => room({ id: `r${i}`, name: `room ${i}` }));
     expect(matchRooms(many, 'room').length).toBeLessThanOrEqual(8);
+  });
+});
+
+function server(over: Pick<SwitchServer, 'id' | 'name'> & Partial<SwitchServer>): SwitchServer {
+  return {
+    gatewayUrl: 'https://gateway.example',
+    apiUrl: 'https://api.example',
+    managed: false,
+    managementKind: null,
+    sshHost: null,
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    ...over,
+  } as SwitchServer;
+}
+
+describe('matchServers', () => {
+  const SERVERS = [
+    server({ id: 's1', name: 'production' }),
+    server({ id: 's2', name: 'staging', gatewayUrl: 'https://switch.internal' }),
+  ];
+
+  it('matches on name', () => {
+    expect(matchServers(SERVERS, 'stag').map((s) => s.id)).toEqual(['s2']);
+  });
+
+  // A server is as often recognised by where it lives as by what it was called.
+  it('matches on gateway URL when the name does not match', () => {
+    expect(matchServers(SERVERS, 'internal').map((s) => s.id)).toEqual(['s2']);
+  });
+
+  it('returns nothing for an empty query', () => {
+    expect(matchServers(SERVERS, '')).toEqual([]);
+  });
+
+  it('emits palette items carrying the server id', () => {
+    expect(matchServers(SERVERS, 'production')[0]).toMatchObject({
+      kind: 'server',
+      id: 's1',
+      title: 'production',
+    });
+  });
+});
+
+describe('matchHosts', () => {
+  const HOSTS = [
+    { sshHost: 'gpu-box', name: 'GPU box' },
+    { sshHost: 'build-01', name: 'Build machine' },
+  ];
+
+  it('matches on the display name', () => {
+    expect(matchHosts(HOSTS, 'build').map((h) => h.id)).toEqual(['build-01']);
+    expect(matchHosts(HOSTS, 'build mach').map((h) => h.id)).toEqual(['build-01']);
+    expect(matchHosts(HOSTS, 'nonesuch')).toEqual([]);
+  });
+
+  // The SSH alias is the host's identity and usually what someone remembers.
+  it('matches on the SSH alias', () => {
+    expect(matchHosts(HOSTS, 'gpu-box').map((h) => h.id)).toEqual(['gpu-box']);
+  });
+
+  it('identifies the item by its SSH alias, which is the primary key', () => {
+    expect(matchHosts(HOSTS, 'gpu')[0]).toMatchObject({
+      kind: 'host',
+      id: 'gpu-box',
+      title: 'GPU box',
+      subtitle: 'gpu-box',
+    });
+  });
+
+  it('returns nothing for an empty query', () => {
+    expect(matchHosts(HOSTS, '')).toEqual([]);
   });
 });
 

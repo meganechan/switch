@@ -218,16 +218,23 @@ describe('searchService', () => {
       expect(result.items.filter((i) => i.kind === 'session')).toHaveLength(0);
     });
 
-    it('finds sessions and locations alongside agents', () => {
+    it('finds sessions alongside agents', () => {
       searchService.initialize();
 
       expect(titles(searchService.search({ query: 'reviewer' }).items)).toEqual([
         'Fix the reviewer crash',
         'reviewer-bot',
       ]);
-      expect(titles(searchService.search({ query: 'switchdash' }).items)).toContain(
-        'switchdash repo'
-      );
+    });
+
+    // Locations are not a user-facing entity anywhere in switchdash — the
+    // sidebar lists agents flatly rather than by directory — so offering them
+    // as results pointed at a concept the product does not have.
+    it('does not index locations', () => {
+      searchService.initialize();
+
+      expect(searchService.search({ query: 'switchdash repo' }).items).toEqual([]);
+      expect(searchService.search({ query: 'other repo' }).items).toEqual([]);
     });
   });
 });
