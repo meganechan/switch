@@ -1,4 +1,5 @@
 import {
+  ArrowUpCircle,
   ChevronDown,
   ChevronRight,
   ExternalLink,
@@ -8,6 +9,7 @@ import {
   Plus,
   Server,
   Trash2,
+  TriangleAlert,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
@@ -29,6 +31,7 @@ import { MicroLabel } from '@renderer/lib/ui/label';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
+import type { SwitchVersionDrift } from '@shared/core/managed-switch-server/managed-switch-server';
 import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
 import { SidebarMenu, SidebarMenuButton } from '../sidebar/sidebar-primitives';
 import { localServerStore } from './local-server-store';
@@ -164,6 +167,46 @@ const LocalServerPendingEntry = observer(function LocalServerPendingEntry({
   );
 });
 
+/**
+ * Flags a managed server whose switch-core no longer matches the version this
+ * build pins (CHOO-1736), so an available update is visible from the sidebar
+ * rather than only on the server's own page.
+ *
+ * Sits beside the connection dot rather than recolouring it: the dot answers
+ * "can I reach this server", which stays true of a server running a stale core.
+ */
+function ServerDriftIndicator({ drift }: { drift: SwitchVersionDrift }) {
+  const upgrade = drift.direction === 'upgrade';
+  const label = upgrade
+    ? `switch-core ${drift.expected} is available (running ${drift.deployed})`
+    : drift.direction === 'downgrade'
+      ? `Runs switch-core ${drift.deployed} — newer than this app expects (${drift.expected})`
+      : `Runs switch-core ${drift.deployed}; this app expects ${drift.expected}`;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            aria-label={label}
+            className={cn(
+              'flex shrink-0 items-center',
+              upgrade ? 'text-foreground-warning' : 'text-red-500'
+            )}
+          >
+            {upgrade ? (
+              <ArrowUpCircle className="size-3.5" />
+            ) : (
+              <TriangleAlert className="size-3.5" />
+            )}
+          </span>
+        }
+      />
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function ServerIcon({ server, isScoped }: { server: SwitchServer; isScoped: boolean }) {
   const className = cn('size-4 shrink-0', isScoped && 'text-foreground');
   if (server.managementKind === 'remote') return <Server className={className} />;
@@ -200,6 +243,15 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
       : localServerStore.isRunning;
   const dormant = server.managed && !managedRunning;
   const needsSignIn = !dormant && !connected;
+
+  // Drift is reported for a stopped stack too — its volumes still hold the
+  // schema the last version migrated to — so this is deliberately not gated on
+  // `managedRunning`.
+  const drift = !server.managed
+    ? null
+    : server.managementKind === 'remote' && server.sshHost
+      ? remoteServerStore.driftFor(server.sshHost)
+      : localServerStore.drift;
 
   return (
     <ContextMenu>
@@ -238,6 +290,7 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
                   dormant ? 'bg-foreground-muted' : connected ? 'bg-green-500' : 'bg-amber-500'
                 )}
               />
+              {drift && <ServerDriftIndicator drift={drift} />}
             </span>
             {needsSignIn && (
               <span
