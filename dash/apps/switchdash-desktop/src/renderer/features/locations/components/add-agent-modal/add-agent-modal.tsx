@@ -401,7 +401,13 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // picker stays live and you can pick one the host already has.
   const hostLevelBlocked = isRemoteRun && hostReadiness.blocked && hostReadiness.scope === 'host';
   const canChooseAgentType = runHostReachable && !hostLevelBlocked;
-  const canConfigureAgent = canChooseAgentType && runHostReady;
+  // Everything that describes the agent itself — its name, config, the
+  // definitions found alongside it — waits for the two things it is an agent
+  // *of*: a chosen type, and a working directory that will exist to hold it.
+  // Without both, those fields ask the user to describe something that cannot
+  // be created, directly under a notice saying so (CHOO-1416).
+  const canConfigureAgent =
+    canChooseAgentType && runHostReady && !!pickState.providerId && remoteDirUsable;
 
   const canSubmitDetected = isRemoteRun
     ? !!pickState.providerId &&
