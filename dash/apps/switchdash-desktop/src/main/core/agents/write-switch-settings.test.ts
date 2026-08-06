@@ -15,7 +15,6 @@ import {
   removeSwitchSettings,
   writeAgentNeutralSettings,
   writeNeutralAgentSettingsFs,
-  writeSwitchSettings,
 } from './write-switch-settings';
 
 let dir: string;
@@ -26,73 +25,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await fs.rm(dir, { recursive: true, force: true });
-});
-
-async function readSettings(): Promise<Record<string, unknown>> {
-  const raw = await fs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
-  return JSON.parse(raw) as Record<string, unknown>;
-}
-
-describe('writeSwitchSettings', () => {
-  it('creates .claude/settings.local.json with the SWITCH_* env block', async () => {
-    await writeSwitchSettings({
-      dir,
-      apiEndpoint: 'https://switch.example.com',
-      apiToken: 'secret-token',
-      agentId: 'agent-123',
-    });
-
-    const settings = await readSettings();
-    expect(settings.env).toEqual({
-      SWITCH_API_ENDPOINT: 'https://switch.example.com',
-      SWITCH_API_TOKEN: 'secret-token',
-      SWITCH_AGENT_ID: 'agent-123',
-    });
-    // The Switch connector tools are auto-approved ("don't ask").
-    expect(settings.permissions).toEqual({
-      allow: ['mcp__plugin_switch-connector_switch'],
-    });
-
-    // The detector should now recognise the directory as a configured agent.
-    const detected = await detectSwitchAgent(dir);
-    expect(detected).toEqual({
-      agentId: 'agent-123',
-      apiEndpoint: 'https://switch.example.com',
-      dir,
-    });
-  });
-
-  it('merges into an existing file, preserving unrelated keys and env entries', async () => {
-    const claudeDir = path.join(dir, '.claude');
-    await fs.mkdir(claudeDir, { recursive: true });
-    await fs.writeFile(
-      path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH),
-      JSON.stringify({
-        permissions: { allow: ['Bash'] },
-        env: { EXISTING_KEY: 'keep-me', SWITCH_API_TOKEN: 'old' },
-      }),
-      'utf8'
-    );
-
-    await writeSwitchSettings({
-      dir,
-      apiEndpoint: 'https://switch.example.com',
-      apiToken: 'new-token',
-      agentId: 'agent-999',
-    });
-
-    const settings = await readSettings();
-    // Existing allow rules are preserved; the Switch rules are unioned in.
-    expect(settings.permissions).toEqual({
-      allow: ['Bash', 'mcp__plugin_switch-connector_switch'],
-    });
-    expect(settings.env).toEqual({
-      EXISTING_KEY: 'keep-me',
-      SWITCH_API_ENDPOINT: 'https://switch.example.com',
-      SWITCH_API_TOKEN: 'new-token',
-      SWITCH_AGENT_ID: 'agent-999',
-    });
-  });
 });
 
 describe('writeNeutralAgentSettingsFs', () => {
@@ -320,12 +252,16 @@ describe('removeSwitchSettings', () => {
   });
 
   it('leaves the directory undetectable as a Switch agent after teardown', async () => {
-    await writeSwitchSettings({
-      dir,
-      apiEndpoint: 'https://switch.example.com',
-      apiToken: 'secret-token',
-      agentId: 'agent-123',
-    });
+    await fs.mkdir(path.join(dir, '.claude'), { recursive: true });
+    await fs.writeFile(
+      path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH),
+      mergeSwitchSettings(null, {
+        apiEndpoint: 'https://switch.example.com',
+        apiToken: 'secret-token',
+        agentId: 'agent-123',
+      }),
+      'utf8'
+    );
     const raw = await fs.readFile(path.join(dir, SWITCH_SETTINGS_RELATIVE_PATH), 'utf8');
 
     const result = removeSwitchSettings(raw);

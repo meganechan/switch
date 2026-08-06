@@ -1,5 +1,3 @@
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import {
   RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES,
   SWITCH_CONNECTOR_TOOL_RULES,
@@ -9,7 +7,6 @@ import { createPluginFs } from '@main/core/providers/plugin-fs';
 import {
   agentSettingsRelativePath,
   SWITCH_AGENTS_GITIGNORE_RELATIVE,
-  SWITCH_SETTINGS_RELATIVE_PATH,
 } from './switch-settings-paths';
 
 export interface SwitchSettingsCredentials {
@@ -214,40 +211,6 @@ export function removeSwitchSettings(existingRaw: string | null): RemoveSwitchSe
 
   if (Object.keys(result).length === 0) return { kind: 'delete' };
   return { kind: 'write', content: `${JSON.stringify(result, null, 2)}\n` };
-}
-
-/**
- * Write the `SWITCH_*` env block into a local directory's
- * `.claude/settings.local.json`, the same file the switch-connector
- * `configure` skill writes.
- *
- * `apiToken` is the agent's secret API key — it is written here and nowhere
- * else, and must never be returned to the renderer or logged.
- */
-export async function writeSwitchSettings(params: {
-  dir: string;
-  apiEndpoint: string;
-  apiToken: string;
-  agentId: string;
-}): Promise<void> {
-  const settingsPath = path.join(params.dir, SWITCH_SETTINGS_RELATIVE_PATH);
-
-  let existingRaw: string | null = null;
-  try {
-    existingRaw = await fs.readFile(settingsPath, 'utf8');
-  } catch (error) {
-    // Start fresh only when the file is genuinely absent. Any other read
-    // failure must propagate — merging into "nothing" would rewrite the file
-    // without its hooks block.
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code !== 'ENOENT' && code !== 'ENOTDIR') {
-      throw error;
-    }
-  }
-
-  const merged = mergeSwitchSettings(existingRaw, params);
-  await fs.mkdir(path.dirname(settingsPath), { recursive: true });
-  await fs.writeFile(settingsPath, merged, 'utf8');
 }
 
 /**

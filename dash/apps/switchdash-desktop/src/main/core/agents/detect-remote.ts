@@ -13,8 +13,7 @@ import { SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
  * env block. Mirrors {@link detectSwitchAgent} for remote agents, whose working
  * directory and config live entirely on the host (no local copy).
  *
- * Reads over SFTP (the same clean channel {@link writeRemoteSwitchSettings} writes
- * on) rather than `cat` through a login shell: a shell would prepend the host's
+ * Reads over SFTP rather than `cat` through a login shell: a shell would prepend the host's
  * MOTD/banner to stdout, corrupting the JSON and making a real agent look
  * unconfigured.
  *
