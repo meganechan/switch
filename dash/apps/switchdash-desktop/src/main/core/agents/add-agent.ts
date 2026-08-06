@@ -9,7 +9,7 @@ import { log } from '@main/lib/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
-import type { RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
+import { isUsableRemoteDir, type RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { agentEvents } from './agent-events';
 import { agentNameTaken } from './agent-name-taken';
@@ -53,9 +53,9 @@ export type AddAgentResult =
   | { kind: 'unauthenticated' }
   | { kind: 'name-conflict' }
   | { kind: 'invalid-name'; message: string }
-  /** The remote working directory does not exist (or is a file). The user
-   * creates it on the host and retries; switchdash does not create it for them.
-   * Reported before anything is minted, so no Switch-side agent is left behind
+  /** The remote working directory is unusable: it is a file, or neither it nor
+   * its parent exists so the credentials write cannot create it. Reported
+   * before anything is minted, so no Switch-side agent is left behind
    * (CHOO-1416). */
   | { kind: 'directory-missing'; sshHost: string; inspection: RemoteDirInspection }
   | { kind: 'error'; message: string };
@@ -75,7 +75,10 @@ export type AddAgentResult =
  *
  * Both run locations therefore check the working directory *before* minting the
  * identity — locally with `checkIsValidDirectory`, remotely with
- * `inspectRemoteDir`. A missing remote directory used to surface as a raw
+ * `inspectRemoteDir`. The remote check refuses only what the write genuinely
+ * cannot handle: a file, or a directory whose parent is missing too. A missing
+ * directory under an existing parent still goes through and is created by the
+ * write, as it always was. The refused case used to surface as a raw
  * `FileSystemError` from the first credentials write, by which point the agent
  * existed on the gateway but nowhere else (CHOO-1416). Ordering the check first
  * removes that orphan for this failure; creation as a whole is still not atomic
@@ -87,7 +90,7 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
   }
   if (params.sshHost !== null) {
     const inspection = await inspectRemoteDir(params.sshHost, params.dir);
-    if (inspection.status !== 'directory') {
+    if (!isUsableRemoteDir(inspection)) {
       return { kind: 'directory-missing', sshHost: params.sshHost, inspection };
     }
   }

@@ -46,7 +46,6 @@ const h = vi.hoisted(() => {
     inspectRemoteDir: vi.fn(async (_host: string, dir: string) => ({
       dir,
       status: 'directory' as const,
-      existingAncestor: '',
     })),
   };
 });
@@ -116,7 +115,6 @@ describe('addAgent', () => {
     h.inspectRemoteDir.mockImplementation(async (_host: string, dir: string) => ({
       dir,
       status: 'directory' as const,
-      existingAncestor: '',
     }));
   });
 
@@ -197,11 +195,7 @@ describe('addAgent', () => {
       // The whole point of checking first: this used to surface as a raw
       // FileSystemError from the first credentials write, leaving the agent on
       // the gateway but nowhere else (CHOO-1416).
-      h.inspectRemoteDir.mockResolvedValue({
-        dir: remote.dir,
-        status: 'missing',
-        existingAncestor: '/home/ubuntu',
-      } as never);
+      h.inspectRemoteDir.mockResolvedValue({ dir: remote.dir, status: 'missing' } as never);
 
       const result = await addAgent(params(remote));
 
@@ -215,11 +209,7 @@ describe('addAgent', () => {
     });
 
     it('refuses a remote path that is a file', async () => {
-      h.inspectRemoteDir.mockResolvedValue({
-        dir: remote.dir,
-        status: 'file',
-        existingAncestor: '',
-      } as never);
+      h.inspectRemoteDir.mockResolvedValue({ dir: remote.dir, status: 'file' } as never);
 
       expect((await addAgent(params(remote))).kind).toBe('directory-missing');
       expect(h.registerAgentIdentity).not.toHaveBeenCalled();
@@ -230,6 +220,15 @@ describe('addAgent', () => {
 
       expect(h.inspectRemoteDir).toHaveBeenCalledWith(remote.sshHost, remote.dir);
       expect(result.kind).toBe('created');
+    });
+
+    // The credentials write creates a leaf under an existing parent by itself,
+    // so gating on "exists" would have broken a path that worked before.
+    it('proceeds when the remote directory does not exist but its parent does', async () => {
+      h.inspectRemoteDir.mockResolvedValue({ dir: remote.dir, status: 'creatable' } as never);
+
+      expect((await addAgent(params(remote))).kind).toBe('created');
+      expect(h.registerAgentIdentity).toHaveBeenCalled();
     });
 
     it('does not probe over SSH for a local agent', async () => {

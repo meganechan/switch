@@ -38,58 +38,38 @@ beforeEach(() => {
 });
 
 describe('inspectRemoteDir', () => {
-  it('reports an existing directory as usable', async () => {
+  it('reports an existing directory', async () => {
     existingDirs([REPO_DIR]);
 
     expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({
       dir: REPO_DIR,
       status: 'directory',
-      existingAncestor: '',
     });
   });
 
-  // The ticket's repro: the directory *and* its parent are absent, which is
-  // what the per-directory FS could not even see past (CHOO-1416).
-  it('finds the deepest existing ancestor when several are absent', async () => {
+  // Long-standing behaviour, and not something this ticket should take away:
+  // recursive mkdir may create the working directory itself, just not its
+  // ancestors, so a missing leaf under an existing parent needs no intervention.
+  it('reports a missing directory whose parent exists as creatable', async () => {
+    existingDirs(['/home/ubuntu/switch-agents']);
+
+    expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({
+      dir: REPO_DIR,
+      status: 'creatable',
+    });
+  });
+
+  // The ticket's repro: the parent is missing too, so the write cannot recover.
+  it('reports a missing directory whose parent is also missing', async () => {
     existingDirs(['/home/ubuntu']);
 
     expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({
       dir: REPO_DIR,
       status: 'missing',
-      existingAncestor: '/home/ubuntu',
     });
     // Opened at the host root: an FS rooted at the missing directory could not
-    // stat its way out to find what does exist.
+    // stat its way out to look at the parent.
     expect(constructedWith).toEqual(['/']);
-  });
-
-  it('reports a single missing leaf under an existing parent', async () => {
-    existingDirs(['/home/ubuntu/switch-agents']);
-
-    expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({
-      status: 'missing',
-      existingAncestor: '/home/ubuntu/switch-agents',
-    });
-  });
-
-  // A misspelt username leaves `/home` as the deepest match, which is the
-  // signal that the path is wrong rather than merely unmade.
-  it('falls back to a shallow ancestor for a misspelt path', async () => {
-    existingDirs(['/home']);
-
-    expect(await inspectRemoteDir('host', '/home/louis_amauduz/repo')).toMatchObject({
-      status: 'missing',
-      existingAncestor: '/home',
-    });
-  });
-
-  it('falls back to the root when no ancestor exists', async () => {
-    existingDirs([]);
-
-    expect(await inspectRemoteDir('host', '/srv/agent')).toMatchObject({
-      status: 'missing',
-      existingAncestor: '/',
-    });
   });
 
   it('reports a path that is a file', async () => {
@@ -97,10 +77,15 @@ describe('inspectRemoteDir', () => {
       path === REPO_DIR ? { path, type: 'file' } : null
     );
 
-    expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({
-      dir: REPO_DIR,
-      status: 'file',
-    });
+    expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({ dir: REPO_DIR, status: 'file' });
+  });
+
+  it('refuses a directory whose parent is a file', async () => {
+    stat.mockImplementation(async (path: string) =>
+      path === '/home/ubuntu/switch-agents' ? { path, type: 'file' } : null
+    );
+
+    expect(await inspectRemoteDir('host', REPO_DIR)).toEqual({ dir: REPO_DIR, status: 'missing' });
   });
 
   // An unreadable path is not a missing one; saying so would send the user off

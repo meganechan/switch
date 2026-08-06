@@ -1,22 +1,18 @@
 import { Loader2 } from 'lucide-react';
-import type { RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
+import { isUsableRemoteDir, type RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
 
 /**
- * Inline notice for a remote working directory that is not usable (CHOO-1416),
- * alongside `HostReachabilityNotice` in the add-agent modal's run-location
- * field.
+ * Inline notice for a remote working directory that cannot be used
+ * (CHOO-1416), alongside `HostReachabilityNotice` in the add-agent modal's
+ * run-location field.
  *
  * The directory is free text and was previously only touched at write time, so
  * a wrong path surfaced as a raw `FileSystemError` after an identity had
  * already been minted. Checking it when the user commits the path means they
  * find out while the field is still in front of them.
  *
- * switchdash does not create the directory — it says which path is missing and
- * leaves that to the user. Naming the deepest part of the path that *does*
- * exist is what separates "not made yet" from a typo.
- *
- * Renders nothing when the directory is fine, so it can be dropped into the
- * form unconditionally.
+ * Renders nothing for a directory that exists or that the write will create,
+ * so it can be dropped into the form unconditionally.
  */
 export function RemoteDirNotice({
   sshHost,
@@ -44,48 +40,32 @@ export function RemoteDirNotice({
   if (error) {
     return (
       <NoticeShell>
-        <p className="text-xs font-medium text-foreground">
-          Couldn’t check the working directory on {sshHost}
-        </p>
-        <p className="text-xs break-words text-foreground-muted">{error.message}</p>
+        Couldn’t check the working directory on {sshHost} — {error.message}
       </NoticeShell>
     );
   }
 
-  if (!inspection || inspection.status === 'directory') return null;
-
-  if (inspection.status === 'file') {
-    return (
-      <NoticeShell>
-        <p className="text-xs font-medium text-foreground">
-          <span className="font-mono break-all">{inspection.dir}</span> is a file
-        </p>
-        <p className="text-xs text-foreground-passive">
-          An agent's working directory has to be a directory. Choose another path.
-        </p>
-      </NoticeShell>
-    );
-  }
+  if (!inspection || isUsableRemoteDir(inspection)) return null;
 
   return (
     <NoticeShell>
-      <p className="text-xs font-medium text-foreground">
-        <span className="font-mono break-all">{inspection.dir}</span> does not exist on {sshHost}
-      </p>
-      <p className="text-xs break-words text-foreground-muted">
-        The deepest part of that path that exists is{' '}
-        <span className="font-mono">{inspection.existingAncestor}</span>.
-      </p>
-      <p className="text-xs text-foreground-passive">
-        Create the directory on the host and set the location again, or correct the path.
-      </p>
+      {inspection.status === 'file' ? (
+        <>
+          <span className="font-mono break-all">{inspection.dir}</span> is a file, not a directory.
+        </>
+      ) : (
+        <>
+          <span className="font-mono break-all">{inspection.dir}</span> does not exist on {sshHost}.
+          Create it there first.
+        </>
+      )}
     </NoticeShell>
   );
 }
 
 function NoticeShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-amber-500/30 bg-amber-500/8 px-2.5 py-2">
+    <div className="rounded-md border border-amber-500/30 bg-amber-500/8 px-2.5 py-2 text-xs break-words text-foreground">
       {children}
     </div>
   );

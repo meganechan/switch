@@ -43,6 +43,7 @@ import {
 import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
+import { isUsableRemoteDir } from '@shared/core/remote-hosts/remote-dir';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
@@ -216,7 +217,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     enabled: shouldDetectRemote,
     retry: false,
   });
-  const remoteDirUsable = !shouldDetectRemote || remoteDirQuery.data?.status === 'directory';
+  const remoteDirUsable =
+    !shouldDetectRemote ||
+    (remoteDirQuery.data !== undefined && isUsableRemoteDir(remoteDirQuery.data));
 
   // Provider agents defined in the picked dir (`.claude/agents/*.md`) — both those
   // already set up for Switch and plain provider subagents a user created directly.

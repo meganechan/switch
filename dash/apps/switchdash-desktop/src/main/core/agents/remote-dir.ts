@@ -4,27 +4,18 @@ import { sshConnectionIdForHost } from '@main/core/locations/location-transport'
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import type { RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
 
-/** Absolute ancestors of `dir`, deepest first, stopping above the root. */
-function ancestorsOf(dir: string): string[] {
-  const ancestors: string[] = [];
-  let current = pathPosix.dirname(dir);
-  while (current !== '/' && current !== '.' && !ancestors.includes(current)) {
-    ancestors.push(current);
-    current = pathPosix.dirname(current);
-  }
-  return ancestors;
-}
-
 /**
- * Inspect a prospective remote working directory on `sshHost`: does it exist,
- * is it actually a directory, and if not, what is the deepest part of the path
- * that does exist (CHOO-1416).
+ * Inspect a prospective remote working directory on `sshHost` (CHOO-1416).
  *
- * The filesystem is opened at the host's root rather than at the directory
- * under test, because the directory under test is exactly what may not exist.
- * Every other caller roots its FS at an agent's working directory, which also
- * scopes that FS's path-traversal guard to it — so an FS rooted at a missing
- * directory cannot even stat its way out to find what is there instead.
+ * Only two stats, because only two things decide the outcome: whether the
+ * directory is there, and — if not — whether its parent is. A missing
+ * directory under an existing parent is created by the first credentials
+ * write, as it always has been; a missing parent is not, because the
+ * working directory's own FS is rooted at the directory and its recursive
+ * mkdir stops there.
+ *
+ * The FS here is opened at the host root instead, since one rooted at a
+ * missing directory cannot stat its way out to look at the parent.
  *
  * `dir` must be absolute — a relative path would resolve against whatever
  * directory the SSH session happens to start in, which is not a thing the user
@@ -46,23 +37,11 @@ export async function inspectRemoteDir(sshHost: string, dir: string): Promise<Re
   try {
     const entry = await fs.stat(normalized);
     if (entry) {
-      return {
-        dir: normalized,
-        status: entry.type === 'dir' ? 'directory' : 'file',
-        existingAncestor: '',
-      };
+      return { dir: normalized, status: entry.type === 'dir' ? 'directory' : 'file' };
     }
 
-    let existingAncestor = '/';
-    for (const ancestor of ancestorsOf(normalized)) {
-      const ancestorEntry = await fs.stat(ancestor);
-      if (ancestorEntry) {
-        existingAncestor = ancestor;
-        break;
-      }
-    }
-
-    return { dir: normalized, status: 'missing', existingAncestor };
+    const parent = await fs.stat(pathPosix.dirname(normalized));
+    return { dir: normalized, status: parent?.type === 'dir' ? 'creatable' : 'missing' };
   } finally {
     fs.close();
   }
