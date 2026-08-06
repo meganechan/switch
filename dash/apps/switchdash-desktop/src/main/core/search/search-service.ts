@@ -3,9 +3,16 @@ import { db, sqlite } from '@main/db/client';
 import { agents, locations, sessions } from '@main/db/schema';
 import { log } from '@main/lib/logger';
 import { ALL_COMMAND_DEFS } from '@shared/commands';
+import type { Agent } from '@shared/core/agents/agents';
 import type { Location } from '@shared/core/locations/locations';
-import type { CommandPaletteQuery, SearchItem, SearchItemKind } from '@shared/core/search';
+import type {
+  CommandPaletteQuery,
+  SearchItem,
+  SearchItemKind,
+  SearchResult,
+} from '@shared/core/search';
 import type { Session } from '@shared/core/sessions/sessions';
+import { agentEvents } from '../agents/agent-events';
 import { locationEvents } from '../locations/location-events';
 import { sessionHooks } from '../sessions/session-hooks';
 import { sessionService } from '../sessions/session-service';
@@ -41,22 +48,29 @@ class SearchService {
       this.removeByType('location', locationId)
     );
 
+    agentEvents.on('agent:created', (agent) => this.upsertAgent(agent));
+    agentEvents.on('agent:updated', (agent) => this.upsertAgent(agent));
+    agentEvents.on('agent:deleted', (agentId) => this.removeByType('agent', agentId));
+
     this.backfill();
     this.seedCommands();
   }
 
-  search({ query, context }: CommandPaletteQuery): SearchItem[] {
-    if (!query.trim()) return this.recents(context);
+  search({ query, context }: CommandPaletteQuery): SearchResult {
+    if (!query.trim()) return { items: this.recents(context), status: 'recents' };
 
-    // Trigram tokenizer requires each term to be at least 3 characters.
-    // Terms shorter than 3 chars are dropped; if nothing survives, fall back
-    // to recents rather than sending an invalid query to SQLite.
+    // Trigram tokenizer requires each term to be at least 3 characters, so
+    // shorter terms are dropped. When nothing survives there is no query to
+    // run: recents are returned, but reported as recents so the palette can
+    // say so rather than presenting them as matches.
     const terms = query
       .trim()
       .split(/[\s\-_]+/)
       .filter((t) => t.length >= 3);
 
-    if (terms.length === 0) return this.recents(context);
+    if (terms.length === 0) {
+      return { items: this.recents(context), status: 'query-too-short' };
+    }
 
     const ftsQuery = terms.map((t) => `"${t}"`).join(' AND ');
 
@@ -72,8 +86,8 @@ class SearchService {
         )
         .all(ftsQuery) as FtsRow[];
     } catch (e) {
-      log.warn('SearchService: FTS query failed', { query, error: String(e) });
-      return [];
+      log.error('SearchService: FTS query failed', { query, error: String(e) });
+      return { items: [], status: 'failed' };
     }
 
     const results: SearchItem[] = rows.map((r) => ({
@@ -86,14 +100,17 @@ class SearchService {
       score: r.rank,
     }));
 
-    if (context?.locationId) {
+    // Only offered when a session is in context: opening a file navigates to a
+    // session, so without one there is nothing to open and the hit would render
+    // as a row that silently does nothing when clicked.
+    if (context?.locationId && context.sessionId) {
       const fileHits = locationFileIndexService.search(context.locationId, query);
       for (const h of fileHits) {
         results.push({
           kind: 'file',
           id: h.path,
-          locationId: context.locationId ?? null,
-          sessionId: context.sessionId ?? null,
+          locationId: context.locationId,
+          sessionId: context.sessionId,
           title: h.filename,
           subtitle: h.path,
           score: 0,
@@ -101,7 +118,7 @@ class SearchService {
       }
     }
 
-    return results;
+    return { items: results, status: 'ok' };
   }
 
   private recents(context?: CommandPaletteQuery['context']): SearchItem[] {
@@ -144,6 +161,34 @@ class SearchService {
     }));
   }
 
+  /**
+   * Replace one item's row.
+   *
+   * Delete-then-insert rather than `INSERT OR REPLACE`: an FTS5 virtual table
+   * has no unique constraint for the conflict clause to fire on, so `OR REPLACE`
+   * degrades to a plain insert and every update appends a duplicate row instead
+   * of superseding the old one.
+   */
+  private replaceItem(
+    itemType: SearchItemKind,
+    itemId: string,
+    locationId: string | null,
+    title: string,
+    keywords: string
+  ): void {
+    sqlite.transaction(() => {
+      sqlite
+        .prepare(`DELETE FROM search_index WHERE item_id = ? AND item_type = ?`)
+        .run(itemId, itemType);
+      sqlite
+        .prepare(
+          `INSERT INTO search_index(item_type, item_id, location_id, session_id, title, keywords)
+           VALUES (?, ?, ?, NULL, ?, ?)`
+        )
+        .run(itemType, itemId, locationId, title, keywords);
+    })();
+  }
+
   private upsertSession(session: Session): void {
     try {
       const [agent] = db
@@ -152,25 +197,23 @@ class SearchService {
         .where(eq(agents.id, session.agentId))
         .all();
       if (!agent) return;
-      sqlite
-        .prepare(
-          `INSERT OR REPLACE INTO search_index(item_type, item_id, location_id, session_id, title, keywords)
-           VALUES ('session', ?, ?, NULL, ?, '')`
-        )
-        .run(session.id, agent.locationId, session.title);
+      this.replaceItem('session', session.id, agent.locationId, session.title, '');
     } catch (e) {
       log.warn('SearchService: upsertSession failed', { sessionId: session.id, error: String(e) });
     }
   }
 
+  private upsertAgent(agent: Agent): void {
+    try {
+      this.replaceItem('agent', agent.id, agent.locationId, agent.name, agent.providerId);
+    } catch (e) {
+      log.warn('SearchService: upsertAgent failed', { agentId: agent.id, error: String(e) });
+    }
+  }
+
   private upsertLocation(location: Location): void {
     try {
-      sqlite
-        .prepare(
-          `INSERT OR REPLACE INTO search_index(item_type, item_id, location_id, session_id, title, keywords)
-           VALUES ('location', ?, NULL, NULL, ?, ?)`
-        )
-        .run(location.id, location.name, location.dir);
+      this.replaceItem('location', location.id, null, location.name, location.dir);
     } catch (e) {
       log.warn('SearchService: upsertLocation failed', {
         locationId: location.id,
@@ -226,6 +269,15 @@ class SearchService {
         .innerJoin(agents, eq(sessions.agentId, agents.id))
         .all();
       const allLocations = db.select().from(locations).all();
+      const allAgents = db
+        .select({
+          id: agents.id,
+          locationId: agents.locationId,
+          name: agents.name,
+          providerId: agents.providerId,
+        })
+        .from(agents)
+        .all();
 
       const upsertStmt = sqlite.prepare(
         `INSERT OR REPLACE INTO search_index(item_type, item_id, location_id, session_id, title, keywords)
@@ -240,11 +292,15 @@ class SearchService {
         for (const l of allLocations) {
           upsertStmt.run('location', l.id, null, null, l.name, l.dir);
         }
+        for (const a of allAgents) {
+          upsertStmt.run('agent', a.id, a.locationId, null, a.name, a.providerId);
+        }
       })();
 
       log.info('SearchService: backfilled search index', {
         sessions: allSessions.filter((t) => !t.archivedAt).length,
         locations: allLocations.length,
+        agents: allAgents.length,
       });
     } catch (e) {
       log.warn('SearchService: backfill failed', { error: String(e) });

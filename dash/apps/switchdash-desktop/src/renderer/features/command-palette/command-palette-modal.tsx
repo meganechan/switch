@@ -1,10 +1,19 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Command } from 'cmdk';
-import { Activity, File, FolderOpen, GitBranch, type LucideIcon } from 'lucide-react';
+import {
+  Activity,
+  Bot,
+  File,
+  FolderOpen,
+  GitBranch,
+  type LucideIcon,
+  MessagesSquare,
+} from 'lucide-react';
 import { useObserver } from 'mobx-react-lite';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
+import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { commandRegistry } from '@renderer/lib/commands/registry';
 import { useDebounce } from '@renderer/lib/hooks/useDebounce';
 import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
@@ -15,14 +24,14 @@ import { appState } from '@renderer/lib/stores/app-state';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
 import { ALL_COMMAND_DEFS, type CommandDef } from '@shared/commands';
-import type { SearchItem } from '@shared/core/search';
+import type { SearchItem, SearchResult } from '@shared/core/search';
 import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteLocationsGroup } from './palette-locations-group';
 import { PaletteNotificationsGroup } from './palette-notifications-group';
 import { PaletteSessionItem } from './palette-session-item';
 import { ResourceMonitorView } from './resource-monitor-view';
-import { applyContextAffinity } from './search-utils';
+import { applyContextAffinity, matchRooms } from './search-utils';
 
 interface CommandPaletteProps {
   locationId?: string;
@@ -43,7 +52,13 @@ const KIND_ICON: Record<string, React.ReactNode> = {
   action: null,
   session: <GitBranch size={14} className="shrink-0 text-foreground/40" />,
   location: <FolderOpen size={14} className="shrink-0 text-foreground/40" />,
+  agent: <Bot size={14} className="shrink-0 text-foreground/40" />,
+  room: <MessagesSquare size={14} className="shrink-0 text-foreground/40" />,
 };
+
+/** Stable identity for the un-fetched state, so the default does not create a
+ *  new object on every render and retrigger downstream memos. */
+const EMPTY_RESULT: SearchResult = { items: [], status: 'recents' };
 
 const GROUP_CLASS = cn(
   '[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5',
@@ -153,7 +168,7 @@ export function CommandPaletteModal({
     // oxlint-disable-next-line react/exhaustive-deps
   }, []);
 
-  const { data: dbResults = [] } = useQuery({
+  const { data: searchResult = EMPTY_RESULT } = useQuery({
     queryKey: ['cmdk-search', debouncedQuery, locationId, sessionId],
     queryFn: () =>
       rpc.search.commandPalette({
@@ -164,8 +179,6 @@ export function CommandPaletteModal({
     // returns cached data instantly rather than waiting for a round-trip.
     staleTime: 5_000,
     placeholderData: (prev) => prev,
-    // Skip FTS queries that the trigram tokenizer would reject (< 3 chars).
-    enabled: debouncedQuery.length === 0 || debouncedQuery.length >= 3,
   });
 
   const registryActions = useObserver((): PaletteAction[] =>
@@ -221,8 +234,16 @@ export function CommandPaletteModal({
       .slice(0, 7);
   }, [registryActions, resourceMonitorAction, locationId, sessionId]);
 
-  const rankedDb = applyContextAffinity(dbResults, { locationId });
+  const rankedDb = applyContextAffinity(searchResult.items, { locationId });
   const actionResults = actions;
+
+  // Rooms come from the gateway-backed store rather than the FTS index, and are
+  // read through useObserver so a background refresh reaches the open palette.
+  // Substring-matched, so they answer one- and two-character queries that the
+  // trigram-indexed kinds cannot.
+  const roomResults = useObserver(() =>
+    matchRooms(switchRoomsStore.listedRoomsInActiveScope, debouncedQuery)
+  );
 
   const q = debouncedQuery.toLowerCase();
   const matchedResourceMonitor =
@@ -251,10 +272,25 @@ export function CommandPaletteModal({
     navigate('session', { locationId: item.locationId, sessionId: item.sessionId });
   };
 
+  // There is no per-agent view — the location view is the agents-at-a-location
+  // view — so an agent opens the location it belongs to.
+  const handleNavigateToAgent = (item: SearchItem) => {
+    if (!item.locationId) return;
+    handleClose();
+    navigate('location', { locationId: item.locationId });
+  };
+
+  const handleNavigateToRoom = (item: SearchItem) => {
+    handleClose();
+    navigate('room', { roomId: item.id });
+  };
+
   const handleSelect = (item: SearchItem) => {
     if (item.kind === 'session') return handleNavigateToSession(item);
     if (item.kind === 'location') return handleNavigateToLocation(item);
     if (item.kind === 'file') return handleOpenFile(item);
+    if (item.kind === 'agent') return handleNavigateToAgent(item);
+    if (item.kind === 'room') return handleNavigateToRoom(item);
   };
 
   const handleResourceMonitorBack = useCallback(() => {
@@ -303,9 +339,35 @@ export function CommandPaletteModal({
       <Command.List className="h-96 overflow-y-auto p-1">
         {query ? (
           <>
-            <Command.Empty className="py-8 text-center text-sm text-foreground/40">
-              No results for &ldquo;{query}&rdquo;
-            </Command.Empty>
+            {searchResult.status === 'ok' && roomResults.length === 0 && (
+              <Command.Empty className="py-8 text-center text-sm text-foreground/40">
+                No results for &ldquo;{query}&rdquo;
+              </Command.Empty>
+            )}
+            {searchResult.status === 'failed' && (
+              <div className="text-destructive px-3 py-6 text-center text-sm">
+                Search failed for &ldquo;{query}&rdquo;. This is an error, not an empty result — see
+                the log for details.
+              </div>
+            )}
+            {searchResult.status === 'query-too-short' && (
+              <div className="px-3 py-6 text-center text-sm text-foreground/40">
+                Type at least 3 characters to search sessions, agents, locations and commands.
+                {roomResults.length > 0 && ' Rooms are matched from the first character.'}
+              </div>
+            )}
+            {roomResults.length > 0 && (
+              <Command.Group heading="Rooms" className={GROUP_CLASS}>
+                {roomResults.map((item) => (
+                  <PaletteItem
+                    key={`room:${item.id}`}
+                    value={`room:${item.id}`}
+                    item={item}
+                    onSelect={() => handleNavigateToRoom(item)}
+                  />
+                ))}
+              </Command.Group>
+            )}
             {matchedResourceMonitor && (
               <PaletteItem
                 value={matchedResourceMonitor.id}
@@ -313,72 +375,76 @@ export function CommandPaletteModal({
                 onSelect={matchedResourceMonitor.execute}
               />
             )}
-            {rankedDb.map((item) => {
-              if (item.kind === 'command') {
-                const live = commandRegistry.findById(item.id);
-                if (!live || live.enabled === false || live.hideFromPalette) return null;
-                const def = ALL_COMMAND_DEFS.find((d) => d.id === item.id) as
-                  | CommandDef
-                  | undefined;
-                const shortcut = def?.shortcutKey
-                  ? getEffectiveHotkey(def.shortcutKey, keyboard)
-                  : null;
-                const displayItem: PaletteAction = {
-                  kind: 'action',
-                  id: item.id,
-                  title: live.label,
-                  subtitle: live.description,
-                  shortcut,
-                  icon: getCommandIcon(def?.iconKey),
-                  execute: () => {
-                    handleClose();
-                    live.execute();
-                  },
-                };
-                return (
-                  <PaletteItem
-                    key={item.id}
-                    value={item.id}
-                    item={displayItem}
-                    onSelect={() => {
+            {/* Only when the items actually answer the query. Under any other
+                status they are recents or nothing, and rendering them here is
+                what made a too-short query look like a result set. */}
+            {searchResult.status === 'ok' &&
+              rankedDb.map((item) => {
+                if (item.kind === 'command') {
+                  const live = commandRegistry.findById(item.id);
+                  if (!live || live.enabled === false || live.hideFromPalette) return null;
+                  const def = ALL_COMMAND_DEFS.find((d) => d.id === item.id) as
+                    | CommandDef
+                    | undefined;
+                  const shortcut = def?.shortcutKey
+                    ? getEffectiveHotkey(def.shortcutKey, keyboard)
+                    : null;
+                  const displayItem: PaletteAction = {
+                    kind: 'action',
+                    id: item.id,
+                    title: live.label,
+                    subtitle: live.description,
+                    shortcut,
+                    icon: getCommandIcon(def?.iconKey),
+                    execute: () => {
                       handleClose();
                       live.execute();
-                    }}
-                  />
-                );
-              }
-              if (item.kind === 'session' && item.locationId) {
-                const store = getSessionStore(item.locationId, item.id);
-                if (store) {
+                    },
+                  };
                   return (
-                    <PaletteSessionItem
-                      key={`session:${item.id}`}
-                      sessionStore={store}
-                      value={`session:${item.id}`}
-                      onSelect={() => handleNavigateToSession(item)}
+                    <PaletteItem
+                      key={item.id}
+                      value={item.id}
+                      item={displayItem}
+                      onSelect={() => {
+                        handleClose();
+                        live.execute();
+                      }}
                     />
                   );
                 }
-              }
-              if (item.kind === 'file') {
+                if (item.kind === 'session' && item.locationId) {
+                  const store = getSessionStore(item.locationId, item.id);
+                  if (store) {
+                    return (
+                      <PaletteSessionItem
+                        key={`session:${item.id}`}
+                        sessionStore={store}
+                        value={`session:${item.id}`}
+                        onSelect={() => handleNavigateToSession(item)}
+                      />
+                    );
+                  }
+                }
+                if (item.kind === 'file') {
+                  return (
+                    <PaletteFileItem
+                      key={`file:${item.id}`}
+                      value={`file:${item.id}`}
+                      item={item}
+                      onSelect={() => handleOpenFile(item)}
+                    />
+                  );
+                }
                 return (
-                  <PaletteFileItem
-                    key={`file:${item.id}`}
-                    value={`file:${item.id}`}
+                  <PaletteItem
+                    key={`${item.kind}:${item.id}`}
+                    value={`${item.kind}:${item.id}`}
                     item={item}
-                    onSelect={() => handleOpenFile(item)}
+                    onSelect={() => handleSelect(item)}
                   />
                 );
-              }
-              return (
-                <PaletteItem
-                  key={`${item.kind}:${item.id}`}
-                  value={`${item.kind}:${item.id}`}
-                  item={item}
-                  onSelect={() => handleSelect(item)}
-                />
-              );
-            })}
+              })}
           </>
         ) : (
           <>
