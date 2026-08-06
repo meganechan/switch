@@ -15,7 +15,7 @@
  * as broken because Codex is absent.
  */
 
-import { CircleFadingArrowUp, PlugZap, Wrench } from 'lucide-react';
+import { PlugZap, RefreshCw, Wrench } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -31,7 +31,6 @@ import { hostReachabilityStore } from './host-reachability-store';
 import { hostSetupStore } from './host-setup-store';
 
 const ICON = 'h-3.5 w-3.5 shrink-0 text-foreground-warning';
-const UPDATE_ICON = 'h-3.5 w-3.5 shrink-0 text-foreground-muted';
 
 /**
  * This agent type's steps that are installed but behind — its CLI, its Switch
@@ -96,7 +95,12 @@ export const HostTroubleIndicator = observer(function HostTroubleIndicator({
     return (
       <Tooltip>
         <TooltipTrigger>
-          <CircleFadingArrowUp className={UPDATE_ICON} aria-label="Update available" />
+          {/*
+            The same glyph and tone the agents page and the sidecar card already
+            use for this exact state. A different icon here would read as a
+            different kind of event.
+          */}
+          <RefreshCw className={ICON} aria-label="Update available" />
         </TooltipTrigger>
         <TooltipContent>
           {`Update available on ${sshHost}: ${stale
