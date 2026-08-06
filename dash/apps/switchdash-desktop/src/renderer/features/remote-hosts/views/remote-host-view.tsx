@@ -41,7 +41,7 @@ import {
   PrerequisiteRow,
   SectionLabel,
 } from '../setup/setup-rows';
-import { groupPlanSteps, type AgentTypeRow } from '../setup/step-presentation';
+import { groupPlanSteps } from '../setup/step-presentation';
 import {
   useHostSetupPlan,
   useInstallSetupStep,
@@ -117,18 +117,6 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
   const recheckingStepId = recheckStep.isPending ? (recheckStep.variables ?? null) : null;
   const currentStepId = plan.data?.currentStepId ?? null;
 
-  // An agent type is presented as one thing, so its re-check covers both of its
-  // steps. Sequential because the runner takes one operation per host at a time
-  // — firing them together would only make the second fail.
-  const recheckAgentType = async (row: AgentTypeRow) => {
-    try {
-      await recheckStep.mutateAsync(row.cli.id);
-      if (row.plugin) await recheckStep.mutateAsync(row.plugin.id);
-    } catch {
-      // The mutation's onError already reports it; this only stops the second
-      // step running after the first failed.
-    }
-  };
   // Read inside render so mobx tracks it: the line changes several times a
   // second while an install runs, and nothing else re-renders on that.
   const activityFor = (stepId: string) => hostSetupStore.activityFor(sshHost, stepId);
@@ -284,20 +272,15 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                       <div key={row.agentId} className="w-full py-0.5">
                         <AgentTypeRowItem
                           row={row}
-                          isCurrent={
-                            row.cli.id === currentStepId || row.plugin?.id === currentStepId
-                          }
+                          currentStepId={currentStepId}
                           installingStepId={installingStepId}
                           updatingStepId={updatingStepId}
-                          rechecking={
-                            recheckingStepId === row.cli.id ||
-                            (row.plugin != null && recheckingStepId === row.plugin.id)
-                          }
+                          recheckingStepId={recheckingStepId}
                           hostBusy={busy}
                           activityFor={activityFor}
                           onInstall={(stepId) => installStep.mutate(stepId)}
                           onUpdate={(stepId) => updateStep.mutate(stepId)}
-                          onRecheck={() => void recheckAgentType(row)}
+                          onRecheck={(stepId) => recheckStep.mutate(stepId)}
                           onOpen={() => setSheetTarget({ kind: 'agent-type', row })}
                         />
                       </div>
