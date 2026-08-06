@@ -158,7 +158,9 @@ async def update_bridge(
     session: Annotated[AsyncSession, Depends(get_session)],
     bridge_store: Annotated[CollaborationBridgeStore, Depends(get_bridge_store)],
     room_store: Annotated[RoomStore, Depends(get_room_store)],
-    _user: Annotated[User, Depends(get_current_user)],
+    # Admin-only for the same reason as registering one: a bridge is an unowned,
+    # workspace-wide integration, so there is no owner to scope mutation to.
+    _user: Annotated[User, Depends(require_admin)],
 ) -> BridgeDetail:
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
@@ -215,7 +217,9 @@ async def delete_bridge(
     collab_lifecycle: Annotated[
         CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
     ],
-    _user: Annotated[User, Depends(get_current_user)],
+    # Admin-only: deleting a bridge cascades into deleting every room on it, so
+    # this is the most destructive operation on the router.
+    _user: Annotated[User, Depends(require_admin)],
 ) -> dict[str, bool]:
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
