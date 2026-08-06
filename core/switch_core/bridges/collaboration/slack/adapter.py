@@ -5,6 +5,7 @@ import re
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
 import httpx
 from pydantic import BaseModel
@@ -14,7 +15,10 @@ from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.web.async_client import AsyncWebClient
 
-from switch_core.bridges.collaboration.adapter import CollaborationAdapter
+from switch_core.bridges.collaboration.adapter import (
+    CollaborationAdapter,
+    LiveRuntimeIndicator,
+)
 from switch_core.bridges.collaboration.models import (
     Attachment,
     AttachmentFailure,
@@ -64,15 +68,6 @@ class SlackAdapter(CollaborationAdapter):
         # Slack mentions. Populated as users are resolved.
         self._username_to_id: dict[str, str] = {}
         self._thinking_ts: dict[tuple[str, str], str] = {}
-        # (channel_id, agent_name) -> message ref of the agent's live "working
-        # on it…" runtime-state message, so it can be deleted when the agent
-        # stops working. Slack can truly delete, so a persistent message is
-        # preferable to the ephemeral typing indicator here.
-        self._working_msg: dict[tuple[str, str], str] = {}
-        # (channel_id, agent_name) -> refs of the live "needs your input" pings,
-        # kept so they can be removed when the turn ends. The working indicator
-        # stays up alongside these — the agent is mid-turn, just paused.
-        self._input_pings: dict[tuple[str, str], list[str]] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -482,11 +477,16 @@ class SlackAdapter(CollaborationAdapter):
             existing = self._working_msg.get(key)
             if existing is not None:
                 # Refresh the live message in place with the latest activity.
-                await self.update_message(channel_id, existing, body)
+                # Position is a separate concern — see reposition_runtime_state,
+                # which moves the indicator when the conversation moves on.
+                await self.update_message(channel_id, existing.message_ref, body)
+                self._working_msg[key] = replace(existing, body=body)
                 return
             ref = await self.send_message(channel_id, agent_name, body, thread_root_id)
             if ref is not None:
-                self._working_msg[key] = ref
+                self._working_msg[key] = LiveRuntimeIndicator(
+                    message_ref=ref, body=body, thread_root_id=thread_root_id
+                )
         elif state == "awaiting-input":
             # Leave the working indicator up; add a ping and track it.
             ref = await self._ping_operator(
@@ -499,9 +499,9 @@ class SlackAdapter(CollaborationAdapter):
             await self._clear_input_pings(channel_id, agent_name)
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
-        ref = self._working_msg.pop((channel_id, agent_name), None)
-        if ref is not None:
-            await self.delete_message(channel_id, ref)
+        live = self._working_msg.pop((channel_id, agent_name), None)
+        if live is not None:
+            await self.delete_message(channel_id, live.message_ref)
 
     async def _clear_input_pings(self, channel_id: str, agent_name: str) -> None:
         refs = self._input_pings.pop((channel_id, agent_name), [])

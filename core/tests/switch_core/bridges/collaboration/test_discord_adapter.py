@@ -791,7 +791,10 @@ def test_runtime_state_working_posts_persistent_indicator() -> None:
     assert len(webhook.sent) == 1
     assert webhook.sent[0]["content"] == "⚙️ _Working on it…_"
     assert webhook.sent[0]["username"] == "my-agent"
-    assert adapter._working_msg[(str(CHANNEL_ID), "my-agent")] == f"{CHANNEL_ID}:901"
+    assert (
+        adapter._working_msg[(str(CHANNEL_ID), "my-agent")].message_ref
+        == f"{CHANNEL_ID}:901"
+    )
 
 
 def test_runtime_state_detail_edits_message_in_place() -> None:
@@ -821,7 +824,10 @@ def test_runtime_state_detail_edits_message_in_place() -> None:
     assert len(webhook.edits) == 1
     assert webhook.edits[0]["message_id"] == 901
     assert webhook.edits[0]["content"] == "⚙️ Editing adapter.py"
-    assert adapter._working_msg[(str(CHANNEL_ID), "my-agent")] == f"{CHANNEL_ID}:901"
+    assert (
+        adapter._working_msg[(str(CHANNEL_ID), "my-agent")].message_ref
+        == f"{CHANNEL_ID}:901"
+    )
 
 
 def test_runtime_state_idle_clears_working_message() -> None:

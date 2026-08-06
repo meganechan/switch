@@ -61,6 +61,9 @@ class _FakeAdapter:
     def translate_inbound(self, content: str) -> str:
         return content
 
+    def agents_with_live_runtime_state(self, channel_id: str) -> list[str]:
+        return []
+
 
 def _fake_bridge() -> SimpleNamespace:
     puppet = _FakePuppet()
@@ -75,7 +78,7 @@ def _fake_bridge() -> SimpleNamespace:
     async def _record_message_map(**kwargs: str) -> None:
         recorded.append(kwargs)
 
-    return SimpleNamespace(
+    ns = SimpleNamespace(
         _adapter=_FakeAdapter(),
         _channel_to_room={"chan-1": ("room-1", "!room:s")},
         _is_registered_agent=_is_registered_agent,
@@ -83,7 +86,13 @@ def _fake_bridge() -> SimpleNamespace:
         _record_message_map=_record_message_map,
         puppet=puppet,
         recorded=recorded,
+        _indicator_move_timers={},
     )
+    ns._move_indicators_for_addressees = (
+        BridgeCore._move_indicators_for_addressees.__get__(ns)
+    )
+    ns._schedule_indicator_move = BridgeCore._schedule_indicator_move.__get__(ns)
+    return ns
 
 
 def _msg(

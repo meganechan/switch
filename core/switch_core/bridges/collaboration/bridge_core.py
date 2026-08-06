@@ -31,7 +31,11 @@ from switch_core.bridges.collaboration.models import (
 )
 from switch_core.clients.admin_messages import ADMIN_MARKER, AdminMessageType
 from switch_core.clients.client_base import ClientBase, ClientConfig
-from switch_core.clients.mentions import mention_regex, strip_emphasis
+from switch_core.clients.mentions import (
+    mention_regex,
+    strip_emphasis,
+    unique_mention_tokens,
+)
 from switch_core.db.models import BridgeMessageMap, ExternalUser
 from switch_core.db.stores.agent_store import AgentStore
 from switch_core.db.stores.bridge_message_map_store import BridgeMessageMapStore
@@ -62,6 +66,11 @@ class _PendingOutboundGroup:
     caption: str | None = None
     first_event_id: str | None = None
 
+
+# How long a queued runtime-indicator move waits before it runs, so a burst of
+# messages to the same agent costs one move rather than one per message. Short
+# enough that the indicator still reads as following the conversation.
+_INDICATOR_MOVE_DELAY_SECONDS = 1.0
 
 _LOBBY_DEPRECATION_NOTICE = (
     "👋 This isn't where you talk to agents — direct messages to the Switch "
@@ -136,6 +145,9 @@ class BridgeCore:
         # never completes cannot leak.
         self._outbound_groups: dict[str, _PendingOutboundGroup] = {}
         self._outbound_group_timers: dict[str, asyncio.TimerHandle] = {}
+        # (channel_id, agent_name) whose runtime indicator is due to be moved
+        # below newly-arrived traffic. See _schedule_indicator_move.
+        self._indicator_move_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -430,6 +442,13 @@ class BridgeCore:
                     matrix_event_id=event_id,
                     external_post_id=msg.message_ref,
                 )
+            await self._move_indicators_for_addressees(
+                channel_id=msg.channel_id,
+                room_id=room_id,
+                channel_type=msg.channel_type,
+                content=content,
+                mention_target=mention_target,
+            )
             return
 
         # Caption convention: the text rides as the caption on the first
@@ -474,6 +493,14 @@ class BridgeCore:
                 matrix_event_id=first_event_id,
                 external_post_id=msg.message_ref,
             )
+
+        await self._move_indicators_for_addressees(
+            channel_id=msg.channel_id,
+            room_id=room_id,
+            channel_type=msg.channel_type,
+            content=content,
+            mention_target=mention_target,
+        )
 
     async def _handle_inbound_command(self, cmd: InboundCommand) -> None:
         room_ids = self._channel_to_room.get(cmd.channel_id)
@@ -988,6 +1015,9 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        if sender_name is not None:
+            await self._move_indicator_for_sender(channel_id, sender_name)
+
     async def _outbound_thread_root_ref(
         self, event_content: dict[str, object], channel_id: str
     ) -> str | None:
@@ -1136,6 +1166,8 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        await self._move_indicator_for_sender(channel_id, sender_name)
+
     def _schedule_outbound_group_flush(
         self,
         group_id: str,
@@ -1217,6 +1249,8 @@ class BridgeCore:
                 matrix_event_id=pending.first_event_id,
                 external_post_id=message_ref,
             )
+
+        await self._move_indicator_for_sender(channel_id, sender_name)
 
     async def _download_matrix_media(
         self, client: ClientBase[Any], mxc: str | None, filename: str
@@ -1317,6 +1351,117 @@ class BridgeCore:
         else:
             translated = self._adapter.translate_outbound(new_content)
             await self._adapter.update_message(channel_id, message_ref, translated)
+
+    # ── Runtime-indicator positioning ─────────────────────────────────────────
+
+    async def _move_indicator_for_sender(
+        self, channel_id: str, agent_name: str
+    ) -> None:
+        """Follow a message the agent itself just posted."""
+        if agent_name in self._adapter.agents_with_live_runtime_state(channel_id):
+            self._schedule_indicator_move(channel_id, agent_name)
+
+    async def _move_indicators_for_addressees(
+        self,
+        *,
+        channel_id: str,
+        room_id: str,
+        channel_type: ChannelType,
+        content: str,
+        mention_target: str | None,
+    ) -> None:
+        """Follow an inbound message, for each addressed agent working here.
+
+        Only agents the message actually addresses move: unrelated chatter in a
+        busy channel leaves a working agent's indicator where it is."""
+        live = self._adapter.agents_with_live_runtime_state(channel_id)
+        if not live:
+            return
+
+        # Every message in a 1:1 room addresses the agent, with no mention.
+        if channel_type == "direct":
+            for agent_name in live:
+                self._schedule_indicator_move(channel_id, agent_name)
+            return
+
+        stripped = strip_emphasis(content)
+        addressed = {
+            agent_name
+            for agent_name in live
+            if mention_regex(agent_name).search(stripped) is not None
+        }
+        if mention_target is not None and mention_target in live:
+            addressed.add(mention_target)
+
+        unmatched = [name for name in live if name not in addressed]
+        if unmatched:
+            addressed.update(
+                await self._live_agents_addressed_by_alias(room_id, content, unmatched)
+            )
+
+        for agent_name in addressed:
+            self._schedule_indicator_move(channel_id, agent_name)
+
+    async def _live_agents_addressed_by_alias(
+        self, room_id: str, content: str, candidates: list[str]
+    ) -> set[str]:
+        """Of `candidates`, those addressed by their room alias rather than name.
+
+        An alias is room-scoped, so it cannot be matched from the message text
+        alone. Only consulted when a plain-name match has already failed for the
+        agent, keeping this off the path of the common case."""
+        tokens = unique_mention_tokens(content)
+        if not tokens:
+            return set()
+
+        by_name = {name.lower(): name for name in candidates}
+        matched: set[str] = set()
+        async with self._session_factory() as session:
+            for token in tokens:
+                agent_id = await self._room_store.get_agent_id_by_alias(
+                    session, room_id, token
+                )
+                if agent_id is None:
+                    continue
+                agent = await self._agent_store.get(session, agent_id)
+                if agent is None:
+                    continue
+                name = by_name.get(agent.name.lower())
+                if name is not None:
+                    matched.add(name)
+        return matched
+
+    def _schedule_indicator_move(self, channel_id: str, agent_name: str) -> None:
+        """Queue a move of this agent's runtime indicator, coalescing bursts.
+
+        Messages arriving while a move is already queued are absorbed into it,
+        so a rapid exchange costs one delete-and-repost rather than one per
+        message. The delay is deliberately not extended by later messages —
+        a sustained conversation would otherwise starve the move indefinitely.
+        """
+        key = (channel_id, agent_name)
+        if key in self._indicator_move_timers:
+            return
+
+        loop = asyncio.get_running_loop()
+        self._indicator_move_timers[key] = loop.call_later(
+            _INDICATOR_MOVE_DELAY_SECONDS,
+            lambda: asyncio.ensure_future(self._run_indicator_move(key)),
+        )
+
+    async def _run_indicator_move(self, key: tuple[str, str]) -> None:
+        self._indicator_move_timers.pop(key, None)
+        channel_id, agent_name = key
+        try:
+            await self._adapter.reposition_runtime_state(channel_id, agent_name)
+        except Exception:
+            # The indicator is cosmetic; a platform failure here must not take
+            # down the bridge callback that happened to trigger it.
+            logger.exception(
+                "[BRIDGE-OUT] failed to move the runtime indicator for %s in %s",
+                agent_name,
+                channel_id,
+            )
 
     # ── Message-map helpers ───────────────────────────────────────────────────
 
