@@ -18,6 +18,7 @@
 
 import {
   agentPluginStepId,
+  isStepInFlight,
   type HostSetupPlan,
   type HostSetupStep,
   type HostSetupStepKind,
@@ -152,20 +153,18 @@ function mergeSteps(fresh: HostSetupStep[], previous: HostSetupStep[]): HostSetu
 
 /**
  * Reset a plan's transient states so the next look re-observes rather than
- * trusting what a previous process was mid-way through. Anything left
- * `checking` or `installing` when the app died is of unknown truth — the one
- * thing it must not become is `satisfied`.
+ * trusting what a previous process was mid-way through. Anything left in flight
+ * when the app died is of unknown truth — the one thing it must not become is
+ * `satisfied`.
  */
 export function reconcileInterruptedPlan(plan: HostSetupPlan, now: string): HostSetupPlan {
-  const interrupted = plan.steps.some(
-    (step) => step.state === 'checking' || step.state === 'installing'
-  );
+  const interrupted = plan.steps.some(isStepInFlight);
   if (!interrupted) return plan;
 
   return {
     ...plan,
     steps: plan.steps.map((step) =>
-      step.state === 'checking' || step.state === 'installing'
+      isStepInFlight(step)
         ? {
             ...step,
             state: 'pending',

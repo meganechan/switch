@@ -93,12 +93,56 @@ export async function ensureSetupPlan(sshHost: string): Promise<HostSetupPlan> {
 }
 
 /**
- * Every host's persisted plan. Feeds the renderer store that the sidebar and
- * the agent-creation gate read — both need readiness for hosts whose page
- * nobody has opened.
+ * Every host's plan, with its step *set* brought up to date first.
+ *
+ * Feeds the renderer store that the sidebar and the agent-creation gate read —
+ * both need readiness for hosts whose page nobody has opened.
+ *
+ * Which steps a plan has is derived from the local plugin registry and costs no
+ * SSH, so it can be recomputed freely; only the states are the host's business,
+ * and those merge forward. Reading the persisted plan verbatim meant a host
+ * onboarded before an agent type shipped had no step for it — and a *missing*
+ * step reads as no objection, so the sidebar called that host ready for an
+ * agent type it had never once looked for.
+ *
+ * Only writes when the set of steps actually changed, so the common case is a
+ * plain read.
  */
 export async function readAllSetupPlans(): Promise<HostSetupPlan[]> {
-  return await listSetupPlans();
+  const persisted = await listSetupPlans();
+  const now = new Date().toISOString();
+  const coreDependencies = CORE_DEPENDENCIES.map((dep) => ({ id: dep.id, name: dep.name }));
+  const agentTypes = plannableAgentTypes();
+
+  const plans: HostSetupPlan[] = [];
+  for (const existing of persisted) {
+    const rebuilt = buildSetupPlan({
+      sshHost: existing.sshHost,
+      coreDependencies,
+      agentTypes,
+      existing,
+      now,
+    });
+    if (sameStepIds(existing, rebuilt)) {
+      plans.push(existing);
+      continue;
+    }
+    log.info('[HostSetup] plan gained or lost steps; persisting the new shape', {
+      event: 'host-setup-plan-reshaped',
+      sshHost: existing.sshHost,
+      before: existing.steps.length,
+      after: rebuilt.steps.length,
+    });
+    await saveSetupPlan(rebuilt);
+    events.emit(hostSetupPlanEventChannel, rebuilt);
+    plans.push(rebuilt);
+  }
+  return plans;
+}
+
+function sameStepIds(a: HostSetupPlan, b: HostSetupPlan): boolean {
+  if (a.steps.length !== b.steps.length) return false;
+  return a.steps.every((step, index) => step.id === b.steps[index]!.id);
 }
 
 /** The persisted plan, without rebuilding it. Null when the host has never run setup. */

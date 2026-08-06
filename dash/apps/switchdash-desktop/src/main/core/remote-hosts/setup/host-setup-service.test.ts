@@ -58,8 +58,9 @@ vi.mock('@main/core/dependencies/install-output', () => ({
 }));
 
 import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
-import type { HostSetupStep } from '@shared/core/remote-hosts/setup';
-import { checkStep } from './host-setup-service';
+import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
+import { checkStep, readAllSetupPlans } from './host-setup-service';
+import { listSetupPlans, saveSetupPlan } from './setup-plan-store';
 
 const SSH_HOST = 'dev-vm';
 
@@ -230,5 +231,75 @@ describe('checking a core-dependency step', () => {
 
     expect(mocks.probe).toHaveBeenCalledExactlyOnceWith('git');
     expect(mocks.checkForUpdates).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * A persisted plan is a record of progress, not a fixed roster (CHOO-1809).
+ *
+ * Reported from a real host: Codex was absent from one host's page and present
+ * on another. The plan had been built before Codex shipped, and nothing ever
+ * rebuilt it — the page only built a plan when none existed at all. Worse than
+ * the missing row: a *missing* step reads as no objection, so the readiness
+ * verdict called that host fine for an agent type it had never looked for.
+ */
+describe('readAllSetupPlans', () => {
+  function persisted(steps: HostSetupStep[]): HostSetupPlan {
+    return {
+      sshHost: 'dev-vm',
+      status: 'idle',
+      steps,
+      currentStepId: null,
+      createdAt: '2026-01-01T00:00:00.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
+    };
+  }
+
+  const claudeCli = step({
+    id: 'claude',
+    kind: 'agent-cli',
+    name: 'Claude Code',
+    state: 'satisfied',
+    outcome: 'satisfied',
+    version: '2.1.221',
+    dependsOn: ['node'],
+  });
+
+  it('adds a step for an agent type that shipped after the plan was built', async () => {
+    vi.mocked(listSetupPlans).mockResolvedValue([persisted([claudeCli])]);
+
+    const [plan] = await readAllSetupPlans();
+
+    expect(plan!.steps.some((s) => s.id === 'codex')).toBe(true);
+  });
+
+  it('keeps what was already known about the steps that survive', async () => {
+    vi.mocked(listSetupPlans).mockResolvedValue([persisted([claudeCli])]);
+
+    const [plan] = await readAllSetupPlans();
+    const claude = plan!.steps.find((s) => s.id === 'claude');
+
+    expect(claude).toMatchObject({ state: 'satisfied', version: '2.1.221' });
+  });
+
+  it('persists the new shape, so the next read is not a rebuild again', async () => {
+    vi.mocked(listSetupPlans).mockResolvedValue([persisted([claudeCli])]);
+
+    await readAllSetupPlans();
+
+    expect(saveSetupPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes nothing when the step set is already current', async () => {
+    // The common case. Rebuilding costs no SSH, but it must not turn every read
+    // into a write and a push to the renderer.
+    vi.mocked(listSetupPlans).mockResolvedValue([persisted([claudeCli])]);
+    const [rebuilt] = await readAllSetupPlans();
+    vi.mocked(saveSetupPlan).mockClear();
+    vi.mocked(listSetupPlans).mockResolvedValue([rebuilt!]);
+
+    await readAllSetupPlans();
+
+    expect(saveSetupPlan).not.toHaveBeenCalled();
   });
 });

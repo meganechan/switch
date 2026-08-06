@@ -84,15 +84,22 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
     void hostReachabilityStore.hydrate();
   }, []);
 
-  // Build the plan once the host is known to be reachable. Deliberately not on
-  // mount: probing a host the model already knows is down would only mislabel
-  // every prerequisite as missing.
+  // Rebuild the plan whenever the page opens, not only when none exists.
+  //
+  // Which steps a plan *has* comes from the local plugin registry and costs no
+  // SSH at all; only their states come from the host, and those are merged
+  // forward. Building only when the plan was absent meant a host onboarded
+  // before an agent type shipped never grew a row for it — Codex was simply
+  // missing from that host's page for good, while appearing on hosts added
+  // later. Rebuilding is free, so there is no reason to skip it.
+  //
+  // Still gated on reachability: probing a host the model already knows is down
+  // would only mislabel every prerequisite as missing.
   const { mutate: startPrepare } = prepare;
-  const hasPlan = plan.data != null;
   useEffect(() => {
-    if (blocked || plan.isLoading || hasPlan) return;
+    if (blocked || plan.isLoading) return;
     startPrepare();
-  }, [blocked, plan.isLoading, hasPlan, startPrepare]);
+  }, [blocked, plan.isLoading, startPrepare]);
 
   const status = deriveHostStatus(reachability, plan.data ?? null);
   const { prerequisites, agentTypes } = useMemo(
@@ -150,6 +157,16 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
           sticky
           title={host?.name ?? sshHost}
           description={`Remote host · ${sshHost}. Auth uses your SSH agent — switchdash stores no credentials.`}
+          back={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="-ml-2"
+              onClick={() => navigate('remoteHosts')}
+            >
+              <ArrowLeft className="size-4" /> All hosts
+            </Button>
+          }
         >
           <div className="flex items-center gap-2">
             {!blocked && (
@@ -162,9 +179,6 @@ export const RemoteHostMainPanel = observer(function RemoteHostMainPanel() {
                 )}
               </span>
             )}
-            <Button size="sm" variant="ghost" onClick={() => navigate('remoteHosts')}>
-              <ArrowLeft className="size-4" /> All hosts
-            </Button>
             {!blocked && (
               <Button
                 size="sm"

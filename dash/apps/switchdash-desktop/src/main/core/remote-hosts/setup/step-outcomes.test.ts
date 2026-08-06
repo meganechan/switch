@@ -162,3 +162,69 @@ describe('condenseCommandOutput', () => {
     expect(condenseCommandOutput('line one\nline two')).toBe('line one\nline two');
   });
 });
+
+/**
+ * An install that never ran because its own toolchain is absent (CHOO-1809).
+ *
+ * The report that prompted this: installing Codex on a host printed the host's
+ * login banner in ASCII art followed by `npm: command not found`, and that whole
+ * blob was the error. Nothing in it says the host is missing npm, and nothing
+ * distinguishes it from Codex itself being broken.
+ */
+describe('describeInstallFailure — the install command could not run', () => {
+  const banner = [
+    '  ____              _ ',
+    ' / ___|  __ _ _ __ | |',
+    'alg-bench-debian-12-v260624',
+    '/bin/bash: line 1: npm: command not found',
+  ].join('\n');
+
+  it('names the missing tool rather than echoing the transcript', () => {
+    const message = describeInstallFailure('Codex', 'Install command failed.', banner);
+
+    expect(message).toContain('npm');
+    expect(message).toContain('was not found on the host');
+  });
+
+  it('says the host was left alone, because it was', () => {
+    const message = describeInstallFailure('Codex', 'Install command failed.', banner);
+
+    expect(message).toContain('Nothing was changed');
+  });
+
+  it('explains where npm comes from, since a working node implies it', () => {
+    // The confusing part of this failure is that Node.js reads "Installed" on
+    // the same page. Saying only "npm is missing" invites the reply "but Node
+    // is right there".
+    const message = describeInstallFailure('Codex', 'Install command failed.', banner);
+
+    expect(message).toContain('Node.js');
+  });
+
+  it('handles a tool other than npm without inventing advice for it', () => {
+    const message = describeInstallFailure(
+      'Something',
+      'Install command failed.',
+      '/bin/sh: 1: curl: command not found'
+    );
+
+    expect(message).toContain('curl');
+    expect(message).not.toContain('Node.js');
+  });
+
+  it('leaves an ordinary failure message alone', () => {
+    expect(describeInstallFailure('Git', 'Disk full.', 'no space left on device')).toBe(
+      'Disk full.'
+    );
+  });
+
+  it('still prefers the lock diagnosis when both could match', () => {
+    const message = describeInstallFailure(
+      'Git',
+      'Install command failed.',
+      'E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4242\nfoo: command not found'
+    );
+
+    expect(message).toContain('package manager lock');
+  });
+});

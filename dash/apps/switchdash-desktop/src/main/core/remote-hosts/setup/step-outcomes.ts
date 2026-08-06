@@ -66,6 +66,20 @@ const PACKAGE_MANAGER_BUSY =
 const LOCK_HOLDER_PID = /held by process (\d+)/i;
 
 /**
+ * A shell reporting that the install command's own tool does not exist.
+ *
+ * Matches the shell's wording rather than the exit code: 127 is also what some
+ * installers return for their own reasons, and the message is the thing that
+ * identifies *which* tool is missing.
+ */
+const COMMAND_NOT_FOUND = /(?:^|[\n:])\s*([\w.+-]+): command not found/im;
+
+/** Tools we can say something useful about beyond "it is missing". */
+const TOOLCHAIN_HINTS: Record<string, string> = {
+  npm: 'npm ships with Node.js — a Node install that reports a version but has no npm is usually a partial one (on Debian/Ubuntu the distro splits `nodejs` and `npm` into separate packages). Re-installing Node.js from the Node.js step generally fixes it.',
+};
+
+/**
  * Explain why an install failed, in terms the user can act on.
  *
  * The lock case is worth naming, because raw apt output does not explain it —
@@ -89,6 +103,19 @@ export function describeInstallFailure(
     const holder = pid ? ` (pid ${pid})` : '';
     return `Could not install ${name}: another process${holder} on the host holds the package manager lock. That is usually the system's own automatic updates, which clear within a few minutes — but it can also be an earlier install left stuck, which will not clear on its own. If retrying keeps failing with the same pid, check that process on the host.`;
   }
+
+  // The install never started: the tool that runs it is not there. Left raw,
+  // this reaches the user as a screen of login banner ending in
+  // "npm: command not found", which reads as the agent being broken rather
+  // than as a gap in the host's toolchain.
+  const missing = COMMAND_NOT_FOUND.exec(output ?? '')?.[1] ?? COMMAND_NOT_FOUND.exec(message)?.[1];
+  if (missing) {
+    const hint = TOOLCHAIN_HINTS[missing];
+    return `Could not install ${name}: \`${missing}\` was not found on the host, so the install command could not run.${
+      hint ? ` ${hint}` : ''
+    } Nothing was changed on the host.`;
+  }
+
   return message;
 }
 
