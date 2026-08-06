@@ -1,4 +1,5 @@
 import { posix as pathPosix } from 'node:path';
+import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
@@ -18,6 +19,31 @@ import type { RemoteDirInspection } from '@shared/core/remote-hosts/remote-dir';
 async function rootFsFor(sshHost: string): Promise<SshFileSystem> {
   const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
   return new SshFileSystem(proxy, '/');
+}
+
+/**
+ * Whether the SSH user can create entries inside `dir`.
+ *
+ * Asked of the host rather than derived from the mode bits `stat` returns:
+ * answering it locally would mean resolving the SSH user's uid and its full
+ * group list and replaying the kernel's permission check, which is a lot of
+ * ways to be subtly wrong about someone else's machine. `test -w` is the same
+ * question the kernel will answer when `mkdir` runs.
+ *
+ * The command reports its verdict on stdout and always exits 0, so a non-zero
+ * exit still means something genuinely went wrong and propagates. The path goes
+ * in as an argument, never interpolated into the script.
+ */
+async function isWritable(sshHost: string, dir: string): Promise<boolean> {
+  const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
+  const ctx = new SshExecutionContext(proxy);
+  const { stdout } = await ctx.exec('sh', [
+    '-c',
+    'if [ -w "$1" ]; then echo writable; else echo readonly; fi',
+    'sh',
+    dir,
+  ]);
+  return stdout.trim().endsWith('writable');
 }
 
 /** Absolute ancestors of `dir`, deepest first, stopping above the root. */
@@ -61,6 +87,7 @@ export async function inspectRemoteDir(sshHost: string, dir: string): Promise<Re
         status: entry.type === 'dir' ? 'directory' : 'file',
         existingAncestor: '',
         missingSegments: [],
+        creatable: false,
       };
     }
 
@@ -78,6 +105,7 @@ export async function inspectRemoteDir(sshHost: string, dir: string): Promise<Re
             status: 'file',
             existingAncestor: '',
             missingSegments: [],
+            creatable: false,
           };
         }
         existingAncestor = ancestor;
@@ -90,7 +118,13 @@ export async function inspectRemoteDir(sshHost: string, dir: string): Promise<Re
       .split('/')
       .filter(Boolean);
 
-    return { dir: normalized, status: 'missing', existingAncestor, missingSegments };
+    return {
+      dir: normalized,
+      status: 'missing',
+      existingAncestor,
+      missingSegments,
+      creatable: await isWritable(sshHost, existingAncestor),
+    };
   } finally {
     fs.close();
   }
@@ -110,6 +144,11 @@ export async function createRemoteDir(sshHost: string, dir: string): Promise<voi
   if (inspection.status === 'directory') return;
   if (inspection.status === 'file') {
     throw new Error(`Cannot create ${inspection.dir} on ${sshHost}: a file already exists there`);
+  }
+  if (!inspection.creatable) {
+    throw new Error(
+      `Cannot create ${inspection.dir} on ${sshHost}: no write access to ${inspection.existingAncestor}`
+    );
   }
 
   const fs = await rootFsFor(sshHost);

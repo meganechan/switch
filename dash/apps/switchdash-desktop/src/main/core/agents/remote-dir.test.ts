@@ -4,6 +4,7 @@ import { FileSystemError, FileSystemErrorCodes } from '@main/core/fs/types';
 const stat = vi.hoisted(() => vi.fn());
 const mkdir = vi.hoisted(() => vi.fn());
 const close = vi.hoisted(() => vi.fn());
+const exec = vi.hoisted(() => vi.fn(async () => ({ stdout: 'writable\n', stderr: '' })));
 const constructedWith = vi.hoisted(() => [] as string[]);
 
 vi.mock('@main/core/fs/impl/ssh-fs', () => ({
@@ -22,6 +23,11 @@ vi.mock('@main/core/locations/location-transport', () => ({
 vi.mock('@main/core/ssh/connect/connect-agent-ssh', () => ({
   ensureSshConnected: vi.fn(async () => ({})),
 }));
+vi.mock('@main/core/execution-context/ssh-execution-context', () => ({
+  SshExecutionContext: class {
+    exec = exec;
+  },
+}));
 vi.mock('@main/lib/logger', () => ({ log: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 
 const { createRemoteDir, inspectRemoteDir } = await import('./remote-dir');
@@ -38,6 +44,7 @@ const REPO_DIR = '/home/ubuntu/switch-agents/internal-deployments';
 beforeEach(() => {
   vi.clearAllMocks();
   constructedWith.length = 0;
+  exec.mockResolvedValue({ stdout: 'writable\n', stderr: '' });
 });
 
 describe('inspectRemoteDir', () => {
@@ -49,7 +56,10 @@ describe('inspectRemoteDir', () => {
       status: 'directory',
       existingAncestor: '',
       missingSegments: [],
+      creatable: false,
     });
+    // No point asking whether an existing directory could be created.
+    expect(exec).not.toHaveBeenCalled();
   });
 
   // The ticket's repro: the directory *and* its parent are absent, which is
@@ -62,7 +72,16 @@ describe('inspectRemoteDir', () => {
       status: 'missing',
       existingAncestor: '/home/ubuntu',
       missingSegments: ['switch-agents', 'internal-deployments'],
+      creatable: true,
     });
+    // Writability is asked of the deepest *existing* ancestor — the directory
+    // the eventual mkdir actually has to write into.
+    expect(exec).toHaveBeenCalledWith('sh', [
+      '-c',
+      'if [ -w "$1" ]; then echo writable; else echo readonly; fi',
+      'sh',
+      '/home/ubuntu',
+    ]);
   });
 
   it('reports a single missing leaf under an existing parent', async () => {
@@ -83,6 +102,29 @@ describe('inspectRemoteDir', () => {
       existingAncestor: '/',
       missingSegments: ['srv', 'agent'],
     });
+  });
+
+  // A misspelt username lands on `/home/<typo>`, whose parent `/home` nobody
+  // can write to. Reporting this as plainly "missing" offered a Create button
+  // that could only ever fail with EACCES.
+  it('reports a missing path under an unwritable ancestor as not creatable', async () => {
+    existingDirs(['/home']);
+    exec.mockResolvedValue({ stdout: 'readonly\n', stderr: '' });
+
+    expect(await inspectRemoteDir('host', '/home/louis_amauduz/repo')).toEqual({
+      dir: '/home/louis_amauduz/repo',
+      status: 'missing',
+      existingAncestor: '/home',
+      missingSegments: ['louis_amauduz', 'repo'],
+      creatable: false,
+    });
+  });
+
+  it('ignores login-shell banner noise before the verdict', async () => {
+    existingDirs(['/home/ubuntu']);
+    exec.mockResolvedValue({ stdout: 'Welcome to Ubuntu\nwritable\n', stderr: '' });
+
+    expect(await inspectRemoteDir('host', REPO_DIR)).toMatchObject({ creatable: true });
   });
 
   it('reports a path that is a file rather than offering to create it', async () => {
@@ -156,6 +198,16 @@ describe('createRemoteDir', () => {
 
     await createRemoteDir('host', REPO_DIR);
 
+    expect(mkdir).not.toHaveBeenCalled();
+  });
+
+  it('refuses to create under an unwritable ancestor instead of failing at mkdir', async () => {
+    existingDirs(['/home']);
+    exec.mockResolvedValue({ stdout: 'readonly\n', stderr: '' });
+
+    await expect(createRemoteDir('host', '/home/louis_amauduz/repo')).rejects.toThrow(
+      'no write access to /home'
+    );
     expect(mkdir).not.toHaveBeenCalled();
   });
 

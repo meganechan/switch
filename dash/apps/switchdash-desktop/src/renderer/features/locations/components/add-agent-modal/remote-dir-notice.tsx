@@ -74,6 +74,26 @@ export function RemoteDirNotice({
   }
 
   const { missingSegments, existingAncestor } = inspection;
+
+  // Nothing can be created under an ancestor the SSH user cannot write to, so
+  // the offer is withheld rather than made and then failed. In practice this is
+  // usually a misspelt path under `/home` — the user's own directory would be
+  // writable, so landing on an unwritable one says the name is wrong.
+  if (!inspection.creatable) {
+    return (
+      <NoticeShell>
+        <p className="text-xs font-medium text-foreground">
+          <span className="font-mono break-all">{inspection.dir}</span> does not exist on {sshHost},
+          and cannot be created
+        </p>
+        <p className="text-xs break-words text-foreground-muted">
+          You do not have write access to <span className="font-mono">{existingAncestor}</span>.
+          Check the path for a typo, or create the directory on the host yourself.
+        </p>
+      </NoticeShell>
+    );
+  }
+
   return (
     <NoticeShell>
       <div className="flex items-start justify-between gap-2.5">

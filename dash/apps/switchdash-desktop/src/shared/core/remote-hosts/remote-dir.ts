@@ -40,4 +40,16 @@ export type RemoteDirInspection = {
    * when the path is not `missing`. Length > 1 is the typo signal.
    */
   missingSegments: string[];
+  /**
+   * Whether the SSH user can actually write into {@link existingAncestor}, and
+   * so whether creating `dir` is possible at all. False when the path is
+   * `missing` but lands somewhere unwritable — typically `/home/<name>` for a
+   * misspelt user, which no amount of `mkdir` will fix. Meaningless (and false)
+   * when the path is not `missing`.
+   *
+   * Offering to create a directory is only honest if the create can succeed, so
+   * this is resolved during inspection rather than discovered by the user
+   * pressing a button that fails.
+   */
+  creatable: boolean;
 };

@@ -66,6 +66,16 @@ export type AddLocationModalProps = BaseModalProps<void>;
 /** Sentinel `runHost` value meaning "run on this machine" (no remote host). */
 const LOCAL_RUN_LOCATION = 'local';
 
+/** Electron prefixes a rejected IPC call with its own plumbing
+ * (`Error invoking remote method 'x.y': `), and stacks the error names on top of
+ * that. Strip both so a toast shows what the main process actually said. */
+function rpcErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  return raw
+    .replace(/^Error invoking remote method '[^']*':\s*/, '')
+    .replace(/^(?:\w*Error:\s*)+/, '');
+}
+
 /** The recoverable outcomes of `addAgent` — everything the modal has to report
  * rather than treat as success. Derived from the RPC so a new variant in the
  * main process surfaces here as a type error rather than a silent no-op. */
@@ -219,12 +229,16 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const createRemoteDirMutation = useMutation({
     mutationFn: () => rpc.remoteHosts.createRemoteDir({ sshHost: runHost, dir: trimmedRemoteDir }),
     onSuccess: () => remoteDirQuery.refetch().then(() => remoteAgentQuery.refetch()),
-    onError: (error) =>
+    onError: (error) => {
       toast({
         title: 'Failed to create the directory',
-        description: String(error),
+        description: rpcErrorMessage(error),
         variant: 'destructive',
-      }),
+      });
+      // Whatever stopped the create (a race, a permission change) is a fact
+      // about the host, so re-probe rather than leaving a stale offer up.
+      void remoteDirQuery.refetch();
+    },
   });
   const remoteDirUsable = !shouldDetectRemote || remoteDirQuery.data?.status === 'directory';
 
