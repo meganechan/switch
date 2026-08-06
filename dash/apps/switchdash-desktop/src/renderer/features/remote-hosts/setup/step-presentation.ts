@@ -58,10 +58,29 @@ export function canSkip(step: HostSetupStep): boolean {
  */
 export function canInstall(step: HostSetupStep): boolean {
   if (step.kind === 'gh-auth') return false;
-  if (step.state === 'satisfied' || step.state === 'checking' || step.state === 'installing') {
+  if (
+    step.state === 'satisfied' ||
+    step.state === 'checking' ||
+    step.state === 'installing' ||
+    step.state === 'updating'
+  ) {
     return false;
   }
   return true;
+}
+
+/**
+ * Whether to offer an update for this step.
+ *
+ * Gated on `updateAvailable` alone, which is only ever true when a newer
+ * version is *known* to exist — never inferred from a version we could not
+ * read. A login has no version to replace, and something not yet installed
+ * needs Install rather than Update.
+ */
+export function canUpdate(step: HostSetupStep): boolean {
+  if (step.kind === 'gh-auth') return false;
+  if (step.state !== 'satisfied') return false;
+  return step.updateAvailable;
 }
 
 /**
@@ -87,7 +106,31 @@ export function dependenciesMet(step: HostSetupStep, plan: HostSetupPlan | null)
  * real problem.
  */
 export function canSignIn(step: HostSetupStep, plan: HostSetupPlan | null): boolean {
-  return step.kind === 'gh-auth' && step.state !== 'satisfied' && dependenciesMet(step, plan);
+  if (step.kind !== 'gh-auth') return false;
+  // Same in-flight exclusion `canInstall` makes. A check moves the step through
+  // `checking` on its way back to a verdict, and "not yet satisfied" during
+  // that window is not the same fact as "signed out" — without this, re-checking
+  // a working login flashes a Sign in button at someone already signed in.
+  if (step.state === 'satisfied' || step.state === 'checking' || step.state === 'installing') {
+    return false;
+  }
+  return dependenciesMet(step, plan);
+}
+
+/**
+ * Whether a row may offer its fix-it action right now.
+ *
+ * Not while the host is busy. The runner takes one operation per host at a time
+ * and refuses the rest, so an Install offered during a check is an offer that
+ * cannot be honoured — clicking it raises "another setup operation is already
+ * running", which reads as this dependency's fault rather than as the button
+ * never having been live.
+ *
+ * The single exception is the row whose own install is the operation in flight:
+ * there the button is the progress indicator.
+ */
+export function canOfferAction(hostBusy: boolean, isInstallingThisRow: boolean): boolean {
+  return !hostBusy || isInstallingThisRow;
 }
 
 /**
@@ -125,6 +168,8 @@ export function stepBadge(step: HostSetupStep): BadgeSpec {
       return { tone: 'info', label: 'Checking…' };
     case 'installing':
       return { tone: 'info', label: 'Installing…' };
+    case 'updating':
+      return { tone: 'info', label: 'Updating…' };
     case 'failed':
       return { tone: 'danger', label: outcomeLabel(step.outcome) };
     case 'skipped':
@@ -161,7 +206,8 @@ export type AgentTypeRow = {
  */
 export function agentTypeBadge(row: AgentTypeRow): BadgeSpec {
   const inFlight = [row.cli, row.plugin].find(
-    (step) => step?.state === 'checking' || step?.state === 'installing'
+    (step) =>
+      step?.state === 'checking' || step?.state === 'installing' || step?.state === 'updating'
   );
   if (inFlight) return stepBadge(inFlight);
 

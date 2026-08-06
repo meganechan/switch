@@ -20,10 +20,15 @@ import { Label } from '@renderer/lib/ui/label';
 import { Sheet, SheetContent, SheetHeader } from '@renderer/lib/ui/sheet';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { cn } from '@renderer/utils/utils';
-import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
+import {
+  isStepInFlight,
+  type HostSetupPlan,
+  type HostSetupStep,
+} from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
   canInstall,
+  canOfferAction,
   canSignIn,
   canSkip,
   outcomeLabel,
@@ -71,7 +76,7 @@ function OutcomeTile({ step }: { step: HostSetupStep }) {
       </div>
     );
   }
-  if (step.state === 'checking' || step.state === 'installing') {
+  if (isStepInFlight(step)) {
     return (
       <div className="flex size-6 items-center justify-center rounded-lg bg-background-2">
         <Loader2 className="size-3.5 animate-spin text-foreground-muted" />
@@ -115,6 +120,8 @@ function ObservationCard({
             <span className="text-foreground-muted">Checking…</span>
           ) : step.state === 'installing' ? (
             <span className="text-foreground-muted">Installing…</span>
+          ) : step.state === 'updating' ? (
+            <span className="text-foreground-muted">Updating…</span>
           ) : (
             <span className="text-foreground-muted">{outcomeLabel(step.outcome)}</span>
           )}
@@ -145,6 +152,7 @@ function StepActions({
   plan,
   onInstall,
   installing,
+  hostBusy,
   onSkip,
   skipping,
   onAuthenticate,
@@ -154,13 +162,18 @@ function StepActions({
   plan: HostSetupPlan | null;
   onInstall: () => void;
   installing: boolean;
+  /** True while any operation is running on this host. */
+  hostBusy: boolean;
   onSkip: () => void;
   skipping: boolean;
   onAuthenticate: () => void;
 }) {
+  // The same rule the rows follow: while the host is working, the only honest
+  // thing to show is what it is doing. The runner would refuse these anyway.
+  if (!canOfferAction(hostBusy, installing)) return null;
   const signInOffered = canSignIn(step, plan);
   const installable = canInstall(step);
-  const busy = installing || step.state === 'installing' || step.state === 'checking';
+  const busy = installing || isStepInFlight(step);
   if (!signInOffered && !installable && !canSkip(step)) return null;
 
   return (
@@ -231,6 +244,7 @@ export function SetupDetailSheet({
   onClose,
   onInstall,
   installingStepId,
+  hostBusy,
   onSkip,
   skippingStepId,
   onAuthenticate,
@@ -246,6 +260,8 @@ export function SetupDetailSheet({
   onClose: () => void;
   onInstall: (stepId: string) => void;
   installingStepId: string | null;
+  /** True while any operation is running on this host. */
+  hostBusy: boolean;
   onSkip: (stepId: string) => void;
   skippingStepId: string | null;
   onAuthenticate: () => void;
@@ -280,6 +296,7 @@ export function SetupDetailSheet({
                           plan={plan}
                           onInstall={() => onInstall(target.step.id)}
                           installing={installingStepId === target.step.id}
+                          hostBusy={hostBusy}
                           onSkip={() => onSkip(target.step.id)}
                           skipping={skippingStepId === target.step.id}
                           onAuthenticate={onAuthenticate}
@@ -296,6 +313,7 @@ export function SetupDetailSheet({
                   activityFor={activityFor}
                   onInstall={onInstall}
                   installingStepId={installingStepId}
+                  hostBusy={hostBusy}
                   onSkip={onSkip}
                   skippingStepId={skippingStepId}
                   onAuthenticate={onAuthenticate}
@@ -316,6 +334,7 @@ function AgentTypeDetail({
   activityFor,
   onInstall,
   installingStepId,
+  hostBusy,
   onSkip,
   skippingStepId,
   onAuthenticate,
@@ -326,6 +345,8 @@ function AgentTypeDetail({
   activityFor: (stepId: string) => string | null;
   onInstall: (stepId: string) => void;
   installingStepId: string | null;
+  /** True while any operation is running on this host. */
+  hostBusy: boolean;
   onSkip: (stepId: string) => void;
   skippingStepId: string | null;
   onAuthenticate: () => void;
@@ -351,6 +372,7 @@ function AgentTypeDetail({
               plan={plan}
               onInstall={() => onInstall(row.cli.id)}
               installing={installingStepId === row.cli.id}
+              hostBusy={hostBusy}
               onSkip={() => onSkip(row.cli.id)}
               skipping={skippingStepId === row.cli.id}
               onAuthenticate={onAuthenticate}
@@ -378,6 +400,7 @@ function AgentTypeDetail({
                 plan={plan}
                 onInstall={() => onInstall(row.plugin!.id)}
                 installing={installingStepId === row.plugin.id}
+                hostBusy={hostBusy}
                 onSkip={() => onSkip(row.plugin!.id)}
                 skipping={skippingStepId === row.plugin.id}
                 onAuthenticate={onAuthenticate}

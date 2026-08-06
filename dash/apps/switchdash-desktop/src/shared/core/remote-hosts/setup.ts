@@ -60,6 +60,10 @@ export function isInstallableOutcome(outcome: DependencyCheckOutcome | null): bo
  * - `pending` — not reached yet.
  * - `checking` — a probe is in flight.
  * - `installing` — an install is in flight.
+ * - `updating` — a replacement of something already present is in flight.
+ *   Distinct from `installing` because the thing is not absent: if the update
+ *   fails, what was there before is (usually) still there. Collapsing the two
+ *   would have the row say "Installing…" about software the host already has.
  * - `satisfied` — verified present after the last observation.
  * - `failed` — the check or install failed; carries `error` (and `output` when
  *   a command produced any). The run halts here.
@@ -69,6 +73,7 @@ export type HostSetupStepState =
   | 'pending'
   | 'checking'
   | 'installing'
+  | 'updating'
   | 'satisfied'
   | 'failed'
   | 'skipped';
@@ -140,16 +145,26 @@ export type HostSetupPlan = {
   updatedAt: string;
 };
 
-/** True while any step is being checked or installed. */
+/**
+ * True while a command is running against this step.
+ *
+ * Defined once because "is something happening here?" is asked from half a
+ * dozen places — badges, tiles, buttons, the host verdict. Each used to spell
+ * the state list out inline, so adding `updating` to the union would have left
+ * most of them quietly treating an update in progress as idle.
+ */
+export function isStepInFlight(step: HostSetupStep): boolean {
+  return step.state === 'checking' || step.state === 'installing' || step.state === 'updating';
+}
+
+/** True while any step is being checked, installed or updated. */
 export function isPlanBusy(plan: HostSetupPlan): boolean {
-  return plan.steps.some((step) => step.state === 'checking' || step.state === 'installing');
+  return plan.steps.some(isStepInFlight);
 }
 
 /** The step currently being worked on, if any. */
 export function inFlightStep(plan: HostSetupPlan): HostSetupStep | null {
-  return (
-    plan.steps.find((step) => step.state === 'checking' || step.state === 'installing') ?? null
-  );
+  return plan.steps.find(isStepInFlight) ?? null;
 }
 
 /** Required steps that are not yet satisfied — what stands between here and done. */

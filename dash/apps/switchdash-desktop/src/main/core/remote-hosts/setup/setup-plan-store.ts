@@ -24,6 +24,7 @@ const STEP_STATES: HostSetupStepState[] = [
   'pending',
   'checking',
   'installing',
+  'updating',
   'satisfied',
   'failed',
   'skipped',

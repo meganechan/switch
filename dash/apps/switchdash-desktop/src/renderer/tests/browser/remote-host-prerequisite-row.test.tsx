@@ -82,7 +82,13 @@ async function render(node: React.ReactNode): Promise<HTMLDivElement> {
 function row(
   auth: HostSetupStep,
   ghState: HostSetupStep['state'] = 'satisfied',
-  overrides: { hostBusy?: boolean; rechecking?: boolean; onRecheck?: () => void } = {}
+  overrides: {
+    hostBusy?: boolean;
+    rechecking?: boolean;
+    updating?: boolean;
+    onRecheck?: () => void;
+    onUpdate?: () => void;
+  } = {}
 ) {
   return (
     <PrerequisiteRow
@@ -90,11 +96,13 @@ function row(
       plan={planWith(auth, ghState)}
       isCurrent={false}
       installing={false}
+      updating={overrides.updating ?? false}
       rechecking={overrides.rechecking ?? false}
       hostBusy={overrides.hostBusy ?? false}
       activity={null}
       authenticating={false}
       onInstall={() => {}}
+      onUpdate={overrides.onUpdate ?? (() => {})}
       onRecheck={overrides.onRecheck ?? (() => {})}
       onAuthenticate={() => {}}
       onOpen={() => {}}
@@ -203,5 +211,102 @@ describe('the per-row re-check', () => {
     const el = await render(row(step({}), 'satisfied', { rechecking: true }));
 
     expect(recheckButton(el)!.disabled).toBe(true);
+  });
+});
+
+/**
+ * While a check runs, a row offers nothing but the check (CHOO-1809).
+ *
+ * Two separate defects produced the same complaint. A check moves a step
+ * through `checking` on its way back to a verdict, and the sign-in predicate
+ * read "not satisfied" as "signed out" — so re-checking a working GitHub login
+ * flashed a Sign in button at someone already signed in. Meanwhile Install
+ * stayed live on every other row, even though the runner takes one operation
+ * per host and would have refused it.
+ */
+describe('actions while the host is working', () => {
+  it('offers no Sign in while this row is mid-check', async () => {
+    const el = await render(row(step({ state: 'checking' })));
+
+    expect(buttonLabels(el)).not.toContain('Sign in');
+  });
+
+  it('offers no Sign in on a satisfied login being re-checked', async () => {
+    // The case Louis hit: the button appeared on a login that was fine.
+    const el = await render(
+      row(step({ state: 'checking', outcome: 'satisfied', version: 'amaudruz' }))
+    );
+
+    expect(buttonLabels(el)).not.toContain('Sign in');
+    expect(buttonLabels(el)).not.toContain('Re-authenticate');
+  });
+
+  it('withdraws Sign in from an idle row while the host is busy elsewhere', async () => {
+    const el = await render(row(step({}), 'satisfied', { hostBusy: true }));
+
+    expect(buttonLabels(el)).not.toContain('Sign in');
+  });
+
+  it('still shows the check control, so something says work is happening', async () => {
+    const el = await render(row(step({}), 'satisfied', { hostBusy: true }));
+
+    expect(recheckButton(el)).not.toBeNull();
+  });
+});
+
+/** The Update action is the one thing the "Update available" badge was missing. */
+describe('the update action', () => {
+  const dep = (patch: Partial<HostSetupStep> = {}) =>
+    step({
+      id: 'git',
+      kind: 'core-dependency',
+      name: 'Git',
+      dependsOn: [],
+      state: 'satisfied',
+      outcome: 'satisfied',
+      version: '2.43.0',
+      ...patch,
+    });
+
+  it('is offered when a newer version is known to exist', async () => {
+    const el = await render(row(dep({ latestVersion: '2.44.0', updateAvailable: true })));
+
+    expect(buttonLabels(el)).toContain('Update');
+  });
+
+  it('is not offered when nothing newer is known', async () => {
+    const el = await render(row(dep()));
+
+    expect(buttonLabels(el)).not.toContain('Update');
+  });
+
+  it('is not offered on a version we simply could not read', async () => {
+    // `latestVersion: null` means "we could not tell", which is not grounds to
+    // offer an update any more than it is grounds to claim currency.
+    const el = await render(row(dep({ latestVersion: null, updateAvailable: false })));
+
+    expect(buttonLabels(el)).not.toContain('Update');
+  });
+
+  it('calls back with the row it belongs to', async () => {
+    const onUpdate = vi.fn();
+    const el = await render(
+      row(dep({ latestVersion: '2.44.0', updateAvailable: true }), 'satisfied', { onUpdate })
+    );
+
+    const button = [...el.querySelectorAll('button')].find(
+      (b) => b.textContent?.trim() === 'Update'
+    );
+    await act(async () => button!.click());
+
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it('is withdrawn while the host is busy with something else', async () => {
+    const el = await render(
+      row(dep({ latestVersion: '2.44.0', updateAvailable: true }), 'satisfied', { hostBusy: true })
+    );
+
+    expect(buttonLabels(el)).not.toContain('Update');
   });
 });

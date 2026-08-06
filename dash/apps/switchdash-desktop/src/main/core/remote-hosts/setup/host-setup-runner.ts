@@ -50,6 +50,8 @@ export type HostSetupRunnerDeps = {
   publish: (plan: HostSetupPlan) => void;
   check: (step: HostSetupStep) => Promise<StepCheckResult>;
   install: (step: HostSetupStep) => Promise<StepInstallResult>;
+  /** Replace an already-installed step with the newest available version. */
+  update: (step: HostSetupStep) => Promise<StepInstallResult>;
   /** Whether this step can be installed by switchdash at all on this host. */
   canInstall: (step: HostSetupStep) => boolean;
   /**
@@ -204,6 +206,89 @@ export class HostSetupRunner {
     } finally {
       this.running = false;
     }
+  }
+
+  /**
+   * Replace one already-installed step with the newer version — the Update
+   * button (CHOO-1809).
+   *
+   * Deliberately not folded into `runStep`: that path exists to make an
+   * unsatisfied step satisfied, and returns the moment it observes one that
+   * already is. Correct for an install, useless for an update.
+   *
+   * The verification discipline is the same. An updater's exit code is a
+   * claim, so the new version is established by a fresh probe. Note what
+   * happens if the update silently no-ops: the probe records the same version
+   * and `updateAvailable` stays true, so the row keeps saying "Update
+   * available" rather than reporting a success that did not happen.
+   */
+  async updateStep(plan: HostSetupPlan, stepId: string): Promise<HostSetupPlan> {
+    if (this.running) {
+      throw new Error(`Another setup operation is already running for ${this.deps.sshHost}`);
+    }
+    this.running = true;
+    try {
+      try {
+        this.deps.requireReachable(this.deps.sshHost);
+      } catch (error) {
+        throw new HostSetupAbortedError(
+          `Cannot update on ${this.deps.sshHost}: the host is not reachable.`,
+          error
+        );
+      }
+
+      // Refuse rather than run a command whose premise we never established.
+      // Without a known newer version there is nothing to update *to*, and the
+      // remove-then-add fallback some CLIs use would risk uninstalling a
+      // working plugin to reinstall the same one.
+      const target = findStep(plan, stepId);
+      if (!target.updateAvailable) {
+        throw new Error(`No update is known to be available for ${target.name}.`);
+      }
+
+      let next = await this.patchStep(plan, stepId, {
+        state: 'updating',
+        error: null,
+        output: null,
+      });
+      next = await this.transition(next, { currentStepId: stepId });
+
+      const result = await this.deps.update(findStep(next, stepId));
+      if (!result.ok) {
+        next = await this.patchStep(next, stepId, {
+          state: 'failed',
+          error: result.error,
+          output: result.output ?? null,
+        });
+        return await this.settle(next);
+      }
+
+      const verifying = await this.patchStep(next, stepId, { state: 'checking' });
+      const verified = await this.observe(verifying, stepId);
+      const after = findStep(verified, stepId);
+
+      if (after.outcome === 'satisfied') return await this.settle(verified);
+
+      return await this.settle(
+        await this.patchStep(verified, stepId, {
+          state: 'failed',
+          error:
+            after.outcome === 'unknown'
+              ? `${after.name} was updated but could not be verified afterwards.`
+              : `${after.name} reports "${after.outcome}" after updating.`,
+        })
+      );
+    } finally {
+      this.running = false;
+    }
+  }
+
+  /** Close out an operation: recompute plan status and clear the current step. */
+  private async settle(plan: HostSetupPlan): Promise<HostSetupPlan> {
+    return await this.transition(plan, {
+      status: isPlanComplete(plan) ? 'complete' : 'idle',
+      currentStepId: null,
+    });
   }
 
   /**

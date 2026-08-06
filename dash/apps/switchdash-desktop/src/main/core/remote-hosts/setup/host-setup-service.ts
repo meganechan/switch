@@ -129,6 +129,7 @@ function runnerFor(sshHost: string, manager: HostDependencyManager): HostSetupRu
     },
     check: (step) => checkStep(sshHost, manager, step),
     install: (step) => installStep(sshHost, manager, step),
+    update: (step) => updateStep(sshHost, manager, step),
   });
 
   runners.set(sshHost, runner);
@@ -270,6 +271,45 @@ async function installStep(
 }
 
 /**
+ * Replace one step with the newest available version.
+ *
+ * Exported for the same reason `checkStep` is: the routing (connector vs
+ * dependency manager) is invisible from the call site and each half has its own
+ * failure vocabulary.
+ */
+export async function updateStep(
+  sshHost: string,
+  manager: HostDependencyManager,
+  step: HostSetupStep
+): Promise<StepInstallResult> {
+  if (step.kind === 'gh-auth') {
+    return { ok: false, error: 'A GitHub login is not something that can be updated.' };
+  }
+
+  if (step.kind === 'agent-plugin') {
+    const service = await getRemoteSwitchSetupService(sshHost);
+    const result = await service.update(stepAgentId(step));
+    return result.success
+      ? { ok: true }
+      : { ok: false, error: result.message ?? 'Could not update the Switch connector.' };
+  }
+
+  const stopProgress = streamInstallProgress(sshHost, step.id);
+  let result: Awaited<ReturnType<typeof manager.update>>;
+  try {
+    result = await manager.update(step.id);
+  } finally {
+    stopProgress();
+  }
+  if (result.success) return { ok: true };
+
+  const error = result.error as { message?: string; output?: string; type?: string };
+  const message = error.message ?? error.type ?? 'Update failed.';
+  const output = error.output ? condenseCommandOutput(error.output) : null;
+  return { ok: false, error: describeInstallFailure(step.name, message, output), output };
+}
+
+/**
  * Observe a host without changing it — the "Re-check" button.
  *
  * Rebuilds the plan first so newly-known dependencies are included, then probes
@@ -319,6 +359,23 @@ export async function installSetupStep(sshHost: string, stepId: string): Promise
   } catch (error) {
     log.warn('[HostSetup] step install stopped', {
       event: 'host-setup-step-install-stopped',
+      sshHost,
+      stepId,
+      error: String((error as Error)?.message ?? error),
+    });
+    throw error;
+  }
+}
+
+/** Update one step to the newest available version — the per-row Update button. */
+export async function updateSetupStep(sshHost: string, stepId: string): Promise<HostSetupPlan> {
+  const plan = await ensureSetupPlan(sshHost);
+  const manager = await getRemoteDependencyManager(sshHost);
+  try {
+    return await runnerFor(sshHost, manager).updateStep(plan, stepId);
+  } catch (error) {
+    log.warn('[HostSetup] step update stopped', {
+      event: 'host-setup-step-update-stopped',
       sshHost,
       stepId,
       error: String((error as Error)?.message ?? error),

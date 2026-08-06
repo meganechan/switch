@@ -22,11 +22,17 @@ import { Button } from '@renderer/lib/ui/button';
 import { Label } from '@renderer/lib/ui/label';
 import { StatusBadge } from '@renderer/lib/ui/status-badge';
 import { cn } from '@renderer/utils/utils';
-import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
+import {
+  isStepInFlight,
+  type HostSetupPlan,
+  type HostSetupStep,
+} from '@shared/core/remote-hosts/setup';
 import {
   agentTypeBadge,
   canInstall,
+  canOfferAction,
   canSignIn,
+  canUpdate,
   signInLabel,
   stepBadge,
   type AgentTypeRow,
@@ -162,7 +168,7 @@ function InstallAction({
   onInstall: () => void;
 }) {
   if (!canInstall(step)) return null;
-  const busy = installing || step.state === 'installing' || step.state === 'checking';
+  const busy = installing || isStepInFlight(step);
   return (
     <Button
       size="xs"
@@ -183,16 +189,52 @@ function InstallAction({
   );
 }
 
+/**
+ * The inline Update control, shown only when a newer version is known to exist.
+ *
+ * Separate from Install because the step is already satisfied: this replaces
+ * something working, rather than supplying something absent, and the two want
+ * different words and different risk.
+ */
+function UpdateAction({
+  step,
+  updating,
+  onUpdate,
+}: {
+  step: HostSetupStep;
+  updating: boolean;
+  onUpdate: () => void;
+}) {
+  if (!canUpdate(step)) return null;
+  const busy = updating || step.state === 'updating';
+  return (
+    <Button
+      size="xs"
+      variant="outline"
+      disabled={busy}
+      title={step.latestVersion ? `Update to ${step.latestVersion}` : 'Update'}
+      onClick={(event) => {
+        event.stopPropagation();
+        onUpdate();
+      }}
+    >
+      {busy ? <Loader2 className="size-3.5 animate-spin" /> : 'Update'}
+    </Button>
+  );
+}
+
 export function PrerequisiteRow({
   step,
   plan,
   isCurrent,
   installing,
+  updating,
   rechecking,
   hostBusy,
   activity,
   authenticating,
   onInstall,
+  onUpdate,
   onRecheck,
   onAuthenticate,
   onOpen,
@@ -202,6 +244,8 @@ export function PrerequisiteRow({
   plan: HostSetupPlan | null;
   isCurrent: boolean;
   installing: boolean;
+  /** True while this row's update is the operation in flight. */
+  updating: boolean;
   rechecking: boolean;
   /** True while any operation is running on this host. */
   hostBusy: boolean;
@@ -209,6 +253,7 @@ export function PrerequisiteRow({
   /** True while the sign-in terminal for this step is already open. */
   authenticating: boolean;
   onInstall: () => void;
+  onUpdate: () => void;
   onRecheck: () => void;
   onAuthenticate: () => void;
   onOpen: () => void;
@@ -228,24 +273,28 @@ export function PrerequisiteRow({
             step satisfied, so it belongs beside it rather than one click away
             inside the detail sheet.
           */}
-          {canSignIn(step, plan) ? (
-            <Button
-              size="xs"
-              disabled={authenticating}
-              onClick={(event) => {
-                event.stopPropagation();
-                onAuthenticate();
-              }}
-            >
-              {signInLabel(step)}
-            </Button>
-          ) : (
-            <InstallAction step={step} installing={installing} onInstall={onInstall} />
-          )}
+          {canOfferAction(hostBusy, installing || updating) &&
+            (canSignIn(step, plan) ? (
+              <Button
+                size="xs"
+                disabled={authenticating}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAuthenticate();
+                }}
+              >
+                {signInLabel(step)}
+              </Button>
+            ) : (
+              <>
+                <UpdateAction step={step} updating={updating} onUpdate={onUpdate} />
+                <InstallAction step={step} installing={installing} onInstall={onInstall} />
+              </>
+            ))}
           {/* Last, so the primary action keeps the same place whether or not
               there is one to take. */}
           <RecheckAction
-            rechecking={rechecking}
+            rechecking={rechecking || step.state === 'checking'}
             disabled={hostBusy}
             label={step.name}
             onRecheck={onRecheck}
@@ -261,16 +310,20 @@ export function AgentTypeRowItem({
   row,
   isCurrent,
   installingStepId,
+  updatingStepId,
   rechecking,
   hostBusy,
   activityFor,
   onInstall,
+  onUpdate,
   onRecheck,
   onOpen,
 }: {
   row: AgentTypeRow;
   isCurrent: boolean;
   installingStepId: string | null;
+  /** The step whose update is in flight, if any. */
+  updatingStepId: string | null;
   /** True while either of this row's two steps is being re-checked. */
   rechecking: boolean;
   /** True while any operation is running on this host. */
@@ -278,6 +331,7 @@ export function AgentTypeRowItem({
   /** A row covers two steps, so it asks per step which one is talking. */
   activityFor: (stepId: string) => string | null;
   onInstall: (stepId: string) => void;
+  onUpdate: (stepId: string) => void;
   /** Re-checks both of the row's steps — it presents them as one thing. */
   onRecheck: () => void;
   onOpen: () => void;
@@ -287,6 +341,13 @@ export function AgentTypeRowItem({
   const next = canInstall(row.cli)
     ? row.cli
     : row.plugin && canInstall(row.plugin)
+      ? row.plugin
+      : null;
+  // Update the CLI before its connector when both are behind: the connector is
+  // installed *through* the CLI, so the newer CLI is what will fetch it.
+  const stale = canUpdate(row.cli)
+    ? row.cli
+    : row.plugin && canUpdate(row.plugin)
       ? row.plugin
       : null;
   return (
@@ -299,7 +360,14 @@ export function AgentTypeRowItem({
       highlighted={isCurrent}
       action={
         <>
-          {next ? (
+          {stale && canOfferAction(hostBusy, updatingStepId === stale.id) ? (
+            <UpdateAction
+              step={stale}
+              updating={updatingStepId === stale.id}
+              onUpdate={() => onUpdate(stale.id)}
+            />
+          ) : null}
+          {next && canOfferAction(hostBusy, installingStepId === next.id) ? (
             <InstallAction
               step={next}
               installing={installingStepId === next.id}
@@ -307,7 +375,12 @@ export function AgentTypeRowItem({
             />
           ) : null}
           <RecheckAction
-            rechecking={rechecking}
+            rechecking={
+              rechecking ||
+              row.cli.state === 'checking' ||
+              row.plugin?.state === 'checking' ||
+              false
+            }
             disabled={hostBusy}
             label={row.name}
             onRecheck={onRecheck}

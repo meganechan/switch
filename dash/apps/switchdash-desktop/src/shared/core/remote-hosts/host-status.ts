@@ -23,7 +23,13 @@
  */
 
 import { isHostBlocked, type HostReachability } from './reachability';
-import { agentTypeSteps, hostLevelSteps, type HostSetupPlan, type HostSetupStep } from './setup';
+import {
+  agentTypeSteps,
+  hostLevelSteps,
+  isStepInFlight,
+  type HostSetupPlan,
+  type HostSetupStep,
+} from './setup';
 
 export type HostStatusKind =
   /** SSH authentication failed — will not self-heal, the user must fix it. */
@@ -143,7 +149,7 @@ function deriveFromSteps(steps: HostSetupStep[]): HostStatus {
 
   // Work in flight lives on the step, not the plan: there is no automated run
   // to be "running", only whatever the user asked for a moment ago.
-  const inFlight = steps.find((step) => step.state === 'checking' || step.state === 'installing');
+  const inFlight = steps.find(isStepInFlight);
   if (inFlight) {
     return {
       kind: 'setting-up',

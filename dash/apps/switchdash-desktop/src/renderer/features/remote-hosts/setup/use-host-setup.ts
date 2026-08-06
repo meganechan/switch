@@ -115,6 +115,16 @@ export function useInstallSetupStep(sshHost: string) {
   });
 }
 
+/** Replace one step with its newest version — the per-row Update button. */
+export function useUpdateSetupStep(sshHost: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (stepId: string) => rpc.remoteHosts.updateSetupStep({ sshHost, stepId }),
+    onSuccess: (plan) => queryClient.setQueryData(setupPlanQueryKey(sshHost), plan),
+    onError: (error) => log.error('Could not update a setup step', { sshHost, error }),
+  });
+}
+
 export function useSkipSetupStep(sshHost: string) {
   const queryClient = useQueryClient();
   return useMutation({

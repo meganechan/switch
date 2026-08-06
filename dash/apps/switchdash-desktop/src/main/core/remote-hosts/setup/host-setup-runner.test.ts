@@ -44,6 +44,7 @@ function plan(steps: HostSetupStep[]): HostSetupPlan {
 type Harness = {
   checks: Record<string, StepCheckResult[]>;
   installs: Record<string, StepInstallResult>;
+  updates?: Record<string, StepInstallResult>;
   canInstall?: (id: string) => boolean;
   reachable?: boolean;
 };
@@ -54,6 +55,7 @@ function makeRunner(harness: Harness) {
   const saved: HostSetupPlan[] = [];
   const published: HostSetupPlan[] = [];
   const installOrder: string[] = [];
+  const updateOrder: string[] = [];
   const checkOrder: string[] = [];
   const inFlight = { count: 0, max: 0 };
 
@@ -75,6 +77,10 @@ function makeRunner(harness: Harness) {
       inFlight.count -= 1;
       return harness.installs[s.id] ?? { ok: true };
     },
+    update: async (s) => {
+      updateOrder.push(s.id);
+      return harness.updates?.[s.id] ?? { ok: true };
+    },
     canInstall: (s) => harness.canInstall?.(s.id) ?? true,
     requireReachable: () => {
       if (harness.reachable === false) throw new Unreachable('host down');
@@ -82,7 +88,7 @@ function makeRunner(harness: Harness) {
     now: () => new Date('2026-02-02T00:00:00.000Z'),
   });
 
-  return { runner, saved, published, installOrder, checkOrder, inFlight };
+  return { runner, saved, published, installOrder, updateOrder, checkOrder, inFlight };
 }
 
 const stateOf = (p: HostSetupPlan, id: string) => p.steps.find((s) => s.id === id)!.state;
@@ -148,6 +154,7 @@ describe('installing one step', () => {
         throw new Error('ssh channel closed');
       },
       install: async () => ({ ok: true }),
+      update: async () => ({ ok: true }),
       canInstall: () => true,
       requireReachable: () => {},
       now: () => new Date('2026-02-02T00:00:00.000Z'),
@@ -568,5 +575,125 @@ describe('runner determinism', () => {
 
     expect(result.steps[0]!.updatedAt).toBe('2026-02-02T00:00:00.000Z');
     vi.useRealTimers();
+  });
+});
+
+/**
+ * Updating is not installing (CHOO-1809).
+ *
+ * `runStep` returns the moment it observes a satisfied step, which is right for
+ * an install and useless for an update — the whole premise of an update is that
+ * the thing is already there.
+ */
+describe('updating one step', () => {
+  const installed = (patch: Partial<HostSetupStep> = {}) =>
+    step('claude', {
+      state: 'satisfied',
+      outcome: 'satisfied',
+      version: '2.1.0',
+      latestVersion: '2.2.0',
+      updateAvailable: true,
+      ...patch,
+    });
+
+  it('runs the update and verifies it by re-probing', async () => {
+    const { runner, updateOrder, checkOrder } = makeRunner({
+      checks: { claude: [{ outcome: 'satisfied', version: '2.2.0' }] },
+      installs: {},
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(updateOrder).toEqual(['claude']);
+    expect(checkOrder).toEqual(['claude']);
+    expect(stateOf(result, 'claude')).toBe('satisfied');
+    expect(result.steps[0]!.version).toBe('2.2.0');
+  });
+
+  it('refuses when no update is known to be available', async () => {
+    // Without a known newer version there is nothing to update *to*, and the
+    // remove-then-add fallback some CLIs use would uninstall a working plugin
+    // to reinstall the very same one.
+    const { runner, updateOrder } = makeRunner({ checks: {}, installs: {} });
+
+    await expect(
+      runner.updateStep(
+        plan([installed({ latestVersion: null, updateAvailable: false })]),
+        'claude'
+      )
+    ).rejects.toThrow(/no update is known/i);
+    expect(updateOrder).toEqual([]);
+  });
+
+  it('reports the updater failing, and does not claim the new version', async () => {
+    const { runner } = makeRunner({
+      checks: { claude: [{ outcome: 'satisfied', version: '2.1.0' }] },
+      installs: {},
+      updates: { claude: { ok: false, error: 'network unreachable' } },
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(stateOf(result, 'claude')).toBe('failed');
+    expect(result.steps[0]!.error).toBe('network unreachable');
+    expect(result.steps[0]!.version).toBe('2.1.0');
+  });
+
+  it('fails when the thing is gone after updating', async () => {
+    // A remove-then-add that removed and did not add leaves nothing installed.
+    // An exit code saying otherwise is a claim; the probe is the observation.
+    const { runner } = makeRunner({
+      checks: { claude: [{ outcome: 'missing' }] },
+      installs: {},
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(stateOf(result, 'claude')).toBe('failed');
+    expect(result.steps[0]!.error).toMatch(/after updating/i);
+  });
+
+  it('keeps saying an update is available when the update silently no-ops', async () => {
+    // The version did not move, so the fresh probe still finds one newer. The
+    // row must keep offering it rather than reporting a success that never
+    // happened.
+    const { runner } = makeRunner({
+      checks: {
+        claude: [
+          { outcome: 'satisfied', version: '2.1.0', latestVersion: '2.2.0', updateAvailable: true },
+        ],
+      },
+      installs: {},
+    });
+
+    const result = await runner.updateStep(plan([installed()]), 'claude');
+
+    expect(stateOf(result, 'claude')).toBe('satisfied');
+    expect(result.steps[0]!.updateAvailable).toBe(true);
+  });
+
+  it('refuses to run while another operation holds the host', async () => {
+    const { runner } = makeRunner({
+      checks: { claude: [{ outcome: 'satisfied', version: '2.2.0' }] },
+      installs: {},
+    });
+    const p = plan([installed(), step('git')]);
+
+    const first = runner.updateStep(p, 'claude');
+    await expect(runner.updateStep(p, 'claude')).rejects.toThrow(/already running/i);
+    await first;
+  });
+
+  it('aborts as unreachable rather than blaming the dependency', async () => {
+    const { runner, updateOrder } = makeRunner({
+      checks: {},
+      installs: {},
+      reachable: false,
+    });
+
+    await expect(runner.updateStep(plan([installed()]), 'claude')).rejects.toBeInstanceOf(
+      HostSetupAbortedError
+    );
+    expect(updateOrder).toEqual([]);
   });
 });

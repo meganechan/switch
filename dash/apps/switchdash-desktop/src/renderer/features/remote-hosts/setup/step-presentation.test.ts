@@ -4,7 +4,9 @@ import {
   agentTypeBadge,
   canInstall,
   canSkip,
+  canOfferAction,
   canSignIn,
+  canUpdate,
   dependenciesMet,
   groupPlanSteps,
   outcomeLabel,
@@ -292,5 +294,68 @@ describe('canSignIn — the row and the sheet must agree', () => {
       'Re-authenticate'
     );
     expect(signInLabel(ghAuth())).toBe('Sign in');
+  });
+});
+
+/**
+ * An available update is information, not a defect — but it has to be
+ * actionable, and only when we actually know a newer version exists.
+ */
+describe('canUpdate', () => {
+  it('offers an update when a newer version is known', () => {
+    expect(
+      canUpdate(step({ state: 'satisfied', latestVersion: '2.2.0', updateAvailable: true }))
+    ).toBe(true);
+  });
+
+  it('offers nothing when the latest version could not be read', () => {
+    // `updateAvailable` is never inferred from a missing latest version, and
+    // this must not reintroduce that inference by the back door.
+    expect(
+      canUpdate(step({ state: 'satisfied', latestVersion: null, updateAvailable: false }))
+    ).toBe(false);
+  });
+
+  it('offers nothing on something not installed — that is an install', () => {
+    expect(canUpdate(step({ state: 'pending', outcome: 'missing', updateAvailable: true }))).toBe(
+      false
+    );
+  });
+
+  it('never offers to update a login', () => {
+    expect(canUpdate(step({ kind: 'gh-auth', state: 'satisfied', updateAvailable: true }))).toBe(
+      false
+    );
+  });
+
+  it('offers nothing while the update is already running', () => {
+    expect(canUpdate(step({ state: 'updating', updateAvailable: true }))).toBe(false);
+  });
+});
+
+/**
+ * The runner takes one operation per host and refuses the rest, so a button
+ * offered during someone else's operation is a button that cannot work.
+ */
+describe('canOfferAction', () => {
+  it('offers actions on an idle host', () => {
+    expect(canOfferAction(false, false)).toBe(true);
+  });
+
+  it('withdraws them while the host is working', () => {
+    expect(canOfferAction(true, false)).toBe(false);
+  });
+
+  it('keeps the button on the row whose own operation is running — it is the progress', () => {
+    expect(canOfferAction(true, true)).toBe(true);
+  });
+});
+
+describe('stepBadge — an update in flight', () => {
+  it('says Updating, not Installing, about software already present', () => {
+    expect(stepBadge(step({ state: 'updating' }))).toEqual({
+      tone: 'info',
+      label: 'Updating…',
+    });
   });
 });
