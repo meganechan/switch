@@ -525,6 +525,8 @@ pnpm run test
 - [Main process architecture](agents/architecture/main-process.md)
 - [Renderer architecture](agents/architecture/renderer.md)
 - [Shared modules](agents/architecture/shared.md)
+- [Remote execution: hosts, reachability, sidecar](agents/architecture/remote-execution.md)
+- [Switch rooms and sessions](agents/architecture/switch-rooms.md)
 - [Data model (switchdash vs. its upstream origin)](agents/architecture/data-model.md)
 - [Testing workflow](agents/workflows/testing.md)
 - [Provider integration](agents/integrations/providers.md)
