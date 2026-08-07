@@ -3,7 +3,7 @@ import {
   LOCAL_SERVER_BIND_ADDR,
   LOCAL_SERVER_MATTERMOST_TEAM,
 } from './constants';
-import type { LocalServerPorts } from './free-port';
+import { apiUrlFor, gatewayUrlFor, type LocalServerPorts } from './free-port';
 import type { LocalServerSecrets } from './secret-values';
 
 export type LocalServerEnvParams = {
@@ -54,7 +54,15 @@ export function buildEnvFile(params: LocalServerEnvParams): string {
     `JWT_SECRET_KEY=${secrets.jwtSecretKey}`,
     `GATEWAY_ADMIN_EMAIL=${LOCAL_SERVER_ADMIN_EMAIL}`,
     `GATEWAY_ADMIN_PASSWORD=${secrets.gatewayAdminPassword}`,
-    `FRONTEND_BASE_URL=http://localhost:${ports.gateway}`,
+    `FRONTEND_BASE_URL=${gatewayUrlFor(ports)}`,
+    // Turns the "Open in SwitchDash" link into an http(s) one. Discord (and any
+    // other bridge that only linkifies http) renders a raw `switchdash://`
+    // deeplink as dead text, so switch-core rewrites it to point at its own
+    // `/deeplink/session`, which 302s back to the deeplink — but only when this
+    // is set. It is the API origin, not the operator UI's: the redirect route is
+    // served on the agent-bridge app, and this must match the `server` switchdash
+    // reports in the deeplink it is rewriting.
+    `GATEWAY_PUBLIC_URL=${apiUrlFor(ports)}`,
     '',
     'MATTERMOST_ADMIN_USER=admin',
     `MATTERMOST_ADMIN_PASSWORD=${secrets.mattermostAdminPassword}`,
