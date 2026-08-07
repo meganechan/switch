@@ -23,43 +23,21 @@ class _FakeAdapter:
         self.targets.append(thread_root_id)
 
 
-def _bridge(live: list[str], *, aliases: dict[str, str] | None = None) -> Any:
+def _bridge(live: list[str]) -> Any:
     """A BridgeCore stand-in wired to the real positioning methods."""
     adapter = _FakeAdapter(live)
-    alias_map = aliases or {}
-
-    class _RoomStore:
-        async def get_agent_id_by_alias(
-            self, _session: Any, _room_id: str, alias: str
-        ) -> str | None:
-            return alias_map.get(alias.lower())
-
-    class _AgentStore:
-        async def get(self, _session: Any, agent_id: str) -> Any:
-            return SimpleNamespace(name=agent_id)
-
-    class _Session:
-        async def __aenter__(self) -> Any:
-            return self
-
-        async def __aexit__(self, *_exc: Any) -> None:
-            return None
-
     ns = SimpleNamespace(
         _adapter=adapter,
-        _room_store=_RoomStore(),
-        _agent_store=_AgentStore(),
-        _session_factory=lambda: _Session(),
         _indicator_move_timers={},
         _indicator_move_targets={},
+        _reported_anchors={},
         adapter_spy=adapter,
     )
     for name in (
         "_move_indicator_for_sender",
-        "_move_indicators_for_addressees",
-        "_live_agents_addressed_by_alias",
         "_schedule_indicator_move",
         "_run_indicator_move",
+        "_follow_reported_anchor",
     ):
         setattr(ns, name, getattr(BridgeCore, name).__get__(ns))
     return ns
@@ -70,9 +48,7 @@ def _drain(bridge: Any, coro: Any) -> list[tuple[str, str]]:
 
     async def _go() -> None:
         await coro
-        timers = list(bridge._indicator_move_timers.values())
-        # Fire the coalescing timers immediately rather than waiting them out.
-        for timer in timers:
+        for timer in list(bridge._indicator_move_timers.values()):
             timer.cancel()
         for key in list(bridge._indicator_move_timers):
             await bridge._run_indicator_move(key)
@@ -81,89 +57,101 @@ def _drain(bridge: Any, coro: Any) -> list[tuple[str, str]]:
     return bridge.adapter_spy.moved
 
 
-def _addressees(
-    bridge: Any,
-    content: str,
-    channel_type: str = "channel_public",
-    thread_root_id: str | None = None,
+def _anchor(
+    bridge: Any, anchor_event_id: str | None, *, thread: str | None = None
 ) -> Any:
-    return bridge._move_indicators_for_addressees(
-        channel_id="chan-1",
-        room_id="room-1",
-        channel_type=channel_type,
-        content=content,
-        mention_target=None,
-        thread_root_id=thread_root_id,
+    return bridge._follow_reported_anchor(
+        "chan-1", "agent-a", "working", anchor_event_id, thread
     )
 
 
-# ── Inbound: only agents the message addresses ──────────────────────────────
+# ── Inbound: driven by what the agent reports it has received ───────────────
 
 
-def test_addressed_agent_indicator_follows_the_message() -> None:
+def test_a_new_reported_anchor_moves_the_indicator() -> None:
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, _addressees(bridge, "@agent-a can you look at this?"))
+    async def go() -> None:
+        await _anchor(bridge, "$m1")
+        await _anchor(bridge, "$m2")
 
-    assert moved == [("chan-1", "agent-a")]
+    assert _drain(bridge, go()) == [("chan-1", "agent-a")]
 
 
-def test_unaddressed_chatter_leaves_the_indicator_alone() -> None:
-    # The whole point of scoping this per agent: a busy channel must not drag a
-    # working agent's indicator around on traffic that has nothing to do with it.
+def test_the_first_anchor_of_a_turn_moves_nothing() -> None:
+    # The indicator was only just posted against that message.
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, _addressees(bridge, "unrelated chatter between humans"))
-
-    assert moved == []
+    assert _drain(bridge, _anchor(bridge, "$m1")) == []
 
 
-def test_only_the_addressed_agent_of_several_moves() -> None:
-    bridge = _bridge(["agent-a", "agent-b"])
-
-    moved = _drain(bridge, _addressees(bridge, "@agent-b over to you"))
-
-    assert moved == [("chan-1", "agent-b")]
-
-
-def test_a_prefix_of_a_longer_name_is_not_treated_as_addressed() -> None:
+def test_repeating_the_same_anchor_moves_nothing() -> None:
+    # The 5s activity refresh replays the current anchor; it must not churn.
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, _addressees(bridge, "@agent-a-2 please take this"))
+    async def go() -> None:
+        await _anchor(bridge, "$m1")
+        for _ in range(5):
+            await _anchor(bridge, "$m1")
 
-    assert moved == []
-
-
-def test_agent_addressed_by_its_room_alias_moves() -> None:
-    bridge = _bridge(["agent-a"], aliases={"worker": "agent-a"})
-
-    moved = _drain(bridge, _addressees(bridge, "@worker ping"))
-
-    assert moved == [("chan-1", "agent-a")]
+    assert _drain(bridge, go()) == []
 
 
-def test_every_message_addresses_the_agent_in_a_dm_room() -> None:
+def test_a_message_the_agent_has_not_been_given_moves_nothing() -> None:
+    # The whole point of the redesign: arriving in the room is not evidence the
+    # agent saw it, so only what the agent reports may move the indicator.
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(
-        bridge, _addressees(bridge, "no mention here", channel_type="direct")
-    )
+    async def go() -> None:
+        await _anchor(bridge, "$m1")
+        # A message lands in the room, but the agent is busy and is never
+        # handed it — so no new anchor is ever reported.
+        await _anchor(bridge, "$m1")
 
-    assert moved == [("chan-1", "agent-a")]
+    assert _drain(bridge, go()) == []
 
 
-def test_nothing_is_scheduled_when_no_indicator_is_live() -> None:
-    bridge = _bridge([])
+def test_a_report_without_an_anchor_moves_nothing() -> None:
+    # Connectors that don't report anchors simply never reposition.
+    bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, _addressees(bridge, "@agent-a hello"))
+    async def go() -> None:
+        await _anchor(bridge, "$m1")
+        await _anchor(bridge, None)
 
-    assert moved == []
+    assert _drain(bridge, go()) == []
+
+
+def test_the_move_lands_in_the_thread_of_the_reported_message() -> None:
+    bridge = _bridge(["agent-a"])
+
+    async def go() -> None:
+        await _anchor(bridge, "$m1", thread=None)
+        await _anchor(bridge, "$m2", thread="root-7")
+
+    _drain(bridge, go())
+
+    assert bridge.adapter_spy.targets == ["root-7"]
+
+
+def test_the_anchor_resets_when_the_turn_ends() -> None:
+    # A later turn's first anchor must not be mistaken for a move within the
+    # previous one.
+    bridge = _bridge(["agent-a"])
+
+    async def go() -> None:
+        await _anchor(bridge, "$m1")
+        await bridge._follow_reported_anchor("chan-1", "agent-a", "idle", None, None)
+        await _anchor(bridge, "$m2")
+
+    assert _drain(bridge, go()) == []
 
 
 # ── Outbound: the agent's own messages ──────────────────────────────────────
 
 
 def test_indicator_follows_a_message_the_agent_posts() -> None:
+    # No ambiguity here — the agent demonstrably acted, so core may move it.
     bridge = _bridge(["agent-a"])
 
     moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-a", None))
@@ -179,77 +167,27 @@ def test_another_agents_message_does_not_move_this_indicator() -> None:
     assert moved == []
 
 
-# ── Threads ─────────────────────────────────────────────────────────────────
+def test_nothing_moves_when_no_indicator_is_live() -> None:
+    bridge = _bridge([])
+
+    moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-a", None))
+
+    assert moved == []
 
 
-def test_the_move_targets_the_thread_the_message_arrived_in() -> None:
-    bridge = _bridge(["agent-a"])
-
-    _drain(bridge, _addressees(bridge, "@agent-a in here", thread_root_id="root-7"))
-
-    assert bridge.adapter_spy.targets == ["root-7"]
-
-
-def test_a_coalesced_burst_lands_in_the_most_recent_thread() -> None:
-    # The indicator should follow where the conversation ended up, not where it
-    # was when the coalescing window opened.
-    bridge = _bridge(["agent-a"])
-
-    async def burst() -> None:
-        await _addressees(bridge, "@agent-a first", thread_root_id="root-1")
-        await _addressees(bridge, "@agent-a second", thread_root_id="root-2")
-        await _addressees(bridge, "@agent-a third", thread_root_id="root-3")
-
-    _drain(bridge, burst())
-
-    assert bridge.adapter_spy.targets == ["root-3"]
-
-
-def test_a_message_at_the_channel_root_brings_the_indicator_back_out() -> None:
-    bridge = _bridge(["agent-a"])
-
-    _drain(bridge, _addressees(bridge, "@agent-a out here", thread_root_id=None))
-
-    assert bridge.adapter_spy.targets == [None]
-
-
-# ── Coalescing ──────────────────────────────────────────────────────────────
-
-
-def test_a_burst_of_messages_costs_a_single_move() -> None:
+def test_a_burst_of_agent_posts_costs_a_single_move() -> None:
     bridge = _bridge(["agent-a"])
     scheduled: list[Any] = []
 
     async def burst() -> None:
         for _ in range(20):
-            await _addressees(bridge, "@agent-a another one")
+            await bridge._move_indicator_for_sender("chan-1", "agent-a", None)
             scheduled.append(bridge._indicator_move_timers[("chan-1", "agent-a")])
 
     moved = _drain(bridge, burst())
 
-    # One timer object throughout: later messages were absorbed into the queued
-    # move rather than each scheduling their own.
-    assert len(scheduled) == 20
     assert all(timer is scheduled[0] for timer in scheduled)
     assert moved == [("chan-1", "agent-a")]
-
-
-def test_a_later_message_does_not_push_the_queued_move_back() -> None:
-    # A sustained conversation must not starve the move by resetting its timer
-    # on every message, so the deadline is set once and left alone.
-    bridge = _bridge(["agent-a"])
-    deadlines: list[float] = []
-
-    async def burst() -> None:
-        for _ in range(3):
-            await _addressees(bridge, "@agent-a keep talking")
-            deadlines.append(
-                bridge._indicator_move_timers[("chan-1", "agent-a")].when()
-            )
-
-    _drain(bridge, burst())
-
-    assert len(set(deadlines)) == 1
 
 
 def test_a_platform_failure_during_a_move_does_not_escape() -> None:

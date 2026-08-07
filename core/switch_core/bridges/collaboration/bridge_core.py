@@ -31,11 +31,7 @@ from switch_core.bridges.collaboration.models import (
 )
 from switch_core.clients.admin_messages import ADMIN_MARKER, AdminMessageType
 from switch_core.clients.client_base import ClientBase, ClientConfig
-from switch_core.clients.mentions import (
-    mention_regex,
-    strip_emphasis,
-    unique_mention_tokens,
-)
+from switch_core.clients.mentions import mention_regex, strip_emphasis
 from switch_core.db.models import BridgeMessageMap, ExternalUser
 from switch_core.db.stores.agent_store import AgentStore
 from switch_core.db.stores.bridge_message_map_store import BridgeMessageMapStore
@@ -150,6 +146,9 @@ class BridgeCore:
         # See _schedule_indicator_move.
         self._indicator_move_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
         self._indicator_move_targets: dict[tuple[str, str], str | None] = {}
+        # (channel_id, agent_name) -> the last message the agent reported having
+        # been handed. Cleared when its turn ends. See _follow_reported_anchor.
+        self._reported_anchors: dict[tuple[str, str], str] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -444,14 +443,6 @@ class BridgeCore:
                     matrix_event_id=event_id,
                     external_post_id=msg.message_ref,
                 )
-            await self._move_indicators_for_addressees(
-                channel_id=msg.channel_id,
-                room_id=room_id,
-                channel_type=msg.channel_type,
-                content=content,
-                mention_target=mention_target,
-                thread_root_id=msg.root_id,
-            )
             return
 
         # Caption convention: the text rides as the caption on the first
@@ -496,15 +487,6 @@ class BridgeCore:
                 matrix_event_id=first_event_id,
                 external_post_id=msg.message_ref,
             )
-
-        await self._move_indicators_for_addressees(
-            channel_id=msg.channel_id,
-            room_id=room_id,
-            channel_type=msg.channel_type,
-            content=content,
-            mention_target=mention_target,
-            thread_root_id=msg.root_id,
-        )
 
     async def _handle_inbound_command(self, cmd: InboundCommand) -> None:
         room_ids = self._channel_to_room.get(cmd.channel_id)
@@ -1330,6 +1312,48 @@ class BridgeCore:
             deeplink_url=event.deeplink_url,
             detail=event.detail,
         )
+        await self._follow_reported_anchor(
+            channel_id,
+            event.agent_name,
+            event.state,
+            event.anchor_event_id,
+            thread_root_ref,
+        )
+
+    async def _follow_reported_anchor(
+        self,
+        channel_id: str,
+        agent_name: str,
+        state: str,
+        anchor_event_id: str | None,
+        thread_root_ref: str | None,
+    ) -> None:
+        """Move the indicator when the agent reports it has been handed a
+        newer message than the one it was last positioned against.
+
+        Position follows what the agent has actually received, not what merely
+        arrived in the room — a message the agent has not been given yet must
+        not make the indicator look like the agent has seen it. The periodic
+        activity refresh repeats the current anchor, so it never moves anything.
+        """
+        key = (channel_id, agent_name)
+        if state != "working":
+            self._reported_anchors.pop(key, None)
+            return
+        if anchor_event_id is None:
+            return
+
+        if self._reported_anchors.get(key) == anchor_event_id:
+            return
+        previous = self._reported_anchors.get(key)
+        self._reported_anchors[key] = anchor_event_id
+        if previous is None:
+            # First anchor of the turn — the indicator was only just posted
+            # against it, so there is nothing to move.
+            return
+
+        self._indicator_move_targets[key] = thread_root_ref
+        await self._run_indicator_move(key)
 
     # ── Protection sync ──────────────────────────────────────────────────────
 
@@ -1366,77 +1390,6 @@ class BridgeCore:
         """Follow a message the agent itself just posted."""
         if agent_name in self._adapter.agents_with_live_runtime_state(channel_id):
             self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
-
-    async def _move_indicators_for_addressees(
-        self,
-        *,
-        channel_id: str,
-        room_id: str,
-        channel_type: ChannelType,
-        content: str,
-        mention_target: str | None,
-        thread_root_id: str | None,
-    ) -> None:
-        """Follow an inbound message, for each addressed agent working here.
-
-        Only agents the message actually addresses move: unrelated chatter in a
-        busy channel leaves a working agent's indicator where it is."""
-        live = self._adapter.agents_with_live_runtime_state(channel_id)
-        if not live:
-            return
-
-        # Every message in a 1:1 room addresses the agent, with no mention.
-        if channel_type == "direct":
-            for agent_name in live:
-                self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
-            return
-
-        stripped = strip_emphasis(content)
-        addressed = {
-            agent_name
-            for agent_name in live
-            if mention_regex(agent_name).search(stripped) is not None
-        }
-        if mention_target is not None and mention_target in live:
-            addressed.add(mention_target)
-
-        unmatched = [name for name in live if name not in addressed]
-        if unmatched:
-            addressed.update(
-                await self._live_agents_addressed_by_alias(room_id, content, unmatched)
-            )
-
-        for agent_name in addressed:
-            self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
-
-    async def _live_agents_addressed_by_alias(
-        self, room_id: str, content: str, candidates: list[str]
-    ) -> set[str]:
-        """Of `candidates`, those addressed by their room alias rather than name.
-
-        An alias is room-scoped, so it cannot be matched from the message text
-        alone. Only consulted when a plain-name match has already failed for the
-        agent, keeping this off the path of the common case."""
-        tokens = unique_mention_tokens(content)
-        if not tokens:
-            return set()
-
-        by_name = {name.lower(): name for name in candidates}
-        matched: set[str] = set()
-        async with self._session_factory() as session:
-            for token in tokens:
-                agent_id = await self._room_store.get_agent_id_by_alias(
-                    session, room_id, token
-                )
-                if agent_id is None:
-                    continue
-                agent = await self._agent_store.get(session, agent_id)
-                if agent is None:
-                    continue
-                name = by_name.get(agent.name.lower())
-                if name is not None:
-                    matched.add(name)
-        return matched
 
     def _schedule_indicator_move(
         self, channel_id: str, agent_name: str, thread_root_id: str | None

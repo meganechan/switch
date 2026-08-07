@@ -1001,6 +1001,7 @@ class ProtocolService:
         deeplink_url: str | None = None,
         detail: str | None = None,
         control_capabilities: dict[str, bool] | None = None,
+        anchor_event_id: str | None = None,
     ) -> None:
         """Record and broadcast an agent's runtime state in a room.
 
@@ -1016,6 +1017,13 @@ class ProtocolService:
         `detail` is a short activity line for the running turn (e.g. "Editing
         foo.py"); like `thread_id` it is transient and rides the event only —
         the bridge surfaces it in place on the live working message.
+
+        `anchor_event_id` is the latest message the reporting connector has
+        actually handed to the agent's session. The bridge repositions the
+        indicator when it changes, so position follows what the agent has
+        genuinely been given rather than what merely arrived in the room. Also
+        transient routing — reported on every refresh, and only a change moves
+        anything.
 
         The `switchdash://` deeplink is rewritten to a gateway HTTP redirect when
         `GATEWAY_PUBLIC_URL` is configured, so the "Open in SwitchDash" link is
@@ -1055,6 +1063,7 @@ class ProtocolService:
             thread_id=thread_id,
             deeplink_url=deeplink_url,
             detail=detail,
+            anchor_event_id=anchor_event_id,
         )
 
     async def _emit_runtime_state(
@@ -1069,6 +1078,7 @@ class ProtocolService:
         thread_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
+        anchor_event_id: str | None = None,
     ) -> None:
         client = self.client_lifecycle.get_by_agent_id(agent_id)
         if client is None or client.nio_client is None:
@@ -1088,6 +1098,7 @@ class ProtocolService:
                 "thread_id": thread_id,
                 "deeplink_url": deeplink_url,
                 "detail": detail,
+                "anchor_event_id": anchor_event_id,
             },
         )
 

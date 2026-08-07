@@ -607,6 +607,7 @@ async def set_runtime_state(
             deeplink_url=req.deeplink_url,
             detail=req.detail,
             control_capabilities=req.control_capabilities,
+            anchor_event_id=req.anchor_event_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
