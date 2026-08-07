@@ -37,12 +37,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/toolti
 import { cn } from '@renderer/utils/utils';
 import type { Agent } from '@shared/core/agents/agents';
 import { SidebarItemMiniButton, SidebarMenuAction, SidebarMenuRow } from './sidebar-primitives';
-import { depthIndent } from './sidebar-store';
-
-/** Expand-state key for an agent row (default open; its sessions live below it). */
-export function agentExpandKey(agentId: string): string {
-  return `ag:${agentId}`;
-}
+import { agentExpandKey, depthIndent } from './sidebar-store';
 
 /**
  * A single agent in the flat sidebar list. switchdash has no main/subagent

@@ -5,7 +5,7 @@ import { getLocationManagerStore } from '@renderer/features/locations/stores/loc
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import { events } from '@renderer/lib/ipc';
 import { scopeToLocationServer } from '@renderer/lib/layout/scope-to-server';
-import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { appState } from '@renderer/lib/stores/app-state';
 import { sessionDeeplinkChannel } from '@shared/core/switch-rooms/switchRoomEvents';
 import { pickDeeplinkTarget } from './session-deeplink-resolve';
 import { switchRoomsStore as roomConnectionsStore } from './switch-rooms-store';
@@ -49,8 +49,7 @@ function findSessionById(sessionId: string): { locationId: string; sessionId: st
  * Listens for `switchdash://session?…` deeplinks (delivered by the main process
  * after a messaging-app click) and focuses the app on the matching agent
  * session: it selects the session's Switch server (so the server-scoped sidebar
- * shows it), reveals/expands the session in the sidebar, and navigates to the
- * session view. A render-less component so it can subscribe via the typed event
+ * shows it) and navigates to the session view. A render-less component so it can subscribe via the typed event
  * bus and use the navigation store. No live session for the room → logged and
  * ignored.
  */
@@ -86,11 +85,10 @@ export function SessionDeeplinkListener(): null {
           roomId,
         });
         // Scope the sidebar to the session's server first; otherwise its location
-        // is filtered out of the server-scoped tree and the reveal has nothing
-        // to expand.
+        // is filtered out of the server-scoped tree and there is no row to
+        // reveal. Navigating is all the sidebar needs — it expands and scrolls
+        // to whatever the open view selects, from any origin.
         await scopeToLocationServer(match.locationId);
-        sidebarStore.revealSessionInRoom(match.locationId, roomId);
-        sidebarStore.requestScrollToSession(match.sessionId);
         appState.navigation.navigate('session', match);
       })();
     });

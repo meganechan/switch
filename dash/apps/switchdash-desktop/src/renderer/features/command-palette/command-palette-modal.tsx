@@ -17,7 +17,7 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/views/remote-hosts-view';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
-import { agentExpandKey } from '@renderer/features/sidebar/agent-item';
+import { agentExpandKey } from '@renderer/features/sidebar/sidebar-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { commandRegistry } from '@renderer/lib/commands/registry';

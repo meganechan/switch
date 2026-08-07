@@ -4,6 +4,7 @@ import { switchServersStore } from '@renderer/features/switch-servers/switch-ser
 import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
 import type { Agent } from '@shared/core/agents/agents';
 import {
+  agentExpandKey,
   agentRoomGroupKey,
   applyManualOrder,
   roomAgentGroupKey,
@@ -145,18 +146,58 @@ describe('SidebarStore grouping', () => {
     expect(restored.expandedRoomKeys.has('room-2')).toBe(true);
   });
 
-  it('reveals a session in its room across both layouts', () => {
+  it('opens the agent and room group a selected session sits in', () => {
     const store = new SidebarStore(locationManager([]));
-    // Simulate the user having collapsed the room group in each layout.
-    store.toggleGroupExpanded(agentRoomGroupKey('location-1', 'room-1'));
+    // Simulate the user having collapsed both groups above the session.
+    store.toggleGroupExpanded(agentExpandKey('agent-1'));
+    store.toggleGroupExpanded(agentRoomGroupKey('agent-1', 'room-1'));
+
+    store.revealSelection({ kind: 'session', agentId: 'agent-1', roomKey: 'room-1' });
+
+    expect(store.isGroupExpanded(agentExpandKey('agent-1'))).toBe(true);
+    expect(store.isGroupExpanded(agentRoomGroupKey('agent-1', 'room-1'))).toBe(true);
+  });
+
+  it('leaves the grouping the user cannot see untouched', () => {
+    const store = new SidebarStore(locationManager([]));
     store.toggleGroupExpanded(roomViewGroupKey('room-1'));
-    expect(store.isGroupExpanded(agentRoomGroupKey('location-1', 'room-1'))).toBe(false);
+    store.toggleGroupExpanded(roomAgentGroupKey('room-1', 'agent-1'));
+
+    // Agent-focused is on screen, so the room-focused groups stay as they were.
+    store.revealSelection({ kind: 'session', agentId: 'agent-1', roomKey: 'room-1' });
+
     expect(store.isGroupExpanded(roomViewGroupKey('room-1'))).toBe(false);
+    expect(store.isGroupExpanded(roomAgentGroupKey('room-1', 'agent-1'))).toBe(false);
 
-    store.revealSessionInRoom('location-1', 'room-1');
+    store.setGrouping('room');
+    store.revealSelection({ kind: 'session', agentId: 'agent-1', roomKey: 'room-1' });
 
-    expect(store.expandedLocationIds.has('location-1')).toBe(true);
-    expect(store.isGroupExpanded(agentRoomGroupKey('location-1', 'room-1'))).toBe(true);
+    expect(store.isGroupExpanded(roomViewGroupKey('room-1'))).toBe(true);
+    expect(store.isGroupExpanded(roomAgentGroupKey('room-1', 'agent-1'))).toBe(true);
+  });
+
+  it('opens every agent a selected room is listed under', () => {
+    const store = new SidebarStore(locationManager([]));
+    store.toggleGroupExpanded(agentExpandKey('agent-1'));
+    store.toggleGroupExpanded(agentExpandKey('agent-2'));
+
+    store.revealSelection({
+      kind: 'room',
+      roomKey: 'room-1',
+      agentIds: ['agent-1', 'agent-2'],
+    });
+
+    expect(store.isGroupExpanded(agentExpandKey('agent-1'))).toBe(true);
+    expect(store.isGroupExpanded(agentExpandKey('agent-2'))).toBe(true);
+  });
+
+  it('opens the room an agent was selected from, in the room-focused tree', () => {
+    const store = new SidebarStore(locationManager([]));
+    store.setGrouping('room');
+    store.toggleGroupExpanded(roomViewGroupKey('room-1'));
+
+    store.revealSelection({ kind: 'agent', roomKey: 'room-1' });
+
     expect(store.isGroupExpanded(roomViewGroupKey('room-1'))).toBe(true);
   });
 
@@ -168,17 +209,6 @@ describe('SidebarStore grouping', () => {
 
     expect(store.isGroupExpanded(roomAgentGroupKey('room-1', 'agent-1'))).toBe(false);
     expect(store.isGroupExpanded(roomAgentGroupKey('room-2', 'agent-1'))).toBe(true);
-  });
-
-  it('tracks and clears a pending scroll-to-session request', () => {
-    const store = new SidebarStore(locationManager([]));
-    expect(store.pendingScrollSessionId).toBeNull();
-
-    store.requestScrollToSession('session-1');
-    expect(store.pendingScrollSessionId).toBe('session-1');
-
-    store.clearPendingScroll();
-    expect(store.pendingScrollSessionId).toBeNull();
   });
 
   it("returns a location's visible sessions for grouped views", () => {

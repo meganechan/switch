@@ -1,5 +1,5 @@
 import { observer } from 'mobx-react-lite';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
@@ -8,6 +8,7 @@ import { switchServersStore } from '@renderer/features/switch-servers/switch-ser
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { AgentTree } from './agent-tree';
 import { RoomTree } from './room-tree';
+import { useScrollSelectionIntoView } from './sidebar-auto-scroll';
 import { switchIdentities } from './sidebar-tree-data';
 
 /**
@@ -19,6 +20,11 @@ import { switchIdentities } from './sidebar-tree-data';
  * components rather than one tree with the levels swapped.
  */
 export const SidebarGroupedList = observer(function SidebarGroupedList() {
+  // The tree's only scroller, and so the only place that has to keep the
+  // selected row — session, agent, agent-under-room or room — in view.
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  useScrollSelectionIntoView(scrollerRef);
+
   // Live session→room connections, room names and room membership all live on
   // the server; pull them once on mount and refresh on focus.
   useEffect(() => {
@@ -49,7 +55,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     sidebarStore.filteredLocations.length === 0;
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
+    <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
       {showFilterEmptyState ? (
         <p className="px-2 py-3 text-xs text-foreground-muted">No agents match filters</p>
       ) : sidebarStore.grouping === 'room' ? (
