@@ -21,6 +21,28 @@ below:
 
 ### [Unreleased]
 
+### [0.12.2] - 2026-08-07
+
+#### Changed
+- The collaboration-bridge runtime indicator now follows the agent: it moves to
+  the foot of the conversation and into the thread the triggering message belongs
+  to (instead of staying where the turn opened), and the agent — not the bridge
+  watching traffic — decides when it moves (new `anchor_event_id` on the
+  runtime-state protocol), so it no longer jumps below a human's message before
+  the agent has been handed it (CHOO-1104).
+
+#### Fixed
+- Runtime-indicator robustness: serialise refresh vs repositioning, and don't
+  strand the indicator when a turn ends mid-move (CHOO-1104).
+- Discord: delete an agent's messages through the same webhook that posted them
+  (CHOO-1104).
+- Agent bridge: clamp a resumed cursor to the in-memory buffer head on heartbeat,
+  so a connection no longer silently skips events up to a stale cursor after a
+  switch-core restart.
+- Agent bridge: write the legacy room-binding row only for connectionless
+  (MCP-transport) callers, so a connection-backed `connect_to_room` no longer
+  leaves an unread, never-cleaned binding row behind.
+
 ### [0.12.1] - 2026-08-05
 
 #### Security
