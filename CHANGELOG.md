@@ -204,6 +204,18 @@ below:
 
 ### [Unreleased]
 
+### [0.19.1] - 2026-08-07
+
+#### Changed
+- switchdash sessions report their latest-message anchor so the
+  collaboration-bridge runtime indicator can follow the agent to the foot of the
+  conversation (CHOO-1104).
+
+#### Fixed
+- Fix an import cycle that could leave the view registry half-built — a renderer
+  crash ("Cannot access 'remoteHostsView' before initialization"), deterministic
+  in CI and load-order-dependent locally (CHOO-1104).
+
 ### [0.19.0] - 2026-08-07
 
 #### Added
