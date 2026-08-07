@@ -182,7 +182,7 @@ below:
 
 ### [Unreleased]
 
-### [0.19.0] - 2026-08-06
+### [0.19.0] - 2026-08-07
 
 #### Added
 - Remote-host onboarding rewritten as per-host pages with a staged,
@@ -196,6 +196,9 @@ below:
   (CHOO-1937, #130).
 - Detect switch-core drift on a managed stack and update it; flag drift on the
   sidebar server rows (CHOO-1736).
+- Command palette now searches across your agents and rooms — not just
+  navigation — labelling what each result is, jumping into another server's
+  scope, and adding an "Add Switch Server" command (CHOO-1423, #140).
 
 #### Changed
 - Split an agent type into separate CLI and connector rows; drop the
@@ -215,6 +218,9 @@ below:
 - Migration safety: register migration 0046 in the drizzle journal, fail loud
   when a migration isn't registered, and assert the migration runner's timestamp
   precondition (CHOO-1809).
+- Command-palette matching: a hyphenated query is no longer split into separate
+  terms, matches no longer land mid-word, results rank like the sidebar, and the
+  search index no longer treats `item_type` as content (CHOO-1423, #140).
 
 ### [0.18.3] - 2026-08-06
 
