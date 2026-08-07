@@ -13,12 +13,8 @@ import {
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
-import {
-  isCurrentView,
-  useNavigate,
-  useParams,
-  useWorkspaceSlots,
-} from '@renderer/lib/layout/navigation-provider';
+import { isCurrentView, useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { buttonVariants } from '@renderer/lib/ui/button';
 import {

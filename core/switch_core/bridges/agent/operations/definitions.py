@@ -97,6 +97,48 @@ def claim_room_on_caller_connection(
     return evicted.id
 
 
+async def bind_room_for_connectionless_caller(
+    protocol: ProtocolService,
+    *,
+    agent_id: str,
+    connection_id: str,
+    room_id: str,
+    connection_model: str,
+) -> bool:
+    """Record the room binding row, for callers that have no connection.
+
+    The row is how an MCP transport session resolves its room, and the only
+    way it can. A connection carries its own rooms, so writing the row for one
+    records a binding nothing reads — and the row has no liveness check and no
+    expiry, so it outlives the connection it was written for and keeps
+    answering room-scoped calls afterwards. A connection that reopens without
+    re-claiming its room then reads as connected on the send path while
+    delivery, which consults the connection, has nothing: the agent posts into
+    a room it is no longer receiving from, invisibly from either side.
+
+    Returns whether a row was written.
+    """
+    if protocol.connections.get(connection_id) is not None:
+        return False
+
+    # session_passive agents have no poll loop, so the row exists only to bind
+    # the MCP transport to a room — lifecycle="explicit". always_on and
+    # session_addressable agents also receive heartbeat upserts; we mark the row
+    # "heartbeat" so the poll path's on-conflict update doesn't need to
+    # special-case it.
+    lifecycle = "explicit" if connection_model == "session_passive" else "heartbeat"
+    async with protocol.session_factory() as db:
+        await protocol.agent_session_store.set_connected_room(
+            db,
+            agent_id=agent_id,
+            room_id=room_id,
+            transport_session_id=connection_id,
+            lifecycle=lifecycle,
+        )
+        await db.commit()
+    return True
+
+
 @operation
 async def list_rooms(include_archived: bool = False) -> list[dict[str, Any]]:
     """List rooms this agent is assigned to.
@@ -117,10 +159,17 @@ async def list_rooms(include_archived: bool = False) -> list[dict[str, Any]]:
     connected_room_id: str | None = None
     key = session_key()
     if key:
-        async with protocol.session_factory() as db:
-            row = await protocol.agent_session_store.get_connected_room(db, key)
-        if row is not None:
-            _, connected_room_id = row
+        # Ask the live connection first and the binding row only for callers
+        # that have none, matching how require_connected_room resolves it — a
+        # connection carries its own rooms and no row is written for it.
+        connection = protocol.connections.get(key)
+        if connection is not None and len(connection.rooms) == 1:
+            connected_room_id = next(iter(connection.rooms))
+        elif connection is None:
+            async with protocol.session_factory() as db:
+                row = await protocol.agent_session_store.get_connected_room(db, key)
+            if row is not None:
+                _, connected_room_id = row
     rooms = await protocol.list_rooms(agent_id, include_archived=include_archived)
 
     return [
@@ -218,27 +267,17 @@ async def connect_to_room(
     key = session_key()
     if not key:
         raise ValueError("MCP session has no session id; cannot connect to room")
-    # session_passive agents have no poll loop, so the row exists only to
-    # bind the MCP transport to a room — lifecycle="explicit". always_on and
-    # session_addressable agents also receive heartbeat upserts; we mark the
-    # row "heartbeat" so the poll path's on-conflict update doesn't need to
-    # special-case it.
-    lifecycle = (
-        "explicit" if profile.connection_model == "session_passive" else "heartbeat"
-    )
     evicted_connection_id = claim_room_on_caller_connection(
         protocol, agent_id, key, room.id
     )
 
-    async with protocol.session_factory() as db:
-        await protocol.agent_session_store.set_connected_room(
-            db,
-            agent_id=agent_id,
-            room_id=room.id,
-            transport_session_id=key,
-            lifecycle=lifecycle,
-        )
-        await db.commit()
+    await bind_room_for_connectionless_caller(
+        protocol,
+        agent_id=agent_id,
+        connection_id=key,
+        room_id=room.id,
+        connection_model=profile.connection_model,
+    )
 
     return {
         "agent_id": agent_id,

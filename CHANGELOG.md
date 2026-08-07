@@ -182,6 +182,46 @@ below:
 
 ### [Unreleased]
 
+### [0.19.0] - 2026-08-07
+
+#### Added
+- Remote-host onboarding rewritten as per-host pages with a staged,
+  one-click-per-prerequisite setup: install each prerequisite individually with
+  live progress, inline GitHub CLI sign-in, and agent creation gated on host
+  readiness (CHOO-1809).
+- Surface and act on available updates on a remote host — detect Codex/CLI
+  updates remotely, re-check one dependency at a time, and show which version an
+  update brings, flagged in the sidebar (CHOO-1809).
+- Discover and onboard already-configured agents on a shared remote host
+  (CHOO-1937, #130).
+- Detect switch-core drift on a managed stack and update it; flag drift on the
+  sidebar server rows (CHOO-1736).
+- Command palette now searches across your agents and rooms — not just
+  navigation — labelling what each result is, jumping into another server's
+  scope, and adding an "Add Switch Server" command (CHOO-1423, #140).
+
+#### Changed
+- Split an agent type into separate CLI and connector rows; drop the
+  servers-sidebar text actions (CHOO-1809, CHOO-1953).
+- Pin switch-core `0.12.1` for the managed stack (CHOO-1736).
+
+#### Fixed
+- Remote-host setup hardening: a host without the GitHub CLI no longer reports
+  itself Ready; the readiness probe no longer races itself; host vs agent-type
+  readiness are judged separately; stale plans rebuild; a failed update is no
+  longer treated as a broken dependency; only CLI updates switchdash can
+  actually perform are offered; agent creation refuses an unchecked type; the
+  agent type clears when the run location changes; remote-host pages scroll; and
+  a remote install no longer hangs on an unanswerable prompt (CHOO-1809).
+- Dialogs opt out of the window drag region; the alert action no longer overlaps
+  its text (CHOO-1953, CHOO-1736).
+- Migration safety: register migration 0046 in the drizzle journal, fail loud
+  when a migration isn't registered, and assert the migration runner's timestamp
+  precondition (CHOO-1809).
+- Command-palette matching: a hyphenated query is no longer split into separate
+  terms, matches no longer land mid-word, results rank like the sidebar, and the
+  search index no longer treats `item_type` as content (CHOO-1423, #140).
+
 ### [0.18.3] - 2026-08-06
 
 #### Added

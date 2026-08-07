@@ -2,6 +2,7 @@ import { CommandPaletteModal } from '@renderer/features/command-palette/command-
 import { AddAgentModal } from '@renderer/features/locations/components/add-agent-modal/add-agent-modal';
 import { DeleteAgentModal } from '@renderer/features/locations/components/delete-agent-modal';
 import { ResetAgentModal } from '@renderer/features/locations/components/reset-agent-modal';
+import { AddHostModal } from '@renderer/features/remote-hosts/add-host-modal';
 import { CreateSessionModal } from '@renderer/features/sessions/create-session-modal/create-session-modal';
 import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-modal';
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
@@ -57,6 +58,7 @@ export const modalRegistry = {
   }),
   deleteSessionModal: createModal(DeleteSessionModal, { size: 'sm' }),
   addServerModal: createModal(AddServerModal, { size: 'md', dismissOnOutsideClick: false }),
+  addHostModal: createModal(AddHostModal, { size: 'md', dismissOnOutsideClick: false }),
   assignServerModal: createModal(AssignServerModal, { size: 'sm', dismissOnOutsideClick: false }),
   renameServerModal: createModal(RenameServerModal, {
     size: 'xs',
