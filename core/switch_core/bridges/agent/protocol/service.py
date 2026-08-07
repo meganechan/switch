@@ -2039,12 +2039,20 @@ class ProtocolService:
             """Return (present_here, session_room_name) for a lease."""
             if lease.transport_session_id is None:
                 return False, None
-            conn = await self.agent_session_store.get_connected_room(
-                session, lease.transport_session_id
-            )
-            if conn is None:
-                return False, None
-            conn_room_id = conn[1]
+            # A live connection knows its own rooms and has no binding row; the
+            # row is only there for callers that predate connections.
+            connection = self.connections.get(lease.transport_session_id)
+            if connection is not None:
+                if len(connection.rooms) != 1:
+                    return False, None
+                conn_room_id = next(iter(connection.rooms))
+            else:
+                conn = await self.agent_session_store.get_connected_room(
+                    session, lease.transport_session_id
+                )
+                if conn is None:
+                    return False, None
+                conn_room_id = conn[1]
             if conn_room_id == room_id:
                 return True, None
             if conn_room_id not in room_name_cache:
