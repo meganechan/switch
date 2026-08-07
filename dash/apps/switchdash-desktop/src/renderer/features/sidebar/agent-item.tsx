@@ -25,8 +25,8 @@ import { rpc } from '@renderer/lib/ipc';
 import {
   useNavigate,
   useParams,
-  useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import {

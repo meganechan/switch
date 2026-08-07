@@ -17,8 +17,8 @@ import {
   isCurrentView,
   useNavigate,
   useParams,
-  useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { buttonVariants } from '@renderer/lib/ui/button';
 import {

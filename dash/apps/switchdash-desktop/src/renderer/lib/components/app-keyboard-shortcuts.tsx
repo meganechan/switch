@@ -8,8 +8,8 @@ import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider'
 import {
   useNavigate,
   useParams,
-  useWorkspaceSlots,
 } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { modalStore } from '@renderer/lib/modal/modal-store';
 

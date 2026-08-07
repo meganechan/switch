@@ -5,9 +5,9 @@ import { AppKeyboardShortcuts } from '@renderer/lib/components/app-keyboard-shor
 import { MonacoKeyboardBridge } from '@renderer/lib/components/monaco-keyboard-bridge';
 import { useTheme } from '@renderer/lib/hooks/useTheme';
 import {
-  useWorkspaceSlots,
   useWorkspaceWrapParams,
 } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { WorkspaceContentLayout, WorkspaceLayout } from '@renderer/lib/layout/workspace-layout';
 import { Toaster } from '@renderer/lib/ui/toaster';
 
