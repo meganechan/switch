@@ -535,6 +535,12 @@ class MattermostAdapter(CollaborationAdapter):
                 )
             return
 
+        if self._working_msg.get(key) is not live:
+            # The turn ended while the delete was in flight. The old post is
+            # already gone and the entry with it, so there is nothing left to
+            # move — reposting now would strand an indicator no one will clear.
+            return
+
         ref = await self.send_message(channel_id, agent_name, live.body, thread_root_id)
         if ref is None:
             # The old post is already gone, so there is nothing to fall back to.
@@ -546,6 +552,13 @@ class MattermostAdapter(CollaborationAdapter):
                 channel_id,
             )
             return
+
+        if self._working_msg.get(key) is not live:
+            # Same race, one step later: the replacement has no owner now, so
+            # take it back down rather than leave it in the channel.
+            await self._permanent_delete(ref)
+            return
+
         self._working_msg[key] = replace(
             live, message_ref=ref, thread_root_id=thread_root_id
         )

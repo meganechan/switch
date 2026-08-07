@@ -263,6 +263,14 @@ class CollaborationAdapter(ABC):
             )
             return
 
+        if self._working_msg.get(key) is not live:
+            # The turn ended (or another move landed) while this post was in
+            # flight, so whoever cleared it has already removed the message this
+            # one replaces. Nothing will ever clear the replacement, so take it
+            # back down rather than strand it in the channel.
+            await self._remove_runtime_indicator(channel_id, ref)
+            return
+
         self._working_msg[key] = replace(
             live, message_ref=ref, thread_root_id=thread_root_id
         )

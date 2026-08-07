@@ -155,6 +155,49 @@ def test_failed_repost_after_delete_drops_the_stale_ref() -> None:
     assert ("chan-1", "worker") not in adapter._working_msg
 
 
+def test_a_turn_ending_mid_delete_abandons_the_move() -> None:
+    # Mattermost deletes first, so a turn ending during that delete leaves
+    # nothing to move — reposting anyway would strand an indicator forever.
+    adapter = _adapter()
+    recorder = _Recorder(hard_delete_works=True)
+    recorder.install(adapter)
+    _seed_indicator(adapter)
+
+    real_delete = adapter._permanent_delete
+
+    async def delete_then_go_idle(post_id: str) -> bool:
+        ok = await real_delete(post_id)
+        adapter._working_msg.pop(("chan-1", "worker"), None)
+        return ok
+
+    adapter._permanent_delete = delete_then_go_idle  # type: ignore[method-assign]
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
+
+    assert recorder.sends == []
+    assert ("chan-1", "worker") not in adapter._working_msg
+
+
+def test_a_turn_ending_mid_repost_takes_the_replacement_back_down() -> None:
+    adapter = _adapter()
+    recorder = _Recorder(hard_delete_works=True)
+    recorder.install(adapter)
+    _seed_indicator(adapter)
+
+    real_send = adapter.send_message
+
+    async def send_then_go_idle(*args: Any, **kwargs: Any) -> str | None:
+        ref = await real_send(*args, **kwargs)
+        adapter._working_msg.pop(("chan-1", "worker"), None)
+        return ref
+
+    adapter.send_message = send_then_go_idle  # type: ignore[method-assign]
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
+
+    # post-1 was the move's own delete; post-2 is the orphan being cleaned up.
+    assert recorder.hard_deletes == ["post-1", "post-2"]
+    assert ("chan-1", "worker") not in adapter._working_msg
+
+
 def test_idle_still_falls_back_to_a_terminal_marker() -> None:
     # Turn end is unchanged: without a hard delete the post is edited rather
     # than soft deleted, so no "(message deleted)" tombstone is left.
