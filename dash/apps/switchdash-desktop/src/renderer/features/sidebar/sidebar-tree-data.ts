@@ -14,8 +14,12 @@ import type { Agent } from '@shared/core/agents/agents';
 export type AgentEntry = { agent: Agent; location: LocationStore };
 
 /**
- * The flat list of agents in the active-server scope, newest first. switchdash
- * shows agents as a flat list — not grouped by directory (CHOO-1440).
+ * The flat list of agents in the active-server scope. switchdash shows agents
+ * as a flat list — not grouped by directory (CHOO-1440).
+ *
+ * Newest first, then overlaid with the user's manual drag order: an agent they
+ * have positioned stays where they put it, and one they have not sorts after
+ * those by recency.
  */
 export function scopedAgents(): AgentEntry[] {
   const entries: AgentEntry[] = [];
@@ -24,10 +28,11 @@ export function scopedAgents(): AgentEntry[] {
       entries.push({ agent, location });
     }
   }
-  return entries.sort(
+  entries.sort(
     (a, b) =>
       b.agent.createdAt.localeCompare(a.agent.createdAt) || a.agent.name.localeCompare(b.agent.name)
   );
+  return sidebarStore.orderAgents(entries, (entry) => entry.agent.id);
 }
 
 /**
