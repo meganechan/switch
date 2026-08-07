@@ -570,6 +570,13 @@ class DiscordAdapter(CollaborationAdapter):
             return None
         return f"https://discord.com/channels/{self._config.guild_id}/{external_channel_id}"
 
+    async def home_deeplink(self) -> str | None:
+        """`https://discord.com/channels/<guild>` — the guild's canonical link,
+        which the desktop app claims, same as `channel_deeplink`."""
+        if not self._config.guild_id:
+            return None
+        return f"https://discord.com/channels/{self._config.guild_id}"
+
     async def get_channel_type(self, channel_id: str) -> ChannelType:
         target = await self._get_channel(int(channel_id))
         return self._channel_type_of(target)

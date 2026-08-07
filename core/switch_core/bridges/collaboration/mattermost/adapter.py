@@ -725,6 +725,21 @@ class MattermostAdapter(CollaborationAdapter):
         host = re.sub(r"^https?://", "", base_url).rstrip("/")
         return f"mattermost://{host}/{self._config.team_name}/channels/{name}"
 
+    async def home_deeplink(self) -> str | None:
+        """`mattermost://<host>/<team>` — the team's home in the desktop app.
+
+        Uses `public_url` when set, for the same reason `channel_deeplink`
+        does: `url` may be an address only Switch can reach. For the bundled
+        deployment neither is reachable from a user's machine (`url` is the
+        in-compose `http://mattermost:8065` and `public_url` is unset), so a
+        client that knows where it published Mattermost should prefer its own
+        origin over this."""
+        base_url = self._config.public_url or self._config.url
+        if not base_url or not self._config.team_name:
+            return None
+        host = re.sub(r"^https?://", "", base_url).rstrip("/")
+        return f"mattermost://{host}/{self._config.team_name}"
+
     async def add_agents_to_channel(
         self, channel_id: str, agent_names: list[str]
     ) -> None:

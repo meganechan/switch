@@ -595,6 +595,13 @@ class SlackAdapter(CollaborationAdapter):
             f"slack://channel?team={self._config.workspace_id}&id={external_channel_id}"
         )
 
+    async def home_deeplink(self) -> str | None:
+        """`slack://open?team=<workspace>` — opens this workspace in the Slack
+        desktop app, matching the scheme `channel_deeplink` already uses."""
+        if not self._config.workspace_id:
+            return None
+        return f"slack://open?team={self._config.workspace_id}"
+
     async def get_channel_type(self, channel_id: str) -> ChannelType:
         if not self._web_client:
             raise RuntimeError("Slack client not connected")

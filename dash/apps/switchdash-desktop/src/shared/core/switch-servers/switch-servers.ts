@@ -194,7 +194,76 @@ export type RemoteBridge = {
   status: string;
   /** The bridge used when a room is created without naming one. */
   isDefault: boolean;
+  /**
+   * Link that opens this bridge's workspace in its messaging app, from the
+   * gateway's live adapter. Null when the bridge is not running, the platform
+   * offers no such link, or the server predates the field — so treat its
+   * absence as "no action to offer", not as an error.
+   */
+  homeUrl: string | null;
 };
+
+/**
+ * One credential field a bridge type needs, projected from the JSON Schema the
+ * gateway derives from the adapter's Pydantic config model.
+ *
+ * The schema is the server's to define, not switchdash's: a Slack bridge needs
+ * different fields from a Discord one, and a switch-core release can add a
+ * field without an app release. So the attach form is generated from this
+ * rather than hand-written per platform.
+ */
+export type BridgeConfigField = {
+  key: string;
+  label: string;
+  description: string | null;
+  required: boolean;
+  /** Render masked and keep out of logs. Set from the schema's
+   * `format: "password"` hint, falling back to a name heuristic. */
+  secret: boolean;
+};
+
+/** A bridge type registered on a server, with the fields needed to attach one
+ * (mirrors the gateway `BridgeTypeInfo`, with its raw JSON Schema flattened
+ * into an ordered field list). */
+export type RemoteBridgeType = {
+  /** Platform key (`slack`, `mattermost`, …). */
+  key: string;
+  fields: BridgeConfigField[];
+};
+
+/**
+ * Parameters for attaching a collaboration bridge to a server from inside
+ * switchdash (CHOO-1784).
+ *
+ * `connectionConfig` carries platform credentials — a Slack bot token, a
+ * Discord bot token, a Mattermost admin password. It is main-process-only: it
+ * goes straight to the server over HTTPS and is never persisted by switchdash,
+ * never logged, and never sent back to the renderer.
+ */
+export type CreateBridgeParams = {
+  serverId: string;
+  bridgeType: string;
+  displayName: string;
+  connectionConfig: Record<string, string>;
+  /** Make this the bridge new rooms land on when none is named. */
+  setAsDefault: boolean;
+};
+
+/**
+ * Outcome of attaching a bridge. As with room creation, recoverable gateway
+ * failures become variants the modal can say out loud rather than a raw throw.
+ *
+ * `forbidden` is its own case because it is not a fault the user can fix by
+ * editing the form: registering a bridge is admin-only, so a non-admin needs
+ * telling that rather than a validation error.
+ */
+export type CreateBridgeResult =
+  | { kind: 'created'; bridge: RemoteBridge }
+  | { kind: 'unauthenticated' }
+  | { kind: 'forbidden' }
+  /** The server rejected the credentials or the config shape (400/422). */
+  | { kind: 'invalid'; message: string }
+  | { kind: 'error'; message: string };
 
 /** A bridged (external) human identity on a server. The `users` dimension of an
  * addressing policy keys off these ids. */

@@ -410,6 +410,17 @@ class CollaborationAdapter(ABC):
         server + team + channel name."""
         return None
 
+    async def home_deeplink(self) -> str | None:
+        """Link that opens this bridge's *workspace* — the Slack workspace, the
+        Discord guild, the Mattermost team — rather than one channel within it.
+        None when the platform has no such link or it cannot be built.
+
+        The bridge-level counterpart to :meth:`channel_deeplink`, for offering
+        "open the messaging app" next to the bridge itself. Built from the
+        connection config, which never leaves the server; only the resulting
+        URL is exposed."""
+        return None
+
     @abstractmethod
     async def get_channel_type(self, channel_id: str) -> ChannelType: ...
 
