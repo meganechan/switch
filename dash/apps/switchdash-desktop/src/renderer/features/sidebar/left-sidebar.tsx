@@ -1,11 +1,8 @@
 import { FolderInput, Server, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
-import {
-  isCurrentView,
-  useNavigate,
-  useWorkspaceSlots,
-} from '@renderer/lib/layout/navigation-provider';
+import { isCurrentView, useNavigate } from '@renderer/lib/layout/navigation-provider';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
 import { ServersSidebarSection } from '../switch-servers/ServersSidebarSection';
