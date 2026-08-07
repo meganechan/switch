@@ -83,7 +83,9 @@ def test_bridge_write_routes_require_admin() -> None:
         if route.methods & WRITE_METHODS
         and require_admin not in _dependency_calls(route.dependant)
     )
-    assert not unguarded, f"collaboration write routes missing require_admin: {unguarded}"
+    assert not unguarded, (
+        f"collaboration write routes missing require_admin: {unguarded}"
+    )
 
 
 def test_known_bridge_write_routes_are_present() -> None:
@@ -134,6 +136,16 @@ def _admin() -> User:
     return User(id="admin-1", name="admin", email="admin@test", role="admin")
 
 
+class _NoRunningBridges:
+    """Stands in for the lifecycle service, which the endpoint consults only to
+    ask a live adapter for its workspace link. Nothing is running here, so it
+    reports no adapter and the response carries no `home_url` — the same path a
+    stopped bridge takes in production."""
+
+    def get_adapter(self, bridge_id: str) -> None:
+        return None
+
+
 async def test_set_default_promotes_and_demotes(
     session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
@@ -144,7 +156,12 @@ async def test_set_default_promotes_and_demotes(
 
     async with session_factory() as session:
         detail = await set_default_bridge(
-            second, session, _BRIDGE_STORE, _ROOM_STORE, _admin()
+            second,
+            session,
+            _BRIDGE_STORE,
+            _ROOM_STORE,
+            _NoRunningBridges(),  # type: ignore[arg-type]
+            _admin(),
         )
         assert detail.bridge_id == second
         assert detail.is_default is True
@@ -161,6 +178,11 @@ async def test_set_default_unknown_bridge_is_404(
     async with session_factory() as session:
         with pytest.raises(HTTPException) as exc:
             await set_default_bridge(
-                "does-not-exist", session, _BRIDGE_STORE, _ROOM_STORE, _admin()
+                "does-not-exist",
+                session,
+                _BRIDGE_STORE,
+                _ROOM_STORE,
+                _NoRunningBridges(),  # type: ignore[arg-type]
+                _admin(),
             )
         assert exc.value.status_code == 404
