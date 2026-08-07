@@ -2,8 +2,8 @@ import { useEffect } from 'react';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { events, rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { toggleSettingsView } from '@renderer/lib/layout/settings-toggle';
+import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import {
   menuGiveFeedbackChannel,

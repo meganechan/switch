@@ -7,10 +7,7 @@ import {
   getSessionStore,
 } from '@renderer/features/sessions/stores/session-selectors';
 import { SessionSidebarTrailingSlot } from '@renderer/features/sidebar/session-sidebar-agent-status';
-import {
-  useNavigate,
-  useParams,
-} from '@renderer/lib/layout/navigation-provider';
+import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
 import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
