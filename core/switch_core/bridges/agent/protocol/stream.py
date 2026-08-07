@@ -132,6 +132,11 @@ async def event_stream(
                 },
             )
 
+        # Whether the parked-with-no-room warning has already been emitted for
+        # the current park. The park branch re-enters on every wake, so an
+        # unguarded log would repeat for as long as the connection sits there.
+        parked_logged = False
+
         while True:
             if conn.stream_generation != generation:
                 # Another stream took this connection over.
@@ -169,6 +174,7 @@ async def event_stream(
 
             if conn.rooms != last_rooms:
                 last_rooms = set(conn.rooms)
+                parked_logged = False
                 yield _frame(
                     "subscription_changed",
                     {"rooms": sorted(last_rooms), "reason": "subscription updated"},
@@ -188,6 +194,20 @@ async def event_stream(
                 # Park until a room is claimed. `claim_room` sets `wake`, so the
                 # loop resumes the moment there is something to cover, with the
                 # cursor still where it started.
+                #
+                # Parking is normal for the moment before a session claims its
+                # room, and a fault when it persists — a connection sitting here
+                # receives nothing while still looking alive from the outside.
+                # Nothing distinguishes the two from the outside, so say it once.
+                if not parked_logged:
+                    logger.warning(
+                        "[STREAM] agent=%s connection=%s parked — scope=single "
+                        "with no room claimed; nothing will be delivered to it "
+                        "until a claim arrives",
+                        agent_id,
+                        conn.id,
+                    )
+                    parked_logged = True
                 conn.wake.clear()
                 if not conn.rooms and not await _wait_for_wake(conn):
                     yield b": keepalive\n\n"
