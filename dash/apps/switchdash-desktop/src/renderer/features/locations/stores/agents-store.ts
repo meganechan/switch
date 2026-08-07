@@ -53,6 +53,17 @@ export class AgentsStore {
     });
   }
 
+  /** One agent by id, across every location — the palette resolves an agent's
+   *  provider from a search hit this way, so it can show the same provider mark
+   *  the sidebar does. */
+  agentById(agentId: string): Agent | null {
+    for (const agents of this.byLocation.values()) {
+      const found = agents.find((a) => a.id === agentId);
+      if (found) return found;
+    }
+    return null;
+  }
+
   /** The Switch server a location's agents belong to, or null if unlinked. */
   serverIdForLocation(locationId: string): string | null {
     const agents = this.byLocation.get(locationId);
