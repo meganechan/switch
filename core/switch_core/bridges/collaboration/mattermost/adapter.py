@@ -503,7 +503,9 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name, post_id, self.translate_outbound("✓ input received")
             )
 
-    async def reposition_runtime_state(self, channel_id: str, agent_name: str) -> None:
+    async def reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
         """Move the indicator only when Mattermost will truly delete the old one.
 
         This inverts the base class's post-then-delete order. Mattermost can only
@@ -533,9 +535,7 @@ class MattermostAdapter(CollaborationAdapter):
                 )
             return
 
-        ref = await self.send_message(
-            channel_id, agent_name, live.body, live.thread_root_id
-        )
+        ref = await self.send_message(channel_id, agent_name, live.body, thread_root_id)
         if ref is None:
             # The old post is already gone, so there is nothing to fall back to.
             self._working_msg.pop(key, None)
@@ -546,7 +546,9 @@ class MattermostAdapter(CollaborationAdapter):
                 channel_id,
             )
             return
-        self._working_msg[key] = replace(live, message_ref=ref)
+        self._working_msg[key] = replace(
+            live, message_ref=ref, thread_root_id=thread_root_id
+        )
 
     async def _dispose_working(self, channel_id: str, agent_name: str) -> None:
         """Remove the live "working on it…" message when the turn ends.

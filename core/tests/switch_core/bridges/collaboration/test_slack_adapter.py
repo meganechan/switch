@@ -689,7 +689,7 @@ def test_reposition_reposts_indicator_below_newer_traffic() -> None:
             detail="Editing adapter.py",
         )
     )
-    _run(adapter.reposition_runtime_state("C123", "agent-bot"))
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
 
     # Reposted verbatim, then the original removed — never edited in place.
     assert len(fake.calls) == 2
@@ -699,7 +699,7 @@ def test_reposition_reposts_indicator_below_newer_traffic() -> None:
     assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:888.8"
 
 
-def test_reposition_keeps_the_indicator_in_its_thread() -> None:
+def test_reposition_stays_in_the_thread_when_the_message_is_in_it() -> None:
     adapter = _adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
@@ -713,9 +713,51 @@ def test_reposition_keeps_the_indicator_in_its_thread() -> None:
             thread_root_id="C123:111.1",
         )
     )
-    _run(adapter.reposition_runtime_state("C123", "agent-bot"))
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", "C123:111.1"))
 
     assert fake.calls[1]["thread_ts"] == "111.1"
+
+
+def test_reposition_follows_the_agent_into_a_different_thread() -> None:
+    # The indicator re-homes rather than being stranded in whichever thread the
+    # turn happened to open in.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id="C123:111.1",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", "C123:222.2"))
+
+    assert fake.calls[1]["thread_ts"] == "222.2"
+    assert adapter._working_msg[("C123", "agent-bot")].thread_root_id == "C123:222.2"
+
+
+def test_reposition_follows_the_agent_back_out_to_the_channel_root() -> None:
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id="C123:111.1",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+
+    assert fake.calls[1]["thread_ts"] is None
+    assert adapter._working_msg[("C123", "agent-bot")].thread_root_id is None
 
 
 def test_reposition_is_a_noop_without_a_live_indicator() -> None:
@@ -723,7 +765,7 @@ def test_reposition_is_a_noop_without_a_live_indicator() -> None:
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
-    _run(adapter.reposition_runtime_state("C123", "agent-bot"))
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
 
     assert fake.calls == []
     assert fake.deletes == []
@@ -746,7 +788,7 @@ def test_reposition_leaves_the_original_when_the_repost_fails() -> None:
         return None
 
     adapter.send_message = failing_send  # type: ignore[method-assign]
-    _run(adapter.reposition_runtime_state("C123", "agent-bot"))
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
 
     assert fake.deletes == []
     assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:999.9"

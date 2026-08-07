@@ -229,14 +229,21 @@ class CollaborationAdapter(ABC):
             if posted_channel == channel_id
         ]
 
-    async def reposition_runtime_state(self, channel_id: str, agent_name: str) -> None:
-        """Move the agent's live runtime indicator to the foot of the channel.
+    async def reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Move the agent's live runtime indicator to follow the latest message.
 
         Called when a message the agent is party to has just crossed the bridge,
         so the indicator no longer sits below the conversation it belongs to.
         The replacement is posted *before* the original is removed: the
         indicator is therefore never briefly absent, and a failed repost leaves
         the original in place rather than clearing it.
+
+        ``thread_root_id`` is the thread that message belonged to, and is where
+        the indicator lands — so it follows the agent between threads (and back
+        out to the channel root) rather than being stranded in whichever thread
+        the turn happened to start in.
 
         Adapters that render runtime state as a typing indicator have nothing
         positional to move, so the default does nothing.
@@ -246,9 +253,7 @@ class CollaborationAdapter(ABC):
         if live is None:
             return
 
-        ref = await self.send_message(
-            channel_id, agent_name, live.body, live.thread_root_id
-        )
+        ref = await self.send_message(channel_id, agent_name, live.body, thread_root_id)
         if ref is None:
             logger.warning(
                 "Could not repost the runtime indicator for %s in %s; leaving it "
@@ -258,7 +263,9 @@ class CollaborationAdapter(ABC):
             )
             return
 
-        self._working_msg[key] = replace(live, message_ref=ref)
+        self._working_msg[key] = replace(
+            live, message_ref=ref, thread_root_id=thread_root_id
+        )
         await self._remove_runtime_indicator(channel_id, live.message_ref)
 
     async def _remove_runtime_indicator(

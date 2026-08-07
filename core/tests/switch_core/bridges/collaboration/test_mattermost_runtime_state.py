@@ -80,12 +80,24 @@ def test_reposition_deletes_before_reposting_when_hard_delete_works() -> None:
     recorder.install(adapter)
     _seed_indicator(adapter, thread_root_id="root-9")
 
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", "root-9"))
 
     assert recorder.hard_deletes == ["post-1"]
     assert recorder.sends == [("chan-1", "worker", "⚙️ _Working on it…_", "root-9")]
     assert recorder.patches == []
     assert adapter._working_msg[("chan-1", "worker")].message_ref == "post-2"
+
+
+def test_reposition_rehomes_into_the_thread_of_the_latest_message() -> None:
+    adapter = _adapter()
+    recorder = _Recorder(hard_delete_works=True)
+    recorder.install(adapter)
+    _seed_indicator(adapter, thread_root_id="root-9")
+
+    _run(adapter.reposition_runtime_state("chan-1", "worker", "root-42"))
+
+    assert recorder.sends == [("chan-1", "worker", "⚙️ _Working on it…_", "root-42")]
+    assert adapter._working_msg[("chan-1", "worker")].thread_root_id == "root-42"
 
 
 def test_reposition_abandoned_when_hard_delete_is_unavailable() -> None:
@@ -96,7 +108,7 @@ def test_reposition_abandoned_when_hard_delete_is_unavailable() -> None:
     recorder.install(adapter)
     _seed_indicator(adapter)
 
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
 
     assert recorder.sends == []
     assert recorder.patches == []
@@ -109,8 +121,8 @@ def test_unavailable_hard_delete_is_warned_once_per_channel() -> None:
     recorder.install(adapter)
     _seed_indicator(adapter)
 
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
 
     assert adapter._no_hard_delete_warned == {"chan-1"}
 
@@ -120,7 +132,7 @@ def test_reposition_is_a_noop_without_a_live_indicator() -> None:
     recorder = _Recorder(hard_delete_works=True)
     recorder.install(adapter)
 
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
 
     assert recorder.hard_deletes == []
     assert recorder.sends == []
@@ -138,7 +150,7 @@ def test_failed_repost_after_delete_drops_the_stale_ref() -> None:
         return None
 
     adapter.send_message = failing_send  # type: ignore[method-assign]
-    _run(adapter.reposition_runtime_state("chan-1", "worker"))
+    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
 
     assert ("chan-1", "worker") not in adapter._working_msg
 

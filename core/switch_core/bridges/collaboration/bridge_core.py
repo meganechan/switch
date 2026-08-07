@@ -146,8 +146,10 @@ class BridgeCore:
         self._outbound_groups: dict[str, _PendingOutboundGroup] = {}
         self._outbound_group_timers: dict[str, asyncio.TimerHandle] = {}
         # (channel_id, agent_name) whose runtime indicator is due to be moved
-        # below newly-arrived traffic. See _schedule_indicator_move.
+        # below newly-arrived traffic, and the thread each should land in.
+        # See _schedule_indicator_move.
         self._indicator_move_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
+        self._indicator_move_targets: dict[tuple[str, str], str | None] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -448,6 +450,7 @@ class BridgeCore:
                 channel_type=msg.channel_type,
                 content=content,
                 mention_target=mention_target,
+                thread_root_id=msg.root_id,
             )
             return
 
@@ -500,6 +503,7 @@ class BridgeCore:
             channel_type=msg.channel_type,
             content=content,
             mention_target=mention_target,
+            thread_root_id=msg.root_id,
         )
 
     async def _handle_inbound_command(self, cmd: InboundCommand) -> None:
@@ -1016,7 +1020,9 @@ class BridgeCore:
             )
 
         if sender_name is not None:
-            await self._move_indicator_for_sender(channel_id, sender_name)
+            await self._move_indicator_for_sender(
+                channel_id, sender_name, thread_root_ref
+            )
 
     async def _outbound_thread_root_ref(
         self, event_content: dict[str, object], channel_id: str
@@ -1166,7 +1172,7 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
-        await self._move_indicator_for_sender(channel_id, sender_name)
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
 
     def _schedule_outbound_group_flush(
         self,
@@ -1250,7 +1256,7 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
-        await self._move_indicator_for_sender(channel_id, sender_name)
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
 
     async def _download_matrix_media(
         self, client: ClientBase[Any], mxc: str | None, filename: str
@@ -1355,11 +1361,11 @@ class BridgeCore:
     # ── Runtime-indicator positioning ─────────────────────────────────────────
 
     async def _move_indicator_for_sender(
-        self, channel_id: str, agent_name: str
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
     ) -> None:
         """Follow a message the agent itself just posted."""
         if agent_name in self._adapter.agents_with_live_runtime_state(channel_id):
-            self._schedule_indicator_move(channel_id, agent_name)
+            self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
 
     async def _move_indicators_for_addressees(
         self,
@@ -1369,6 +1375,7 @@ class BridgeCore:
         channel_type: ChannelType,
         content: str,
         mention_target: str | None,
+        thread_root_id: str | None,
     ) -> None:
         """Follow an inbound message, for each addressed agent working here.
 
@@ -1381,7 +1388,7 @@ class BridgeCore:
         # Every message in a 1:1 room addresses the agent, with no mention.
         if channel_type == "direct":
             for agent_name in live:
-                self._schedule_indicator_move(channel_id, agent_name)
+                self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
             return
 
         stripped = strip_emphasis(content)
@@ -1400,7 +1407,7 @@ class BridgeCore:
             )
 
         for agent_name in addressed:
-            self._schedule_indicator_move(channel_id, agent_name)
+            self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
 
     async def _live_agents_addressed_by_alias(
         self, room_id: str, content: str, candidates: list[str]
@@ -1431,15 +1438,23 @@ class BridgeCore:
                     matched.add(name)
         return matched
 
-    def _schedule_indicator_move(self, channel_id: str, agent_name: str) -> None:
+    def _schedule_indicator_move(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
         """Queue a move of this agent's runtime indicator, coalescing bursts.
 
         Messages arriving while a move is already queued are absorbed into it,
         so a rapid exchange costs one delete-and-repost rather than one per
         message. The delay is deliberately not extended by later messages —
         a sustained conversation would otherwise starve the move indefinitely.
+
+        ``thread_root_id`` is the thread the triggering message belongs to, and
+        the one the indicator will land in. A coalesced burst keeps the most
+        recent one, so the indicator follows the conversation's latest thread
+        rather than the one that opened the window.
         """
         key = (channel_id, agent_name)
+        self._indicator_move_targets[key] = thread_root_id
         if key in self._indicator_move_timers:
             return
 
@@ -1451,9 +1466,12 @@ class BridgeCore:
 
     async def _run_indicator_move(self, key: tuple[str, str]) -> None:
         self._indicator_move_timers.pop(key, None)
+        thread_root_id = self._indicator_move_targets.pop(key, None)
         channel_id, agent_name = key
         try:
-            await self._adapter.reposition_runtime_state(channel_id, agent_name)
+            await self._adapter.reposition_runtime_state(
+                channel_id, agent_name, thread_root_id
+            )
         except Exception:
             # The indicator is cosmetic; a platform failure here must not take
             # down the bridge callback that happened to trigger it.

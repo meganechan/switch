@@ -11,12 +11,16 @@ class _FakeAdapter:
     def __init__(self, live: list[str]) -> None:
         self._live = live
         self.moved: list[tuple[str, str]] = []
+        self.targets: list[str | None] = []
 
     def agents_with_live_runtime_state(self, channel_id: str) -> list[str]:
         return list(self._live)
 
-    async def reposition_runtime_state(self, channel_id: str, agent_name: str) -> None:
+    async def reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
         self.moved.append((channel_id, agent_name))
+        self.targets.append(thread_root_id)
 
 
 def _bridge(live: list[str], *, aliases: dict[str, str] | None = None) -> Any:
@@ -47,6 +51,7 @@ def _bridge(live: list[str], *, aliases: dict[str, str] | None = None) -> Any:
         _agent_store=_AgentStore(),
         _session_factory=lambda: _Session(),
         _indicator_move_timers={},
+        _indicator_move_targets={},
         adapter_spy=adapter,
     )
     for name in (
@@ -76,13 +81,19 @@ def _drain(bridge: Any, coro: Any) -> list[tuple[str, str]]:
     return bridge.adapter_spy.moved
 
 
-def _addressees(bridge: Any, content: str, channel_type: str = "channel_public") -> Any:
+def _addressees(
+    bridge: Any,
+    content: str,
+    channel_type: str = "channel_public",
+    thread_root_id: str | None = None,
+) -> Any:
     return bridge._move_indicators_for_addressees(
         channel_id="chan-1",
         room_id="room-1",
         channel_type=channel_type,
         content=content,
         mention_target=None,
+        thread_root_id=thread_root_id,
     )
 
 
@@ -155,7 +166,7 @@ def test_nothing_is_scheduled_when_no_indicator_is_live() -> None:
 def test_indicator_follows_a_message_the_agent_posts() -> None:
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-a"))
+    moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-a", None))
 
     assert moved == [("chan-1", "agent-a")]
 
@@ -163,9 +174,43 @@ def test_indicator_follows_a_message_the_agent_posts() -> None:
 def test_another_agents_message_does_not_move_this_indicator() -> None:
     bridge = _bridge(["agent-a"])
 
-    moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-b"))
+    moved = _drain(bridge, bridge._move_indicator_for_sender("chan-1", "agent-b", None))
 
     assert moved == []
+
+
+# ── Threads ─────────────────────────────────────────────────────────────────
+
+
+def test_the_move_targets_the_thread_the_message_arrived_in() -> None:
+    bridge = _bridge(["agent-a"])
+
+    _drain(bridge, _addressees(bridge, "@agent-a in here", thread_root_id="root-7"))
+
+    assert bridge.adapter_spy.targets == ["root-7"]
+
+
+def test_a_coalesced_burst_lands_in_the_most_recent_thread() -> None:
+    # The indicator should follow where the conversation ended up, not where it
+    # was when the coalescing window opened.
+    bridge = _bridge(["agent-a"])
+
+    async def burst() -> None:
+        await _addressees(bridge, "@agent-a first", thread_root_id="root-1")
+        await _addressees(bridge, "@agent-a second", thread_root_id="root-2")
+        await _addressees(bridge, "@agent-a third", thread_root_id="root-3")
+
+    _drain(bridge, burst())
+
+    assert bridge.adapter_spy.targets == ["root-3"]
+
+
+def test_a_message_at_the_channel_root_brings_the_indicator_back_out() -> None:
+    bridge = _bridge(["agent-a"])
+
+    _drain(bridge, _addressees(bridge, "@agent-a out here", thread_root_id=None))
+
+    assert bridge.adapter_spy.targets == [None]
 
 
 # ── Coalescing ──────────────────────────────────────────────────────────────
@@ -212,7 +257,9 @@ def test_a_platform_failure_during_a_move_does_not_escape() -> None:
     # bridge callback that happened to trigger it.
     bridge = _bridge(["agent-a"])
 
-    async def boom(_channel_id: str, _agent_name: str) -> None:
+    async def boom(
+        _channel_id: str, _agent_name: str, _thread_root_id: str | None
+    ) -> None:
         raise RuntimeError("platform down")
 
     bridge._adapter.reposition_runtime_state = boom
