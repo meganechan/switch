@@ -50,6 +50,9 @@ class _FakeWebClient:
         self.calls: list[dict[str, Any]] = []
         self.deletes: list[dict[str, Any]] = []
         self.updates: list[dict[str, Any]] = []
+        # ts values actually handed back, in order — lets a test assert that
+        # everything posted was also removed.
+        self.issued: list[str] = []
         self._next_ts = iter(["999.9", "888.8", "777.7"])
 
     async def chat_postMessage(self, **kwargs: Any) -> dict[str, str]:
@@ -58,6 +61,7 @@ class _FakeWebClient:
             ts = next(self._next_ts)
         except StopIteration:
             ts = "000.0"
+        self.issued.append(ts)
         return {"ts": ts}
 
     async def chat_delete(self, **kwargs: Any) -> dict[str, bool]:
@@ -771,35 +775,30 @@ def test_reposition_is_a_noop_without_a_live_indicator() -> None:
     assert fake.deletes == []
 
 
-def test_a_turn_ending_mid_move_does_not_strand_the_replacement() -> None:
-    # The turn can go idle while the replacement post is still in flight. The
-    # clear removes the message this move was replacing, so the replacement
-    # would be left with nothing to ever clear it — it must be taken back down.
+def test_a_turn_ending_during_a_move_clears_what_the_move_left() -> None:
+    # A move and the end-of-turn clear cannot interleave: both run under the
+    # agent's runtime lock, so the clear sees the moved indicator rather than
+    # the message the move already deleted. Nothing is left in the channel.
     adapter = _adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
-    _run(
-        adapter.apply_runtime_state(
+    async def scenario() -> None:
+        await adapter.apply_runtime_state(
             "C123", "agent-bot", "working", notify_user=None, thread_root_id=None
         )
-    )
-
-    real_send = adapter.send_message
-
-    async def send_then_go_idle(*args: Any, **kwargs: Any) -> str | None:
-        ref = await real_send(*args, **kwargs)
-        await adapter.apply_runtime_state(
-            "C123", "agent-bot", "idle", notify_user=None, thread_root_id=None
+        await asyncio.gather(
+            adapter.reposition_runtime_state("C123", "agent-bot", None),
+            adapter.apply_runtime_state(
+                "C123", "agent-bot", "idle", notify_user=None, thread_root_id=None
+            ),
         )
-        return ref
 
-    adapter.send_message = send_then_go_idle  # type: ignore[method-assign]
-    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+    _run(scenario())
 
-    # Both the original and the orphaned replacement are gone, and nothing is
-    # left tracked for a turn that has ended.
-    assert {d["ts"] for d in fake.deletes} == {"999.9", "888.8"}
+    # Every message the adapter posted was deleted again — whichever order the
+    # two ran in, the channel ends up empty and nothing is left tracked.
+    assert set(fake.issued) == {d["ts"] for d in fake.deletes}
     assert ("C123", "agent-bot") not in adapter._working_msg
 
 

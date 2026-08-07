@@ -37,6 +37,9 @@ class _Recorder:
         self.hard_deletes: list[str] = []
         self.patches: list[tuple[str, str]] = []
         self.sends: list[tuple[str, str, str, str | None]] = []
+        # Post ids actually handed back, so a test can assert that everything
+        # posted was also removed.
+        self.sent_ids: list[str] = []
         self._next_id = iter(["post-2", "post-3", "post-4"])
 
     def install(self, adapter: MattermostAdapter) -> None:
@@ -54,7 +57,9 @@ class _Recorder:
             thread_root_id: str | None = None,
         ) -> str | None:
             self.sends.append((channel_id, sender_name, content, thread_root_id))
-            return next(self._next_id)
+            ref = next(self._next_id)
+            self.sent_ids.append(ref)
+            return ref
 
         adapter._permanent_delete = permanent_delete  # type: ignore[method-assign]
         adapter._patch_post_as = patch_post_as  # type: ignore[method-assign]
@@ -155,47 +160,58 @@ def test_failed_repost_after_delete_drops_the_stale_ref() -> None:
     assert ("chan-1", "worker") not in adapter._working_msg
 
 
-def test_a_turn_ending_mid_delete_abandons_the_move() -> None:
-    # Mattermost deletes first, so a turn ending during that delete leaves
-    # nothing to move — reposting anyway would strand an indicator forever.
+def test_a_turn_ending_during_a_move_leaves_nothing_behind() -> None:
+    # The move and the end-of-turn clear share the agent's runtime lock, so
+    # they cannot interleave: whichever runs second sees the other's result.
+    # Either way the channel ends up with no indicator and none is tracked.
     adapter = _adapter()
     recorder = _Recorder(hard_delete_works=True)
     recorder.install(adapter)
     _seed_indicator(adapter)
 
-    real_delete = adapter._permanent_delete
+    async def scenario() -> None:
+        await asyncio.gather(
+            adapter.reposition_runtime_state("chan-1", "worker", None),
+            adapter.apply_runtime_state(
+                "chan-1", "worker", "idle", notify_user=None, thread_root_id=None
+            ),
+        )
 
-    async def delete_then_go_idle(post_id: str) -> bool:
-        ok = await real_delete(post_id)
-        adapter._working_msg.pop(("chan-1", "worker"), None)
-        return ok
+    _run(scenario())
 
-    adapter._permanent_delete = delete_then_go_idle  # type: ignore[method-assign]
-    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
-
-    assert recorder.sends == []
+    posted = {"post-1", *(ref for ref in recorder.sent_ids)}
+    assert posted <= set(recorder.hard_deletes)
     assert ("chan-1", "worker") not in adapter._working_msg
 
 
-def test_a_turn_ending_mid_repost_takes_the_replacement_back_down() -> None:
+def test_a_refresh_during_a_move_does_not_strand_the_replacement() -> None:
+    # The reported leftover: the periodic activity refresh and the move both
+    # read-modify-write the tracked indicator. Serialised, the refresh edits
+    # whichever message is actually posted rather than restoring a dead ref.
     adapter = _adapter()
     recorder = _Recorder(hard_delete_works=True)
     recorder.install(adapter)
     _seed_indicator(adapter)
 
-    real_send = adapter.send_message
+    async def scenario() -> None:
+        await asyncio.gather(
+            adapter.reposition_runtime_state("chan-1", "worker", None),
+            adapter.apply_runtime_state(
+                "chan-1",
+                "worker",
+                "working",
+                notify_user=None,
+                thread_root_id=None,
+                detail="Ran tool post_message",
+            ),
+        )
 
-    async def send_then_go_idle(*args: Any, **kwargs: Any) -> str | None:
-        ref = await real_send(*args, **kwargs)
-        adapter._working_msg.pop(("chan-1", "worker"), None)
-        return ref
+    _run(scenario())
 
-    adapter.send_message = send_then_go_idle  # type: ignore[method-assign]
-    _run(adapter.reposition_runtime_state("chan-1", "worker", None))
-
-    # post-1 was the move's own delete; post-2 is the orphan being cleaned up.
-    assert recorder.hard_deletes == ["post-1", "post-2"]
-    assert ("chan-1", "worker") not in adapter._working_msg
+    live = adapter._working_msg[("chan-1", "worker")]
+    posted = {"post-1", *recorder.sent_ids}
+    still_up = posted - set(recorder.hard_deletes)
+    assert still_up == {live.message_ref}
 
 
 def test_idle_still_falls_back_to_a_terminal_marker() -> None:

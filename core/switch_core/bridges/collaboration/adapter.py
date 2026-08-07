@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
@@ -53,6 +54,9 @@ class CollaborationAdapter(ABC):
         # typing-indicator default leaves them empty.
         self._working_msg: dict[tuple[str, str], LiveRuntimeIndicator] = {}
         self._input_pings: dict[tuple[str, str], list[str]] = {}
+        # One lock per (channel_id, agent_name). Every mutation of the entries
+        # above happens under it — see _runtime_lock.
+        self._runtime_locks: dict[tuple[str, str], asyncio.Lock] = {}
 
     def set_max_attachment_bytes(self, max_bytes: int) -> None:
         self._max_attachment_bytes = max_bytes
@@ -178,7 +182,54 @@ class CollaborationAdapter(ABC):
         self, channel_id: str, sender_name: str, is_typing: bool
     ) -> None: ...
 
+    def _runtime_lock(self, channel_id: str, agent_name: str) -> asyncio.Lock:
+        """The lock serialising runtime-indicator work for one agent in one
+        channel.
+
+        The indicator is mutated from two independent places — the periodic
+        activity refresh and a reposition triggered by new traffic — and each
+        reads the tracked message, awaits a platform call, then writes it back.
+        Left to interleave, the later write restores a superseded message ref:
+        the entry then names a message that has just been deleted while the one
+        actually on screen is referenced by nothing, so the end-of-turn clear
+        cannot remove it and it stays in the channel for good.
+        """
+        return self._runtime_locks.setdefault((channel_id, agent_name), asyncio.Lock())
+
     async def apply_runtime_state(
+        self,
+        channel_id: str,
+        agent_name: str,
+        state: str,
+        *,
+        notify_user: str | None,
+        thread_root_id: str | None,
+        deeplink_url: str | None = None,
+        detail: str | None = None,
+    ) -> None:
+        """Serialise against any other runtime-indicator work for this agent,
+        then apply the state. Adapters override ``_apply_runtime_state``."""
+        async with self._runtime_lock(channel_id, agent_name):
+            await self._apply_runtime_state(
+                channel_id,
+                agent_name,
+                state,
+                notify_user=notify_user,
+                thread_root_id=thread_root_id,
+                deeplink_url=deeplink_url,
+                detail=detail,
+            )
+
+    async def reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Serialise against any other runtime-indicator work for this agent,
+        then move the indicator. Adapters override
+        ``_reposition_runtime_state``."""
+        async with self._runtime_lock(channel_id, agent_name):
+            await self._reposition_runtime_state(channel_id, agent_name, thread_root_id)
+
+    async def _apply_runtime_state(
         self,
         channel_id: str,
         agent_name: str,
@@ -229,7 +280,7 @@ class CollaborationAdapter(ABC):
             if posted_channel == channel_id
         ]
 
-    async def reposition_runtime_state(
+    async def _reposition_runtime_state(
         self, channel_id: str, agent_name: str, thread_root_id: str | None
     ) -> None:
         """Move the agent's live runtime indicator to follow the latest message.
@@ -244,6 +295,9 @@ class CollaborationAdapter(ABC):
         the indicator lands — so it follows the agent between threads (and back
         out to the channel root) rather than being stranded in whichever thread
         the turn happened to start in.
+
+        Runs under the agent's runtime lock, so the tracked indicator cannot be
+        cleared or refreshed part-way through.
 
         Adapters that render runtime state as a typing indicator have nothing
         positional to move, so the default does nothing.
@@ -261,14 +315,6 @@ class CollaborationAdapter(ABC):
                 agent_name,
                 channel_id,
             )
-            return
-
-        if self._working_msg.get(key) is not live:
-            # The turn ended (or another move landed) while this post was in
-            # flight, so whoever cleared it has already removed the message this
-            # one replaces. Nothing will ever clear the replacement, so take it
-            # back down rather than strand it in the channel.
-            await self._remove_runtime_indicator(channel_id, ref)
             return
 
         self._working_msg[key] = replace(

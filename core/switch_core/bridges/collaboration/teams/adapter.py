@@ -531,7 +531,7 @@ class TeamsAdapter(CollaborationAdapter):
 
     # ── Runtime state ──────────────────────────────────────────────────────────
 
-    async def apply_runtime_state(
+    async def _apply_runtime_state(
         self,
         channel_id: str,
         agent_name: str,

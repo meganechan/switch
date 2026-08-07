@@ -440,7 +440,7 @@ class MattermostAdapter(CollaborationAdapter):
 
     # ── Runtime state ──────────────────────────────────────────────────────────
 
-    async def apply_runtime_state(
+    async def _apply_runtime_state(
         self,
         channel_id: str,
         agent_name: str,
@@ -503,7 +503,7 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name, post_id, self.translate_outbound("✓ input received")
             )
 
-    async def reposition_runtime_state(
+    async def _reposition_runtime_state(
         self, channel_id: str, agent_name: str, thread_root_id: str | None
     ) -> None:
         """Move the indicator only when Mattermost will truly delete the old one.
@@ -535,12 +535,6 @@ class MattermostAdapter(CollaborationAdapter):
                 )
             return
 
-        if self._working_msg.get(key) is not live:
-            # The turn ended while the delete was in flight. The old post is
-            # already gone and the entry with it, so there is nothing left to
-            # move — reposting now would strand an indicator no one will clear.
-            return
-
         ref = await self.send_message(channel_id, agent_name, live.body, thread_root_id)
         if ref is None:
             # The old post is already gone, so there is nothing to fall back to.
@@ -551,12 +545,6 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name,
                 channel_id,
             )
-            return
-
-        if self._working_msg.get(key) is not live:
-            # Same race, one step later: the replacement has no owner now, so
-            # take it back down rather than leave it in the channel.
-            await self._permanent_delete(ref)
             return
 
         self._working_msg[key] = replace(

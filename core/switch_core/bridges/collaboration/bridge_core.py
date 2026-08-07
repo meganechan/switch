@@ -1418,7 +1418,12 @@ class BridgeCore:
         )
 
     async def _run_indicator_move(self, key: tuple[str, str]) -> None:
-        self._indicator_move_timers.pop(key, None)
+        # An anchor-driven move runs immediately rather than through the timer,
+        # so a coalescing window opened by outbound traffic may still be
+        # pending; it would otherwise fire a second, redundant move.
+        timer = self._indicator_move_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
         thread_root_id = self._indicator_move_targets.pop(key, None)
         channel_id, agent_name = key
         try:
