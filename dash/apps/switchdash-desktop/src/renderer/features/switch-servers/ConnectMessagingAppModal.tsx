@@ -1,7 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
+import { ExternalLink } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useMemo, useState } from 'react';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
+import { bridgePlatformLabel, bridgeSetupDocsUrl } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
 import { type BaseModalProps, useModalContext } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -31,20 +33,6 @@ type ConnectMessagingAppModalArgs = {
 };
 
 type Props = BaseModalProps<{ bridgeId: string }> & ConnectMessagingAppModalArgs;
-
-/** Platform names as their own docs write them, so the picker matches what the
- * user just read while creating the bot. Unknown keys (a bridge type added by a
- * newer switch-core) fall back to the raw key rather than being hidden. */
-const PLATFORM_LABELS: Record<string, string> = {
-  slack: 'Slack',
-  mattermost: 'Mattermost',
-  discord: 'Discord',
-  teams: 'Microsoft Teams',
-};
-
-function platformLabel(key: string): string {
-  return PLATFORM_LABELS[key] ?? key;
-}
 
 export const ConnectMessagingAppModal = observer(function ConnectMessagingAppModal({
   serverId: overrideServerId,
@@ -165,7 +153,7 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
             >
               <SelectTrigger>
                 <SelectValue placeholder={typesQuery.isLoading ? 'Loading…' : 'Choose a platform'}>
-                  {selectedType ? platformLabel(selectedType.key) : undefined}
+                  {selectedType ? bridgePlatformLabel(selectedType.key) : undefined}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
@@ -173,7 +161,7 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                   <SelectItem key={type.key} value={type.key}>
                     <span className="flex items-center gap-2">
                       {hasBridgeIcon(type.key) && <BridgeIcon bridgeType={type.key} size={16} />}
-                      {platformLabel(type.key)}
+                      {bridgePlatformLabel(type.key)}
                     </span>
                   </SelectItem>
                 ))}
@@ -192,7 +180,7 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                 <FieldLabel>Name</FieldLabel>
                 <Input
                   autoFocus
-                  placeholder={`e.g. ${platformLabel(selectedType.key)}`}
+                  placeholder={`e.g. ${bridgePlatformLabel(selectedType.key)}`}
                   value={displayName}
                   onChange={(e) => {
                     setDisplayName(e.target.value);
@@ -203,6 +191,18 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                   How this connection is labelled in switchdash when you pick it for a room.
                 </p>
               </Field>
+
+              {/* The fields below are asked for without explanation — what a
+                  "bot token" is, and where to get one, lives in the platform's
+                  setup guide. Link to it at the point the question arises. */}
+              <button
+                type="button"
+                className="-mt-2 flex w-fit items-center gap-1 text-xs text-foreground-muted underline underline-offset-2 hover:text-foreground"
+                onClick={() => void rpc.app.openExternal(bridgeSetupDocsUrl(selectedType.key))}
+              >
+                How to set up {bridgePlatformLabel(selectedType.key)}
+                <ExternalLink className="size-3" />
+              </button>
 
               {selectedType.fields.map((field) => (
                 <Field key={field.key}>
@@ -246,6 +246,9 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                 </span>
               </label>
 
+              {/* Deliberate and requested: this is the only place the user is
+                  told where the credentials they just typed end up, and that
+                  attaching will not interrupt anything. Keep it. */}
               <p className="text-xs text-foreground-muted">
                 Credentials are sent to {server?.name ?? 'the server'} and stored there. switchdash
                 does not keep a copy. The connection starts immediately — no restart, and running

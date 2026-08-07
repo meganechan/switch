@@ -4,6 +4,7 @@ import { openRoomChannel, openRoomGatewayPage } from '@renderer/features/switch-
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
+import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { appState } from '@renderer/lib/stores/app-state';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -165,7 +166,7 @@ export function RoomRow({
             render={
               <SidebarItemMiniButton
                 type="button"
-                aria-label={`Open ${label} in ${bridgeType}`}
+                aria-label={`Open ${label} in ${bridgePlatformLabel(bridgeType)}`}
                 className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
@@ -176,7 +177,7 @@ export function RoomRow({
               </SidebarItemMiniButton>
             }
           />
-          <TooltipContent>Open in {bridgeType}</TooltipContent>
+          <TooltipContent>Open in {bridgePlatformLabel(bridgeType)}</TooltipContent>
         </Tooltip>
       )}
       {onAddAgent && (
