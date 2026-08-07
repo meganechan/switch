@@ -245,15 +245,6 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                   </span>
                 </span>
               </label>
-
-              {/* Deliberate and requested: this is the only place the user is
-                  told where the credentials they just typed end up, and that
-                  attaching will not interrupt anything. Keep it. */}
-              <p className="text-xs text-foreground-muted">
-                Credentials are sent to {server?.name ?? 'the server'} and stored there. switchdash
-                does not keep a copy. The connection starts immediately — no restart, and running
-                sessions are unaffected.
-              </p>
             </>
           )}
 
