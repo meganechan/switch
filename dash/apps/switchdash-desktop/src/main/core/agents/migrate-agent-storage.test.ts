@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * An in-memory {@link PluginFs} keyed by the exact relative paths the migration
- * uses, so path helpers (`agentSettingsRelativePath`, `SWITCH_SETTINGS_RELATIVE_PATH`)
- * resolve against real content.
+ * uses, so `agentSettingsRelativePath` resolves against real content.
  */
 function fakeFs(seed: Record<string, string>): PluginFs {
   const files = new Map<string, string>(Object.entries(seed));
