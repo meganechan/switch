@@ -4,6 +4,7 @@ import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { agentExpandKey, SidebarAgentItem } from './agent-item';
 import { SidebarSessionItem } from './session-item';
+import { AGENTS_CONTAINER, makeDndId, SortableBranch, SortableList } from './sidebar-dnd';
 import {
   groupByRoom,
   isRoomViewActive,
@@ -89,13 +90,21 @@ const AgentSessions = observer(function AgentSessions({
 });
 
 export const AgentTree = observer(function AgentTree() {
+  const entries = scopedAgents();
   return (
-    <>
-      {scopedAgents().map((entry) => {
+    <SortableList
+      containerId={AGENTS_CONTAINER}
+      itemIds={entries.map((entry) => entry.agent.id)}
+      onReorder={(orderedIds) => sidebarStore.setAgentOrder(orderedIds)}
+    >
+      {entries.map((entry) => {
         const expanded = sidebarStore.isGroupExpanded(agentExpandKey(entry.agent.id));
         return (
-          <div key={entry.agent.id}>
-            <SidebarAgentItem agent={entry.agent} depth={0} />
+          <SortableBranch
+            key={entry.agent.id}
+            id={makeDndId(AGENTS_CONTAINER, entry.agent.id)}
+            header={<SidebarAgentItem agent={entry.agent} depth={0} />}
+          >
             {expanded && (
               <AgentSessions
                 agentId={entry.agent.id}
@@ -104,9 +113,9 @@ export const AgentTree = observer(function AgentTree() {
                 depth={1}
               />
             )}
-          </div>
+          </SortableBranch>
         );
       })}
-    </>
+    </SortableList>
   );
 });
