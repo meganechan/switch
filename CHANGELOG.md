@@ -21,6 +21,18 @@ below:
 
 ### [Unreleased]
 
+### [0.12.3] - 2026-08-07
+
+#### Added
+- Collaboration bridges expose a workspace/home deeplink so a client can open
+  the messaging app's workspace from the gateway (CHOO-1784).
+
+#### Security
+- Admin-gate every collaboration-bridge write: updating and deleting a bridge
+  were ungated, so any authenticated user could toggle agent greetings or delete
+  a bridge (which cascades into deleting every room on it) — now admin-only
+  (CHOO-1784).
+
 ### [0.12.2] - 2026-08-07
 
 #### Changed
