@@ -79,6 +79,7 @@ describe('createBridgeOnServer', () => {
         displayName: 'Acme Slack',
         status: 'active',
         isDefault: false,
+        homeUrl: null,
       },
     });
   });

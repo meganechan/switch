@@ -1,7 +1,8 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { MessageSquare, Plus } from 'lucide-react';
+import { ExternalLink, MessageSquare, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
+import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Badge } from '@renderer/lib/ui/badge';
@@ -90,6 +91,20 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
                 <MessageSquare className="size-4 text-foreground-muted" />
               )}
               <span className="min-w-0 flex-1 truncate text-foreground">{bridge.displayName}</span>
+              {/* Offered only when the link resolves — an older server, or a
+                  bridge that is down, reports none, and a button that cannot
+                  do anything is worse than no button. */}
+              {bridge.homeUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label={`Open ${bridgePlatformLabel(bridge.type)}`}
+                  onClick={() => void rpc.app.openExternal(bridge.homeUrl as string)}
+                >
+                  <ExternalLink className="size-3.5" />
+                  Open
+                </Button>
+              )}
               {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
               {/* Surfaced only when it is NOT active: a bridge that is down
                   cannot back a new room, and the room-creation picker silently

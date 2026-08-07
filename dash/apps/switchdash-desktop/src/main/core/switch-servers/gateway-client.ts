@@ -486,6 +486,7 @@ export async function fetchBridges(server: SwitchServer): Promise<RemoteBridge[]
     display_name: string;
     status: string;
     is_default?: boolean;
+    home_url?: string | null;
   }>;
   return json.map((b) => ({
     id: b.bridge_id,
@@ -493,6 +494,7 @@ export async function fetchBridges(server: SwitchServer): Promise<RemoteBridge[]
     displayName: b.display_name,
     status: b.status,
     isDefault: b.is_default ?? false,
+    homeUrl: b.home_url ?? null,
   }));
 }
 
@@ -586,6 +588,7 @@ export async function createBridge(
     display_name: string;
     status: string;
     is_default?: boolean;
+    home_url?: string | null;
   };
   return {
     id: b.bridge_id,
@@ -593,6 +596,7 @@ export async function createBridge(
     displayName: b.display_name,
     status: b.status,
     isDefault: b.is_default ?? false,
+    homeUrl: b.home_url ?? null,
   };
 }
 

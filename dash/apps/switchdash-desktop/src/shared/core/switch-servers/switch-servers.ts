@@ -194,6 +194,13 @@ export type RemoteBridge = {
   status: string;
   /** The bridge used when a room is created without naming one. */
   isDefault: boolean;
+  /**
+   * Link that opens this bridge's workspace in its messaging app, from the
+   * gateway's live adapter. Null when the bridge is not running, the platform
+   * offers no such link, or the server predates the field — so treat its
+   * absence as "no action to offer", not as an error.
+   */
+  homeUrl: string | null;
 };
 
 /**

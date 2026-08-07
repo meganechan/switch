@@ -46,6 +46,7 @@ import type {
 } from '@shared/core/switch-servers/switch-servers';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
+import { withResolvedHomeUrls } from './bridge-home-url';
 import { createBridgeOnServer } from './create-bridge';
 import { createRoomOnServer } from './create-room';
 import {
@@ -200,8 +201,10 @@ export const switchServersController = createRPCController({
   listRemoteRooms: async (serverId: string): Promise<RemoteRoomSummary[]> =>
     fetchRooms(await requireServer(serverId)),
 
-  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> =>
-    fetchBridges(await requireReachableServer(serverId)),
+  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> => {
+    const server = await requireReachableServer(serverId);
+    return withResolvedHomeUrls(server, await fetchBridges(server));
+  },
 
   listRemoteBridgeTypes: async (serverId: string): Promise<RemoteBridgeType[]> =>
     fetchBridgeTypes(await requireReachableServer(serverId)),

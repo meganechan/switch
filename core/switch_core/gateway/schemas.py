@@ -416,6 +416,11 @@ class BridgeDetail(BaseModel):
     is_default: bool
     room_count: int
     created_at: str
+    # Link that opens this bridge's workspace in its messaging app, built by
+    # the live adapter. None when the bridge is not running, or the platform
+    # offers no such link. Never carries a credential — only ids that the
+    # platform already puts in its own URLs.
+    home_url: str | None = None
 
 
 class BridgeUpdateRequest(BaseModel):

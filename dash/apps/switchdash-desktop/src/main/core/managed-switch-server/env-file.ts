@@ -1,4 +1,8 @@
-import { LOCAL_SERVER_ADMIN_EMAIL, LOCAL_SERVER_BIND_ADDR } from './constants';
+import {
+  LOCAL_SERVER_ADMIN_EMAIL,
+  LOCAL_SERVER_BIND_ADDR,
+  LOCAL_SERVER_MATTERMOST_TEAM,
+} from './constants';
 import type { LocalServerPorts } from './free-port';
 import type { LocalServerSecrets } from './secret-values';
 
@@ -54,7 +58,7 @@ export function buildEnvFile(params: LocalServerEnvParams): string {
     '',
     'MATTERMOST_ADMIN_USER=admin',
     `MATTERMOST_ADMIN_PASSWORD=${secrets.mattermostAdminPassword}`,
-    'MATTERMOST_TEAM_NAME=switch',
+    `MATTERMOST_TEAM_NAME=${LOCAL_SERVER_MATTERMOST_TEAM}`,
     'MATTERMOST_USER=user',
     `MATTERMOST_USER_PASSWORD=${secrets.mattermostUserPassword}`,
     '',

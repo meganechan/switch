@@ -665,6 +665,18 @@ class TeamsAdapter(CollaborationAdapter):
             f"?groupId={team_id}&tenantId={self._config.tenant_id}"
         )
 
+    async def home_deeplink(self) -> str | None:
+        """`https://teams.microsoft.com/?tenantId=<tenant>` — opens Teams on the
+        right tenant.
+
+        Deliberately the tenant root rather than a team link: the
+        `/l/team/{id}/conversations` form keys off the General channel's thread
+        id, not the team id, and this adapter does not hold that. A link that
+        reliably lands in the correct tenant beats one that may 404."""
+        if not self._config.tenant_id:
+            return None
+        return f"https://teams.microsoft.com/?tenantId={self._config.tenant_id}"
+
     async def add_agents_to_channel(
         self, channel_id: str, agent_names: list[str]
     ) -> None:
