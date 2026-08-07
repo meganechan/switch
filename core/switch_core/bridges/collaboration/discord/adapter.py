@@ -399,6 +399,24 @@ class DiscordAdapter(CollaborationAdapter):
         if not message_id:
             logger.error("Cannot delete message: invalid message ref %s", message_ref)
             return
+
+        # Agent posts are authored by the channel webhook, not the bot, so the
+        # bot may only remove them with Manage Messages. Delete through the
+        # webhook that sent it, mirroring update_message, and keep the bot path
+        # for messages the bot really did post (admin notices, DM fallbacks).
+        kwargs: dict[str, Any] = {}
+        if location_id and location_id != channel_id:
+            kwargs["thread"] = discord.Object(id=int(location_id))
+        try:
+            webhook = await self._get_webhook(int(channel_id))
+            await webhook.delete_message(int(message_id), **kwargs)
+            return
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as e:
+            logger.error("Failed to delete Discord message %s: %s", message_ref, e)
+            return
+
         try:
             target = await self._get_channel(int(location_id or channel_id))
             await target.get_partial_message(int(message_id)).delete()
