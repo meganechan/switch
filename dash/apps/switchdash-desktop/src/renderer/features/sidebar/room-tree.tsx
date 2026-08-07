@@ -7,6 +7,7 @@ import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { RoomAgentRow } from './room-agent-row';
 import { filterRoomGroups, sortRoomGroups } from './room-tree-data';
 import { SidebarSessionItem } from './session-item';
+import { makeDndId, ROOMS_CONTAINER, SortableBranch, SortableList } from './sidebar-dnd';
 import {
   groupByRoom,
   isRoomViewActive,
@@ -74,7 +75,7 @@ export const RoomTree = observer(function RoomTree() {
     ]),
   ];
 
-  const groups = sortRoomGroups(
+  const sorted = sortRoomGroups(
     filterRoomGroups(
       groupByRoom(allSessions, alwaysShow)
         // This view lists rooms. A session connected to none of them is not in
@@ -95,36 +96,48 @@ export const RoomTree = observer(function RoomTree() {
     ),
     sidebarStore.roomSortBy
   );
+  // The user's dragged order sits on top of the default one, so a room they
+  // placed stays put while rooms they have not touched keep sorting normally.
+  const groups = sidebarStore.orderRooms(sorted, (group) => group.roomKey);
 
   if (groups.length === 0 && sidebarStore.hasActiveRoomFilters) {
     return <p className="px-2 py-3 text-xs text-foreground-muted">No rooms match filters</p>;
   }
 
   return (
-    <>
+    <SortableList
+      containerId={ROOMS_CONTAINER}
+      itemIds={groups.map((group) => group.roomKey)}
+      onReorder={(orderedIds) => sidebarStore.setRoomOrder(orderedIds)}
+    >
       {groups.map(({ roomKey, sessions: roomSessions }) => {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
         const agentsInRoom = members.get(roomKey) ?? [];
         return (
-          <div key={roomKey}>
-            <RoomRow
-              label={roomLabel(roomKey)}
-              count={roomSessions.length}
-              expanded={expanded}
-              depth={0}
-              bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
-              onToggle={() => sidebarStore.toggleGroupExpanded(roomViewKey)}
-              onSelect={() => openRoomView(roomKey)}
-              isActive={isRoomViewActive(roomKey)}
-              onOpenGateway={() => openRoomInGateway(roomKey)}
-              onOpenChannel={
-                switchRoomsStore.roomChannelUrl(roomKey)
-                  ? () => openRoomInMessagingApp(roomKey)
-                  : null
-              }
-              onAddAgent={() => showAddAgentsToRoomModal({ roomId: roomKey })}
-            />
+          <SortableBranch
+            key={roomKey}
+            id={makeDndId(ROOMS_CONTAINER, roomKey)}
+            header={
+              <RoomRow
+                label={roomLabel(roomKey)}
+                count={roomSessions.length}
+                expanded={expanded}
+                depth={0}
+                bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
+                onToggle={() => sidebarStore.toggleGroupExpanded(roomViewKey)}
+                onSelect={() => openRoomView(roomKey)}
+                isActive={isRoomViewActive(roomKey)}
+                onOpenGateway={() => openRoomInGateway(roomKey)}
+                onOpenChannel={
+                  switchRoomsStore.roomChannelUrl(roomKey)
+                    ? () => openRoomInMessagingApp(roomKey)
+                    : null
+                }
+                onAddAgent={() => showAddAgentsToRoomModal({ roomId: roomKey })}
+              />
+            }
+          >
             {expanded &&
               agentsInRoom.map((entry) => {
                 const sessionsHere = roomSessions.filter(
@@ -148,9 +161,9 @@ export const RoomTree = observer(function RoomTree() {
                   </Fragment>
                 );
               })}
-          </div>
+          </SortableBranch>
         );
       })}
-    </>
+    </SortableList>
   );
 });

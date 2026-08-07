@@ -63,6 +63,11 @@ class _PendingOutboundGroup:
     first_event_id: str | None = None
 
 
+# How long a queued runtime-indicator move waits before it runs, so a burst of
+# messages to the same agent costs one move rather than one per message. Short
+# enough that the indicator still reads as following the conversation.
+_INDICATOR_MOVE_DELAY_SECONDS = 1.0
+
 _LOBBY_DEPRECATION_NOTICE = (
     "👋 This isn't where you talk to agents — direct messages to the Switch "
     "app aren't routed to anyone. Head to a channel and @-mention an agent "
@@ -136,6 +141,14 @@ class BridgeCore:
         # never completes cannot leak.
         self._outbound_groups: dict[str, _PendingOutboundGroup] = {}
         self._outbound_group_timers: dict[str, asyncio.TimerHandle] = {}
+        # (channel_id, agent_name) whose runtime indicator is due to be moved
+        # below newly-arrived traffic, and the thread each should land in.
+        # See _schedule_indicator_move.
+        self._indicator_move_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
+        self._indicator_move_targets: dict[tuple[str, str], str | None] = {}
+        # (channel_id, agent_name) -> the last message the agent reported having
+        # been handed. Cleared when its turn ends. See _follow_reported_anchor.
+        self._reported_anchors: dict[tuple[str, str], str] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -988,6 +1001,11 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        if sender_name is not None:
+            await self._move_indicator_for_sender(
+                channel_id, sender_name, thread_root_ref
+            )
+
     async def _outbound_thread_root_ref(
         self, event_content: dict[str, object], channel_id: str
     ) -> str | None:
@@ -1136,6 +1154,8 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
+
     def _schedule_outbound_group_flush(
         self,
         group_id: str,
@@ -1218,6 +1238,8 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
+
     async def _download_matrix_media(
         self, client: ClientBase[Any], mxc: str | None, filename: str
     ) -> bytes | None:
@@ -1290,6 +1312,48 @@ class BridgeCore:
             deeplink_url=event.deeplink_url,
             detail=event.detail,
         )
+        await self._follow_reported_anchor(
+            channel_id,
+            event.agent_name,
+            event.state,
+            event.anchor_event_id,
+            thread_root_ref,
+        )
+
+    async def _follow_reported_anchor(
+        self,
+        channel_id: str,
+        agent_name: str,
+        state: str,
+        anchor_event_id: str | None,
+        thread_root_ref: str | None,
+    ) -> None:
+        """Move the indicator when the agent reports it has been handed a
+        newer message than the one it was last positioned against.
+
+        Position follows what the agent has actually received, not what merely
+        arrived in the room — a message the agent has not been given yet must
+        not make the indicator look like the agent has seen it. The periodic
+        activity refresh repeats the current anchor, so it never moves anything.
+        """
+        key = (channel_id, agent_name)
+        if state != "working":
+            self._reported_anchors.pop(key, None)
+            return
+        if anchor_event_id is None:
+            return
+
+        if self._reported_anchors.get(key) == anchor_event_id:
+            return
+        previous = self._reported_anchors.get(key)
+        self._reported_anchors[key] = anchor_event_id
+        if previous is None:
+            # First anchor of the turn — the indicator was only just posted
+            # against it, so there is nothing to move.
+            return
+
+        self._indicator_move_targets[key] = thread_root_ref
+        await self._run_indicator_move(key)
 
     # ── Protection sync ──────────────────────────────────────────────────────
 
@@ -1317,6 +1381,63 @@ class BridgeCore:
         else:
             translated = self._adapter.translate_outbound(new_content)
             await self._adapter.update_message(channel_id, message_ref, translated)
+
+    # ── Runtime-indicator positioning ─────────────────────────────────────────
+
+    async def _move_indicator_for_sender(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Follow a message the agent itself just posted."""
+        if agent_name in self._adapter.agents_with_live_runtime_state(channel_id):
+            self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
+
+    def _schedule_indicator_move(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Queue a move of this agent's runtime indicator, coalescing bursts.
+
+        Messages arriving while a move is already queued are absorbed into it,
+        so a rapid exchange costs one delete-and-repost rather than one per
+        message. The delay is deliberately not extended by later messages —
+        a sustained conversation would otherwise starve the move indefinitely.
+
+        ``thread_root_id`` is the thread the triggering message belongs to, and
+        the one the indicator will land in. A coalesced burst keeps the most
+        recent one, so the indicator follows the conversation's latest thread
+        rather than the one that opened the window.
+        """
+        key = (channel_id, agent_name)
+        self._indicator_move_targets[key] = thread_root_id
+        if key in self._indicator_move_timers:
+            return
+
+        loop = asyncio.get_running_loop()
+        self._indicator_move_timers[key] = loop.call_later(
+            _INDICATOR_MOVE_DELAY_SECONDS,
+            lambda: asyncio.ensure_future(self._run_indicator_move(key)),
+        )
+
+    async def _run_indicator_move(self, key: tuple[str, str]) -> None:
+        # An anchor-driven move runs immediately rather than through the timer,
+        # so a coalescing window opened by outbound traffic may still be
+        # pending; it would otherwise fire a second, redundant move.
+        timer = self._indicator_move_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        thread_root_id = self._indicator_move_targets.pop(key, None)
+        channel_id, agent_name = key
+        try:
+            await self._adapter.reposition_runtime_state(
+                channel_id, agent_name, thread_root_id
+            )
+        except Exception:
+            # The indicator is cosmetic; a platform failure here must not take
+            # down the bridge callback that happened to trigger it.
+            logger.exception(
+                "[BRIDGE-OUT] failed to move the runtime indicator for %s in %s",
+                agent_name,
+                channel_id,
+            )
 
     # ── Message-map helpers ───────────────────────────────────────────────────
 

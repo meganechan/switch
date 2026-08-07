@@ -607,6 +607,7 @@ async def set_runtime_state(
             deeplink_url=req.deeplink_url,
             detail=req.detail,
             control_capabilities=req.control_capabilities,
+            anchor_event_id=req.anchor_event_id,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
@@ -787,14 +788,24 @@ async def connection_beat(
     still make calls but is receiving nothing must be told, not left believing
     it is connected.
     """
+    # A cursor above the buffer's head belongs to a previous life of this
+    # process: the buffer is in memory, so a restart resets the sequence while
+    # the client keeps beating the number it had reached. Both consumers below
+    # only ever move a cursor forward, so adopting it undoes the rewind the
+    # stream performs on resume — the connection then skips every event up to
+    # the stale value and confirms events it was never delivered. Clamp it here,
+    # where the untrusted value enters, rather than in either consumer.
+    head = protocol.event_buffer.head(agent.id)
+    cursor = min(req.cursor, head)
+
     try:
-        conn = protocol.connections.beat(agent.id, req.connection_id, req.cursor)
+        conn = protocol.connections.beat(agent.id, req.connection_id, cursor)
     except NoStreamAttachedError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except UnknownConnectionError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
-    protocol.event_buffer.confirm(agent.id, conn.id, req.cursor)
+    protocol.event_buffer.confirm(agent.id, conn.id, cursor)
     return {"ok": True, "rooms": sorted(conn.rooms), "cursor": conn.cursor}
 
 

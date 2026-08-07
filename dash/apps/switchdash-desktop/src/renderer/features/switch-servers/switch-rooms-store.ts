@@ -135,6 +135,30 @@ export class SwitchRoomsStore {
   }
 
   /**
+   * The same listed rooms as {@link listedRoomsInActiveScope}, but across every
+   * server rather than the active one.
+   *
+   * Search is deliberately not scoped to the active server: you search precisely
+   * because you do not know where a thing is, and a result set silently limited
+   * to the server you happen to be looking at cannot answer that. Navigating to
+   * one of these switches the active server (see `scopeToRoomServer`), so the
+   * sidebar follows you there rather than filtering the room back out.
+   */
+  get listedRoomsOnAllServers(): RemoteRoomSummary[] {
+    const serverIds = [
+      ...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()]),
+    ];
+    const listed = serverIds.flatMap((serverId) => {
+      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
+      return (
+        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
+        []
+      );
+    });
+    return listed.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
    * The messaging-app values worth offering as a room filter on the active
    * server: the bridge types actually in use, plus the unbridged sentinel when
    * some room has no messaging app. Offering a platform with no rooms behind it

@@ -233,7 +233,9 @@ describe('room creation', () => {
     vi.unstubAllGlobals();
   });
 
-  it('maps the bridge list, defaulting is_default to false when absent', async () => {
+  it('maps the bridge list, defaulting is_default and home_url when absent', async () => {
+    // `home_url` post-dates the pinned switch-core, so a current server omits
+    // it entirely — that has to read as "no link", not undefined.
     fetchMock.mockResolvedValue(
       jsonResponse([
         {
@@ -242,6 +244,7 @@ describe('room creation', () => {
           display_name: 'Mattermost',
           status: 'active',
           is_default: true,
+          home_url: 'mattermost://chat.example.com/switch',
         },
         { bridge_id: 'b2', bridge_type: 'slack', display_name: 'Slack', status: 'stopped' },
       ]) as never
@@ -254,8 +257,16 @@ describe('room creation', () => {
         displayName: 'Mattermost',
         status: 'active',
         isDefault: true,
+        homeUrl: 'mattermost://chat.example.com/switch',
       },
-      { id: 'b2', type: 'slack', displayName: 'Slack', status: 'stopped', isDefault: false },
+      {
+        id: 'b2',
+        type: 'slack',
+        displayName: 'Slack',
+        status: 'stopped',
+        isDefault: false,
+        homeUrl: null,
+      },
     ]);
   });
 

@@ -14,12 +14,15 @@ import type {
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  CreateBridgeParams,
+  CreateBridgeResult,
   CreateRoomParams,
   CreateRoomResult,
   PasswordLoginParams,
   RemoteAgentRoom,
   RemoteAgentSummary,
   RemoteBridge,
+  RemoteBridgeType,
   RemoteExternalUser,
   RemoteRoomGroup,
   RemoteRoomRole,
@@ -33,6 +36,8 @@ import type {
 } from '@shared/core/switch-servers/switch-servers';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
+import { withResolvedHomeUrls } from './bridge-home-url';
+import { createBridgeOnServer } from './create-bridge';
 import { createRoomOnServer } from './create-room';
 import {
   addRoomAgents,
@@ -44,6 +49,7 @@ import {
   fetchAllExternalUsers,
   fetchAuthConfig,
   fetchBridges,
+  fetchBridgeTypes,
   fetchMe,
   fetchRoomAgentIds,
   fetchRoomGroups,
@@ -185,8 +191,31 @@ export const switchServersController = createRPCController({
   listRemoteRooms: async (serverId: string): Promise<RemoteRoomSummary[]> =>
     fetchRooms(await requireServer(serverId)),
 
-  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> =>
-    fetchBridges(await requireReachableServer(serverId)),
+  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> => {
+    const server = await requireReachableServer(serverId);
+    return withResolvedHomeUrls(server, await fetchBridges(server));
+  },
+
+  listRemoteBridgeTypes: async (serverId: string): Promise<RemoteBridgeType[]> =>
+    fetchBridgeTypes(await requireReachableServer(serverId)),
+
+  /**
+   * Attach a collaboration bridge to the chosen server (CHOO-1784).
+   *
+   * `params.connectionConfig` carries platform credentials. They cross the IPC
+   * boundary once, on the way out, and are never written to switchdash's disk
+   * or returned to the renderer — the server stores them. Keep it that way: do
+   * not log `params` here.
+   */
+  createBridge: async (params: CreateBridgeParams): Promise<CreateBridgeResult> => {
+    const server = await requireReachableServer(params.serverId);
+    return createBridgeOnServer(server, {
+      bridgeType: params.bridgeType,
+      displayName: params.displayName,
+      connectionConfig: params.connectionConfig,
+      setAsDefault: params.setAsDefault,
+    });
+  },
 
   /**
    * Create a room on the chosen server, owned by the signed-in user. Room

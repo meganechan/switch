@@ -21,6 +21,40 @@ below:
 
 ### [Unreleased]
 
+### [0.12.3] - 2026-08-07
+
+#### Added
+- Collaboration bridges expose a workspace/home deeplink so a client can open
+  the messaging app's workspace from the gateway (CHOO-1784).
+
+#### Security
+- Admin-gate every collaboration-bridge write: updating and deleting a bridge
+  were ungated, so any authenticated user could toggle agent greetings or delete
+  a bridge (which cascades into deleting every room on it) — now admin-only
+  (CHOO-1784).
+
+### [0.12.2] - 2026-08-07
+
+#### Changed
+- The collaboration-bridge runtime indicator now follows the agent: it moves to
+  the foot of the conversation and into the thread the triggering message belongs
+  to (instead of staying where the turn opened), and the agent — not the bridge
+  watching traffic — decides when it moves (new `anchor_event_id` on the
+  runtime-state protocol), so it no longer jumps below a human's message before
+  the agent has been handed it (CHOO-1104).
+
+#### Fixed
+- Runtime-indicator robustness: serialise refresh vs repositioning, and don't
+  strand the indicator when a turn ends mid-move (CHOO-1104).
+- Discord: delete an agent's messages through the same webhook that posted them
+  (CHOO-1104).
+- Agent bridge: clamp a resumed cursor to the in-memory buffer head on heartbeat,
+  so a connection no longer silently skips events up to a stale cursor after a
+  switch-core restart.
+- Agent bridge: write the legacy room-binding row only for connectionless
+  (MCP-transport) callers, so a connection-backed `connect_to_room` no longer
+  leaves an unread, never-cleaned binding row behind.
+
 ### [0.12.1] - 2026-08-05
 
 #### Security
@@ -182,7 +216,41 @@ below:
 
 ### [Unreleased]
 
-### [0.19.0] - 2026-08-06
+### [0.19.2] - 2026-08-07
+
+#### Added
+- Connect a messaging app (Slack/Mattermost/Discord/Teams) to a server from
+  within switchdash — per-platform setup-guide links and a Teams icon; open a
+  messaging app's workspace from the server page (CHOO-1784).
+
+#### Changed
+- New macOS app icon (max.tam's mark); a dark mark for non-release (canary/dev)
+  channels; dropped the leftover emdash DMG art/wordmark (CHOO-2004).
+- Bump the bundled switch-core for local managed servers to `0.12.3`
+  (`COMPATIBLE_SWITCH_VERSION`).
+
+#### Fixed
+- Restore sidebar drag-to-reorder for agents and rooms (CHOO-2007).
+- Set `GATEWAY_PUBLIC_URL` so "Open in SwitchDash" links work; redact the
+  credential key names configs actually use; vendor the real Teams logo
+  (CHOO-1784).
+
+### [0.19.1] - 2026-08-07
+
+#### Changed
+- switchdash sessions report their latest-message anchor so the
+  collaboration-bridge runtime indicator can follow the agent to the foot of the
+  conversation (CHOO-1104).
+- Bump the bundled switch-core for local managed servers to `0.12.2`
+  (`COMPATIBLE_SWITCH_VERSION`), so a fresh local stack pulls the latest
+  switch-core and existing stacks flag the drift for a one-click update.
+
+#### Fixed
+- Fix an import cycle that could leave the view registry half-built — a renderer
+  crash ("Cannot access 'remoteHostsView' before initialization"), deterministic
+  in CI and load-order-dependent locally (CHOO-1104).
+
+### [0.19.0] - 2026-08-07
 
 #### Added
 - Remote-host onboarding rewritten as per-host pages with a staged,
@@ -196,6 +264,9 @@ below:
   (CHOO-1937, #130).
 - Detect switch-core drift on a managed stack and update it; flag drift on the
   sidebar server rows (CHOO-1736).
+- Command palette now searches across your agents and rooms — not just
+  navigation — labelling what each result is, jumping into another server's
+  scope, and adding an "Add Switch Server" command (CHOO-1423, #140).
 
 #### Changed
 - Split an agent type into separate CLI and connector rows; drop the
@@ -215,6 +286,9 @@ below:
 - Migration safety: register migration 0046 in the drizzle journal, fail loud
   when a migration isn't registered, and assert the migration runner's timestamp
   precondition (CHOO-1809).
+- Command-palette matching: a hyphenated query is no longer split into separate
+  terms, matches no longer land mid-word, results rank like the sidebar, and the
+  search index no longer treats `item_type` as content (CHOO-1423, #140).
 
 ### [0.18.3] - 2026-08-06
 
