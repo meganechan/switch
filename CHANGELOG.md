@@ -216,6 +216,25 @@ below:
 
 ### [Unreleased]
 
+### [0.19.2] - 2026-08-07
+
+#### Added
+- Connect a messaging app (Slack/Mattermost/Discord/Teams) to a server from
+  within switchdash — per-platform setup-guide links and a Teams icon; open a
+  messaging app's workspace from the server page (CHOO-1784).
+
+#### Changed
+- New macOS app icon (max.tam's mark); a dark mark for non-release (canary/dev)
+  channels; dropped the leftover emdash DMG art/wordmark (CHOO-2004).
+- Bump the bundled switch-core for local managed servers to `0.12.3`
+  (`COMPATIBLE_SWITCH_VERSION`).
+
+#### Fixed
+- Restore sidebar drag-to-reorder for agents and rooms (CHOO-2007).
+- Set `GATEWAY_PUBLIC_URL` so "Open in SwitchDash" links work; redact the
+  credential key names configs actually use; vendor the real Teams logo
+  (CHOO-1784).
+
 ### [0.19.1] - 2026-08-07
 
 #### Changed
