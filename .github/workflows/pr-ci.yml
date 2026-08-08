@@ -67,6 +67,10 @@ jobs:
             dash:
               - *shared
               - 'dash/**'
+              # switchdash bundles a generated copy of this file, and the job
+              # below verifies the copy is current — so a change here has to
+              # run the dash job even though it lives outside dash/.
+              - 'deploy/local/standalone-docker-compose.yml'
             gateway:
               - *shared
               - 'gateway/**'
@@ -145,6 +149,13 @@ jobs:
       # @vitest/browser-playwright, so the browser binary must be present.
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
+
+      # The bundled compose is a generated copy of deploy/local's, and until now
+      # nothing verified the sync had run — the two could drift with only a
+      # comment asking nicely, which is how it silently stopped running once
+      # already (CHOO-1865).
+      - name: Bundled standalone compose is current
+        run: pnpm --filter switchdash-desktop run sync:compose:check
 
       - name: Build workspace packages
         run: pnpm -r --filter './packages/**' run build

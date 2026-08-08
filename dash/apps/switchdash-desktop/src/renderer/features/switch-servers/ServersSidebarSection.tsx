@@ -157,7 +157,9 @@ function ServerDriftIndicator({ drift }: { drift: SwitchVersionDrift }) {
     ? `switch-core ${drift.expected} is available (running ${drift.deployed})`
     : drift.direction === 'downgrade'
       ? `Runs switch-core ${drift.deployed} — newer than this app expects (${drift.expected})`
-      : `Runs switch-core ${drift.deployed}; this app expects ${drift.expected}`;
+      : drift.direction === 'unreadable'
+        ? `Can't read which switch-core this runs; this app expects ${drift.expected}`
+        : `Runs switch-core ${drift.deployed}; this app expects ${drift.expected}`;
 
   return (
     <Tooltip>
