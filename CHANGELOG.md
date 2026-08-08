@@ -5,21 +5,73 @@ All notable changes to Switch are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project aims to adhere to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Switch ships two independently-versioned artifacts, tracked in the two sections
-below:
+Switch ships several independently-versioned artifacts, each with its own
+section below. Every artifact carries three-part semver (`MAJOR.MINOR.PATCH`)
+and a changelog, without exception (CHOO-1865).
 
-- **switch-core** — the backend service (`core/`) and the operator dashboard
-  (`gateway/`). Released by tagging `switch-v<version>`; the version lives in
-  `core/pyproject.toml`. See [RELEASING.md](RELEASING.md).
+A version says **where an artifact is** — which release you are running. It says
+nothing about what that release can talk to. Compatibility is carried separately
+by the contract revisions in [`contracts.yaml`](contracts.yaml), which move
+independently: a release that changes nothing on the wire bumps its version and
+leaves its contracts alone.
+
+- **switch-core** — the backend service (`core/`). Released by tagging
+  `switch-v<version>`; the version lives in `core/pyproject.toml`. See
+  [RELEASING.md](RELEASING.md).
 - **switchdash** — the desktop app (`dash/`). Released by tagging
   `switchdash-v<version>`; the version lives in
   `dash/apps/switchdash-desktop/package.json`.
+- **agent-runtime** — the Switch protocol client and MCP runtime
+  (`dash/packages/switch-agent-runtime/`), published to a package registry.
+- **sidecar** — the remote runtime switchdash deploys to an agent host
+  (`dash/apps/switchdash-desktop/src/sidecar/`). Versioned in
+  `sidecar-version.ts` and deployed by switchdash, not published separately.
+- **switch-connector** / **switch-connector-codex** — the two connector plugins
+  (`connectors/`), versioned in their respective plugin manifests.
+
+Three things are **not** separately versioned, and ship under the switch-core
+release so a single tag pins the whole stack: the **operator dashboard**
+(`gateway/`), the **Helm chart**, and the **standalone compose artifact**. Their
+versions are stamped at package time from the switch-core version; do not add a
+version of their own to them without also giving them a release of their own.
 
 ---
 
 ## switch-core
 
 ### [Unreleased]
+
+#### Added
+- Cross-artifact version compatibility, part 1 — every artifact declares what it
+  is and what it speaks (CHOO-1865). `contracts.yaml` is the one authored
+  registry of contract revisions; per-language modules are generated from it and
+  CI fails if they are stale or hand-edited. switch-core reads its own release
+  version, discloses it and its ranges on authenticated surfaces only (the
+  `connection_state` frame, the 409 refusal body, the gateway session response,
+  and an authenticated credential-scoped `GET /version`), and records what each
+  client declared. **Nothing acts on the declarations yet** — a client that
+  declares nothing connects exactly as before.
+- The authentication surface is now **frozen**: never versioned, permanently
+  backward-compatible, and excluded from `gateway-api`, so a client can always
+  authenticate far enough to be told what is wrong (CHOO-1865).
+
+#### Fixed
+- The agent-protocol check no longer defaults a silent client to the server's own
+  version. It defaulted to agreement, and since no shipped client ever sent
+  `?protocol=`, the check had never once fired. Absent now records as unknown —
+  and still connects (CHOO-1865).
+- A protocol refusal names which side is behind. It always said "update the
+  Switch agent runtime", which for a client ahead of the server sent the user to
+  downgrade the side that was already right (CHOO-1865).
+- The compatibility check is a range overlap rather than exact equality. The two
+  numbers are equal today, so nothing changes yet (CHOO-1865).
+- `SWITCH_VERSION` is required by the standalone compose instead of defaulting to
+  `latest`, which silently floated the whole stack to whatever had most recently
+  been published (CHOO-1865).
+- The Helm chart no longer claims a version it has not been at for months. The
+  real one is stamped at package time; the file now says `0.0.0-dev` (CHOO-1865).
+- Refreshed the stale switch-core version in `uv.lock`, which the release
+  procedure never re-locked (CHOO-1865).
 
 ### [0.12.3] - 2026-08-07
 
@@ -215,6 +267,24 @@ below:
 ## switchdash
 
 ### [Unreleased]
+
+#### Added
+- Declares its `sidecar-control` range in the sidecar's ready file, and reads
+  back whatever a running sidecar declares. A sidecar that declares nothing
+  records as unknown, never as agreement (CHOO-1865).
+
+#### Fixed
+- A managed server whose deployed switch-core version **cannot be read** is now
+  surfaced as such, in the banner and the sidebar. It previously reported "no
+  drift" — the identical result a healthy, in-step stack gives — so a failed
+  probe rendered as a green server and the user was told nothing (CHOO-1865).
+- Starting a stack whose version cannot be compared to this build's pin now says
+  so loudly. It passed in complete silence, in the same branch as a clean match,
+  while carrying the same risk as a downgrade (CHOO-1865).
+- CI verifies the bundled standalone compose is in step with the repo's copy.
+  Nothing checked before — the two could drift with only a comment asking
+  nicely, which is how the sync script once silently stopped running
+  (CHOO-1865).
 
 ### [0.19.2] - 2026-08-07
 
@@ -657,3 +727,83 @@ migrations 0031–0036, including a locations backfill).
 
 Desktop-app releases predating this changelog live in the git log and in the
 per-release notes on their GitHub Releases (`switchdash-v*` tags).
+
+---
+
+## agent-runtime
+
+The Switch protocol client and MCP runtime
+(`dash/packages/switch-agent-runtime/`). Version lives in its `package.json`.
+
+### [Unreleased]
+
+#### Added
+- Declares its `agent-protocol` range, artifact name and release version on the
+  event stream it already opens, so switch-core can record what is connecting
+  (CHOO-1865).
+- Logs the server's declaration from the `connection_state` frame, so which
+  versions were actually talking to each other is answerable from a bug report
+  rather than a guess (CHOO-1865).
+
+### [0.1.5]
+
+Releases before this changelog existed are in the git log. They are not
+reconstructed here: an invented history reads exactly like a real one.
+
+---
+
+## sidecar
+
+The remote runtime switchdash deploys to an agent host. Versioned in
+`dash/apps/switchdash-desktop/src/sidecar/sidecar-version.ts` and deployed by
+switchdash rather than published on its own.
+
+### [Unreleased]
+
+#### Changed
+- Three-part semver: `1.7` becomes `1.7.0`. **The major stays at 1** — every
+  switchdash already in the field judges compatibility on the major and parses
+  two parts, so `1.7` and `1.7.0` read as the same version and neither side
+  replaces the other. `2.0.0` would have every existing install treat this
+  sidecar as incompatible and replace it while a newer install replaces it back
+  (CHOO-1937, CHOO-1865).
+- The version no longer carries compatibility. It says which release is running;
+  what the sidecar can speak is the `sidecar-control` range it now declares in
+  its ready file (CHOO-1865).
+
+### [1.7]
+
+Earlier versions used a two-part `x.y` scheme in which the major *was* the
+compatibility signal. History for those is in the git log.
+
+---
+
+## switch-connector (Claude Code)
+
+`connectors/claude-code-plugin/`. Version lives in
+`.claude-plugin/plugin.json`.
+
+### [Unreleased]
+
+_No changes yet. The plugin ships the room-workflow skill; CHOO-1865 changed
+nothing an agent-facing client needs to know, so it is deliberately unbumped._
+
+### [0.7.8]
+
+Releases before this changelog existed are in the git log and in the plugin
+manifest history.
+
+---
+
+## switch-connector-codex
+
+`connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
+
+### [Unreleased]
+
+_No changes yet, and deliberately unbumped — see the note above._
+
+### [0.2.0]
+
+Releases before this changelog existed are in the git log and in the plugin
+manifest history.
