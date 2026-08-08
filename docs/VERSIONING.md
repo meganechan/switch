@@ -73,7 +73,7 @@ on agent registration, and no version column on any client-bearing table.
 The compatibility gate (§3) reads contract versions only — an artifact version
 never decides whether two components may talk. The artifact version is still
 required for everything around that decision: reporting that a newer release
-exists (§4), folding a release path to work out what a move costs (§5.1),
+exists (§4), folding a release path to work out what a move costs (§5.3),
 refusing a switch-core downgrade whose database has already migrated forward
 (§8.1), naming the `untested` release combinations (§4.1), and answering "what
 are you running?" in a bug report. Both travel on the same endpoint, so this is
@@ -377,7 +377,32 @@ it would have to be hosted somewhere, reintroducing a central dependency that
 per-artifact history avoids by riding the channel already delivering the
 artifact.
 
-### 5.2 Manifests describe the *move*, not the version
+### 5.2 A manifest describes the post-install state, not just the artifact
+
+An artifact that pins another and installs it as a unit declares the ranges that
+result from installing **it**, not merely the ranges of its own code.
+
+The connector plugin is the case that matters. It pins a runtime version in its
+`.mcp.json`, and the runtime is what actually speaks `agent-protocol`. Its
+manifest therefore does not say *"I pin runtime 0.2.0"*, leaving the consumer to
+resolve that; it says *"installing me yields `agent-protocol` speaks 2, accepts
+1"*. The pin is known at plugin build time, so CI resolves it against
+`contracts.yaml` and writes the resulting ranges in — one fetch, and nothing
+hand-typed to drift.
+
+This is what §3.2's "a plugin's compatibility is the runtime's, inherited"
+means concretely: **inherited means expressed in the plugin's own declaration.**
+The plugin is the unit of distribution; the runtime is an implementation detail
+of it.
+
+The runtime is pinned in two places — the plugin's `.mcp.json` and switchdash's
+own constant for sessions it launches directly — and a test already fails when
+those version strings drift. Under this model both declare effective
+`agent-protocol` ranges, so that test gains a sibling: **the declared ranges must
+agree.** That is the stronger check, since it also permits two different runtime
+versions that provably speak the same thing.
+
+### 5.3 Manifests describe the *move*, not the version
 
 `0.7.8 → 0.8.0` and `0.7.9 → 0.8.0` are different journeys and can have
 different answers. Each release declares only what changed **since the release
@@ -392,7 +417,7 @@ N releases therefore require N declarations, not N² pairs. A client jumping
 forward across three breaking releases is told so, rather than being judged only
 against the latest.
 
-### 5.3 How the history reaches whoever is deciding
+### 5.4 How the history reaches whoever is deciding
 
 A path cannot be folded if it cannot be seen, so manifests for all releases must
 be reachable — not only the newest.
@@ -423,7 +448,7 @@ channel at all:
 
 ---
 
-### 5.4 How switchdash discovers that a new version exists
+### 5.5 How switchdash discovers that a new version exists
 
 switchdash is both a managed artifact and the manager of several others, and it
 is the only component positioned to show the user one consolidated picture. To
