@@ -648,7 +648,41 @@ Mitigation: CI flags a change to an interface-defining file with no
 corresponding counter change. This is a prompt, not a proof, and it is the
 honest cost of keeping artifacts independently releasable.
 
-### 11.3 Deploy lock scope (to verify)
+### 11.3 Introducing real floors makes a latent sidecar bug reachable
+
+`decideExisting()` in `remote-sidecar-launcher.ts` evaluates **incompatible
+before newer-on-host**:
+
+```ts
+if (!this.isCompatible(ready)) { /* … */ return null; }   // replace
+if (ready.hash === localHash) return this.toEndpoint(ready);
+if (compareSidecarVersions(ready.version, SIDECAR_VERSION) > 0) { /* … */ }
+```
+
+Returning `null` means *replace*. So a client that considers the running sidecar
+incompatible replaces it **even when that sidecar is newer** — a downgrade. On a
+host two switchdash installs share, the newer one puts its build back, and the
+two replace each other indefinitely. The newer-on-host guard added for CHOO-1937
+sits *after* the compatibility check and does not cover this path.
+
+**This is not reachable today**, because `MIN_SUPPORTED_SIDECAR_MAJOR = 0` while
+majors are 1, so `isCompatible` is always true. It is latent, and the current
+mitigation is a policy written in a comment — `sidecar-version.ts` warns that
+raising the floor "kills every older sidecar on sight — including one an older
+switchdash on the same host will then kill right back, each replacing the other
+forever."
+
+**This model makes floors first-class and expects them to move**, which converts
+that policy into something a mechanism must enforce:
+
+> **Never downgrade a peer, even when it is incompatible.** Newer-on-host is
+> evaluated first. A client that cannot speak to a newer peer refuses the host
+> and says so — *"this host's sidecar is newer than this switchdash supports"* —
+> rather than replacing it.
+
+Refusing terminates. Replacing does not.
+
+### 11.4 Deploy lock scope (to verify)
 
 `sidecarDeployLockRelPath()` is keyed per **agent**, while the bundle it guards
 is shared per **directory**. Two agents in one directory take different locks and
