@@ -69,6 +69,16 @@ else operates, switchdash has no visibility at all.
 **No client version reaches the server.** There is no version header, no field
 on agent registration, and no version column on any client-bearing table.
 
+**Why the artifact version matters even though contracts decide compatibility.**
+The compatibility gate (§3) reads contract versions only — an artifact version
+never decides whether two components may talk. The artifact version is still
+required for everything around that decision: reporting that a newer release
+exists (§4), folding a release path to work out what a move costs (§5.1),
+refusing a switch-core downgrade whose database has already migrated forward
+(§8.1), naming the `untested` release combinations (§4.1), and answering "what
+are you running?" in a bug report. Both travel on the same endpoint, so this is
+one primitive rather than two.
+
 ### 1.3 "Unknown" currently renders as "fine" — in four places
 
 The ticket's non-negotiable rule is that *incompatible*, *untested* and
