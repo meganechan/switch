@@ -188,16 +188,51 @@ This is deliberate: `COMPATIBLE_SWITCH_VERSION` is currently hand-copied into
 
 ### 3.4 How the numbers are exchanged
 
-- **Client → server** — on the connect it already makes. The events endpoint
-  already accepts `?protocol=`; the runtime starts sending it, along with its
-  `accepts` floor and its artifact version. The default must be removed: an
-  absent declaration is *unknown*, not *current*.
-- **Server → client** — **`GET /version`**, returning switch-core's artifact
-  version, its `speaks`/`accepts` per contract, and its schema revision.
-  Unauthenticated, alongside `/health` in the auth allowlist.
+**Both sides always publish two numbers per contract** — `speaks` and `accepts`.
+A single number is never sufficient: it cannot express a compatibility window,
+and the window is the whole mechanism.
 
-`GET /version` is the one genuinely new primitive, and everything else depends
-on it.
+*What* is exchanged is identical on every edge. *How* differs, because the
+transports differ — one edge is HTTP, one is a local file, one is a data file
+with no running peer at all. Each edge reuses a channel that already exists:
+
+| Contract | Server side publishes via | Client side declares via |
+| --- | --- | --- |
+| `agent-protocol` | `GET /version`, and the `connection_state` frame already sent when the stream opens | query params on `GET /agents/{id}/events` — the endpoint already takes `?protocol=` |
+| `gateway-api` | `GET /version` | nothing to send; switchdash compares the server's range against its own compiled-in one |
+| `sidecar-control` | the sidecar's ready file (`sidecar.ready`), which already carries its version, hash, pid and port | switchdash's own range is compiled in; it reads the sidecar's from that file |
+| `stack-compose` | a version field in the compose file itself, and an annotation on the published OCI artifact | switchdash reads it from the bundled copy and from the on-host file |
+| `db-schema` | reported in `GET /version` | switch-core compares the revision in the database against the revisions its own build knows |
+
+Two consequences worth stating:
+
+- **`sidecar-control` needs no endpoint.** switchdash and the sidecar communicate
+  over a file on the host, so the range goes in the file the sidecar already
+  writes. Adding an HTTP handshake there would be inventing a transport we do
+  not need.
+- **`stack-compose` has no running peer.** The compose file is data, so its
+  version is carried *in the artifact*, and there is only one direction to check.
+
+**The default on `?protocol=` must be removed.** It currently defaults to the
+server's own value, so a client that declares nothing is treated as compatible.
+An absent declaration is *unknown*, not *current*.
+
+`GET /version` is the one genuinely new primitive. It returns switch-core's
+artifact version, its `speaks`/`accepts` for every contract it participates in,
+and its schema revision — unauthenticated, alongside `/health` in the auth
+allowlist:
+
+```json
+{
+  "version": "0.12.3",
+  "contracts": {
+    "agent-protocol": { "speaks": 1, "accepts": 1 },
+    "gateway-api":    { "speaks": 1, "accepts": 1 },
+    "db-schema":      { "speaks": 1, "accepts": 1 }
+  },
+  "schema_revision": "b3f36489c258"
+}
+```
 
 ---
 
