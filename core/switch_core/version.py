@@ -1,0 +1,47 @@
+"""switch-core's own release version (CHOO-1865).
+
+The version is declared once, in `core/pyproject.toml`, and reaches the running
+process through installed distribution metadata. There is deliberately no
+second copy: a `__version__` constant beside pyproject would be one more thing
+to keep in step by hand, which is the drift this ticket exists to end.
+
+An artifact's semver says *where it is* — which release you are running. It
+says nothing about whether it can talk to anything; that is what the contract
+revisions in `switch_core.contracts` are for. The two move independently and
+must never be derived from one another.
+
+When the version cannot be read it is reported as `None`, meaning *unknown*,
+and a warning is logged. It is never replaced with a placeholder string:
+"0.0.0" or "unknown" would read downstream as a version somebody chose, and
+the whole point of this work is that unknown must never render as fine.
+"""
+
+import logging
+from functools import lru_cache
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as distribution_version
+
+logger = logging.getLogger(__name__)
+
+DISTRIBUTION_NAME = "switch-core"
+
+
+@lru_cache(maxsize=1)
+def switch_core_version() -> str | None:
+    """Return the running switch-core release, or None when unknown.
+
+    None means the distribution metadata is absent — switch-core is running
+    from a source tree that was never installed. Callers must surface that as
+    unknown rather than substituting a value.
+    """
+    try:
+        return distribution_version(DISTRIBUTION_NAME)
+    except PackageNotFoundError:
+        logger.warning(
+            "No installed distribution metadata for %r, so switch-core cannot "
+            "report its own version. Clients will see it as unknown. This "
+            "usually means the package was added to the path rather than "
+            "installed.",
+            DISTRIBUTION_NAME,
+        )
+        return None
