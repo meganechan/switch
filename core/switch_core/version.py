@@ -20,10 +20,18 @@ import logging
 from functools import lru_cache
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
+from typing import Any
+
+from switch_core.contracts import contract_range
 
 logger = logging.getLogger(__name__)
 
 DISTRIBUTION_NAME = "switch-core"
+
+# Internal to switch-core: it describes the database this process talks to, and
+# no external client can act on it. Excluded from every externally facing
+# response as a rule the code enforces rather than one reviewers must remember.
+INTERNAL_CONTRACTS = frozenset({"db-schema"})
 
 
 @lru_cache(maxsize=1)
@@ -45,3 +53,31 @@ def switch_core_version() -> str | None:
             DISTRIBUTION_NAME,
         )
         return None
+
+
+def server_declaration(*contracts: str) -> dict[str, Any]:
+    """What this server says about itself, for the named contracts only.
+
+    Every caller passes just the contracts its credential entitles it to see,
+    so an agent token never learns about the gateway and vice versa. Version
+    disclosure is authenticated everywhere; there is no anonymous surface.
+
+    `version` is null when switch-core cannot read its own version. Null means
+    unknown and must be rendered as such — never as current.
+    """
+    leaking = INTERNAL_CONTRACTS.intersection(contracts)
+    if leaking:
+        raise ValueError(
+            f"{sorted(leaking)} are internal to switch-core and must not appear "
+            "in a response to any external client"
+        )
+    return {
+        "version": switch_core_version(),
+        "contracts": {
+            name: {
+                "speaks": contract_range(name, "switch-core").speaks,
+                "accepts": contract_range(name, "switch-core").accepts,
+            }
+            for name in contracts
+        },
+    }

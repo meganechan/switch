@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from switch_core import version as version_module
-from switch_core.version import switch_core_version
+from switch_core.version import server_declaration, switch_core_version
 
 PYPROJECT = Path(__file__).resolve().parents[2] / "pyproject.toml"
 
@@ -61,3 +61,38 @@ def test_warns_when_the_version_cannot_be_read(
     with caplog.at_level(logging.WARNING, logger=version_module.__name__):
         switch_core_version()
     assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+
+# ── Disclosure ───────────────────────────────────────────────────────────────
+
+
+def test_a_declaration_carries_only_the_contracts_asked_for() -> None:
+    """Least disclosure: a credential sees its own contract and no others."""
+    declared = server_declaration("agent-protocol")
+
+    assert set(declared["contracts"]) == {"agent-protocol"}
+    assert declared["contracts"]["agent-protocol"].keys() == {"speaks", "accepts"}
+
+
+def test_a_declaration_reports_an_unknown_version_as_null(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(version_module, "switch_core_version", lambda: None)
+
+    assert server_declaration("agent-protocol")["version"] is None
+
+
+def test_db_schema_cannot_be_disclosed() -> None:
+    """Internal to switch-core, and no external client can act on it.
+
+    Enforced here rather than left to reviewers to remember, because the cost
+    of forgetting is a permanent leak in a public deployment.
+    """
+    with pytest.raises(ValueError, match="internal to switch-core"):
+        server_declaration("db-schema")
+
+
+def test_db_schema_cannot_ride_alongside_a_public_contract() -> None:
+    """The likelier mistake than asking for it alone."""
+    with pytest.raises(ValueError, match="internal to switch-core"):
+        server_declaration("gateway-api", "db-schema")
