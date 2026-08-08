@@ -236,6 +236,34 @@ allowlist:
 
 ---
 
+### 3.5 A managed stack crosses three edges, not one
+
+When switchdash runs the stack itself, three contracts are in play and they are
+easily conflated:
+
+1. **`stack-compose`** — can this pipeline drive this compose file?
+2. **`gateway-api`** — can switchdash talk to the server the file started?
+3. **`agent-protocol`** — can the agent runtimes talk to that same server?
+
+The compose file is only the first. It takes `SWITCH_VERSION` from the `.env`
+switchdash writes and pulls that image tag, which means **switchdash chooses
+which server version it will then have to talk to**.
+
+So for a managed stack, compatibility on edge 2 is not discovered — it is
+*arranged*. The app pins a core it already knows it can speak to, which is what
+`COMPATIBLE_SWITCH_VERSION` does today. The contract check earns its keep only
+where reality diverges from that choice: a stack already running the version an
+*older* switchdash pinned, a server operated by someone else, or a host that was
+reset or hand-edited.
+
+**The pin is a choice; the check is for when the choice was somebody else's.**
+
+This gives the pin something it lacks today. It is currently a hand-maintained
+constant that nothing verifies — it stays true because a person remembers. Once
+both sides declare ranges, CI can assert that the pinned switch-core's
+`gateway-api` range overlaps switchdash's own. The pin stays an exact version,
+for reproducible builds; it simply stops being taken on faith.
+
 ## 4. Two questions, not one
 
 Every artifact answers two independent questions:
