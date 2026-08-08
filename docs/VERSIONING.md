@@ -357,6 +357,26 @@ advance; the alternative is discovering it by installing and breaking.
 The compiled copy describes the present. The manifest describes a hypothetical
 future.
 
+**There is no single global manifest file.** `contracts.yaml` is one shared file
+covering every artifact, but it holds only *current* numbers; a history is
+per-artifact and holds that artifact's past. In one line: **`contracts.yaml` is
+"now, for everything"; a history is "over time, for one thing".**
+
+1. **Repo** — `contracts.yaml` carries every artifact's current ranges, in one
+   place a human edits.
+2. **Build** — each artifact compiles in **its own** ranges; that is what a
+   handshake reads.
+3. **Release** — the artifact emits a manifest (its own ranges plus
+   `disturbance` / `atomic` / `reversible`), appends it to **its own** cumulative
+   history, and publishes it on **its own** channel.
+
+A single published file was rejected: artifacts release on different days, so it
+would be rewritten by whichever release ran last; a consumer only ever needs the
+one artifact it is evaluating; the artifacts ship through different channels; and
+it would have to be hosted somewhere, reintroducing a central dependency that
+per-artifact history avoids by riding the channel already delivering the
+artifact.
+
 ### 5.2 Manifests describe the *move*, not the version
 
 `0.7.8 → 0.8.0` and `0.7.9 → 0.8.0` are different journeys and can have
