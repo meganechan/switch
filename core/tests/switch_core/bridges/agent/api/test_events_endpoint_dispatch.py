@@ -31,6 +31,12 @@ class _Protocol:
         self.event_buffer = EventBuffer()
         self.connections = ConnectionRegistry()
         self.polled = False
+        self.recorded: list[tuple[str, ClientDeclaration]] = []
+
+    async def record_client_declaration(
+        self, agent_id: str, declaration: ClientDeclaration
+    ) -> None:
+        self.recorded.append((agent_id, declaration))
 
     async def poll_events(self, agent_id: str, timeout: float) -> list[Any]:
         self.polled = True
@@ -192,14 +198,36 @@ async def test_a_declared_client_is_recorded_in_full() -> None:
         client_version="0.1.5",
     )
 
-    conn = protocol.connections.get("c1")
-    assert conn is not None
-    assert conn.declaration == ClientDeclaration(
+    declared = ClientDeclaration(
         speaks=PROTOCOL_VERSION,
         accepts=PROTOCOL_ACCEPTS,
         artifact="agent-runtime",
         version="0.1.5",
     )
+    conn = protocol.connections.get("c1")
+    assert conn is not None
+    assert conn.declaration == declared
+    # Also persisted, since connections die with the process and an accepts
+    # floor is raised offline against what is actually deployed.
+    assert protocol.recorded == [(AGENT_ID, declared)]
+
+
+async def test_a_refused_client_is_not_recorded() -> None:
+    """Recording happens after the connection opens.
+
+    A bookkeeping failure must never be why an agent could not connect, and a
+    client we refused is not one we are running.
+    """
+    protocol = _Protocol()
+    with pytest.raises(HTTPException):
+        await _call(
+            protocol,
+            accept="text/event-stream",
+            connection_id="c1",
+            protocol_version=PROTOCOL_VERSION + 1,
+        )
+
+    assert protocol.recorded == []
 
 
 async def test_an_older_client_inside_the_server_range_is_accepted() -> None:

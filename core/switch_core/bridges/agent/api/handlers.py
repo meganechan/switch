@@ -766,6 +766,10 @@ async def _open_event_stream(
     except ConnectionError_ as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    # After the connection is open, so a bookkeeping failure can never be the
+    # reason an agent could not connect.
+    await protocol.record_client_declaration(agent.id, declaration)
+
     # Rooms are claimed before the stream starts, not after it opens. A client
     # reconnecting already knows which room it was in; making it re-subscribe
     # afterwards would race the catch-up, and buffered events for that room

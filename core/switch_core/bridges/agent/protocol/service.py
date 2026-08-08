@@ -6,6 +6,7 @@ import re
 import secrets
 import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -25,7 +26,10 @@ from switch_core.bridges.agent.protocol.agent_detail import (
     list_agent_summaries,
     reparent_agent,
 )
-from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
+from switch_core.bridges.agent.protocol.connections import (
+    ClientDeclaration,
+    ConnectionRegistry,
+)
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.statuses import compute_agent_statuses
 from switch_core.bridges.agent.protocol.types import (
@@ -450,6 +454,50 @@ class ProtocolService:
                     agent_name,
                     exc_info=True,
                 )
+
+    async def record_client_declaration(
+        self, agent_id: str, declaration: ClientDeclaration
+    ) -> None:
+        """Persist what a client last said about itself (CHOO-1865).
+
+        Connections live in memory, so what is running right now dies with the
+        process. This is the durable half, and the reason it belongs in Part 1
+        at all: raising an `accepts` floor is a decision made offline, and it
+        can only be made safely against a record of what is actually deployed.
+        Without it the question "what would this break?" has no answer but a
+        guess.
+
+        Last write wins, per agent. Nothing acts on it yet.
+
+        A failure here is logged and swallowed: this is bookkeeping about a
+        connection, and losing a version record must never stop an agent
+        connecting. It is logged at warning because a persistently silent
+        recorder would leave the same blind spot as a client that never
+        declared, and that must not pass unnoticed.
+        """
+        if not declaration.declares_protocol and declaration.version is None:
+            return
+
+        record = declaration.as_dict()
+        record["recorded_at"] = datetime.now(UTC).isoformat()
+        try:
+            async with self.session_factory() as session:
+                agent = await self.agent_store.get(session, agent_id)
+                if agent is None:
+                    return
+                metadata = (
+                    dict(agent.metadata_) if isinstance(agent.metadata_, dict) else {}
+                )
+                metadata["client_declaration"] = record
+                await self.agent_store.update(session, agent_id, metadata_=metadata)
+                await session.commit()
+        except Exception:
+            logger.warning(
+                "Could not record the client declaration for agent %s; it will "
+                "read as unknown until the next connect",
+                agent_id,
+                exc_info=True,
+            )
 
     async def update_agent(
         self,
