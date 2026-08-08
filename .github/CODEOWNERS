@@ -1,10 +1,1 @@
-# Code owners for sandbox-quantum/switch.
-#
-# Owners are automatically requested for review on PRs that touch matching
-# paths. This only *enforces* review when the branch-protection ruleset has
-# "Require review from Code Owners" enabled.
-#
-# Later this can be pointed at a GitHub team (e.g. @sandbox-quantum/switch-maintainers)
-# instead of individual handles.
-
 * @amaudruz @christian-mcdermott
