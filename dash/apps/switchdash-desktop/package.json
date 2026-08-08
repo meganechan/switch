@@ -119,7 +119,7 @@
     "mermaid": "^11.12.2",
     "mobx": "^6.15.0",
     "mobx-react-lite": "^4.1.1",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.56.0",
     "motion": "^12.23.12",
     "oxfmt": "^0.51.0",
     "oxlint": "^1.66.0",
