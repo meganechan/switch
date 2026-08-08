@@ -340,7 +340,24 @@ Only `disturbance` is a genuine per-release judgement, and even that is often
 derivable: an empty contract delta on an artifact read at session start is
 `next-session` by construction.
 
-### 5.1 Manifests describe the *move*, not the version
+### 5.1 Manifests and the contract file are one source, two outputs
+
+`contracts.yaml` (§3.3) is the source. At release time it yields:
+
+- **the compiled-in copy** — baked into the build, and the thing a handshake
+  reads. Answers *"can I talk to you right now?"*
+- **the published manifest** — a record of what that release declared. Answers
+  *"could I talk to you **if I installed you**?"*
+
+This is why the manifest repeats the contract numbers rather than carrying only
+`disturbance` / `atomic` / `reversible`. **A build that is not installed cannot
+be asked.** Determining that an update would be `BLOCKED` requires its ranges in
+advance; the alternative is discovering it by installing and breaking.
+
+The compiled copy describes the present. The manifest describes a hypothetical
+future.
+
+### 5.2 Manifests describe the *move*, not the version
 
 `0.7.8 → 0.8.0` and `0.7.9 → 0.8.0` are different journeys and can have
 different answers. Each release declares only what changed **since the release
@@ -351,10 +368,38 @@ before it**; a jump **folds** every release in between:
 - `contracts` → compare the endpoints; the ranges handle it
 - `atomic` → unaffected by path length; one install is performed
 
-N releases therefore require N declarations, not N² pairs. **Manifests for all
-releases are retained**, not only the newest — a path cannot be folded if it
-cannot be seen. A client jumping forward across three breaking releases is told
-so, rather than being judged only against the latest.
+N releases therefore require N declarations, not N² pairs. A client jumping
+forward across three breaking releases is told so, rather than being judged only
+against the latest.
+
+### 5.3 How the history reaches whoever is deciding
+
+A path cannot be folded if it cannot be seen, so manifests for all releases must
+be reachable — not only the newest.
+
+Walking backwards one release at a time would mean N requests and would break
+once an old release is deleted. Instead: **each release publishes a cumulative
+file containing every manifest up to and including itself.** Deciding whether to
+move to 0.8.0 is then one fetch — find the current version in that file and fold
+everything after it.
+
+The unknown rule falls out of this for free: **if the current version is not in
+the list**, the path cannot be folded, so the move is `unknown` — most cautious
+class, and it prompts. That is the correct treatment of something ancient enough
+to predate the record.
+
+Size is not a concern; a few fields per release stays small over hundreds of
+releases.
+
+Distribution follows each artifact's existing channel, and one case needs no
+channel at all:
+
+| Artifact | Where the history is read from |
+| --- | --- |
+| Connector plugins | the marketplace source |
+| switch-core | published with the release |
+| switchdash | its update feed, which already carries per-release metadata |
+| Sidecar | **no fetch.** switchdash ships the sidecar, so it holds the history already and reads the deployed version from the host's ready file |
 
 ---
 
