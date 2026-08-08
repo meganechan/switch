@@ -403,6 +403,34 @@ channel at all:
 
 ---
 
+### 5.4 How switchdash discovers that a new version exists
+
+switchdash is both a managed artifact and the manager of several others, and it
+is the only component positioned to show the user one consolidated picture. To
+do that it needs two facts per managed artifact: **what is installed** and **what
+is available**.
+
+It already has most of them. The addition is that each existing resolver also
+fetches the manifest history and runs the evaluation:
+
+| Artifact | How a new version is discovered |
+| --- | --- |
+| Connector plugin | Already refreshes the agent CLI's marketplace and reads installed vs latest. The history file sits in the same plugin directory |
+| Runtime | No separate discovery — the plugin's `.mcp.json` pins it, so the runtime moves because the plugin moved |
+| Sidecar | Nothing to discover. switchdash ships it; the deployed version comes from the host's ready file |
+| switch-core | For a managed stack, pinned by switchdash, so a new core arrives with a new switchdash. For a server it does not manage, it reports rather than manages |
+| switchdash | Its own update feed |
+
+**Plugins have no release tag.** They are served from the default branch, so
+merging is releasing and there is no tag to attach a manifest to. Their history
+is therefore a committed file in the plugin directory, appended when the version
+is bumped — enforced in CI: if `plugin.json`'s version changed and the history
+gained no entry, fail.
+
+**Scope boundary.** *What* is fetched is defined here. *Where each artifact
+publishes it and how it is reached* belongs to CHOO-1864, so every case above
+reuses a channel that already exists rather than proposing a new one.
+
 ## 6. Disturbance: what is lost, not what restarts
 
 | Level | Meaning | Example |
