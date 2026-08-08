@@ -436,15 +436,29 @@ to predate the record.
 Size is not a concern; a few fields per release stays small over hundreds of
 releases.
 
-Distribution follows each artifact's existing channel, and one case needs no
-channel at all:
+**Whatever switchdash bundles or pins has its history embedded at switchdash
+build time.** This is a constraint on the build pipeline, not an implementation
+detail:
 
-| Artifact | Where the history is read from |
+| Artifact | Where the history comes from |
 | --- | --- |
-| Connector plugins | the marketplace source |
-| switch-core | published with the release |
-| switchdash | its update feed, which already carries per-release metadata |
-| Sidecar | **no fetch.** switchdash ships the sidecar, so it holds the history already and reads the deployed version from the host's ready file |
+| Sidecar | **Embedded.** switchdash ships the bundle; CI embeds the history beside it |
+| Bundled compose | **Embedded.** switchdash already carries a pinned copy |
+| switch-core | **Embedded up to the pin.** Upgrading a managed stack is a move and needs the path; switchdash pins an exact version, so CI knows how far to go |
+| Connector plugins | Fetched — installed from a marketplace out of band (§5.5) |
+| switchdash itself | Fetched — its update feed already carries per-release metadata |
+
+The sidecar has no release tag of its own; like the plugin it rides another
+artifact, so its history is a committed file beside `sidecar-version.ts`,
+appended when `SIDECAR_VERSION` bumps, under the same CI check.
+
+**Why embedding is sufficient rather than merely convenient:** the mover always
+ships the target. switchdash folds only *forward*, from something older on the
+host up to what it carries — and it carries that history by construction. A host
+running something *newer* is not a fold at all but a reattach (§11.3), which
+needs only the peer's live declaration. A host older than the oldest entry known
+is `unknown`, and therefore the most cautious class. All three cases terminate
+without a network call.
 
 ---
 
