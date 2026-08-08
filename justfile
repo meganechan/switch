@@ -78,6 +78,19 @@ check:
 typecheck:
     uv run --project core mypy --config-file core/pyproject.toml core/switch_core/ connectors/
 
+# ── Regenerate the contract-registry modules ──────────────────────────────────
+# contracts.yaml is the only authored copy of which contract revisions each
+# artifact speaks and accepts. Each artifact needs it compiled in, so the
+# per-language modules are generated rather than kept in step by hand.
+contracts:
+    uv run --project core python scripts/gen_contracts.py
+
+# ── Verify the generated contract modules are current ─────────────────────────
+# Fails both when contracts.yaml changed without regenerating and when a
+# generated module was hand-edited.
+contracts-check:
+    uv run --project core python scripts/gen_contracts.py --check
+
 # ── Run alembic migrations ─────────────────────────────────────────────────────
 migrate:
     uv run --project core alembic -c core/alembic.ini upgrade head

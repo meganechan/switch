@@ -46,6 +46,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       dash: ${{ steps.filter.outputs.dash }}
       gateway: ${{ steps.filter.outputs.gateway }}
+      contracts: ${{ steps.filter.outputs.contracts }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -69,6 +70,15 @@ jobs:
             gateway:
               - *shared
               - 'gateway/**'
+            # Spans core/ and dash/, so it gets its own filter rather than
+            # riding either tree's.
+            contracts:
+              - *shared
+              - 'contracts.yaml'
+              - 'scripts/gen_contracts.py'
+              - 'core/switch_core/contracts.py'
+              - 'dash/packages/shared/src/contracts.ts'
+              - 'dash/packages/switch-agent-runtime/src/contracts.ts'
 
   backend:
     name: Backend (core)
@@ -150,6 +160,32 @@ jobs:
 
       - name: Test (vitest)
         run: pnpm -r run test
+
+  contracts:
+    name: Contract registry
+    # Every artifact carries a compiled-in copy of contracts.yaml, so the copies
+    # can drift two ways: editing the source without regenerating, and
+    # hand-editing a generated module. `--check` catches both. It needs no
+    # formatter or Node toolchain, which is why this is its own small job rather
+    # than a step inside the backend or dash trees.
+    needs: changes
+    if: ${{ needs.changes.outputs.contracts == 'true' || github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --project core
+
+      - name: Generated contract modules are current
+        run: uv run --project core python scripts/gen_contracts.py --check
 
   gateway:
     name: Gateway UI

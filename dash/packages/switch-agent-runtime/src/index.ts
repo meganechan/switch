@@ -16,6 +16,7 @@
  * does not drag in the MCP SDK.
  */
 
+export { CONTRACTS, contractRange, type ContractName, type ContractRange } from './contracts';
 export {
   BEAT_INTERVAL_MS,
   SwitchEventStream,
