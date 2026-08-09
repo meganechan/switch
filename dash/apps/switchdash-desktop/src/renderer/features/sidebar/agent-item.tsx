@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query';
 import {
   Bot,
   ChevronRight,
@@ -19,6 +18,7 @@ import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reac
 import { HostTroubleIndicator } from '@renderer/features/remote-hosts/host-trouble-indicator';
 import { hasSessionError } from '@renderer/features/sessions/stores/session-selectors';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { useRemoteAgentName } from '@renderer/features/switch-servers/use-remote-agent-name';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -71,16 +71,11 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
 
   // The row is labelled by the agent's registered Switch name; fall back to the
   // stored name until (or unless) the lookup resolves.
-  const remoteAgentQuery = useQuery({
-    queryKey: ['remoteAgentName', agent.serverId, agent.switchAgentId],
-    queryFn: () =>
-      rpc.switchServers.getRemoteAgent({
-        serverId: agent.serverId!,
-        agentId: agent.switchAgentId!,
-      }),
-    enabled: !!agent.serverId && !!agent.switchAgentId,
-  });
-  const label = remoteAgentQuery.data?.name?.trim() || agent.name || agentName || 'Unnamed agent';
+  const label = useRemoteAgentName(
+    agent.serverId,
+    agent.switchAgentId,
+    agent.name || agentName || 'Unnamed agent'
+  );
 
   const expanded = sidebarStore.isGroupExpanded(agentExpandKey(agent.id));
   const toggle = () => sidebarStore.toggleGroupExpanded(agentExpandKey(agent.id));

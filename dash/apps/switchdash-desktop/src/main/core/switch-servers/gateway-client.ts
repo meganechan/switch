@@ -1,4 +1,10 @@
 import type { KnownAgentType } from '@main/core/agents/known-agent-type';
+import {
+  managedServerHostBlocked,
+  managedServerStoppedPhase,
+} from '@main/core/managed-switch-server/managed-server-status';
+import { ManagedServerStoppedError } from '@shared/core/managed-switch-server/managed-switch-server';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
   BridgeConfigField,
@@ -139,6 +145,22 @@ async function gatewayFetch(
   path: string,
   options: FetchOptions
 ): Promise<Response> {
+  // A remote-managed server's gateway is only reachable through the SSH forward.
+  // Once the host is known unreachable the forward is dead, so a fetch can only
+  // hang for its timeout and then report `Could not reach http://localhost:<port>`
+  // — a local address that was never the problem. Fail with the modeled host
+  // state instead, at the one point every gateway call passes through.
+  const blocked = managedServerHostBlocked(server);
+  if (blocked) throw new HostUnreachableError(blocked);
+
+  // Same argument one level down: a managed stack that is stopped has no
+  // gateway listening, so every call to it can only time out and report a port
+  // that was never the problem — and the session renewal on the way there
+  // warns about the same absence a second time. Report the lifecycle state the
+  // user is already looking at instead.
+  const stopped = managedServerStoppedPhase(server);
+  if (stopped) throw new ManagedServerStoppedError(server, stopped);
+
   const sendOnce = async (cookie: string | null): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) {

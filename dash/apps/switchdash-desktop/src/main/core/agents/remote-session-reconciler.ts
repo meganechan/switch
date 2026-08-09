@@ -5,7 +5,6 @@ import type { SidecarEndpoint } from '@main/core/agent-runtime/impl/remote-sidec
 import { httpGetJsonOverChannel } from '@main/core/agent-runtime/impl/sidecar-http';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import type { HostReachabilityChange } from '@main/core/remote-hosts/host-reachability-service';
-import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
 import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
@@ -18,6 +17,7 @@ import { log } from '@main/lib/logger';
 import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import { makePtyId } from '@shared/core/pty/ptyId';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import { sessionDeletedChannel } from '@shared/core/sessions/sessionEvents';
 import { getRemoteAgentLocation } from './agent-location';
 import { connectRemoteAgent } from './connect-remote-agent';

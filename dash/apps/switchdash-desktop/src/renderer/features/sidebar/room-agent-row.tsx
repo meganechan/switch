@@ -1,9 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
 import { Bot, ChevronRight, DoorOpen, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { getLocationStore } from '@renderer/features/locations/stores/location-selectors';
 import { HostTroubleIndicator } from '@renderer/features/remote-hosts/host-trouble-indicator';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { useRemoteAgentName } from '@renderer/features/switch-servers/use-remote-agent-name';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -52,16 +52,11 @@ export const RoomAgentRow = observer(function RoomAgentRow({
 
   // Labelled by the agent's registered Switch name — this is a Switch room's
   // member list, so the Switch identity is the one that matters here.
-  const remoteAgentQuery = useQuery({
-    queryKey: ['remoteAgentName', agent.serverId, agent.switchAgentId],
-    queryFn: () =>
-      rpc.switchServers.getRemoteAgent({
-        serverId: agent.serverId!,
-        agentId: agent.switchAgentId!,
-      }),
-    enabled: !!agent.serverId && !!agent.switchAgentId,
-  });
-  const label = remoteAgentQuery.data?.name?.trim() || agent.name || 'Unnamed agent';
+  const label = useRemoteAgentName(
+    agent.serverId,
+    agent.switchAgentId,
+    agent.name || 'Unnamed agent'
+  );
 
   const expandKey = roomAgentGroupKey(roomId, agent.id);
   const expanded = sidebarStore.isGroupExpanded(expandKey);

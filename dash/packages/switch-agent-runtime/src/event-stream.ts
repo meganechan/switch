@@ -175,9 +175,22 @@ export class SwitchEventStream {
     });
   }
 
+  /**
+   * Reopen the stream until it comes back, reporting on a curve.
+   *
+   * The reconnect itself is unconditional — an endpoint that is down now may be
+   * up in a moment, and this loop is the only thing that would notice. What is
+   * rationed is the reporting: an endpoint that is simply gone (a managed
+   * stack the user stopped, one session per room, each retrying forever) writes
+   * the same line every thirty seconds until the app is quit, which is how a
+   * real failure elsewhere gets lost. The first failure is reported, then
+   * powers of two, and recovery is stated so the outage has an end in the log
+   * as well as a beginning — the same discipline the heartbeat already applies.
+   */
   private async streamLoop(): Promise<void> {
     const { creds, connectionId, scope, filter, log, signal } = this.deps;
     let backoff = INITIAL_BACKOFF_MS;
+    let failures = 0;
 
     while (!signal.aborted) {
       const socketAbort = new AbortController();
@@ -214,6 +227,13 @@ export class SwitchEventStream {
         }
 
         backoff = INITIAL_BACKOFF_MS;
+        if (failures > 0) {
+          log.warn('SwitchEventStream: stream recovered', {
+            event: 'switch_stream_recovered',
+            afterFailures: failures,
+          });
+          failures = 0;
+        }
         log.debug('SwitchEventStream: stream open', {
           event: 'switch_stream_open',
           connectionId,
@@ -229,11 +249,16 @@ export class SwitchEventStream {
         if (signal.aborted) return;
         // A deliberate reopen (repoint) aborts the socket; that is not an error.
         if (!socketAbort.signal.aborted) {
-          log.warn('SwitchEventStream: stream error', {
-            event: 'switch_stream_error',
-            error: String(error),
-            backoffMs: backoff,
-          });
+          failures += 1;
+          if ((failures & (failures - 1)) === 0) {
+            log.warn('SwitchEventStream: stream error', {
+              event: 'switch_stream_error',
+              endpoint: creds.apiEndpoint,
+              failures,
+              error: String(error),
+              backoffMs: backoff,
+            });
+          }
           await new Promise((r) => setTimeout(r, backoff));
           backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
         }
