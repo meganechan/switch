@@ -31,12 +31,12 @@ class _Protocol:
         self.event_buffer = EventBuffer()
         self.connections = ConnectionRegistry()
         self.polled = False
-        self.recorded: list[tuple[str, ClientDeclaration]] = []
+        self.recorded: list[tuple[str, str, ClientDeclaration]] = []
 
     async def record_client_declaration(
-        self, agent_id: str, declaration: ClientDeclaration
+        self, agent_id: str, connection_id: str, declaration: ClientDeclaration
     ) -> None:
-        self.recorded.append((agent_id, declaration))
+        self.recorded.append((agent_id, connection_id, declaration))
 
     async def poll_events(self, agent_id: str, timeout: float) -> list[Any]:
         self.polled = True
@@ -209,7 +209,7 @@ async def test_a_declared_client_is_recorded_in_full() -> None:
     assert conn.declaration == declared
     # Also persisted, since connections die with the process and an accepts
     # floor is raised offline against what is actually deployed.
-    assert protocol.recorded == [(AGENT_ID, declared)]
+    assert protocol.recorded == [(AGENT_ID, "c1", declared)]
 
 
 async def test_a_refused_client_is_not_recorded() -> None:

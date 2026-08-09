@@ -16,7 +16,7 @@ standalone Docker Compose file. The switchdash desktop app releases separately
 
 **A version says where an artifact is, not what it can talk to.** Compatibility
 is carried separately, by the contract revisions in
-[`contracts.yaml`](contracts.yaml). The two move independently: a release that
+[`artifacts.yaml`](artifacts.yaml). The two move independently: a release that
 changes nothing on the wire bumps its version and leaves its contracts alone.
 Never derive one from the other.
 
@@ -37,8 +37,8 @@ agent-runtime package, the sidecar, and the two connector plugins.
 
 ### Bumping a contract
 
-When you change an interface named in `contracts.yaml`, raise that artifact's
-`speaks` for the contract and run `just contracts`. Raise `accepts` only when
+When you change an interface named in `artifacts.yaml`, raise that artifact's
+`speaks` for the contract and run `just artifacts`. Raise `accepts` only when
 dropping support for an older revision — that is a breaking change for every
 peer still on it, and it can never be raised past what is running in the field.
 

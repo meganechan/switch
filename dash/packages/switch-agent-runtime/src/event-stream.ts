@@ -1,4 +1,4 @@
-import { contractRange } from './contracts';
+import { contractRange } from './artifacts';
 import { readSse, type SseFrame } from './sse';
 import type { AgentBridgeEvent, SwitchCredentials } from './types';
 import { RUNTIME_ARTIFACT, RUNTIME_VERSION } from './version';

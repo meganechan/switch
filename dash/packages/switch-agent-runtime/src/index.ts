@@ -16,7 +16,15 @@
  * does not drag in the MCP SDK.
  */
 
-export { CONTRACTS, contractRange, type ContractName, type ContractRange } from './contracts';
+export {
+  ARTIFACT_VERSIONS,
+  artifactVersion,
+  CONTRACTS,
+  contractRange,
+  type ArtifactName,
+  type ContractName,
+  type ContractRange,
+} from './artifacts';
 export {
   BEAT_INTERVAL_MS,
   SwitchEventStream,

@@ -19,6 +19,7 @@ from switch_core.bridges.agent.protocol.connections import ClientDeclaration
 from switch_core.bridges.agent.protocol.service import ProtocolService
 
 AGENT_ID = "agent-1"
+CONNECTION_ID = "conn-1"
 
 
 class _Session:
@@ -70,6 +71,7 @@ async def test_a_declaration_is_written_to_agent_metadata() -> None:
     store = _AgentStore({})
     await _service(store).record_client_declaration(
         AGENT_ID,
+        CONNECTION_ID,
         ClientDeclaration(
             speaks=1, accepts=1, artifact="agent-runtime", version="0.1.5"
         ),
@@ -91,7 +93,7 @@ async def test_the_record_is_timestamped() -> None:
     """
     store = _AgentStore({})
     await _service(store).record_client_declaration(
-        AGENT_ID, ClientDeclaration(speaks=1, version="0.1.5")
+        AGENT_ID, CONNECTION_ID, ClientDeclaration(speaks=1, version="0.1.5")
     )
 
     (update,) = store.updates
@@ -102,7 +104,7 @@ async def test_existing_metadata_is_preserved() -> None:
     """Agent.metadata_ is shared with known_agent_options and others."""
     store = _AgentStore({"known_agent_options": {"repo_dir": "/w"}})
     await _service(store).record_client_declaration(
-        AGENT_ID, ClientDeclaration(speaks=1, version="0.1.5")
+        AGENT_ID, CONNECTION_ID, ClientDeclaration(speaks=1, version="0.1.5")
     )
 
     (update,) = store.updates
@@ -116,7 +118,9 @@ async def test_a_client_that_declared_nothing_writes_nothing() -> None:
     connected and answered.
     """
     store = _AgentStore({})
-    await _service(store).record_client_declaration(AGENT_ID, ClientDeclaration())
+    await _service(store).record_client_declaration(
+        AGENT_ID, CONNECTION_ID, ClientDeclaration()
+    )
 
     assert store.updates == []
 
@@ -125,7 +129,7 @@ async def test_a_client_declaring_only_its_version_is_still_recorded() -> None:
     """The artifact version is worth having even with no protocol range."""
     store = _AgentStore({})
     await _service(store).record_client_declaration(
-        AGENT_ID, ClientDeclaration(version="0.1.5")
+        AGENT_ID, CONNECTION_ID, ClientDeclaration(version="0.1.5")
     )
 
     (update,) = store.updates
@@ -135,7 +139,7 @@ async def test_a_client_declaring_only_its_version_is_still_recorded() -> None:
 async def test_a_missing_agent_writes_nothing() -> None:
     store = _AgentStore(None, missing=True)
     await _service(store).record_client_declaration(
-        AGENT_ID, ClientDeclaration(speaks=1, version="0.1.5")
+        AGENT_ID, CONNECTION_ID, ClientDeclaration(speaks=1, version="0.1.5")
     )
 
     assert store.updates == []
@@ -159,17 +163,33 @@ async def test_a_write_failure_is_warned_about_but_not_raised(
 
     with caplog.at_level(logging.WARNING):
         await _service(store).record_client_declaration(
-            AGENT_ID, ClientDeclaration(speaks=1, version="0.1.5")
+            AGENT_ID, CONNECTION_ID, ClientDeclaration(speaks=1, version="0.1.5")
         )
 
     assert any(record.levelno == logging.WARNING for record in caplog.records)
+
+
+async def test_the_record_names_the_connection_it_came_from() -> None:
+    """Found by running it against a real server (CHOO-1865).
+
+    An agent may hold many connections at once, so without the connection id a
+    second connection declaring less looks like the first client having
+    forgotten what it is, rather than a different client answering.
+    """
+    store = _AgentStore({})
+    await _service(store).record_client_declaration(
+        AGENT_ID, "conn-xyz", ClientDeclaration(speaks=1, version="0.1.5")
+    )
+
+    (update,) = store.updates
+    assert update["metadata_"]["client_declaration"]["connection_id"] == "conn-xyz"
 
 
 async def test_the_latest_declaration_replaces_the_previous_one() -> None:
     """Last write wins: an upgraded client is not a second client."""
     store = _AgentStore({"client_declaration": {"version": "0.1.4", "speaks": 1}})
     await _service(store).record_client_declaration(
-        AGENT_ID, ClientDeclaration(speaks=1, version="0.1.5")
+        AGENT_ID, CONNECTION_ID, ClientDeclaration(speaks=1, version="0.1.5")
     )
 
     (update,) = store.updates

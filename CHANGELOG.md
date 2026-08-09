@@ -11,7 +11,7 @@ and a changelog, without exception (CHOO-1865).
 
 A version says **where an artifact is** — which release you are running. It says
 nothing about what that release can talk to. Compatibility is carried separately
-by the contract revisions in [`contracts.yaml`](contracts.yaml), which move
+by the contract revisions in [`artifacts.yaml`](artifacts.yaml), which move
 independently: a release that changes nothing on the wire bumps its version and
 leaves its contracts alone.
 
@@ -43,7 +43,7 @@ version of their own to them without also giving them a release of their own.
 
 #### Added
 - Cross-artifact version compatibility, part 1 — every artifact declares what it
-  is and what it speaks (CHOO-1865). `contracts.yaml` is the one authored
+  is and what it speaks (CHOO-1865). `artifacts.yaml` is the one authored
   registry of contract revisions; per-language modules are generated from it and
   CI fails if they are stale or hand-edited. switch-core reads its own release
   version, discloses it and its ranges on authenticated surfaces only (the
@@ -758,18 +758,25 @@ The remote runtime switchdash deploys to an agent host. Versioned in
 `dash/apps/switchdash-desktop/src/sidecar/sidecar-version.ts` and deployed by
 switchdash rather than published on its own.
 
-### [Unreleased]
+### [1.8.0]
+
+#### Added
+- Declares its `sidecar-control` range in the ready file switchdash already
+  reads (CHOO-1865).
 
 #### Changed
-- Three-part semver: `1.7` becomes `1.7.0`. **The major stays at 1** — every
+- Three-part semver: `1.7` becomes `1.8.0`. **The major stays at 1** — every
   switchdash already in the field judges compatibility on the major and parses
-  two parts, so `1.7` and `1.7.0` read as the same version and neither side
+  two parts, so `1.7` and `1.8.0` order correctly and neither side
   replaces the other. `2.0.0` would have every existing install treat this
   sidecar as incompatible and replace it while a newer install replaces it back
   (CHOO-1937, CHOO-1865).
 - The version no longer carries compatibility. It says which release is running;
   what the sidecar can speak is the `sidecar-control` range it now declares in
   its ready file (CHOO-1865).
+- The version is declared in `artifacts.yaml` and generated into the code.
+  Nothing else declares it — the sidecar is deployed by switchdash rather than
+  published, so it has no packaging file of its own.
 
 ### [1.7]
 

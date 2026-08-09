@@ -1,0 +1,131 @@
+# The artifact registry — one place to see what every Switch artifact is, and
+# what it can talk to.
+#
+# Two questions, kept deliberately separate, because conflating them is the
+# problem this file exists to solve:
+#
+#   `artifacts` — WHERE each thing is. Its release version. Says nothing
+#                 whatsoever about compatibility.
+#   `contracts` — WHETHER two things can talk. Named interfaces, each carrying
+#                 one integer revision.
+#
+# They move independently. A release that changes nothing on the wire bumps its
+# version and leaves its contracts alone. Never derive one from the other.
+#
+# ── Editing this file ────────────────────────────────────────────────────────
+#
+# It is the only place a human declares any of this. Run `just artifacts` after
+# editing. CI fails if the generated modules are stale, if one has been
+# hand-edited, or if a `declared_in` file disagrees with what is written here.
+#
+# ── About `declared_in` ──────────────────────────────────────────────────────
+#
+# Some versions have a mandatory home that a packaging ecosystem owns and reads:
+# `importlib.metadata` reads pyproject, `npm publish` reads package.json, and
+# both release workflows verify the git tag against them. Those files stay
+# authoritative for their tooling; `declared_in` records where, and the registry
+# is CHECKED against them rather than generating into them.
+#
+# An artifact with no `declared_in` has no such home — nothing but this file
+# declares it, so this file is its source and the constant is generated.
+#
+# ── Contract revisions ───────────────────────────────────────────────────────
+#
+#   speaks  — the newest revision the artifact implements
+#   accepts — the oldest revision it still handles
+#
+# Two peers are compatible when their [accepts, speaks] ranges overlap; they
+# then operate at the lower of the two `speaks`.
+#
+# Raise `speaks` when you change an interface. Raise `accepts` only when
+# dropping support for an older revision — that is a breaking change for every
+# peer still on it, and it can never be raised past what is running in the
+# field.
+
+artifacts:
+  switch-core:
+    description: The backend service, and the gateway API it serves.
+    version: 0.12.3
+    declared_in: core/pyproject.toml
+
+  switchdash:
+    description: The desktop app.
+    version: 0.19.2
+    declared_in: dash/apps/switchdash-desktop/package.json
+    # Which switch-core release this app build bundles and pulls for
+    # local-server mode. DELIBERATELY NOT switch-core's version above.
+    #
+    # They coincide today, and must not be wired together: bumping
+    # core/pyproject.toml is the first step of cutting a switch-core release, so
+    # a derived pin would immediately point switchdash at images that do not
+    # exist on the registry yet and break local-server mode for everyone on
+    # main. This moves only when switchdash is ready to bundle that release —
+    # in lockstep with the bundled compose.
+    pins:
+      switch-core: 0.12.3
+
+  agent-runtime:
+    description: The Switch protocol client and MCP runtime, published to a registry.
+    version: 0.1.5
+    declared_in: dash/packages/switch-agent-runtime/package.json
+
+  sidecar:
+    description: >-
+      The remote runtime switchdash deploys to an agent host. Deployed rather
+      than published, so nothing else declares its version — this file is its
+      only source and the constant is generated from it.
+    version: 1.8.0
+
+  switch-connector:
+    description: The Claude Code connector plugin.
+    version: 0.7.8
+    declared_in: connectors/claude-code-plugin/.claude-plugin/plugin.json
+
+  switch-connector-codex:
+    description: The Codex connector plugin.
+    version: 0.2.0
+    declared_in: connectors/codex-plugin/.codex-plugin/plugin.json
+
+contracts:
+  agent-protocol:
+    description: >-
+      The wire protocol between switch-core's agent bridge and an agent
+      runtime: the event stream, its frame shapes, the resume cursor, and the
+      tool-call channel.
+    artifacts:
+      switch-core: { speaks: 1, accepts: 1 }
+      agent-runtime: { speaks: 1, accepts: 1 }
+
+  gateway-api:
+    description: >-
+      The HTTP API switch-core serves to first-party UI clients. Excludes the
+      authentication surface, which is deliberately frozen and unversioned so
+      that a client can always authenticate far enough to be told what is
+      wrong.
+    artifacts:
+      switch-core: { speaks: 1, accepts: 1 }
+      switchdash: { speaks: 1, accepts: 1 }
+
+  stack-compose:
+    description: >-
+      The interface of the published standalone compose artifact — its service
+      names, profiles, and environment variables — which switchdash's
+      local-server mode drives.
+    artifacts:
+      switchdash: { speaks: 1, accepts: 1 }
+      compose: { speaks: 1, accepts: 1 }
+
+  sidecar-control:
+    description: >-
+      How switchdash controls a deployed sidecar on a remote host: the ready
+      file it reads, and the control channel it opens.
+    artifacts:
+      switchdash: { speaks: 1, accepts: 1 }
+      sidecar: { speaks: 1, accepts: 1 }
+
+  db-schema:
+    description: >-
+      The database schema switch-core expects. Internal to switch-core — this
+      contract is never disclosed in an externally facing response.
+    artifacts:
+      switch-core: { speaks: 1, accepts: 1 }

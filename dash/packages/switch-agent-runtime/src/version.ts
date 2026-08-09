@@ -1,17 +1,18 @@
+import { artifactVersion } from './artifacts';
+
 /**
  * This artifact's own release version (CHOO-1865).
  *
  * A semver says *where* an artifact is — which release you are running. It says
  * nothing about whether it can talk to anything; that is what the contract
- * revisions in `./contracts` are for. The two move independently and must never
+ * revisions in `./artifacts` are for. The two move independently and must never
  * be derived from one another.
  *
- * package.json cannot be imported here without inlining the whole manifest into
- * the bundle, so the number is written twice. `version.test.ts` fails if the two
- * disagree, which is the part that makes the duplication safe — a comment
- * reading "keep in sync" is what let COMPATIBLE_SWITCH_VERSION drift.
+ * Derived from `artifacts.yaml` rather than written here, so it cannot drift
+ * from package.json. It used to be a literal kept honest by a test, which is
+ * better than the comment it replaced but still a second copy to get wrong.
  */
-export const RUNTIME_VERSION = '0.1.5';
+export const RUNTIME_VERSION = artifactVersion('agent-runtime');
 
 /** The artifact name this package declares itself as to Switch. */
 export const RUNTIME_ARTIFACT = 'agent-runtime';

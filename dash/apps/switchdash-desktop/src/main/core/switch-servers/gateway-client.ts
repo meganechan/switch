@@ -12,6 +12,7 @@ import type {
   RemoteRoomSummary,
   SwitchAuthConfig,
   SwitchServer,
+  SwitchServerDeclaration,
   SwitchUser,
 } from '@shared/core/switch-servers/switch-servers';
 import { reauthenticateManagedServer, refreshSession } from './auth';
@@ -206,10 +207,42 @@ export async function fetchAuthConfig(server: SwitchServer): Promise<SwitchAuthC
   };
 }
 
-type UserResponseJson = { id: string; name: string; email: string; role: string };
+type ServerDeclarationJson = {
+  version: string | null;
+  contracts: Record<string, { speaks: number; accepts: number }>;
+};
+
+type UserResponseJson = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  server?: ServerDeclarationJson | null;
+};
+
+/**
+ * A server declaration, or null when this server did not make one.
+ *
+ * Validated rather than trusted: a malformed block reads as *unknown* instead
+ * of a half-populated declaration, because a version we invented is worse than
+ * one we admit we do not have (CHOO-1865).
+ */
+function mapServerDeclaration(raw: unknown): SwitchServerDeclaration | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const candidate = raw as Partial<ServerDeclarationJson>;
+  if (typeof candidate.contracts !== 'object' || candidate.contracts === null) return null;
+  const version = typeof candidate.version === 'string' ? candidate.version : null;
+  return { version, contracts: candidate.contracts };
+}
 
 function mapUser(json: UserResponseJson): SwitchUser {
-  return { id: json.id, name: json.name, email: json.email, role: json.role };
+  return {
+    id: json.id,
+    name: json.name,
+    email: json.email,
+    role: json.role,
+    server: mapServerDeclaration(json.server ?? null),
+  };
 }
 
 export async function fetchMe(server: SwitchServer): Promise<SwitchUser> {

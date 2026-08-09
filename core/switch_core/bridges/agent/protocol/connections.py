@@ -29,7 +29,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Literal
 
-from switch_core.contracts import contract_range
+from switch_core.artifacts import contract_range
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,7 @@ HEARTBEAT_TTL_SECONDS = 6.0
 # in ways neither side can see. The runtime lives on the user's machine and
 # Switch moves independently.
 #
-# Both numbers come from contracts.yaml, the one place a human declares them
+# Both numbers come from artifacts.yaml, the one place a human declares them
 # (CHOO-1865). PROTOCOL_VERSION is the newest revision this server implements;
 # PROTOCOL_ACCEPTS is the oldest it still handles. They are equal today, and
 # the range is what compatibility is judged on so that they need not stay so.

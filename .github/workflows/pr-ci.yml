@@ -46,7 +46,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       dash: ${{ steps.filter.outputs.dash }}
       gateway: ${{ steps.filter.outputs.gateway }}
-      contracts: ${{ steps.filter.outputs.contracts }}
+      artifacts: ${{ steps.filter.outputs.artifacts }}
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -74,15 +74,21 @@ jobs:
             gateway:
               - *shared
               - 'gateway/**'
-            # Spans core/ and dash/, so it gets its own filter rather than
-            # riding either tree's.
-            contracts:
+            # Spans every tree, so it gets its own filter rather than riding
+            # any one of them. Includes the files whose versions the registry is
+            # checked against, so a release bump cannot land without the check.
+            artifacts:
               - *shared
-              - 'contracts.yaml'
-              - 'scripts/gen_contracts.py'
-              - 'core/switch_core/contracts.py'
-              - 'dash/packages/shared/src/contracts.ts'
-              - 'dash/packages/switch-agent-runtime/src/contracts.ts'
+              - 'artifacts.yaml'
+              - 'scripts/gen_artifacts.py'
+              - 'core/switch_core/artifacts.py'
+              - 'core/pyproject.toml'
+              - 'dash/packages/shared/src/artifacts.ts'
+              - 'dash/packages/switch-agent-runtime/src/artifacts.ts'
+              - 'dash/apps/switchdash-desktop/package.json'
+              - 'dash/apps/switchdash-desktop/src/shared/app-identity*.ts'
+              - 'dash/packages/switch-agent-runtime/package.json'
+              - 'connectors/**/plugin.json'
 
   backend:
     name: Backend (core)
@@ -172,15 +178,16 @@ jobs:
       - name: Test (vitest)
         run: pnpm -r run test
 
-  contracts:
-    name: Contract registry
-    # Every artifact carries a compiled-in copy of contracts.yaml, so the copies
+  artifacts:
+    name: Artifact registry
+    # Every artifact carries a compiled-in copy of artifacts.yaml, so the copies
     # can drift two ways: editing the source without regenerating, and
-    # hand-editing a generated module. `--check` catches both. It needs no
-    # formatter or Node toolchain, which is why this is its own small job rather
-    # than a step inside the backend or dash trees.
+    # hand-editing a generated module. The same check compares the registry
+    # against the version files packaging ecosystems own. It needs no formatter
+    # or Node toolchain, which is why this is its own small job rather than a
+    # step inside the backend or dash trees.
     needs: changes
-    if: ${{ needs.changes.outputs.contracts == 'true' || github.event_name == 'push' }}
+    if: ${{ needs.changes.outputs.artifacts == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -195,8 +202,8 @@ jobs:
       - name: Sync dependencies
         run: uv sync --project core
 
-      - name: Generated contract modules are current
-        run: uv run --project core python scripts/gen_contracts.py --check
+      - name: Registry, generated modules and declared versions agree
+        run: uv run --project core python scripts/gen_artifacts.py --check
 
   gateway:
     name: Gateway UI

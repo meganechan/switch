@@ -1,11 +1,11 @@
-import { contractRange } from '@switchdash/shared';
+import { artifactVersion, contractRange } from '@switchdash/shared';
 
 /**
  * The sidecar's release version, `MAJOR.MINOR.PATCH`.
  *
  * It says **where** this sidecar is — which release you are running — and
  * nothing about what it can talk to. Compatibility lives in the
- * `sidecar-control` contract (see `contracts.yaml`), which the sidecar declares
+ * `sidecar-control` contract (see `artifacts.yaml`), which the sidecar declares
  * in its ready file (CHOO-1865). The two move independently: a release that
  * changes nothing on the wire bumps this and leaves the contract alone.
  *
@@ -15,6 +15,10 @@ import { contractRange } from '@switchdash/shared';
  * changed build look up-to-date, and dev builds (which nobody bumps between
  * iterations) still redeploy correctly. The full identity a user sees is
  * `MAJOR.MINOR.PATCH+<shorthash>` — semver build metadata.
+ *
+ * Derived from `artifacts.yaml`, which is the only place it is written. Nothing
+ * else declares the sidecar's version: it is deployed by switchdash rather than
+ * published, so it has no packaging file of its own.
  *
  * **The major must stay at 1 through this transition.** switchdash installs
  * already in the field judge compatibility on the major and parse only `x.y`,
@@ -29,7 +33,7 @@ import { contractRange } from '@switchdash/shared';
  * and when an older sidecar 404s it, fail the operation with a message naming
  * the upgrade rather than continuing without whatever the endpoint was for.
  */
-export const SIDECAR_VERSION = '1.7.0';
+export const SIDECAR_VERSION = artifactVersion('sidecar');
 
 /** The artifact name the sidecar declares itself as. */
 export const SIDECAR_ARTIFACT = 'sidecar';

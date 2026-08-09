@@ -456,7 +456,7 @@ class ProtocolService:
                 )
 
     async def record_client_declaration(
-        self, agent_id: str, declaration: ClientDeclaration
+        self, agent_id: str, connection_id: str, declaration: ClientDeclaration
     ) -> None:
         """Persist what a client last said about itself (CHOO-1865).
 
@@ -467,7 +467,11 @@ class ProtocolService:
         Without it the question "what would this break?" has no answer but a
         guess.
 
-        Last write wins, per agent. Nothing acts on it yet.
+        One record per agent, last write wins, stamped with the connection it
+        came from. The connection id is what makes it interpretable: an agent
+        may hold many connections at once, so without it a second connection
+        declaring less looks like the first client having forgotten what it is,
+        rather than a different client answering.
 
         A failure here is logged and swallowed: this is bookkeeping about a
         connection, and losing a version record must never stop an agent
@@ -479,6 +483,7 @@ class ProtocolService:
             return
 
         record = declaration.as_dict()
+        record["connection_id"] = connection_id
         record["recorded_at"] = datetime.now(UTC).isoformat()
         try:
             async with self.session_factory() as session:

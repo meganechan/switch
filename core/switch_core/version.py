@@ -7,7 +7,7 @@ to keep in step by hand, which is the drift this ticket exists to end.
 
 An artifact's semver says *where it is* — which release you are running. It
 says nothing about whether it can talk to anything; that is what the contract
-revisions in `switch_core.contracts` are for. The two move independently and
+revisions in `switch_core.artifacts` are for. The two move independently and
 must never be derived from one another.
 
 When the version cannot be read it is reported as `None`, meaning *unknown*,
@@ -22,7 +22,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as distribution_version
 from typing import Any
 
-from switch_core.contracts import contract_range
+from switch_core.artifacts import contract_range
 
 logger = logging.getLogger(__name__)
 

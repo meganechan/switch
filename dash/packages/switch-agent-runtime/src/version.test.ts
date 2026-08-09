@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CONTRACTS } from './contracts';
+import { CONTRACTS } from './artifacts';
 import { RUNTIME_ARTIFACT, RUNTIME_VERSION } from './version';
 
 const manifest = JSON.parse(
@@ -10,10 +10,10 @@ const manifest = JSON.parse(
 
 describe('the runtime declares its own version', () => {
   it('matches package.json', () => {
-    // The number is written twice because package.json cannot be imported
-    // without inlining the manifest into the bundle. This is what makes that
-    // safe: a release bump that misses one side fails here rather than
-    // shipping a runtime that lies about which release it is.
+    // RUNTIME_VERSION is now derived from artifacts.yaml rather than written
+    // here, and the registry is checked against package.json by
+    // `just artifacts`. This asserts the same thing from the other side, in the
+    // ecosystem that actually publishes the package.
     expect(RUNTIME_VERSION).toBe(manifest.version);
   });
 
