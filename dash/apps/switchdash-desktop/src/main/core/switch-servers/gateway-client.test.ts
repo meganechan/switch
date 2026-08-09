@@ -1,8 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type HostReachability,
+  HostUnreachableError,
+  unknownHostReachability,
+} from '@shared/core/remote-hosts/reachability';
 
 const getSessionCookie = vi.hoisted(() => vi.fn());
 const refreshSession = vi.hoisted(() => vi.fn());
 const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
+
+const managedServerHostBlocked = vi.hoisted(() => vi.fn<() => HostReachability | null>(() => null));
+
+vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
+  managedServerHostBlocked,
+}));
 
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
@@ -194,6 +205,30 @@ describe('gatewayFetch managed-server silent re-auth', () => {
     await expect(fetchMe(SERVER)).rejects.toMatchObject({ kind: 'unauthorized' });
     expect(reauthenticateManagedServer).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('gatewayFetch host reachability gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    managedServerHostBlocked.mockReturnValue(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('fails with the host state, without touching the network or the session', async () => {
+    managedServerHostBlocked.mockReturnValue({
+      ...unknownHostReachability('vm'),
+      status: 'unreachable',
+      lastError: 'connect ETIMEDOUT',
+    });
+
+    await expect(fetchMe(MANAGED)).rejects.toBeInstanceOf(HostUnreachableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getSessionCookie).not.toHaveBeenCalled();
   });
 });
 

@@ -4,6 +4,12 @@ const getSessionCookie = vi.hoisted(() => vi.fn());
 const refreshSession = vi.hoisted(() => vi.fn());
 const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
 
+const managedServerHostBlocked = vi.hoisted(() => vi.fn(() => null));
+
+vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
+  managedServerHostBlocked,
+}));
+
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
 

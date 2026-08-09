@@ -23,9 +23,6 @@ vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
   isManagedServerRunning,
   managedServerHostBlocked,
 }));
-vi.mock('@main/core/remote-hosts/host-reachability-service', () => ({
-  HostUnreachableError: class HostUnreachableError extends Error {},
-}));
 vi.mock('./auth', () => ({ oidcLogin: vi.fn(), passwordLogin: vi.fn() }));
 vi.mock('./gateway-web', () => ({ openAuthenticatedGatewayPage: vi.fn() }));
 vi.mock('./gateway-client', () => ({

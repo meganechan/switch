@@ -13,9 +13,9 @@ import {
   isManagedServerRunning,
   managedServerHostBlocked,
 } from '@main/core/managed-switch-server/managed-server-status';
-import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
   AddServerParams,
@@ -92,10 +92,10 @@ async function requireServer(serverId: string): Promise<SwitchServer> {
 
 /**
  * Resolve a server and refuse to touch its gateway while the host it is managed
- * on is unreachable. Everything the gateway serves — auth config, sign-in,
- * dashboard pages — rides the SSH forward, so a fetch here can only produce a
- * misleading `Could not reach http://localhost:<port>` (CHOO-1780). Fail with
- * the modeled host state instead, which the UI already knows how to render.
+ * on is unreachable (CHOO-1780). `gatewayFetch` enforces the same rule at the
+ * transport, so this is for the paths that reach the gateway some other way —
+ * sign-in and the dashboard window — and for failing before the side effects a
+ * write would otherwise start.
  */
 async function requireReachableServer(serverId: string): Promise<SwitchServer> {
   const server = await requireServer(serverId);
