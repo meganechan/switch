@@ -107,6 +107,23 @@ def test_the_switchdash_pin_is_not_wired_to_switch_cores_version() -> None:
     assert "switch-core" in switchdash.pins
 
 
+def test_every_contract_peer_is_an_artifact_the_registry_knows() -> None:
+    """The two halves must agree about what an artifact is.
+
+    `compose` was a peer on stack-compose while the artifacts section had never
+    heard of it, so the same name resolved in one half and threw in the other.
+    """
+    named_in_contracts = {peer for peers in CONTRACTS.values() for peer in peers}
+    assert named_in_contracts <= set(ARTIFACT_VERSIONS)
+
+
+def test_everything_published_under_the_switch_core_tag_shares_its_version() -> None:
+    """One tag pins the whole stack, so these are stamped rather than declared."""
+    core = ARTIFACT_VERSIONS["switch-core"]
+    for stamped in ("gateway", "setup", "helm-chart", "compose"):
+        assert ARTIFACT_VERSIONS[stamped] == core
+
+
 def test_the_sidecar_has_no_declared_in_so_the_registry_owns_it() -> None:
     """Nothing else declares the sidecar's version — it is deployed, not published."""
     registry = gen.load_registry()
@@ -168,6 +185,94 @@ def test_registry_rejects_a_two_part_version(
         artifacts={"demo": {"description": "d", "version": "1.7"}},
     )
     with pytest.raises(ValueError, match="three-part semver"):
+        gen.load_registry()
+
+
+def test_registry_rejects_both_version_and_version_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An artifact either has its own version or inherits one. Never both."""
+    _write_registry(
+        tmp_path,
+        monkeypatch,
+        artifacts={
+            "base": {"description": "d", "version": "1.0.0"},
+            "demo": {"description": "d", "version": "2.0.0", "version_from": "base"},
+        },
+        contracts={
+            "demo-contract": {
+                "description": "d",
+                "artifacts": {"demo": {"speaks": 1, "accepts": 1}},
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="exactly one of"):
+        gen.load_registry()
+
+
+def test_registry_rejects_neither_version_nor_version_from(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(tmp_path, monkeypatch, artifacts={"demo": {"description": "d"}})
+    with pytest.raises(ValueError, match="exactly one of"):
+        gen.load_registry()
+
+
+def test_an_inherited_version_resolves_to_its_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(
+        tmp_path,
+        monkeypatch,
+        artifacts={
+            "base": {"description": "d", "version": "3.4.5"},
+            "derived": {"description": "d", "version_from": "base"},
+        },
+        contracts={
+            "demo-contract": {
+                "description": "d",
+                "artifacts": {"derived": {"speaks": 1, "accepts": 1}},
+            }
+        },
+    )
+    registry = gen.load_registry()
+    derived = next(a for a in registry.artifacts if a.name == "derived")
+    assert derived.version == "3.4.5"
+
+
+def test_registry_rejects_inheriting_from_something_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write_registry(
+        tmp_path,
+        monkeypatch,
+        artifacts={"demo": {"description": "d", "version_from": "nowhere"}},
+        contracts={
+            "demo-contract": {
+                "description": "d",
+                "artifacts": {"demo": {"speaks": 1, "accepts": 1}},
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="not an artifact in this registry"):
+        gen.load_registry()
+
+
+def test_registry_rejects_a_contract_peer_it_does_not_know(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The check that would have caught `compose` being in one half only."""
+    _write_registry(
+        tmp_path,
+        monkeypatch,
+        contracts={
+            "demo-contract": {
+                "description": "d",
+                "artifacts": {"a-stranger": {"speaks": 1, "accepts": 1}},
+            }
+        },
+    )
+    with pytest.raises(ValueError, match="not in the artifacts section"):
         gen.load_registry()
 
 

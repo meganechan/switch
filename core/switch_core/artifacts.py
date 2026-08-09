@@ -24,6 +24,10 @@ ARTIFACT_VERSIONS: Final[dict[str, str]] = {
     "switchdash": "0.19.2",
     "agent-runtime": "0.1.5",
     "sidecar": "1.8.0",
+    "gateway": "0.12.3",
+    "setup": "0.12.3",
+    "helm-chart": "0.12.3",
+    "compose": "0.12.3",
     "switch-connector": "0.7.8",
     "switch-connector-codex": "0.2.0",
 }

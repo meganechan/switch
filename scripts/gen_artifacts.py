@@ -37,7 +37,7 @@ import json
 import re
 import sys
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -65,8 +65,14 @@ class Target:
 class Artifact:
     name: str
     description: str
+    #: Resolved: an artifact with `version_from` carries its source's version.
     version: str
+    #: Where a packaging ecosystem states this version, when one owns it.
     declared_in: str | None
+    #: The artifact this one inherits its version from, if it has none of its own.
+    version_from: str | None
+    #: Where it lands on the registry, for anything we publish.
+    published_as: str | None
     pins: dict[str, str]
 
 
@@ -101,6 +107,7 @@ def load_registry() -> Registry:
             raise ValueError(f"{SOURCE} must have a top-level {section!r} mapping")
 
     artifacts = [_parse_artifact(name, body) for name, body in raw["artifacts"].items()]
+    artifacts = _resolve_inherited_versions(artifacts)
     known = {artifact.name for artifact in artifacts}
     for artifact in artifacts:
         for pinned in artifact.pins:
@@ -111,7 +118,50 @@ def load_registry() -> Registry:
                 )
 
     contracts = [_parse_contract(name, body) for name, body in raw["contracts"].items()]
+
+    # Every artifact a contract names must exist in the artifacts section.
+    # Without this the two halves can disagree about what an artifact even is:
+    # `compose` was a peer on stack-compose while the artifacts section had
+    # never heard of it, so one name resolved in one half and threw in the
+    # other (CHOO-1865).
+    for contract in contracts:
+        for participant in contract.artifacts:
+            if participant not in known:
+                raise ValueError(
+                    f"contract {contract.name!r} names artifact {participant!r}, "
+                    "which is not in the artifacts section — every peer must be "
+                    "an artifact this registry knows"
+                )
+
     return Registry(artifacts=artifacts, contracts=contracts)
+
+
+def _resolve_inherited_versions(artifacts: list[Artifact]) -> list[Artifact]:
+    """Give every `version_from` artifact the version it inherits.
+
+    One hop only. A chain would mean an artifact inheriting from something that
+    itself has no version of its own, which is a modelling mistake rather than
+    a case worth supporting.
+    """
+    by_name = {artifact.name: artifact for artifact in artifacts}
+    resolved: list[Artifact] = []
+    for artifact in artifacts:
+        if artifact.version_from is None:
+            resolved.append(artifact)
+            continue
+        source = by_name.get(artifact.version_from)
+        if source is None:
+            raise ValueError(
+                f"artifact {artifact.name!r} takes its version from "
+                f"{artifact.version_from!r}, which is not an artifact in this registry"
+            )
+        if source.version_from is not None:
+            raise ValueError(
+                f"artifact {artifact.name!r} takes its version from "
+                f"{artifact.version_from!r}, which has no version of its own"
+            )
+        resolved.append(replace(artifact, version=source.version))
+    return resolved
 
 
 def _parse_artifact(name: str, body: object) -> Artifact:
@@ -122,7 +172,23 @@ def _parse_artifact(name: str, body: object) -> Artifact:
         raise ValueError(f"artifact {name!r}: a description is required")
 
     version = body.get("version")
-    if not isinstance(version, str) or not SEMVER.fullmatch(version):
+    version_from = body.get("version_from")
+    if (version is None) == (version_from is None):
+        raise ValueError(
+            f"artifact {name!r}: set exactly one of 'version' (it has its own) "
+            "or 'version_from' (it is stamped from another artifact's release)"
+        )
+    if version_from is not None:
+        if not isinstance(version_from, str):
+            raise ValueError(f"artifact {name!r}: version_from must be a name")
+        if body.get("declared_in") is not None:
+            raise ValueError(
+                f"artifact {name!r}: declared_in makes no sense with version_from — "
+                "nothing declares a version it does not have"
+            )
+        # Filled in once the source is known.
+        version = "0.0.0"
+    elif not isinstance(version, str) or not SEMVER.fullmatch(version):
         raise ValueError(
             f"artifact {name!r}: version must be three-part semver, got {version!r}"
         )
@@ -130,6 +196,10 @@ def _parse_artifact(name: str, body: object) -> Artifact:
     declared_in = body.get("declared_in")
     if declared_in is not None and not isinstance(declared_in, str):
         raise ValueError(f"artifact {name!r}: declared_in must be a path")
+
+    published_as = body.get("published_as")
+    if published_as is not None and not isinstance(published_as, str):
+        raise ValueError(f"artifact {name!r}: published_as must be a string")
 
     pins_raw = body.get("pins") or {}
     if not isinstance(pins_raw, dict):
@@ -148,6 +218,8 @@ def _parse_artifact(name: str, body: object) -> Artifact:
         description=_squash(description),
         version=version,
         declared_in=declared_in,
+        version_from=version_from,
+        published_as=published_as,
         pins=pins,
     )
 
