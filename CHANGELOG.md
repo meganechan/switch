@@ -741,12 +741,7 @@ per-release notes on their GitHub Releases (`switchdash-v*` tags).
 The Switch protocol client and MCP runtime
 (`dash/packages/switch-agent-runtime/`). Version lives in its `package.json`.
 
-### [0.1.6]
-
-Carries the CHOO-1865 declaration work, which landed after 0.1.5 without a
-version of its own. Not published until `switch-agent-runtime-v0.1.6` is
-tagged; the two pins that name what sessions actually run stay at 0.1.5 until
-then.
+### [Unreleased]
 
 #### Added
 - Declares its `agent-protocol` range, artifact name and release version on the
