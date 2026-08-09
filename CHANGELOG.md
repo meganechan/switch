@@ -274,6 +274,12 @@ version of their own to them without also giving them a release of their own.
   records as unknown, never as agreement (CHOO-1865).
 
 #### Fixed
+- A gateway call to a managed server whose stack is **stopped** now fails with
+  the lifecycle state, naming the server, instead of timing out and reporting
+  `Could not reach http://localhost:<port>` — a local address that was never
+  the problem. It is logged as the modeled state it is rather than as an RPC
+  error, and the proactive session renewal no longer warns about the same
+  absence a second time (CHOO-1780).
 - A managed server whose deployed switch-core version **cannot be read** is now
   surfaced as such, in the banner and the sidebar. It previously reported "no
   drift" — the identical result a healthy, in-step stack gives — so a failed
@@ -735,7 +741,12 @@ per-release notes on their GitHub Releases (`switchdash-v*` tags).
 The Switch protocol client and MCP runtime
 (`dash/packages/switch-agent-runtime/`). Version lives in its `package.json`.
 
-### [Unreleased]
+### [0.1.6]
+
+Carries the CHOO-1865 declaration work, which landed after 0.1.5 without a
+version of its own. Not published until `switch-agent-runtime-v0.1.6` is
+tagged; the two pins that name what sessions actually run stay at 0.1.5 until
+then.
 
 #### Added
 - Declares its `agent-protocol` range, artifact name and release version on the
@@ -744,6 +755,13 @@ The Switch protocol client and MCP runtime
 - Logs the server's declaration from the `connection_state` frame, so which
   versions were actually talking to each other is answerable from a bug report
   rather than a guess (CHOO-1865).
+
+#### Changed
+- Reports a failing event stream on a curve — first failure, then powers of
+  two, plus a line when it recovers — instead of once per reconnect. The
+  reconnect itself is unchanged; only the reporting is rationed, so a stack
+  that is simply stopped costs a handful of log lines rather than one per
+  session per 30s, forever (CHOO-1780).
 
 ### [0.1.5]
 
