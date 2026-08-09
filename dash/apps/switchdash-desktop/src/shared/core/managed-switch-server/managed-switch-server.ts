@@ -25,17 +25,36 @@ export type DockerAvailability =
  *   not be restarted against the older pin.
  * - `unknown` — one of the two is not a comparable semver. Neither direction can
  *   be proven, so it is surfaced rather than assumed safe.
+ * - `unreadable` — the deployed version could not be read at all. Distinct from
+ *   "matches" on purpose (CHOO-1865): a probe that failed and a stack that is
+ *   in step used to be the same empty result, so a host we could not read
+ *   rendered as healthy. Unknown must never look like fine.
  */
-export type SwitchVersionDriftDirection = 'upgrade' | 'downgrade' | 'unknown';
+export type SwitchVersionDriftDirection = 'upgrade' | 'downgrade' | 'unknown' | 'unreadable';
 
-/** A mismatch between the deployed switch-core version and this build's pin. */
-export type SwitchVersionDrift = {
-  /** The version the stack is actually deployed at. */
-  deployed: string;
-  /** The version this build of switchdash pins. */
-  expected: string;
-  direction: SwitchVersionDriftDirection;
-};
+/**
+ * A mismatch between the deployed switch-core version and this build's pin.
+ *
+ * A union rather than one shape with nullable fields, so the invariant is the
+ * compiler's to keep: there is a deployed version in every case except the one
+ * where reading it is what failed.
+ */
+export type SwitchVersionDrift =
+  | {
+      /** The version the stack is actually deployed at. */
+      deployed: string;
+      /** The version this build of switchdash pins. */
+      expected: string;
+      direction: 'upgrade' | 'downgrade' | 'unknown';
+    }
+  | {
+      /** Null because the deployed version is exactly what could not be read. */
+      deployed: null;
+      expected: string;
+      direction: 'unreadable';
+      /** What failed, so the user is told more than "something did". */
+      reason: string;
+    };
 
 /**
  * Why a downgrade is refused, in one message — shared by the main process (as

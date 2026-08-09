@@ -32,6 +32,7 @@
     "build:main": "electron-vite build --filter main",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "sync:compose": "node scripts/sync-standalone-compose.mjs",
+    "sync:compose:check": "node scripts/sync-standalone-compose.mjs --check",
     "build:renderer": "electron-vite build --filter renderer",
     "package": "pnpm run build && electron-builder --config electron-builder.config.ts",
     "package:mac": "pnpm run build && electron-builder --mac --config electron-builder.config.ts",

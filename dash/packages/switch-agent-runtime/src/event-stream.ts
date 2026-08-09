@@ -1,5 +1,10 @@
+import { contractRange } from './artifacts';
 import { readSse, type SseFrame } from './sse';
 import type { AgentBridgeEvent, SwitchCredentials } from './types';
+import { RUNTIME_ARTIFACT, RUNTIME_VERSION } from './version';
+
+/** This artifact's own range for the contract it speaks to Switch over. */
+const AGENT_PROTOCOL = contractRange('agent-protocol', RUNTIME_ARTIFACT);
 
 /**
  * The agent bridge's push transport (CHOO-1857), client side.
@@ -183,6 +188,14 @@ export class SwitchEventStream {
           scope,
           filter,
           start_from: this.cursor > 0 ? String(this.cursor) : 'head',
+          // What we are and what we speak, declared on the connect we already
+          // make (CHOO-1865). A client that says nothing records as unknown
+          // server-side, and a declaration cannot be backfilled after the fact
+          // — every release that ships silent is a permanent blind spot.
+          protocol: String(AGENT_PROTOCOL.speaks),
+          protocol_accepts: String(AGENT_PROTOCOL.accepts),
+          client: RUNTIME_ARTIFACT,
+          client_version: RUNTIME_VERSION,
         });
         if (this.deps.spawnCapable) params.set('spawn_capable', 'true');
         if (this.rooms.length) params.set('rooms', this.rooms.join(','));
@@ -235,6 +248,10 @@ export class SwitchEventStream {
         log.debug('SwitchEventStream: connection established', {
           event: 'switch_stream_connected',
           rooms: frame.data.rooms,
+          // What the server says it is (CHOO-1865). Recorded, not acted on —
+          // logging it is what makes "which versions are actually talking to
+          // each other" answerable from a bug report rather than a guess.
+          server: frame.data.server ?? null,
         });
         this.reportRooms(frame.data.rooms);
         return;

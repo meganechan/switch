@@ -8,10 +8,55 @@ standalone Docker Compose file. The switchdash desktop app releases separately
 ## Versioning
 
 - Switch follows [Semantic Versioning](https://semver.org): `MAJOR.MINOR.PATCH`.
+  Every artifact carries three parts and a changelog, without exception.
 - The canonical `switch-core` version is `version` in `core/pyproject.toml`.
 - The Helm chart, the three images, and the standalone compose artifact are
   published under the **same** version as the git tag, so a single tag pins the
   whole stack.
+
+**A version says where an artifact is, not what it can talk to.** Compatibility
+is carried separately, by the contract revisions in
+[`artifacts.yaml`](artifacts.yaml). The two move independently: a release that
+changes nothing on the wire bumps its version and leaves its contracts alone.
+Never derive one from the other.
+
+### What is, and is not, separately versioned
+
+The **operator dashboard** (`gateway/`), the **setup image**, the **Helm chart**,
+and the **standalone compose artifact** have no version of their own. They ship
+inside the switch-core release and are stamped with its version at package time,
+which is what lets a single tag pin the whole stack. They appear in
+`artifacts.yaml` with `version_from: switch-core` — listed, because a registry
+claiming to be the single source of truth cannot be silent about things we
+publish, and `version_from` states "no version of its own" as data rather than
+leaving it to be inferred from an absence.
+
+Do not give any of them a version of their own without also giving it a release
+of its own — a version nobody publishes independently is a number that drifts
+from reality, which is exactly what `Chart.yaml` did while it claimed `0.2.1`.
+
+The separately-versioned artifacts are switch-core, switchdash, the
+agent-runtime package, the sidecar, and the two connector plugins.
+
+### A known gap: the Helm chart has no contract
+
+`values.yaml` is a real consumer-facing interface — operators write a values
+file against its keys and pin the chart version — so a breaking change there is
+as disruptive as renaming a compose service. It carries no contract anyway,
+because a contract needs two sides that declare and nothing first-party consumes
+the chart; the other side is a human-maintained values file.
+
+A one-sided contract is a revision nobody compares, so this is left as a
+documented gap rather than covered by a number that would only look like
+coverage. Until it is closed, **treat a values-schema change as a breaking
+change and say so in the changelog** — nothing will catch it for you.
+
+### Bumping a contract
+
+When you change an interface named in `artifacts.yaml`, raise that artifact's
+`speaks` for the contract and run `just artifacts`. Raise `accepts` only when
+dropping support for an older revision — that is a breaking change for every
+peer still on it, and it can never be raised past what is running in the field.
 
 ## Cutting a release
 

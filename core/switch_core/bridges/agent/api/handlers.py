@@ -78,10 +78,11 @@ from switch_core.bridges.agent.dependencies import (
     get_session,
 )
 from switch_core.bridges.agent.protocol.connections import (
-    PROTOCOL_VERSION,
+    ClientDeclaration,
     ConnectionError_,
     DeliveryFilter,
     NoStreamAttachedError,
+    ProtocolVersionError,
     RoomOccupiedError,
     Scope,
     UnknownConnectionError,
@@ -94,6 +95,7 @@ from switch_core.db.stores.api_key_store import ApiKeyStore
 from switch_core.db.stores.feature_flag_store import FeatureFlagStore
 from switch_core.feature_flags import is_known_flag
 from switch_core.gateway.known_agents import KNOWN_AGENTS
+from switch_core.version import switch_core_version
 
 logger = logging.getLogger(__name__)
 
@@ -632,7 +634,10 @@ async def poll_events(
     event_filter: Annotated[str, Query(alias="filter")] = "all",
     start_from: Annotated[str, Query()] = "head",
     spawn_capable: Annotated[bool, Query()] = False,
-    protocol_version: Annotated[int, Query(alias="protocol")] = PROTOCOL_VERSION,
+    protocol_version: Annotated[int | None, Query(alias="protocol")] = None,
+    protocol_accepts: Annotated[int | None, Query()] = None,
+    client: Annotated[str | None, Query()] = None,
+    client_version: Annotated[str | None, Query()] = None,
     rooms: Annotated[str | None, Query()] = None,
     last_event_id: Annotated[str | None, Header(alias="last-event-id")] = None,
 ) -> EventResponse | Response:
@@ -642,6 +647,12 @@ async def poll_events(
     the client's cursor, then live delivery. Anything else falls back to the
     long poll, which is served from the same buffer so the two cannot diverge
     while both exist.
+
+    The four declaration parameters are all optional and all default to None,
+    meaning *unknown* (CHOO-1865). `protocol` previously defaulted to the
+    server's own value, so a client that said nothing was read as having
+    agreed — and since no shipped client sent it, the check had never once
+    fired. Absent now records as unknown, and still connects.
     """
     if accept and "text/event-stream" in accept:
         return await _open_event_stream(
@@ -652,7 +663,12 @@ async def poll_events(
             event_filter=event_filter,
             start_from=start_from,
             spawn_capable=spawn_capable,
-            protocol_version=protocol_version,
+            declaration=ClientDeclaration(
+                speaks=protocol_version,
+                accepts=protocol_accepts,
+                artifact=client,
+                version=client_version,
+            ),
             rooms=rooms,
             last_event_id=last_event_id,
         )
@@ -695,7 +711,7 @@ async def _open_event_stream(
     event_filter: str,
     start_from: str,
     spawn_capable: bool,
-    protocol_version: int,
+    declaration: ClientDeclaration,
     rooms: str | None,
     last_event_id: str | None,
 ) -> StreamingResponse:
@@ -726,10 +742,33 @@ async def _open_event_stream(
             delivery_filter=cast(DeliveryFilter, event_filter),
             spawn_capable=spawn_capable,
             cursor=cursor,
-            protocol_version=protocol_version,
+            declaration=declaration,
         )
+    except ProtocolVersionError as exc:
+        # The refused client never receives a connection_state frame, so this
+        # body is the only chance to tell it what the server speaks. Structured
+        # rather than a bare string so the runtime can act on it instead of
+        # showing the user a sentence to parse (CHOO-1865).
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(exc),
+                "contract": "agent-protocol",
+                "server": {
+                    "version": switch_core_version(),
+                    "speaks": exc.server_speaks,
+                    "accepts": exc.server_accepts,
+                },
+                "client": {"speaks": exc.client_speaks, "accepts": exc.client_accepts},
+                "remedy": exc.remedy,
+            },
+        ) from exc
     except ConnectionError_ as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # After the connection is open, so a bookkeeping failure can never be the
+    # reason an agent could not connect.
+    await protocol.record_client_declaration(agent.id, connection_id, declaration)
 
     # Rooms are claimed before the stream starts, not after it opens. A client
     # reconnecting already knows which room it was in; making it re-subscribe

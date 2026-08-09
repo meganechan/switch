@@ -20,6 +20,7 @@ from switch_core.bridges.agent.api.handlers import connection_beat
 from switch_core.bridges.agent.api.schemas import ConnectionBeatRequest
 from switch_core.bridges.agent.protocol.connections import (
     PROTOCOL_VERSION,
+    ClientDeclaration,
     ConnectionRegistry,
 )
 from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
@@ -59,7 +60,7 @@ def _connect(protocol: _Protocol, cursor: int = 0) -> Any:
         delivery_filter="all",
         spawn_capable=False,
         cursor=cursor,
-        protocol_version=PROTOCOL_VERSION,
+        declaration=ClientDeclaration(speaks=PROTOCOL_VERSION),
     )
     conn.stream_attached = True
     return conn
