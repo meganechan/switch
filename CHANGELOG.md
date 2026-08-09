@@ -274,6 +274,11 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Changed
+- Bump the Codex session runtime pin (`SWITCH_AGENT_RUNTIME_VERSION`) to `0.1.6`
+  so switchdash-launched Codex sessions run the published runtime. Ships in the
+  next switchdash release.
+
 ### [0.19.3] - 2026-08-09
 
 #### Added
@@ -825,8 +830,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
-_No changes yet. The plugin ships the room-workflow skill; CHOO-1865 changed
-nothing an agent-facing client needs to know, so it is deliberately unbumped._
+### [0.7.9] - 2026-08-09
+
+#### Changed
+- Bump the pinned `@sandbox-quantum/switch-agent-runtime` to `0.1.6`, so sessions
+  pick up its rationed stream-failure reporting and version declaration
+  (CHOO-1780, CHOO-1865). The plugin version bumps with the pin so installs
+  re-download it.
 
 ### [0.7.8]
 
@@ -841,7 +851,11 @@ manifest history.
 
 ### [Unreleased]
 
-_No changes yet, and deliberately unbumped — see the note above._
+### [0.2.1] - 2026-08-09
+
+#### Changed
+- Bump the pinned `@sandbox-quantum/switch-agent-runtime` to `0.1.6` (CHOO-1780,
+  CHOO-1865). The plugin version bumps with the pin so installs re-download it.
 
 ### [0.2.0]
 
