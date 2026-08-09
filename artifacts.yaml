@@ -60,13 +60,13 @@
 artifacts:
   switch-core:
     description: The backend service, and the gateway API it serves.
-    version: 0.12.3
+    version: 0.12.4
     declared_in: core/pyproject.toml
     published_as: switch-core
 
   switchdash:
     description: The desktop app.
-    version: 0.19.2
+    version: 0.19.3
     declared_in: dash/apps/switchdash-desktop/package.json
     # Which switch-core release this app build bundles and pulls for
     # local-server mode. DELIBERATELY NOT switch-core's version above.
@@ -82,7 +82,7 @@ artifacts:
 
   agent-runtime:
     description: The Switch protocol client and MCP runtime, published to a registry.
-    version: 0.1.5
+    version: 0.1.6
     declared_in: dash/packages/switch-agent-runtime/package.json
 
   sidecar:

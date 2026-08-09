@@ -41,6 +41,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.12.4] - 2026-08-09
+
 #### Added
 - Cross-artifact version compatibility, part 1 — every artifact declares what it
   is and what it speaks (CHOO-1865). `artifacts.yaml` is the one authored
@@ -72,6 +74,10 @@ version of their own to them without also giving them a release of their own.
   real one is stamped at package time; the file now says `0.0.0-dev` (CHOO-1865).
 - Refreshed the stale switch-core version in `uv.lock`, which the release
   procedure never re-locked (CHOO-1865).
+
+#### Security
+- Bump core Python dependencies (cryptography, aiohttp, starlette, mcp,
+  pydantic-settings, joserfc, python-multipart) to current releases.
 
 ### [0.12.3] - 2026-08-07
 
@@ -268,6 +274,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.19.3] - 2026-08-09
+
 #### Added
 - Declares its `sidecar-control` range in the sidecar's ready file, and reads
   back whatever a running sidecar declares. A sidecar that declares nothing
@@ -291,6 +299,16 @@ version of their own to them without also giving them a release of their own.
   Nothing checked before — the two could drift with only a comment asking
   nicely, which is how the sync script once silently stopped running
   (CHOO-1865).
+- The host-unreachable panel now also shows on a location that mounted while its
+  host was up, not only one that never mounted. Such a location stayed `ready`
+  and kept every control live over a dead SSH transport — the sidebar showed the
+  trouble icon, the main pane did not; it restores itself when the host returns
+  (CHOO-1682).
+
+#### Security
+- Bump bundled dependencies for two advisories — DOMPurify `SAFE_FOR_TEMPLATES`
+  bypass in `RETURN_DOM` mode (GHSA-crv5-9vww-q3g8), and brace-expansion
+  denial-of-service via exponential expansion (GHSA-3jxr-9vmj-r5cp).
 
 ### [0.19.2] - 2026-08-07
 
@@ -742,6 +760,8 @@ The Switch protocol client and MCP runtime
 (`dash/packages/switch-agent-runtime/`). Version lives in its `package.json`.
 
 ### [Unreleased]
+
+### [0.1.6] - 2026-08-09
 
 #### Added
 - Declares its `agent-protocol` range, artifact name and release version on the
