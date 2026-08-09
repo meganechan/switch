@@ -28,8 +28,8 @@ export const ARTIFACT_VERSIONS = {
   setup: '0.12.4',
   'helm-chart': '0.12.4',
   compose: '0.12.4',
-  'switch-connector': '0.7.8',
-  'switch-connector-codex': '0.2.0',
+  'switch-connector': '0.7.9',
+  'switch-connector-codex': '0.2.1',
 } as const satisfies Record<string, string>;
 
 export type ArtifactName = keyof typeof ARTIFACT_VERSIONS;
