@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  type LocalServerPhase,
+  ManagedServerStoppedError,
+} from '@shared/core/managed-switch-server/managed-switch-server';
+import {
   type HostReachability,
   HostUnreachableError,
   unknownHostReachability,
@@ -10,9 +14,13 @@ const refreshSession = vi.hoisted(() => vi.fn());
 const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
 
 const managedServerHostBlocked = vi.hoisted(() => vi.fn<() => HostReachability | null>(() => null));
+const managedServerStoppedPhase = vi.hoisted(() =>
+  vi.fn<() => LocalServerPhase | null>(() => null)
+);
 
 vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
   managedServerHostBlocked,
+  managedServerStoppedPhase,
 }));
 
 vi.mock('./servers-store', () => ({ getSessionCookie }));
@@ -229,6 +237,40 @@ describe('gatewayFetch host reachability gate', () => {
     await expect(fetchMe(MANAGED)).rejects.toBeInstanceOf(HostUnreachableError);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(getSessionCookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('gatewayFetch managed-stack gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    managedServerStoppedPhase.mockReturnValue(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('fails with the lifecycle state, without touching the network or the session', async () => {
+    managedServerStoppedPhase.mockReturnValue('stopped');
+
+    await expect(fetchMe(MANAGED)).rejects.toBeInstanceOf(ManagedServerStoppedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The renewal that would otherwise warn about the same absence never runs.
+    expect(getSessionCookie).not.toHaveBeenCalled();
+    expect(refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('names the server, so the failure reads as the state the user is looking at', async () => {
+    managedServerStoppedPhase.mockReturnValue('stopped');
+    await expect(fetchMe(MANAGED)).rejects.toThrow(/Local's Switch stack is not running/);
+  });
+
+  it('lets calls through while the stack is up', async () => {
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+    fetchMock.mockResolvedValue(okMeResponse());
+    await fetchMe(MANAGED);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });
 

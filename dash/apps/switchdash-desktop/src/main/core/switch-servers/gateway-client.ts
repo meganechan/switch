@@ -1,5 +1,9 @@
 import type { KnownAgentType } from '@main/core/agents/known-agent-type';
-import { managedServerHostBlocked } from '@main/core/managed-switch-server/managed-server-status';
+import {
+  managedServerHostBlocked,
+  managedServerStoppedPhase,
+} from '@main/core/managed-switch-server/managed-server-status';
+import { ManagedServerStoppedError } from '@shared/core/managed-switch-server/managed-switch-server';
 import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
@@ -147,6 +151,14 @@ async function gatewayFetch(
   // state instead, at the one point every gateway call passes through.
   const blocked = managedServerHostBlocked(server);
   if (blocked) throw new HostUnreachableError(blocked);
+
+  // Same argument one level down: a managed stack that is stopped has no
+  // gateway listening, so every call to it can only time out and report a port
+  // that was never the problem — and the session renewal on the way there
+  // warns about the same absence a second time. Report the lifecycle state the
+  // user is already looking at instead.
+  const stopped = managedServerStoppedPhase(server);
+  if (stopped) throw new ManagedServerStoppedError(server, stopped);
 
   const sendOnce = async (cookie: string | null): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' };

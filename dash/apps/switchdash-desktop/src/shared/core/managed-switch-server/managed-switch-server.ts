@@ -71,6 +71,36 @@ export type LocalServerStatus = {
   error: string | null;
 };
 
+/**
+ * Raised when a call is made to a switchdash-managed server whose stack is not
+ * running. The gateway only exists while the stack is up, so reaching for it
+ * from a stopped one can only produce a transport error naming a local port
+ * that was never the problem — this reports the lifecycle state instead.
+ *
+ * It lives with the model, next to the phase it carries, so anything holding an
+ * error — including the RPC logging chokepoint — can recognise it without
+ * importing the supervisors or Docker.
+ */
+export class ManagedServerStoppedError extends Error {
+  readonly serverId: string;
+  readonly phase: LocalServerPhase;
+
+  constructor(server: { id: string; name: string }, phase: LocalServerPhase) {
+    super(managedServerStoppedReason(server.name, phase));
+    this.name = 'ManagedServerStoppedError';
+    this.serverId = server.id;
+    this.phase = phase;
+  }
+}
+
+/** Human-readable one-liner for a stopped managed stack, used in errors and the UI. */
+export function managedServerStoppedReason(serverName: string, phase: LocalServerPhase): string {
+  if (phase === 'error') {
+    return `${serverName}'s Switch stack failed to start, so its gateway is not running. Fix the error on the server's page, then start it again.`;
+  }
+  return `${serverName}'s Switch stack is not running. Start it from the server's page, then retry.`;
+}
+
 /** Outcome of a start request. `docker-unavailable` and `version-downgrade` are
  * separated from generic errors so the UI can point the user at installing /
  * starting Docker, or explain why an older build refuses to take over a stack
