@@ -101,12 +101,30 @@ export type SwitchAuthConfig = {
   oidcProviderLabel: string | null;
 };
 
+/** What a switch-core says about itself to an authenticated client (CHOO-1865).
+ *
+ * `version` is null when the server cannot read its own version. Null means
+ * unknown and must be rendered as such, never as current. */
+export type SwitchServerDeclaration = {
+  version: string | null;
+  contracts: Record<string, { speaks: number; accepts: number }>;
+};
+
 /** The authenticated user, as returned by `GET /gateway/auth/me`. */
 export type SwitchUser = {
   id: string;
   name: string;
   email: string;
   role: string;
+  /**
+   * What the server declared on this session response.
+   *
+   * Null when the server predates version disclosure — which is the honest
+   * reading, not a defect. This is the only version signal available for a
+   * server switchdash does not manage: `readDeployedVersion` needs host access
+   * to read an image tag, so a BYO server used to report nothing at all, ever.
+   */
+  server: SwitchServerDeclaration | null;
 };
 
 /** Connection status for a server: whether switchdash holds a valid session. */

@@ -22,6 +22,7 @@ from switch_core.bridges.agent.operations.definitions import (
 )
 from switch_core.bridges.agent.protocol.connections import (
     PROTOCOL_VERSION,
+    ClientDeclaration,
     ConnectionRegistry,
 )
 
@@ -48,7 +49,7 @@ def _open(registry: ConnectionRegistry, connection_id: str) -> Any:
         delivery_filter="all",
         spawn_capable=False,
         cursor=0,
-        protocol_version=PROTOCOL_VERSION,
+        declaration=ClientDeclaration(speaks=PROTOCOL_VERSION),
     )
 
 
