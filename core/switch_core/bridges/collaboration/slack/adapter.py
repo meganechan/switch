@@ -64,8 +64,9 @@ class SlackAdapter(CollaborationAdapter):
         # message per channel — used to thread the "thinking" indicator into the
         # conversation the agent is responding to.
         self._last_thread_ts: dict[str, str] = {}
-        # Slack username → user id, for resolving outbound @mentions to real
-        # Slack mentions. Populated as users are resolved.
+        # Folded Slack username → user id, for resolving outbound @mentions to
+        # real Slack mentions. Primed from the bridge's known external users and
+        # topped up as new ones are resolved.
         self._username_to_id: dict[str, str] = {}
         self._thinking_ts: dict[tuple[str, str], str] = {}
 
@@ -672,6 +673,22 @@ class SlackAdapter(CollaborationAdapter):
         message = re.sub(r"<(https?://[^|>]+)\|([^>]+)>", r"[\2](\1)", message)
         return re.sub(r"<(https?://[^>]+)>", r"\1", message)
 
+    def prime_mention_targets(self, targets: dict[str, str]) -> None:
+        for name, external_id in targets.items():
+            self._remember_mention_target(name, external_id)
+
+    def _remember_mention_target(self, name: str, external_id: str) -> None:
+        """Record a name → Slack id pair for outbound mention rendering.
+
+        Slack handles are case-insensitive, so the map is keyed on the folded
+        name. App and bot senders also reach here — their `external_id` is a
+        `B…` bot id, which cannot form a valid user mention — so only real user
+        ids (`U…`, or `W…` on enterprise grid) are kept; emitting `<@B…>` would
+        render as broken markup rather than a mention."""
+        if not external_id.startswith(("U", "W")):
+            return
+        self._username_to_id[name.casefold()] = external_id
+
     def _translate_mentions_to_slack(self, content: str) -> str:
         """Rewrite `@username` to a Slack `<@USER_ID>` mention for users we know,
         so Slack renders the person's display name. Unknown names (e.g. agents,
@@ -679,10 +696,10 @@ class SlackAdapter(CollaborationAdapter):
 
         def _replace(match: re.Match[str]) -> str:
             username = match.group(1)
-            user_id = self._username_to_id.get(username)
+            user_id = self._username_to_id.get(username.casefold())
             return f"<@{user_id}>" if user_id else match.group(0)
 
-        return re.sub(r"@([a-z0-9][a-z0-9._-]*)", _replace, content)
+        return re.sub(r"@([A-Za-z0-9][A-Za-z0-9._-]*)", _replace, content)
 
     # ── Socket Mode event handling ───────────────────────────────────────────
 
@@ -1107,7 +1124,7 @@ class SlackAdapter(CollaborationAdapter):
             )
             resolved = SlackUser(name=name, display_name=display_name)
             self._user_cache[slack_user_id] = resolved
-            self._username_to_id[name] = slack_user_id
+            self._remember_mention_target(name, slack_user_id)
             return resolved
         except SlackApiError as e:
             logger.warning("Failed to resolve Slack user %s: %s", slack_user_id, e)

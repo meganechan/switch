@@ -48,6 +48,10 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# How long to wait for a freshly-invited external-user puppet to actually join a
+# room before giving up on relaying its message.
+PUPPET_JOIN_TIMEOUT = 30.0
+
 # How long to hold an incomplete outbound attachment group before relaying the
 # parts that arrived, flagged as incomplete (see _schedule_outbound_group_flush).
 OUTBOUND_GROUP_TIMEOUT_SECONDS = 5.0
@@ -190,6 +194,10 @@ class BridgeCore:
                 user.client_id: await self._client_store.get(session, user.client_id)
                 for user in users
             }
+
+        self._adapter.prime_mention_targets(
+            {user.external_username: user.external_user_id for user in users}
+        )
 
         for user in users:
             self._user_puppets[user.external_user_id] = user.client_id
@@ -390,6 +398,7 @@ class BridgeCore:
             external_user_id=msg.sender_id,
             external_username=msg.sender_name,
             room_id=room_id,
+            matrix_room_id=matrix_room_id,
         )
         if puppet is None:
             return
@@ -436,13 +445,20 @@ class BridgeCore:
                 format="markdown",
                 thread_root_id=thread_root_id,
             )
-            # Record the correlation so a later reply (either direction) threads.
-            if event_id is not None:
-                await self._record_message_map(
-                    external_channel_id=msg.channel_id,
-                    matrix_event_id=event_id,
-                    external_post_id=msg.message_ref,
+            if event_id is None:
+                logger.error(
+                    "[BRIDGE-IN] failed to relay message from %s into room %s — "
+                    "it will not reach the room",
+                    msg.sender_name,
+                    matrix_room_id,
                 )
+                return
+            # Record the correlation so a later reply (either direction) threads.
+            await self._record_message_map(
+                external_channel_id=msg.channel_id,
+                matrix_event_id=event_id,
+                external_post_id=msg.message_ref,
+            )
             return
 
         # Caption convention: the text rides as the caption on the first
@@ -478,6 +494,13 @@ class BridgeCore:
                     else None
                 ),
             )
+            if event_id is None:
+                logger.error(
+                    "[BRIDGE-IN] failed to relay attachment %s from %s into room %s",
+                    attachment.filename,
+                    msg.sender_name,
+                    matrix_room_id,
+                )
             if index == 0:
                 first_event_id = event_id
 
@@ -499,6 +522,7 @@ class BridgeCore:
             external_user_id=cmd.sender_id,
             external_username=cmd.sender_name,
             room_id=room_id,
+            matrix_room_id=matrix_room_id,
         )
         if puppet is None:
             return
@@ -787,6 +811,7 @@ class BridgeCore:
                 external_user_id=ext_user.external_user_id,
                 external_username=ext_user.external_username,
                 room_id=room_id,
+                matrix_room_id=matrix_room_id,
             )
 
     async def _ensure_user_in_matrix_room(
@@ -795,10 +820,11 @@ class BridgeCore:
         external_user_id: str,
         external_username: str,
         room_id: str,
+        matrix_room_id: str,
     ) -> ClientBase[ClientConfig] | None:
-        """Get-or-create the puppet for this external user and ensure it is a
-        member of the room (invited; it auto-joins). Returns the running
-        puppet, or None if it couldn't be brought up. Idempotent."""
+        """Get-or-create the puppet for this external user and ensure it has
+        actually joined the room. Returns the running puppet, or None if it
+        couldn't be brought up or didn't join in time. Idempotent."""
         client_id = self._user_puppets.get(external_user_id)
         if client_id is None:
             client_id = await self._create_puppet(external_user_id, external_username)
@@ -811,14 +837,28 @@ class BridgeCore:
             )
             return None
         await puppet.wait_ready()
-        # Tolerant of failure so one puppet that can't join does not break
-        # bridged delivery for the rest of the room.
         try:
             await self._room_service.ensure_client_in_room(room_id, client_id)
         except Exception:
             logger.exception(
                 "Failed to add puppet client %s to room %s", client_id, room_id
             )
+            return None
+
+        # ensure_client_in_room only *invites*; the puppet joins asynchronously
+        # from its own sync loop. Sending before that join lands gets rejected by
+        # the homeserver, so the message that triggered the provisioning would be
+        # lost. Block until the join is observed.
+        if not await puppet.wait_joined(matrix_room_id, PUPPET_JOIN_TIMEOUT):
+            logger.error(
+                "Puppet %s (external user %s) did not join room %s within %ss — "
+                "cannot relay its message",
+                puppet.matrix_user_id,
+                external_user_id,
+                matrix_room_id,
+                PUPPET_JOIN_TIMEOUT,
+            )
+            return None
         return puppet
 
     async def _handle_user_joined_channel(self, join: InboundUserJoin) -> None:
@@ -860,6 +900,7 @@ class BridgeCore:
             external_user_id=join.external_user_id,
             external_username=join.external_username,
             room_id=room_id,
+            matrix_room_id=matrix_room_id,
         )
 
     # ── Puppet lifecycle ─────────────────────────────────────────────────────
@@ -913,6 +954,7 @@ class BridgeCore:
 
             self._user_puppets[external_user_id] = client.client_id
             self._puppet_matrix_ids.add(client.matrix_user_id)
+            self._adapter.prime_mention_targets({external_username: external_user_id})
 
             logger.info(
                 "Created puppet %s for external user %s on bridge %s",
