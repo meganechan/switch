@@ -67,7 +67,7 @@ artifacts:
   switch-console:
     description: The desktop app.
     version: 0.19.3
-    declared_in: dash/apps/switch-console-desktop/package.json
+    declared_in: console/apps/switch-console-desktop/package.json
     # Which switch-core release this app build bundles and pulls for
     # local-server mode. DELIBERATELY NOT switch-core's version above.
     #
@@ -83,7 +83,7 @@ artifacts:
   agent-runtime:
     description: The Switch protocol client and MCP runtime, published to a registry.
     version: 0.2.0
-    declared_in: dash/packages/switch-agent-runtime/package.json
+    declared_in: console/packages/switch-agent-runtime/package.json
 
   sidecar:
     description: >-

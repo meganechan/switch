@@ -3,7 +3,7 @@
 This describes how to cut a release of the **Switch core stack** — the
 `switch-core`, `gateway`, and `setup` container images, the Helm chart, and the
 standalone Docker Compose file. The Switch Console desktop app releases separately
-(see `.github/workflows/switch-console-release.yml` and `dash/docs/INSTALL.md`).
+(see `.github/workflows/switch-console-release.yml` and `console/docs/INSTALL.md`).
 
 ## Versioning
 
@@ -85,9 +85,9 @@ build without creating a release.
 
 ## Switch Console desktop app release (separate)
 
-The desktop app (`dash/`) releases on its own tag, `switch-console-v<version>`, via
+The desktop app (`console/`) releases on its own tag, `switch-console-v<version>`, via
 `.github/workflows/switch-console-release.yml`. The tag MUST match
-`dash/apps/switch-console-desktop/package.json` `version` (the workflow verifies
+`console/apps/switch-console-desktop/package.json` `version` (the workflow verifies
 this and fails on mismatch). Procedure: bump `package.json`, cut the
 `## switch-console` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
 publishes a **GitHub Release** (macOS arm64 signed + notarized; Linux x64
@@ -171,8 +171,8 @@ change. The full list:
   fallbacks in `deploy/local/standalone-docker-compose.yml`).
 - **Python package URLs** — `[project.urls]` in `core/pyproject.toml`.
 - **Plugin marketplace source** — `SWITCH_MARKETPLACE_SOURCE` in
-  `dash/packages/plugins/src/distribution.ts` (used by the Claude
+  `console/packages/plugins/src/distribution.ts` (used by the Claude
   connector plugin descriptor).
 - **Switch Console auto-update target** — `RELEASE_REPO_OWNER` / `RELEASE_REPO_NAME`
-  in `dash/apps/switch-console-desktop/src/shared/app-identity.ts` (mirrored
+  in `console/apps/switch-console-desktop/src/shared/app-identity.ts` (mirrored
   in `app-identity.canary.ts`), consumed by both electron-builder configs.

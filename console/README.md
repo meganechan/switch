@@ -6,5 +6,5 @@ rooms an agent belongs to, its configuration (working directory, identity),
 and the scheduling that starts and drives its sessions.
 
 > **Note:** a full install guide and user documentation are coming as part of
-> the docs effort. For now, see [`dash/AGENTS.md`](AGENTS.md) for developer
+> the docs effort. For now, see [`console/AGENTS.md`](AGENTS.md) for developer
 > notes on working in the app.
