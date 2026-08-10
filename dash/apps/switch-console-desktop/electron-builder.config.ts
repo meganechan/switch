@@ -152,8 +152,8 @@ const config: Configuration = {
     azureSignOptions: {
       publisherName: 'General Action, Inc.',
       endpoint: 'https://eus.codesigning.azure.net/',
-      certificateProfileName: 'switchdash-public',
-      codeSigningAccountName: 'switchdash',
+      certificateProfileName: 'switch-console-public',
+      codeSigningAccountName: 'switch-console',
     },
   },
   msi: {

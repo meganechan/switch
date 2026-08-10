@@ -2,7 +2,7 @@ name: PR CI
 
 # Pull-request checks for the three code trees (core/, dash/, gateway/) plus a
 # repo-wide secret scan. Complements the tag-driven release workflows
-# (switch-release.yml, switchdash-release.yml) — this file is the ongoing
+# (switch-release.yml, switch-console-release.yml) — this file is the ongoing
 # per-PR gate, they publish on tags.
 #
 # Fork safety: this uses `pull_request` (NOT `pull_request_target`), so runs

@@ -1,13 +1,13 @@
 // Inlined rather than re-exported from ./app-identity so this module has no relative
 // imports. It is loaded under Node (--experimental-strip-types) by
 // electron-builder.canary.config.ts, where extensionless ESM specifiers do not resolve.
-// Display name only; the app id / storage identity stay on `switchdash` —
-// see the note in ./app-identity.ts (CHOO-2008).
+// The app id stays on `switchdash` (macOS registration and update continuity);
+// the display, binary and artifact names moved — see the note in ./app-identity.ts.
 export const APP_ID = 'com.switchdash.canary';
 export const PRODUCT_NAME = 'Switch Console Canary';
-export const APP_NAME_LOWER = 'switchdash-canary';
+export const APP_NAME_LOWER = 'switch-console-canary';
 export const UPDATE_CHANNEL = 'v1-canary';
-export const ARTIFACT_PREFIX = 'switchdash-canary';
+export const ARTIFACT_PREFIX = 'switch-console-canary';
 
 // Keep in sync with RELEASE_REPO_* in ./app-identity.ts (CHOO-1260 flip point).
 export const RELEASE_REPO_OWNER = 'sandbox-quantum';

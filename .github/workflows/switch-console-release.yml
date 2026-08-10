@@ -8,8 +8,8 @@ name: switchdash release
 # unsigned. Windows is not built yet (needs an Authenticode / Azure Trusted
 # Signing identity — tracked as a follow-up).
 #
-# Trigger by pushing a tag like `switchdash-v1.1.34` (the version after
-# `switchdash-v` MUST match apps/switch-console-desktop/package.json `version`).
+# Trigger by pushing a tag like `switch-console-v1.1.34` (the version after
+# `switch-console-v` MUST match apps/switch-console-desktop/package.json `version`).
 # `workflow_dispatch` builds the artifacts for testing without creating a Release.
 #
 # The Release stays a **draft** until every platform job has uploaded, and is
@@ -26,7 +26,7 @@ name: switchdash release
 on:
   push:
     tags:
-      - 'switchdash-v*'
+      - 'switch-console-v*'
   workflow_dispatch:
 
 permissions:
@@ -53,7 +53,7 @@ jobs:
 
       - name: Verify tag matches package.json version
         run: |
-          tag_version="${GITHUB_REF_NAME#switchdash-v}"
+          tag_version="${GITHUB_REF_NAME#switch-console-v}"
           pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then
@@ -65,7 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#switchdash-v}"
+          version="${GITHUB_REF_NAME#switch-console-v}"
           notes="switchdash desktop app $version — macOS arm64 and Linux x64.
 
           **macOS (arm64):** download the .dmg, open it, drag Switch Console to Applications. Signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass.
@@ -114,7 +114,7 @@ jobs:
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          tag_version="${GITHUB_REF_NAME#switchdash-v}"
+          tag_version="${GITHUB_REF_NAME#switch-console-v}"
           pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then
@@ -215,7 +215,7 @@ jobs:
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          tag_version="${GITHUB_REF_NAME#switchdash-v}"
+          tag_version="${GITHUB_REF_NAME#switch-console-v}"
           pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then

@@ -13,25 +13,35 @@ terminal sessions, MCP and skills, and packaging for desktop releases.
 Switch Console is a fork; upstream attribution is recorded in `NOTICE`. The app was
 previously called **switchdash**, and before that `emdash`.
 
-**Only the display name changed.** `PRODUCT_NAME` in `src/shared/app-identity.ts` is the
-single thing a user reads — window title, About box, macOS app menu, `/Applications`.
-Everything that identifies the app to the *operating system or the disk* deliberately
-still says `switchdash`:
+The rename covered the display name, the source tree and the release artifacts. What
+did **not** move is anything already written to a user's disk or already spoken to
+something deployed — those names are frozen, and the split is load-bearing.
 
-- the user-data directory (`USER_DATA_DIR_NAME`) and the SQLite file `switchdash.db`
-- the macOS app id (`com.switchdash.*`) and release artifact names (`ARTIFACT_PREFIX`)
-- the `switchdash://` deeplink scheme
-- packages (`@switch-console/*`) and the app directory (`apps/switch-console-desktop/`)
-- the per-project config file (`.switchdash.json`) and per-repo state dir (`.switchdash/`)
-- `SWITCHDASH_*` environment variables and the agent-hook HTTP protocol
-  (`X-Switchdash-*` headers)
+Renamed: `PRODUCT_NAME`, the workspace packages (`@switch-console/*`), the app
+directory (`apps/switch-console-desktop/`), the binary and package names
+(`APP_NAME_LOWER`), the release artifacts (`ARTIFACT_PREFIX`) and tags
+(`switch-console-v*`), and the Windows signing profile.
 
-This split is intentional and load-bearing — **do not "fix" it.** Renaming any of the
-above strands existing installs: the user-data directory holds the database, the compose
-project names derive from it (so the Postgres volume orphans), the app id and artifact
-prefix carry macOS registration and auto-update continuity, and the env vars and headers
-are baked into hook commands already written into users' own agent config files and into
-sidecars already deployed on remote hosts.
+Still `switchdash`, deliberately — **do not "fix" these**:
+
+- the user-data directory (`USER_DATA_DIR_NAME`) and the SQLite file `switchdash.db` —
+  it holds the database, and the compose project names derive from it, so renaming
+  starts an existing install empty and orphans its Postgres volume
+- the macOS app id (`com.switchdash.*`) — it carries registration and update
+  continuity for copies installed before the rename, and nobody reads it
+- the `switchdash://` deeplink scheme — links already posted into Slack and Mattermost
+  are permanent, and deployed Mattermost stacks whitelist the scheme in their config
+- the per-project config file (`.switchdash.json`) and per-repo state dir
+  (`.switchdash/`)
+- `SWITCHDASH_*` environment variables and the `X-Switchdash-*` hook headers — baked
+  into hook commands already written into users' own agent config files, and into
+  sidecars already deployed on remote hosts
+- the `switchdash` key in `artifacts.yaml` — the name the app declares to a sidecar
+  during compatibility negotiation
+
+One cost was accepted rather than avoided: because `APP_NAME_LOWER` moved, `apt` and
+`dnf` treat `switch-console` as a new package rather than an upgrade of `switchdash`,
+so a Linux user upgrading across the rename has to remove the old package by hand.
 
 The **update feed** points at GitHub Releases on the private
 `sandbox-quantum/switch` repo (see `electron-builder.config.ts` `publish`): the app

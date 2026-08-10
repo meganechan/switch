@@ -98,14 +98,15 @@ describe('resolveUserEnv (AppImage env scrub)', () => {
     spawnSyncMock.mockReset();
     mockShellCapture('PATH=/usr/local/bin:/usr/bin\n');
     process.env.APPIMAGE = '/home/user/switchdash.AppImage';
-    process.env.APPDIR = '/tmp/.mount_switchdashTest';
+    process.env.APPDIR = '/tmp/.mount_switchConsoleTest';
     process.env.ARGV0 = '/home/user/switchdash.AppImage';
     process.env.OWD = '/home/user';
     process.env.CHROME_DESKTOP = 'switchdash.desktop';
-    process.env.GSETTINGS_SCHEMA_DIR = '/tmp/.mount_switchdashTest/usr/share/glib-2.0/schemas';
-    process.env.PATH = '/tmp/.mount_switchdashTest/usr/bin:/usr/local/bin:/usr/bin';
-    process.env.LD_LIBRARY_PATH = '/tmp/.mount_switchdashTest/usr/lib:/usr/lib';
-    process.env.XDG_DATA_DIRS = '/tmp/.mount_switchdashTest/usr/share:/usr/local/share:/usr/share';
+    process.env.GSETTINGS_SCHEMA_DIR = '/tmp/.mount_switchConsoleTest/usr/share/glib-2.0/schemas';
+    process.env.PATH = '/tmp/.mount_switchConsoleTest/usr/bin:/usr/local/bin:/usr/bin';
+    process.env.LD_LIBRARY_PATH = '/tmp/.mount_switchConsoleTest/usr/lib:/usr/lib';
+    process.env.XDG_DATA_DIRS =
+      '/tmp/.mount_switchConsoleTest/usr/share:/usr/local/share:/usr/share';
 
     await resolveUserEnv();
 

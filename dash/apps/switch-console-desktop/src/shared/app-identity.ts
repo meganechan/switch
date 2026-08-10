@@ -4,24 +4,28 @@ const env = (import.meta as ImportMetaWithEnv).env;
 const isDev = env?.DEV === true;
 const isCanary = env?.VITE_BUILD === 'canary';
 
-// The product's DISPLAY name and its STORAGE identity are deliberately separate.
+// What a user reads, what the OS installs, and where data lives are three
+// different names here, and only the last one is frozen.
 //
-// PRODUCT_NAME is the only name a user reads. Everything below it — the app id,
-// the userData directory, the artifact prefix, the `switchdash://` scheme — is
-// storage/OS identity, and renaming any of it strands an existing install:
-// userData holds the database, and APP_ID/ARTIFACT_PREFIX carry auto-update and
-// macOS registration continuity. They stay on `switchdash` on purpose. Do not
-// "fix" the inconsistency (CHOO-2008).
+// USER_DATA_DIR_NAME holds the database, so it stays `switchdash` forever:
+// renaming it starts an existing install from an empty database. APP_ID stays
+// with it — it is what macOS registration and update continuity key off, and
+// nobody reads it.
+//
+// PRODUCT_NAME, APP_NAME_LOWER and ARTIFACT_PREFIX did move (CHOO-2008). The
+// cost is paid once, at the release that changes them: Linux package managers
+// see `switch-console` as a new package rather than an upgrade of
+// `switchdash`, so the old one has to be removed by hand.
 export const APP_ID = isCanary ? 'com.switchdash.canary' : 'com.switchdash.stable';
 export const PRODUCT_NAME = isCanary ? 'Switch Console Canary' : 'Switch Console';
-export const APP_NAME_LOWER = isCanary ? 'switchdash-canary' : 'switchdash';
+export const APP_NAME_LOWER = isCanary ? 'switch-console-canary' : 'switch-console';
 export const USER_DATA_DIR_NAME = isDev
   ? 'switchdash-dev'
   : isCanary
     ? 'switchdash-canary'
     : 'switchdash';
 export const UPDATE_CHANNEL = isCanary ? 'v1-canary' : 'v1-stable';
-export const ARTIFACT_PREFIX = isCanary ? 'switchdash-canary' : 'switchdash';
+export const ARTIFACT_PREFIX = isCanary ? 'switch-console-canary' : 'switch-console';
 export const IS_CANARY = isCanary;
 
 // GitHub repo the desktop app publishes releases to / reads auto-updates from.

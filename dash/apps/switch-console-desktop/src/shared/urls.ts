@@ -4,11 +4,11 @@ const SWITCH_CONSOLE_RELEASES_API_URL =
 
 /**
  * The desktop app shares its repo with switch-core, so its release tags are
- * namespaced `switchdash-v<version>` — see .github/workflows/switchdash-release.yml,
+ * namespaced `switch-console-v<version>` — see .github/workflows/switch-console-release.yml,
  * which only triggers on that prefix. A bare `v<version>` tag belongs to nothing.
  */
 export function switchConsoleReleaseTag(version: string): string {
-  return `switchdash-v${version.replace(/^v/, '')}`;
+  return `switch-console-v${version.replace(/^v/, '')}`;
 }
 
 /**

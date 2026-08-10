@@ -3,7 +3,7 @@
 This describes how to cut a release of the **Switch core stack** — the
 `switch-core`, `gateway`, and `setup` container images, the Helm chart, and the
 standalone Docker Compose file. The Switch Console desktop app releases separately
-(see `.github/workflows/switchdash-release.yml` and `dash/docs/INSTALL.md`).
+(see `.github/workflows/switch-console-release.yml` and `dash/docs/INSTALL.md`).
 
 ## Versioning
 
@@ -85,8 +85,8 @@ build without creating a release.
 
 ## Switch Console desktop app release (separate)
 
-The desktop app (`dash/`) releases on its own tag, `switchdash-v<version>`, via
-`.github/workflows/switchdash-release.yml`. The tag MUST match
+The desktop app (`dash/`) releases on its own tag, `switch-console-v<version>`, via
+`.github/workflows/switch-console-release.yml`. The tag MUST match
 `dash/apps/switch-console-desktop/package.json` `version` (the workflow verifies
 this and fails on mismatch). Procedure: bump `package.json`, cut the
 `## switchdash` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
@@ -101,7 +101,7 @@ the Linux build runs immediately, but the **signed + notarized macOS
 run**. The release is therefore **incomplete until approved**.
 
 **Mandatory step — ping the approver on tag push.** The moment a
-`switchdash-v*` tag is pushed, the releaser MUST send `louis.amaudruz` a
+`switch-console-v*` tag is pushed, the releaser MUST send `louis.amaudruz` a
 targeted message with the Actions run URL, stating the run is paused awaiting
 his approval in the `release` environment, and asking him to approve. Do not
 wait silently — the macOS build cannot proceed until he approves. Only after
