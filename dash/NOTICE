@@ -13,8 +13,6 @@ copy of the license is available at:
 The "switchdash" name, logos, and associated branding are not part of the
 upstream emdash project and are owned by SandboxAQ.
 
--------------------------------------------------------------------------------
-NOTE: The open-source license for this repository is still under legal review
-(see CHOO-1252 / CHOO-1253); the repository-level LICENSE file is currently a
-placeholder. This NOTICE preserves the required upstream attribution for the
-emdash fork and must be kept in sync with the final license decision.
+This software is distributed under the Apache License, Version 2.0, as limited
+by the "Commons Clause" License Condition v1.0 (as modified). See the LICENSE
+file at the repository root for the full terms.
