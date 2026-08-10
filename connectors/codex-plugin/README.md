@@ -72,6 +72,14 @@ switchdash's remaining job for the server is to put the credentials this config
 names into the session's environment, read from the agent's
 `.switch/agents/<slug>.json`.
 
+Standalone — no switchdash — nothing populates that environment, and since
+`switch-agent-runtime` 0.2.0 the runtime reads that same file itself rather than
+exiting. Where a working directory names several agents it serves a
+`select_agent` tool and refuses the rest until the session picks one; where it
+can find no usable agent at all it serves a single `switch_unavailable` tool
+that reports why, rather than dying before the MCP handshake and leaving the
+session with no explanation.
+
 Because a plugin is only upgraded when a user clicks Update in switchdash's
 settings, and Codex caches each version in its own directory, an install on a
 plugin older than this one has no Switch tools until it is upgraded.

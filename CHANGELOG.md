@@ -302,6 +302,28 @@ version of their own to them without also giving them a release of their own.
   next switchdash release.
 
 #### Fixed
+- The server page no longer sits on _"Checking sign-in options…"_ forever after
+  connectivity returns. Which login methods a server offers was read once when
+  the page mounted, and a read that failed was never retried, so a blip left the
+  sign-in form unrendered until you navigated away or restarted. It now recovers
+  on the signals connection status already used — the page's Refresh button,
+  returning to the app window, and a remote host becoming reachable again. The
+  Refresh button in particular re-checked only the connection status, so the one
+  control a user would reach for did nothing visible (CHOO-2042).
+- A server whose gateway cannot be reached now says so in one line and retries
+  on its own, instead of stacking three surfaces that each described the same
+  failure differently: a red banner quoting a raw internal error
+  (`Error invoking remote method 'switchServers.getAuthConfig': …`), a
+  "Not signed in" row, and a sign-in panel that claimed to be checking options
+  it would never receive. There is nothing to sign into while the gateway is
+  down, so the sign-in form no longer appears at all. The underlying error goes
+  to the console (CHOO-2042).
+- The sidebar no longer offers "Sign in" on a server it cannot reach, which was
+  an action that could not work. Unreachable is now modelled apart from
+  signed-out, so the rooms list also stops reporting an unreachable server as
+  merely needing sign-in. A server whose data is unavailable shows a red dot
+  rather than amber, for both causes: neither is a transitional state
+  (CHOO-2042).
 - A directory that already holds agents for one Switch server can now onboard its
   agents to another. "Already onboarded" was judged per directory rather than per
   server, so every candidate was filtered out as a duplicate and the modal offered
@@ -328,6 +350,14 @@ version of their own to them without also giving them a release of their own.
   on screen — with the onboardable agents listed above it. The onboard action now
   takes precedence, and a detected agent belonging to another server says so
   (CHOO-2044).
+- The Add Agent modal no longer shows the create form, or the existing-agents
+  list, before an agent type is picked. Both depend on the type — it decides
+  which agents can be brought in and how a new one runs — so the form asked for a
+  name, a description and a config, then ended at a button that could not be
+  pressed. Everything below the directory now waits for the type, and the modal
+  asks for it instead (CHOO-2044).
+
+### [0.19.3] - 2026-08-09
 
 #### Added
 - Declares its `sidecar-control` range in the sidecar's ready file, and reads
