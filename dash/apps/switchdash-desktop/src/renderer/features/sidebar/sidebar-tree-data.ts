@@ -36,6 +36,24 @@ export function scopedAgents(): AgentEntry[] {
 }
 
 /**
+ * Every agent on the active server, ignoring the agent filters.
+ *
+ * Room membership is a fact about a room, so the agents a room lists — and the
+ * agents whose membership is fetched at all — must not depend on which filters
+ * the agent view happens to have set. {@link scopedAgents} is the filtered list
+ * and stays the right one for rendering the agent tree itself.
+ */
+export function agentsInActiveScope(): AgentEntry[] {
+  const entries: AgentEntry[] = [];
+  for (const location of sidebarStore.orderedLocations) {
+    for (const agent of agentsStore.byLocation.get(location.id) ?? []) {
+      entries.push({ agent, location });
+    }
+  }
+  return entries;
+}
+
+/**
  * An agent's visible sessions: the location's sessions it owns. Sessions are
  * paired to their agent by `agent_id` — the authoritative link — not by matching
  * a name frozen into the session's config against the agent's definition. A
@@ -49,10 +67,12 @@ export function agentSessions(entry: AgentEntry): SessionStore[] {
   );
 }
 
-/** Every scoped agent that has a Switch identity, as membership-lookup keys. */
+/** Every agent on the active server that has a Switch identity, as
+ * membership-lookup keys. Unfiltered on purpose — see
+ * {@link agentsInActiveScope}. */
 export function switchIdentities(): { serverId: string; switchAgentId: string }[] {
   const identities: { serverId: string; switchAgentId: string }[] = [];
-  for (const { agent } of scopedAgents()) {
+  for (const { agent } of agentsInActiveScope()) {
     if (agent.serverId && agent.switchAgentId) {
       identities.push({ serverId: agent.serverId, switchAgentId: agent.switchAgentId });
     }

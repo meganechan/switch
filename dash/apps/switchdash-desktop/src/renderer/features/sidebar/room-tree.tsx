@@ -10,6 +10,7 @@ import { SidebarSessionItem } from './session-item';
 import { makeDndId, ROOMS_CONTAINER, SortableBranch, SortableList } from './sidebar-dnd';
 import {
   groupByRoom,
+  isRoomNameKnown,
   isRoomViewActive,
   openRoomInGateway,
   openRoomInMessagingApp,
@@ -18,7 +19,12 @@ import {
   roomLabel,
 } from './sidebar-room-grouping';
 import { roomAgentGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
-import { type AgentEntry, agentSessions, scopedAgents } from './sidebar-tree-data';
+import {
+  type AgentEntry,
+  agentSessions,
+  agentsInActiveScope,
+  scopedAgents,
+} from './sidebar-tree-data';
 
 /**
  * The room-grouped sidebar: rooms at the top level, their member agents
@@ -34,18 +40,24 @@ import { type AgentEntry, agentSessions, scopedAgents } from './sidebar-tree-dat
 /** Which of this app's agents belong to which room. Membership, not sessions:
  * an agent is in a room whether or not it is running there — and, just as
  * importantly, is *out* of it the moment membership is dropped, without waiting
- * for a session that is still pointed at the room to end. */
+ * for a session that is still pointed at the room to end.
+ *
+ * The membership itself is owned by the room store, which is also what the
+ * member count and the invite picker read; this only puts a local agent behind
+ * each id. Agent filters are deliberately not applied — they narrow the agent
+ * view, and a room's membership is a fact about the room, not about which
+ * agents you are currently looking at. */
 function membersByRoom(): Map<string, AgentEntry[]> {
+  const byId = new Map<string, AgentEntry>();
+  for (const entry of agentsInActiveScope()) {
+    if (entry.agent.switchAgentId) byId.set(entry.agent.switchAgentId, entry);
+  }
   const byRoom = new Map<string, AgentEntry[]>();
-  for (const entry of scopedAgents()) {
-    const { serverId, switchAgentId } = entry.agent;
-    if (!serverId || !switchAgentId) continue;
-    for (const membership of switchRoomsStore.roomsFor(serverId, switchAgentId) ?? []) {
-      if (membership.archived) continue;
-      const list = byRoom.get(membership.roomId);
-      if (list) list.push(entry);
-      else byRoom.set(membership.roomId, [entry]);
-    }
+  for (const [roomId, memberIds] of switchRoomsStore.localMemberIdsByRoom) {
+    const entries = memberIds
+      .map((switchAgentId) => byId.get(switchAgentId))
+      .filter((entry): entry is AgentEntry => entry !== undefined);
+    if (entries.length > 0) byRoom.set(roomId, entries);
   }
   return byRoom;
 }
@@ -121,7 +133,10 @@ export const RoomTree = observer(function RoomTree() {
             header={
               <RoomRow
                 label={roomLabel(roomKey)}
-                count={roomSessions.length}
+                nameKnown={isRoomNameKnown(roomKey)}
+                nameBlockedBySignIn={switchRoomsStore.roomNameBlockedBySignIn(roomKey)}
+                count={agentsInRoom.length}
+                undrawableCount={switchRoomsStore.undrawableMemberCount(roomKey)}
                 expanded={expanded}
                 depth={0}
                 bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}

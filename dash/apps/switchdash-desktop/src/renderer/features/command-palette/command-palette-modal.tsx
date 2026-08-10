@@ -230,6 +230,12 @@ export function CommandPaletteModal({
     return () => appState.resourceMonitor.dispose();
   }, [view]);
 
+  // Search spans every server, but the sidebar only loads the one it is showing
+  // — so the others' rooms are pulled here, by the feature that needs them.
+  useEffect(() => {
+    void switchRoomsStore.loadRoomsOnAllServers();
+  }, []);
+
   // Prefetch recents immediately on mount so the empty-query view is instant.
   useEffect(() => {
     void queryClient.prefetchQuery({

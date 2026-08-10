@@ -64,6 +64,23 @@ export class AgentsStore {
     return null;
   }
 
+  /**
+   * This install's agents that are registered on a given Switch server, i.e.
+   * the ones switchdash can actually act on there. The room views list and
+   * offer these and no others: an agent registered on some other switchdash
+   * cannot be shown under a room or driven from here, so offering it would
+   * promise something this app cannot deliver.
+   */
+  agentsOnServer(serverId: string): Agent[] {
+    const matching: Agent[] = [];
+    for (const agents of this.byLocation.values()) {
+      for (const agent of agents) {
+        if (agent.serverId === serverId && agent.switchAgentId) matching.push(agent);
+      }
+    }
+    return matching.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   /** The Switch server a location's agents belong to, or null if unlinked. */
   serverIdForLocation(locationId: string): string | null {
     const agents = this.byLocation.get(locationId);

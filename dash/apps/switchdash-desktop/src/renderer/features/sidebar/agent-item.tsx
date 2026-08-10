@@ -18,7 +18,6 @@ import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reac
 import { HostTroubleIndicator } from '@renderer/features/remote-hosts/host-trouble-indicator';
 import { hasSessionError } from '@renderer/features/sessions/stores/session-selectors';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
-import { useRemoteAgentName } from '@renderer/features/switch-servers/use-remote-agent-name';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -64,13 +63,10 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
   const agentName = agent.name;
   const location = getLocationStore(agent.locationId);
 
-  // The row is labelled by the agent's registered Switch name; fall back to the
-  // stored name until (or unless) the lookup resolves.
-  const label = useRemoteAgentName(
-    agent.serverId,
-    agent.switchAgentId,
-    agent.name || agentName || 'Unnamed agent'
-  );
+  // The agent's name IS its Switch identity: switchdash chose it, registered it
+  // under that name, and keys its credentials and definition by it. Reading the
+  // stored one is reading the same value the server holds.
+  const label = agent.name || agentName || 'Unnamed agent';
 
   const expanded = sidebarStore.isGroupExpanded(agentExpandKey(agent.id));
   const toggle = () => sidebarStore.toggleGroupExpanded(agentExpandKey(agent.id));

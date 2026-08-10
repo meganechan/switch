@@ -7,6 +7,7 @@ import { SidebarSessionItem } from './session-item';
 import { AGENTS_CONTAINER, makeDndId, SortableBranch, SortableList } from './sidebar-dnd';
 import {
   groupByRoom,
+  isRoomNameKnown,
   isRoomViewActive,
   openRoomInGateway,
   openRoomInMessagingApp,
@@ -59,6 +60,8 @@ const AgentSessions = observer(function AgentSessions({
           <div key={roomKey}>
             <RoomRow
               label={roomLabel(roomKey)}
+              nameKnown={isRoomNameKnown(roomKey)}
+              nameBlockedBySignIn={switchRoomsStore.roomNameBlockedBySignIn(roomKey)}
               count={roomSessions.length}
               expanded={roomExpanded}
               depth={depth}
