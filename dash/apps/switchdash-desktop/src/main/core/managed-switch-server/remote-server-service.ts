@@ -1,10 +1,17 @@
-import { listManagedServers } from '@main/core/switch-servers/servers-store';
+import type { HostReachabilityChange } from '@main/core/remote-hosts/host-reachability-service';
+import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
+import { deleteAgentsForServer } from '@main/core/switch-servers/delete-server-agents';
+import {
+  getRemoteManagedServer,
+  listManagedServers,
+} from '@main/core/switch-servers/servers-store';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { COMPATIBLE_SWITCH_VERSION } from '@shared/app-identity';
-import type {
-  DockerAvailability,
-  StartLocalServerResult,
+import {
+  type DockerAvailability,
+  type StartLocalServerResult,
+  switchVersionDowngradeMessage,
 } from '@shared/core/managed-switch-server/managed-switch-server';
 import {
   type RemoteServerStatus,
@@ -12,6 +19,7 @@ import {
   remoteServerStatusChannel,
 } from '@shared/events/remoteSwitchServerEvents';
 import { isStackRunning } from './compose';
+import { readVersionStatus } from './deployed-version';
 import { createRemoteServerHost, type RemoteServerHost } from './host/remote-host';
 import { resetStack, startStack, stopStack } from './pipeline';
 import { readPersistedPorts } from './ports';
@@ -22,6 +30,8 @@ function initialStatus(sshHost: string): RemoteServerStatus {
     phase: 'stopped',
     serverId: null,
     version: COMPATIBLE_SWITCH_VERSION,
+    deployedVersion: null,
+    drift: null,
     message: null,
     error: null,
   };
@@ -58,6 +68,7 @@ class RemoteServerService {
   }
 
   async detectDocker(sshHost: string): Promise<DockerAvailability> {
+    hostReachabilityService.requireReachable(sshHost);
     const host = await createRemoteServerHost(sshHost);
     try {
       return await host.detectDocker();
@@ -70,33 +81,63 @@ class RemoteServerService {
    * quit, so their desktop reachability is restored on launch. Best-effort per
    * host: an unreachable host is left `stopped` rather than failing boot. */
   async initialize(): Promise<void> {
+    hostReachabilityService.on('change', ({ current }: HostReachabilityChange) => {
+      if (current.status === 'reachable') void this.onHostReachable(current.sshHost);
+    });
+    for (const [sshHost, serverId] of await this.remoteHosts()) {
+      this.statuses.set(sshHost, initialStatus(sshHost));
+      await this.reconcileHost(sshHost, serverId);
+    }
+  }
+
+  private async remoteHosts(): Promise<Map<string, string>> {
     const remotes = (await listManagedServers()).filter(
       (s) => s.managementKind === 'remote' && s.sshHost
     );
-    for (const server of remotes) {
-      const sshHost = server.sshHost!;
-      this.statuses.set(sshHost, initialStatus(sshHost));
-      let host: RemoteServerHost | null = null;
-      try {
-        host = await createRemoteServerHost(sshHost);
-        if (!(await isStackRunning(host))) {
-          host.dispose();
-          continue;
-        }
+    return new Map(remotes.map((s) => [s.sshHost!, s.id]));
+  }
+
+  /** Pick a host's stack back up once its host is reachable again, so a
+   * recovered host resumes without the user restarting anything. */
+  private async onHostReachable(sshHost: string): Promise<void> {
+    if (this.busy.has(sshHost) || this.hosts.has(sshHost)) return;
+    const serverId = (await this.remoteHosts()).get(sshHost);
+    if (!serverId) return;
+    await this.reconcileHost(sshHost, serverId);
+  }
+
+  /** Adopt an already-running remote stack: re-open its forward and mark it
+   * running. Skipped while the host is blocked — the reachability manager will
+   * call back through {@link onHostReachable} when it recovers.
+   *
+   * Also records how the host's deployed switch-core compares to this build's
+   * pin, so an app update that moved the pin surfaces as drift rather than
+   * leaving the host on a stale core (CHOO-1736). That check runs even when the
+   * stack is down: its data volumes still hold the schema the last version
+   * migrated to, which is what makes a downgrade unsafe. */
+  private async reconcileHost(sshHost: string, serverId: string): Promise<void> {
+    if (hostReachabilityService.isBlocked(sshHost)) return;
+    let host: RemoteServerHost | null = null;
+    let adopted = false;
+    try {
+      host = await createRemoteServerHost(sshHost);
+      if (await isStackRunning(host)) {
         const ports = await readPersistedPorts(host);
-        if (!ports) {
-          // Running but we don't know its ports — leave it stopped; the user can
-          // restart to re-derive them rather than forward to the wrong ports.
-          host.dispose();
-          continue;
+        if (ports) {
+          await host.establishNetworking(ports);
+          this.hosts.set(sshHost, host);
+          adopted = true;
+          this.setStatus(sshHost, { phase: 'running', serverId });
         }
-        await host.establishNetworking(ports);
-        this.hosts.set(sshHost, host);
-        this.setStatus(sshHost, { phase: 'running', serverId: server.id });
-      } catch (error) {
-        host?.dispose();
-        log.warn(`remote-switch-server: boot reconcile failed for ${sshHost}`, { error });
+        // Running but we don't know its ports — leave it stopped; the user can
+        // restart to re-derive them rather than forward to the wrong ports.
       }
+      this.setStatus(sshHost, await readVersionStatus(host, COMPATIBLE_SWITCH_VERSION));
+    } catch (error) {
+      log.warn(`remote-switch-server: boot reconcile failed for ${sshHost}`, { error });
+    } finally {
+      // The adopted host owns the live port-forward; anything else is throwaway.
+      if (!adopted) host?.dispose();
     }
   }
 
@@ -104,6 +145,7 @@ class RemoteServerService {
     if (this.busy.has(sshHost)) {
       return { kind: 'error', message: `An operation is already in progress for ${sshHost}.` };
     }
+    hostReachabilityService.requireReachable(sshHost);
     this.busy.add(sshHost);
     const abort = new AbortController();
     this.startAborts.set(sshHost, abort);
@@ -130,17 +172,30 @@ class RemoteServerService {
       if (result.kind === 'docker-unavailable') {
         this.setStatus(sshHost, { phase: 'error', error: result.detail });
         host.dispose();
+      } else if (result.kind === 'version-downgrade') {
+        this.setStatus(sshHost, {
+          phase: 'error',
+          message: null,
+          error: switchVersionDowngradeMessage(result.deployed, result.expected),
+          deployedVersion: result.deployed,
+          drift: { deployed: result.deployed, expected: result.expected, direction: 'downgrade' },
+        });
+        host.dispose();
       } else if (result.kind === 'error') {
         this.setStatus(sshHost, { phase: 'error', error: result.message });
         host.dispose();
       } else {
         // Keep the host alive — it owns the port-forward.
         this.hosts.set(sshHost, host);
+        // The pipeline just converged the containers onto this build's pin, so
+        // any drift the boot probe found is now resolved.
         this.setStatus(sshHost, {
           phase: 'running',
           serverId: result.serverId,
           message: null,
           error: null,
+          deployedVersion: COMPATIBLE_SWITCH_VERSION,
+          drift: null,
         });
       }
       return result;
@@ -159,6 +214,7 @@ class RemoteServerService {
   async stop(sshHost: string): Promise<void> {
     if (this.busy.has(sshHost))
       throw new Error(`An operation is already in progress for ${sshHost}.`);
+    hostReachabilityService.requireReachable(sshHost);
     this.busy.add(sshHost);
     const host = this.hosts.get(sshHost) ?? (await createRemoteServerHost(sshHost));
     try {
@@ -178,14 +234,21 @@ class RemoteServerService {
     }
   }
 
-  /** Destroy the remote stack, its data volumes, and stored secrets. The caller
-   * removes the server's agents first (their server-side identity is wiped). */
+  /** Destroy the remote stack, its data volumes, and stored secrets.
+   *
+   * The stack's agents are deleted first, here rather than in the caller — the
+   * wipe destroys their server-side identity, so leaving them behind strands a
+   * dead endpoint and a token for nobody (see {@link deleteAgentsForServer}). */
   async reset(sshHost: string): Promise<void> {
     if (this.busy.has(sshHost))
       throw new Error(`An operation is already in progress for ${sshHost}.`);
+    hostReachabilityService.requireReachable(sshHost);
     this.busy.add(sshHost);
     const host = this.hosts.get(sshHost) ?? (await createRemoteServerHost(sshHost));
     try {
+      this.setStatus(sshHost, { phase: 'stopping', message: 'Removing agents…' });
+      const server = await getRemoteManagedServer(sshHost);
+      if (server) await deleteAgentsForServer(server.id);
       this.setStatus(sshHost, { phase: 'stopping', message: 'Destroying containers and data…' });
       await resetStack(host);
       this.setStatus(sshHost, { phase: 'stopped', message: null, error: null });

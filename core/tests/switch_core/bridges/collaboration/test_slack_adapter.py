@@ -50,6 +50,9 @@ class _FakeWebClient:
         self.calls: list[dict[str, Any]] = []
         self.deletes: list[dict[str, Any]] = []
         self.updates: list[dict[str, Any]] = []
+        # ts values actually handed back, in order — lets a test assert that
+        # everything posted was also removed.
+        self.issued: list[str] = []
         self._next_ts = iter(["999.9", "888.8", "777.7"])
 
     async def chat_postMessage(self, **kwargs: Any) -> dict[str, str]:
@@ -58,6 +61,7 @@ class _FakeWebClient:
             ts = next(self._next_ts)
         except StopIteration:
             ts = "000.0"
+        self.issued.append(ts)
         return {"ts": ts}
 
     async def chat_delete(self, **kwargs: Any) -> dict[str, bool]:
@@ -90,8 +94,9 @@ def test_fetch_downloads_image_attachment() -> None:
             "url_private_download": "https://files.slack.com/cat.png",
         }
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
+    assert failures == []
     assert len(attachments) == 1
     assert attachments[0].filename == "cat.png"
     assert attachments[0].mimetype == "image/png"
@@ -99,32 +104,36 @@ def test_fetch_downloads_image_attachment() -> None:
     assert downloaded == ["https://files.slack.com/cat.png"]
 
 
-def test_fetch_skips_non_image_without_downloading() -> None:
+def test_fetch_downloads_non_image_attachment() -> None:
     adapter = _adapter()
     downloaded: list[str] = []
 
     async def fake_download(url: str) -> bytes:
         downloaded.append(url)
-        return b"x"
+        return b"# notes"
 
     adapter._download_file = fake_download  # type: ignore[assignment]
 
     files = [
         {
             "id": "F1",
-            "name": "doc.pdf",
-            "mimetype": "application/pdf",
-            "url_private_download": "https://files.slack.com/doc.pdf",
+            "name": "notes.md",
+            "mimetype": "text/markdown",
+            "url_private_download": "https://files.slack.com/notes.md",
         }
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
-    # Non-image is skipped entirely — and we never download its bytes.
-    assert attachments == []
-    assert downloaded == []
+    # Every file type is relayed now — not just images.
+    assert failures == []
+    assert len(attachments) == 1
+    assert attachments[0].filename == "notes.md"
+    assert attachments[0].mimetype == "text/markdown"
+    assert attachments[0].data == b"# notes"
+    assert downloaded == ["https://files.slack.com/notes.md"]
 
 
-def test_fetch_failed_download_skips_only_that_file() -> None:
+def test_fetch_failed_download_reported_as_failure() -> None:
     adapter = _adapter()
 
     async def fake_download(url: str) -> bytes:
@@ -148,14 +157,81 @@ def test_fetch_failed_download_skips_only_that_file() -> None:
             "url_private": "https://files.slack.com/good.jpg",
         },
     ]
-    attachments = _run(adapter._fetch_image_attachments(files))
+    attachments, failures = _run(adapter._fetch_attachments(files))
 
+    # The good file still comes through; the bad one is disclosed, not dropped.
     assert [a.filename for a in attachments] == ["good.jpg"]
+    assert [f.filename for f in failures] == ["bad.png"]
+    assert failures[0].reason
+
+
+def test_fetch_oversize_file_reported_without_downloading() -> None:
+    adapter = _adapter()
+    downloaded: list[str] = []
+
+    async def fake_download(url: str) -> bytes:
+        downloaded.append(url)
+        return b"x" * 100
+
+    adapter._download_file = fake_download  # type: ignore[assignment]
+    adapter.set_max_attachment_bytes(10)
+
+    files = [
+        {
+            "id": "F1",
+            "name": "huge.bin",
+            "mimetype": "application/octet-stream",
+            "size": 100,
+            "url_private_download": "https://files.slack.com/huge.bin",
+        }
+    ]
+    attachments, failures = _run(adapter._fetch_attachments(files))
+
+    # Slack reports the size up front, so we never spend the download.
+    assert attachments == []
+    assert downloaded == []
+    assert [f.filename for f in failures] == ["huge.bin"]
+    assert failures[0].reason
+
+
+def test_fetch_multiple_files_all_returned() -> None:
+    adapter = _adapter()
+
+    async def fake_download(url: str) -> bytes:
+        return url.rsplit("/", 1)[-1].encode()
+
+    adapter._download_file = fake_download  # type: ignore[assignment]
+
+    files = [
+        {
+            "id": "F1",
+            "name": "cat.png",
+            "mimetype": "image/png",
+            "url_private": "https://files.slack.com/cat.png",
+        },
+        {
+            "id": "F2",
+            "name": "notes.md",
+            "mimetype": "text/markdown",
+            "url_private": "https://files.slack.com/notes.md",
+        },
+        {
+            "id": "F3",
+            "name": "doc.pdf",
+            "mimetype": "application/pdf",
+            "url_private": "https://files.slack.com/doc.pdf",
+        },
+    ]
+    attachments, failures = _run(adapter._fetch_attachments(files))
+
+    assert failures == []
+    assert [a.filename for a in attachments] == ["cat.png", "notes.md", "doc.pdf"]
+    assert [a.data for a in attachments] == [b"cat.png", b"notes.md", b"doc.pdf"]
 
 
 def test_fetch_no_files_returns_empty() -> None:
     adapter = _adapter()
-    assert _run(adapter._fetch_image_attachments([])) == []
+    assert _run(adapter._fetch_attachments([])) == ([], [])
 
 
 # ── Inbound threading ────────────────────────────────────────────────────────
@@ -544,7 +620,7 @@ def test_runtime_state_working_posts_generic_indicator() -> None:
 
     assert len(fake.calls) == 1
     assert fake.calls[0]["text"] == "⚙️ _Working on it…_"
-    assert adapter._working_msg[("C123", "agent-bot")] == "C123:999.9"
+    assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:999.9"
 
 
 def test_runtime_state_detail_edits_message_in_place() -> None:
@@ -576,7 +652,7 @@ def test_runtime_state_detail_edits_message_in_place() -> None:
     assert fake.updates[0]["ts"] == "999.9"
     assert fake.updates[0]["text"] == "⚙️ Editing room-connection.ts"
     # The tracked ref is unchanged.
-    assert adapter._working_msg[("C123", "agent-bot")] == "C123:999.9"
+    assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:999.9"
 
 
 def test_runtime_state_idle_clears_working_message() -> None:
@@ -597,6 +673,156 @@ def test_runtime_state_idle_clears_working_message() -> None:
 
     assert fake.deletes == [{"channel": "C123", "ts": "999.9"}]
     assert ("C123", "agent-bot") not in adapter._working_msg
+
+
+# ── Runtime state (following the latest message) ────────────────────────────
+
+
+def test_reposition_reposts_indicator_below_newer_traffic() -> None:
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id=None,
+            detail="Editing adapter.py",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+
+    # Reposted verbatim, then the original removed — never edited in place.
+    assert len(fake.calls) == 2
+    assert fake.calls[1]["text"] == "⚙️ Editing adapter.py"
+    assert fake.updates == []
+    assert fake.deletes == [{"channel": "C123", "ts": "999.9"}]
+    assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:888.8"
+
+
+def test_reposition_stays_in_the_thread_when_the_message_is_in_it() -> None:
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id="C123:111.1",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", "C123:111.1"))
+
+    assert fake.calls[1]["thread_ts"] == "111.1"
+
+
+def test_reposition_follows_the_agent_into_a_different_thread() -> None:
+    # The indicator re-homes rather than being stranded in whichever thread the
+    # turn happened to open in.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id="C123:111.1",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", "C123:222.2"))
+
+    assert fake.calls[1]["thread_ts"] == "222.2"
+    assert adapter._working_msg[("C123", "agent-bot")].thread_root_id == "C123:222.2"
+
+
+def test_reposition_follows_the_agent_back_out_to_the_channel_root() -> None:
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123",
+            "agent-bot",
+            "working",
+            notify_user=None,
+            thread_root_id="C123:111.1",
+        )
+    )
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+
+    assert fake.calls[1]["thread_ts"] is None
+    assert adapter._working_msg[("C123", "agent-bot")].thread_root_id is None
+
+
+def test_reposition_is_a_noop_without_a_live_indicator() -> None:
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+
+    assert fake.calls == []
+    assert fake.deletes == []
+
+
+def test_a_turn_ending_during_a_move_clears_what_the_move_left() -> None:
+    # A move and the end-of-turn clear cannot interleave: both run under the
+    # agent's runtime lock, so the clear sees the moved indicator rather than
+    # the message the move already deleted. Nothing is left in the channel.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    async def scenario() -> None:
+        await adapter.apply_runtime_state(
+            "C123", "agent-bot", "working", notify_user=None, thread_root_id=None
+        )
+        await asyncio.gather(
+            adapter.reposition_runtime_state("C123", "agent-bot", None),
+            adapter.apply_runtime_state(
+                "C123", "agent-bot", "idle", notify_user=None, thread_root_id=None
+            ),
+        )
+
+    _run(scenario())
+
+    # Every message the adapter posted was deleted again — whichever order the
+    # two ran in, the channel ends up empty and nothing is left tracked.
+    assert set(fake.issued) == {d["ts"] for d in fake.deletes}
+    assert ("C123", "agent-bot") not in adapter._working_msg
+
+
+def test_reposition_leaves_the_original_when_the_repost_fails() -> None:
+    # A move must never end with no indicator at all: if the replacement cannot
+    # be posted, the original stays where it is rather than being deleted.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123", "agent-bot", "working", notify_user=None, thread_root_id=None
+        )
+    )
+
+    async def failing_send(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    adapter.send_message = failing_send  # type: ignore[method-assign]
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", None))
+
+    assert fake.deletes == []
+    assert adapter._working_msg[("C123", "agent-bot")].message_ref == "C123:999.9"
 
 
 # ── Self-mention (tagging the app) ───────────────────────────────────────────

@@ -6,30 +6,40 @@ import type {
   DependencyUninstallResult,
   DependencyUpdateResult,
 } from '@switchdash/core/deps/runtime';
-import { isTransportFailure } from '@switchdash/core/exec';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
 import {
+  evictRemoteDependencyManager,
   getRemoteDependencyManager,
   remoteDependencyDescriptor,
 } from '@main/core/dependencies/remote-dependency-manager';
-import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ptySessionRegistry } from '@main/core/pty/pty-session-registry';
 import { openSsh2Pty } from '@main/core/pty/ssh2-pty';
-import { ensureSshConnected, forceSshReconnect } from '@main/core/ssh/connect/connect-agent-ssh';
-import { sshConnectionManager } from '@main/core/ssh/lifecycle/production-ssh-connection-manager';
+import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
 import { buildRemoteShellCommand } from '@main/core/ssh/lifecycle/remote-shell-profile';
-import {
-  getRemoteSwitchSetupService,
-  type RemoteSwitchSetupService,
-} from '@main/core/switch-setup/remote-switch-setup';
+import { getRemoteSwitchSetupService } from '@main/core/switch-setup/remote-switch-setup';
 import { hostBlockedReason, type HostReachability } from '@shared/core/remote-hosts/reachability';
-import type { ConnectionState, SshHealthState } from '@shared/core/ssh/ssh';
+import type { HostSetupPlan } from '@shared/core/remote-hosts/setup';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import type { SwitchAgentConfig } from '@shared/switch-agents';
+import { probeGhAuthStatus, type GhAuthStatus } from './gh-auth';
 import { listSshConfigHosts } from './list-ssh-config-hosts';
 import { hostReachabilityService } from './production-host-reachability';
+import { deletePersistedReachability } from './reachability-store';
+import {
+  discardSetupPlan,
+  ensureSetupPlan,
+  installSetupStep,
+  readAllSetupPlans,
+  readSetupPlan,
+  recheckSetup,
+  recheckSetupStep,
+  skipSetupStep,
+  updateSetupStep,
+} from './setup/host-setup-service';
 import { listRemoteHosts, removeRemoteHost, upsertRemoteHost, type RemoteHost } from './store';
+
+export type { GhAuthStatus };
 
 /** A single dependency's status on a remote host, enriched for the UI. */
 export type RemoteDependencyView = {
@@ -46,50 +56,12 @@ export type RemoteDependencyView = {
   /**
    * GitHub CLI auth status. Present only on the `gh` dependency once its binary
    * is available — `gh` being installed is not enough to use it, it must also be
-   * authenticated (`gh auth status`).
+   * authenticated and hold the `read:packages` scope.
    */
   ghAuth?: GhAuthStatus;
 };
 
-export type GhAuthStatus = { authenticated: boolean; account: string | null };
-
 export type TestConnectionResult = { ok: true } | { ok: false; message: string };
-
-/** Live status of a host's pooled SSH connection, for the connection badge. */
-export type HostConnectionStatus = {
-  state: ConnectionState;
-  health: SshHealthState;
-};
-
-function hostConnectionStatus(sshHost: string): HostConnectionStatus {
-  const connectionId = sshConnectionIdForHost(sshHost);
-  return {
-    state: sshConnectionManager.getConnectionState(connectionId),
-    health: sshConnectionManager.getAllHealthStates()[connectionId] ?? { status: 'ok' },
-  };
-}
-
-/** Matches the account line of `gh auth status` across gh versions ("account NAME" / "as NAME"). */
-const GH_AUTH_ACCOUNT_RE = /Logged in to \S+ (?:account|as) (\S+)/;
-
-/**
- * Check whether `gh` is authenticated on a remote host via `gh auth status`.
- * Exit 0 means authenticated; a non-zero exit (which SshExecutionContext
- * throws on) means not logged in. A transport failure propagates — a dead
- * connection is not evidence of a missing login.
- */
-async function probeGhAuth(sshHost: string): Promise<GhAuthStatus> {
-  const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
-  const ctx = new SshExecutionContext(proxy);
-  try {
-    const { stdout, stderr } = await ctx.exec('gh', ['auth', 'status']);
-    const account = GH_AUTH_ACCOUNT_RE.exec(`${stdout}\n${stderr}`)?.[1] ?? null;
-    return { authenticated: true, account };
-  } catch (error) {
-    if (isTransportFailure(error)) throw error;
-    return { authenticated: false, account: null };
-  }
-}
 
 /**
  * Ad-hoc reachability check. Routed through the reachability service rather
@@ -125,78 +97,10 @@ async function probeDeps(sshHost: string): Promise<RemoteDependencyView[]> {
   // auth when the binary is present (probing gh auth without gh would just fail).
   const gh = views.find((v) => v.id === 'gh');
   if (gh && gh.status === 'available') {
-    gh.ghAuth = await probeGhAuth(sshHost);
+    gh.ghAuth = await probeGhAuthStatus(sshHost);
   }
 
   return views;
-}
-
-/**
- * Whether a remote host is set up enough to run Switch agents, and which agent
- * types are actually usable on it. A host is `ready` when its core tooling is in
- * place (git, tmux, node installed and gh authenticated) AND at least one agent
- * type has BOTH its CLI and the Switch connector plugin installed.
- */
-export type HostSetupStatus = {
-  sshHost: string;
-  reachable: boolean;
-  coreReady: boolean;
-  /** Agent-type ids with both CLI and Switch plugin installed on this host. */
-  availableAgentIds: string[];
-  ready: boolean;
-  /** Human-readable outstanding items, for surfacing why a host isn't ready. */
-  issues: string[];
-};
-
-async function getHostSetup(sshHost: string): Promise<HostSetupStatus> {
-  let views: RemoteDependencyView[];
-  let plugins: Awaited<ReturnType<RemoteSwitchSetupService['listAgentTypeStatuses']>>;
-  try {
-    views = await probeDeps(sshHost);
-    const service = await getRemoteSwitchSetupService(sshHost);
-    plugins = await service.listAgentTypeStatuses();
-  } catch (error) {
-    return {
-      sshHost,
-      reachable: false,
-      coreReady: false,
-      availableAgentIds: [],
-      ready: false,
-      issues: [error instanceof Error ? error.message : 'Host unreachable'],
-    };
-  }
-
-  const issues: string[] = [];
-  for (const dep of views.filter((v) => v.category === 'core')) {
-    if (dep.id === 'gh') {
-      if (dep.status !== 'available') issues.push('GitHub CLI not installed');
-      else if (dep.ghAuth && !dep.ghAuth.authenticated) issues.push('GitHub CLI not authenticated');
-    } else if (dep.status !== 'available') {
-      issues.push(`${dep.name} not installed`);
-    }
-  }
-  const coreReady = issues.length === 0;
-
-  // An agent is usable only with BOTH its CLI and the Switch plugin present.
-  const cliInstalled = new Set(
-    views.filter((v) => v.category === 'agent' && v.status === 'available').map((v) => v.id)
-  );
-  const availableAgentIds = plugins
-    .filter((p) => p.supported && p.installed && cliInstalled.has(p.agentId))
-    .map((p) => p.agentId);
-
-  if (availableAgentIds.length === 0) {
-    issues.push('No agent type has both its CLI and the Switch plugin installed');
-  }
-
-  return {
-    sshHost,
-    reachable: true,
-    coreReady,
-    availableAgentIds,
-    ready: coreReady && availableAgentIds.length > 0,
-    issues,
-  };
 }
 
 /**
@@ -205,13 +109,31 @@ async function getHostSetup(sshHost: string): Promise<HostSetupStatus> {
  * can attach a live terminal (subscribe to output, send keystrokes) via the pty
  * RPC/events. gh prints a one-time code and a verification URL; the user opens the
  * URL in their own browser and enters the code. Returns the PTY session id.
+ *
+ * `read:packages` is requested explicitly because `gh auth login` does not ask
+ * for it — its defaults are `gist`, `read:org`, `repo` and `workflow`. Sessions
+ * on this host fetch their MCP runtime from GitHub Packages, and without that
+ * scope the registry refuses with
+ * `403 … token provided does not match expected scopes`, several layers below
+ * anything that mentions `gh`. Asking for it during the one interactive login
+ * the user already performs is the only point where it costs nothing; every
+ * other route ends in `gh auth refresh` on a box they thought was set up.
  */
 async function startGhAuth(sshHost: string): Promise<{ sessionId: string }> {
   const proxy = await ensureSshConnected(sshConnectionIdForHost(sshHost), sshHost);
   const profile = await proxy.getRemoteShellProfile();
+  // Login when logged out, refresh when already logged in. `gh auth login` on
+  // an authenticated host stops to ask whether you meant to re-authenticate,
+  // which is a confusing thing to meet when all you needed was a scope; `gh
+  // auth refresh` adds it without disturbing the existing login. Both are the
+  // same device-code flow in this PTY, so the user sees no difference.
   const remoteCommand = buildRemoteShellCommand(
     profile,
-    'gh auth login --hostname github.com --git-protocol https --web'
+    'if gh auth status >/dev/null 2>&1; then ' +
+      'gh auth refresh --hostname github.com --scopes read:packages; ' +
+      'else ' +
+      'gh auth login --hostname github.com --git-protocol https --web --scopes read:packages; ' +
+      'fi'
   );
   const sessionId = `gh-auth:${crypto.randomUUID()}`;
 
@@ -240,10 +162,6 @@ export const remoteHostsController = createRPCController({
 
   testConnection: (sshHost: string): Promise<TestConnectionResult> => testConnection(sshHost),
 
-  /** Live state + health of the host's pooled SSH connection. */
-  getConnectionStatus: (sshHost: string): Promise<HostConnectionStatus> =>
-    Promise.resolve(hostConnectionStatus(sshHost)),
-
   /** Modeled reachability for one host — the state the UI gates its display on. */
   getReachability: (sshHost: string): Promise<HostReachability> =>
     Promise.resolve(hostReachabilityService.get(sshHost)),
@@ -261,22 +179,6 @@ export const remoteHostsController = createRPCController({
   retryHost: (sshHost: string): Promise<HostReachability> =>
     hostReachabilityService.checkNow(sshHost),
 
-  /**
-   * Force a full transport rebuild for the host's pooled connection — the
-   * manual recovery path for a wedged or given-up connection. Returns the
-   * post-rebuild status.
-   */
-  reconnectHost: async (sshHost: string): Promise<HostConnectionStatus> => {
-    try {
-      await forceSshReconnect(sshConnectionIdForHost(sshHost), sshHost);
-    } catch (error) {
-      hostReachabilityService.reportFailure(sshHost, error);
-      throw error;
-    }
-    hostReachabilityService.reportSuccess(sshHost);
-    return hostConnectionStatus(sshHost);
-  },
-
   /** Verify reachability, then onboard (or rename) the host. */
   onboardHost: async (params: { sshHost: string; name: string }): Promise<RemoteHost> => {
     const test = await testConnection(params.sshHost);
@@ -286,7 +188,50 @@ export const remoteHostsController = createRPCController({
     return upsertRemoteHost({ sshHost: params.sshHost, name: params.name });
   },
 
-  removeHost: (sshHost: string): Promise<void> => removeRemoteHost(sshHost),
+  /**
+   * Remove a host and everything keyed to it. Previously only the row was
+   * deleted, leaving an orphaned reachability record and a cached dependency
+   * manager bound to the old connection — so re-adding the same alias resumed
+   * against stale state.
+   */
+  removeHost: async (sshHost: string): Promise<void> => {
+    await removeRemoteHost(sshHost);
+    await discardSetupPlan(sshHost);
+    await deletePersistedReachability(sshHost);
+    evictRemoteDependencyManager(sshHost);
+  },
+
+  /** The host's persisted setup plan, or null if setup has never been run. */
+  getSetupPlan: (sshHost: string): Promise<HostSetupPlan | null> => readSetupPlan(sshHost),
+
+  /** Every host's plan, for the initial hydrate of the renderer's readiness store. */
+  listSetupPlans: (): Promise<HostSetupPlan[]> => readAllSetupPlans(),
+
+  /**
+   * Build or refresh the plan without running it — what the host page loads on
+   * open. Merges onto any persisted progress rather than discarding it.
+   * Structural only: it lists what to check, it does not check it.
+   */
+  prepareSetup: (sshHost: string): Promise<HostSetupPlan> => ensureSetupPlan(sshHost),
+
+  /** Probe every step and install nothing — the "Re-check" button. */
+  recheckSetup: (sshHost: string): Promise<HostSetupPlan> => recheckSetup(sshHost),
+
+  /** Re-observe one prerequisite or agent type, installing nothing. */
+  recheckSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    recheckSetupStep(params.sshHost, params.stepId),
+
+  /** Install one prerequisite or agent type on its own, then verify it. */
+  installSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    installSetupStep(params.sshHost, params.stepId),
+
+  /** Replace one prerequisite or agent type with its newest version, then verify. */
+  updateSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    updateSetupStep(params.sshHost, params.stepId),
+
+  /** Move past a step the user has chosen not to fix, unblocking the rest. */
+  skipSetupStep: (params: { sshHost: string; stepId: string }): Promise<HostSetupPlan> =>
+    skipSetupStep(params.sshHost, params.stepId),
 
   /**
    * Detect the Switch agent configured in a remote working directory (reads its
@@ -300,9 +245,6 @@ export const remoteHostsController = createRPCController({
     detectSwitchAgentRemote(params.sshHost, params.remoteRepoDir),
 
   probeDeps: (sshHost: string): Promise<RemoteDependencyView[]> => probeDeps(sshHost),
-
-  /** Whether a host is set up to run agents, and which agent types are usable on it. */
-  getHostSetup: (sshHost: string): Promise<HostSetupStatus> => getHostSetup(sshHost),
 
   /** Begin an interactive `gh auth login` PTY session on the host; returns its pty session id. */
   startGhAuth: (params: { sshHost: string }): Promise<{ sessionId: string }> =>

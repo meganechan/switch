@@ -6,13 +6,18 @@ import logging
 import re
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Coroutine
+from dataclasses import replace
 from typing import Any
 
 import discord
 
-from switch_core.bridges.collaboration.adapter import CollaborationAdapter
+from switch_core.bridges.collaboration.adapter import (
+    CollaborationAdapter,
+    LiveRuntimeIndicator,
+)
 from switch_core.bridges.collaboration.models import (
     Attachment,
+    AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
     InboundAgentJoin,
@@ -68,15 +73,9 @@ class DiscordAdapter(CollaborationAdapter):
         # Discord user id ↔ username caches, for mention translation both ways.
         self._user_names: dict[int, str] = {}
         self._username_to_id: dict[str, int] = {}
-        # (channel_id, agent_name) -> message ref of the agent's live "working
-        # on it…" runtime-state message, so it can be deleted when the agent
-        # stops working. Webhook messages delete cleanly on Discord, so a
-        # persistent message is preferable to the one-shot typing indicator.
-        self._working_msg: dict[tuple[str, str], str] = {}
-        # (channel_id, agent_name) -> refs of the live "needs your input" pings,
-        # kept so they can be removed when the turn ends. The working indicator
-        # stays up alongside these — the agent is mid-turn, just paused.
-        self._input_pings: dict[tuple[str, str], list[str]] = {}
+        # Webhook messages delete cleanly on Discord, so runtime state renders
+        # as a persistent message (see the base class's _working_msg) rather
+        # than the one-shot typing indicator.
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -400,6 +399,24 @@ class DiscordAdapter(CollaborationAdapter):
         if not message_id:
             logger.error("Cannot delete message: invalid message ref %s", message_ref)
             return
+
+        # Agent posts are authored by the channel webhook, not the bot, so the
+        # bot may only remove them with Manage Messages. Delete through the
+        # webhook that sent it, mirroring update_message, and keep the bot path
+        # for messages the bot really did post (admin notices, DM fallbacks).
+        kwargs: dict[str, Any] = {}
+        if location_id and location_id != channel_id:
+            kwargs["thread"] = discord.Object(id=int(location_id))
+        try:
+            webhook = await self._get_webhook(int(channel_id))
+            await webhook.delete_message(int(message_id), **kwargs)
+            return
+        except discord.NotFound:
+            pass
+        except discord.HTTPException as e:
+            logger.error("Failed to delete Discord message %s: %s", message_ref, e)
+            return
+
         try:
             target = await self._get_channel(int(location_id or channel_id))
             await target.get_partial_message(int(message_id)).delete()
@@ -425,7 +442,7 @@ class DiscordAdapter(CollaborationAdapter):
 
     # ── Runtime state ────────────────────────────────────────────────────────
 
-    async def apply_runtime_state(
+    async def _apply_runtime_state(
         self,
         channel_id: str,
         agent_name: str,
@@ -454,11 +471,14 @@ class DiscordAdapter(CollaborationAdapter):
             body = self._working_body(detail, deeplink_url)
             existing = self._working_msg.get(key)
             if existing is not None:
-                await self.update_message(channel_id, existing, body)
+                await self.update_message(channel_id, existing.message_ref, body)
+                self._working_msg[key] = replace(existing, body=body)
                 return
             ref = await self.send_message(channel_id, agent_name, body, thread_root_id)
             if ref is not None:
-                self._working_msg[key] = ref
+                self._working_msg[key] = LiveRuntimeIndicator(
+                    message_ref=ref, body=body, thread_root_id=thread_root_id
+                )
         elif state == "awaiting-input":
             ref = await self._ping_operator(
                 channel_id, agent_name, notify_user, thread_root_id, deeplink_url
@@ -470,9 +490,9 @@ class DiscordAdapter(CollaborationAdapter):
             await self._clear_input_pings(channel_id, agent_name)
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
-        ref = self._working_msg.pop((channel_id, agent_name), None)
-        if ref is not None:
-            await self.delete_message(channel_id, ref)
+        live = self._working_msg.pop((channel_id, agent_name), None)
+        if live is not None:
+            await self.delete_message(channel_id, live.message_ref)
 
     async def _clear_input_pings(self, channel_id: str, agent_name: str) -> None:
         refs = self._input_pings.pop((channel_id, agent_name), [])
@@ -549,6 +569,13 @@ class DiscordAdapter(CollaborationAdapter):
         if not external_channel_id:
             return None
         return f"https://discord.com/channels/{self._config.guild_id}/{external_channel_id}"
+
+    async def home_deeplink(self) -> str | None:
+        """`https://discord.com/channels/<guild>` — the guild's canonical link,
+        which the desktop app claims, same as `channel_deeplink`."""
+        if not self._config.guild_id:
+            return None
+        return f"https://discord.com/channels/{self._config.guild_id}"
 
     async def get_channel_type(self, channel_id: str) -> ChannelType:
         target = await self._get_channel(int(channel_id))
@@ -721,7 +748,7 @@ class DiscordAdapter(CollaborationAdapter):
         if self._on_message is None:
             return
 
-        attachments = await self._fetch_image_attachments(
+        attachments, attachment_failures = await self._fetch_attachments(
             getattr(message, "attachments", []) or []
         )
         self_mention = (
@@ -739,39 +766,67 @@ class DiscordAdapter(CollaborationAdapter):
                 root_id=root_id,
                 channel_name=channel_name,
                 attachments=attachments,
+                attachment_failures=attachment_failures,
                 self_mention_token=str(self._bot_user_id) if self_mention else None,
             )
         )
 
     # ── Attachments ──────────────────────────────────────────────────────────
 
-    async def _fetch_image_attachments(self, files: list[Any]) -> list[Attachment]:
-        """Download image attachments from a Discord message.
+    async def _fetch_attachments(
+        self, files: list[Any]
+    ) -> tuple[list[Attachment], list[AttachmentFailure]]:
+        """Download every attachment from a Discord message, whatever the type.
 
-        Non-image files are skipped (images-only for now, mirroring Slack and
-        Mattermost). A single file that fails to download is logged and
-        skipped rather than dropping the whole message.
+        Returns the downloaded attachments and, separately, the ones that could
+        not be relayed (oversize, download failure) so the bridge can disclose
+        them in the room rather than dropping them silently.
         """
         attachments: list[Attachment] = []
+        failures: list[AttachmentFailure] = []
         for file in files:
-            mimetype = str(getattr(file, "content_type", "") or "")
-            if not mimetype.startswith("image/"):
-                logger.debug(
-                    "Skipping non-image Discord attachment %s (%s)",
-                    getattr(file, "id", "?"),
-                    mimetype or "unknown",
+            mimetype = (
+                str(getattr(file, "content_type", "") or "")
+                or "application/octet-stream"
+            )
+            filename = str(getattr(file, "filename", "") or "file")
+            size = getattr(file, "size", None)
+            if isinstance(size, int) and size > self._max_attachment_bytes:
+                logger.warning(
+                    "Discord attachment %s is %d bytes, over the %d cap",
+                    filename,
+                    size,
+                    self._max_attachment_bytes,
+                )
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{size} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
                 )
                 continue
-            filename = str(getattr(file, "filename", "") or "image")
             try:
                 data = await file.read()
-            except Exception:
+            except Exception as exc:
                 logger.exception("Failed to download Discord attachment %s", filename)
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename, reason=f"download failed: {exc}"
+                    )
+                )
+                continue
+            if len(data) > self._max_attachment_bytes:
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{len(data)} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
+                )
                 continue
             attachments.append(
                 Attachment(filename=filename, mimetype=mimetype, data=data)
             )
-        return attachments
+        return attachments, failures
 
     # ── Webhooks & channels ──────────────────────────────────────────────────
 

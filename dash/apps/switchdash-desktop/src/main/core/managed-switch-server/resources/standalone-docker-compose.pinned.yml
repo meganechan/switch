@@ -26,13 +26,29 @@
 # and pins versions without edits:
 #   SWITCH_REGISTRY         (default ghcr.io)
 #   SWITCH_IMAGE_NAMESPACE  (default sandbox-quantum)
-#   SWITCH_VERSION          (default latest)
+#   SWITCH_VERSION          (REQUIRED — no default, on purpose)
+#
+# SWITCH_VERSION has no fallback. It used to default to `latest`, so a missing
+# or misspelt env var silently floated the whole stack to whatever had most
+# recently been published — a different switch-core on every `up`, with nothing
+# to say so. Compose now refuses to start rather than pick a version nobody
+# asked for (CHOO-1865). `.env.example` sets it, and switchdash writes it.
+
+# What this compose artifact speaks on the `stack-compose` contract, which is
+# what switchdash's local-server mode pins against (CHOO-1865). The version this
+# file is published under says which release it is; this says what it speaks.
+# Compose ignores `x-` keys.
+x-switch-contract:
+  name: stack-compose
+  artifact: compose
+  speaks: 1
+  accepts: 1
 
 services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${POSTGRES_HOST_PORT:-5432}:5432"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -52,9 +68,21 @@ services:
       PGPASSWORD: ${DB_PASSWORD}
     entrypoint: >
       sh -c "
-        until pg_isready -h postgres -U ${DB_USER}; do sleep 1; done
-        psql -h postgres -U ${DB_USER} -tc \"SELECT 1 FROM pg_database WHERE datname='mattermost'\" | grep -q 1 ||
-          psql -h postgres -U ${DB_USER} -c 'CREATE DATABASE mattermost;'
+        i=0
+        until psql -h postgres -U ${DB_USER} -d postgres -c 'SELECT 1' >/dev/null 2>&1; do
+          i=$$((i+1))
+          if [ $$i -ge 30 ]; then
+            echo 'init-db: could not connect to postgres as ${DB_USER} after 30 tries.' >&2
+            echo 'Last attempt:' >&2
+            psql -h postgres -U ${DB_USER} -d postgres -c 'SELECT 1' >&2
+            echo 'A stale pgdata volume keeps the password it was first created with,' >&2
+            echo 'so a regenerated DB_PASSWORD will fail here. Recreate the stack to reset it.' >&2
+            exit 1
+          fi
+          sleep 1
+        done
+        psql -h postgres -U ${DB_USER} -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='mattermost'\" | grep -q 1 ||
+          psql -h postgres -U ${DB_USER} -d postgres -c 'CREATE DATABASE mattermost;'
       "
     depends_on:
       postgres:
@@ -75,10 +103,16 @@ services:
       TUWUNEL_MAX_REQUEST_SIZE: "20000000"
 
   mattermost:
-    image: mattermost/mattermost-team-edition:latest
+    # Pinned rather than `latest`: switchdash embeds this Mattermost's web UI
+    # and depends on its DOM structure, so an unattended upgrade could break
+    # the embedded room view on a `docker compose pull` no one initiated.
+    image: mattermost/mattermost-team-edition:11.9.0
+    # Mattermost publishes team-edition for amd64 only, so an Apple Silicon or
+    # other arm64 host fails the pull outright without this. Runs emulated.
+    platform: linux/amd64
     profiles: ["collab"]
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${MATTERMOST_HOST_PORT:-8065}:8065"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${MATTERMOST_HOST_PORT:-8065}:8065"
     volumes:
       - mmdata:/mattermost/data
     environment:
@@ -86,6 +120,14 @@ services:
       MM_SQLSETTINGS_DATASOURCE: postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/mattermost?sslmode=disable
       MM_SERVICESETTINGS_SITEURL: http://localhost:${MATTERMOST_HOST_PORT:-8065}
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      # The first-run onboarding checklist opens a modal over a dimmed page,
+      # which in the embedded room view is chrome the user cannot meaningfully
+      # act on and has to dismiss per account.
+      MM_SERVICESETTINGS_ENABLEONBOARDINGFLOW: "false"
+      # Agents post `switchdash://session?…` deeplinks so a human can jump from
+      # a message to the session behind it. Mattermost only turns known schemes
+      # into links, so without this they render as unclickable plain text.
+      MM_DISPLAYSETTINGS_CUSTOMURLSCHEMES: switchdash
       MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
       MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
       # Lets the bridge hard-delete (permanent=true) an agent's transient
@@ -93,14 +135,19 @@ services:
       # leave a "(message deleted)" tombstone. Requires Mattermost >= v10.2.
       MM_SERVICESETTINGS_ENABLEAPIPOSTDELETION: "true"
       MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      # Neither plugin is usable in a bundled Switch deployment: Copilot has no
+      # configured provider and throws a 404 looking up its bot on every page
+      # load, and Calls ships a WebRTC service nothing here can reach.
+      MM_PLUGINSETTINGS_PLUGINSTATES: |
+        {"mattermost-ai":{"Enable":false},"com.mattermost.calls":{"Enable":false}}
     depends_on:
       init-db:
         condition: service_completed_successfully
 
   switch:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/switch-core:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/switch-core:${SWITCH_VERSION:?required - set it in .env, there is no default}
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${API_HOST_PORT:-8000}:8000"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -117,6 +164,7 @@ services:
       GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL}
       GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL}
+      GATEWAY_PUBLIC_URL: ${GATEWAY_PUBLIC_URL:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -124,15 +172,15 @@ services:
         condition: service_started
 
   gateway:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/gateway:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/gateway:${SWITCH_VERSION:?required - set it in .env, there is no default}
     profiles: ["gateway"]
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${GATEWAY_HOST_PORT:-3000}:3000"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${GATEWAY_HOST_PORT:-3000}:3000"
     depends_on:
       - switch
 
   setup:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/setup:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/setup:${SWITCH_VERSION:?required - set it in .env, there is no default}
     profiles: ["collab"]
     restart: on-failure
     environment:
@@ -144,6 +192,8 @@ services:
       MATTERMOST_TEAM_NAME: ${MATTERMOST_TEAM_NAME}
       MATTERMOST_USER: ${MATTERMOST_USER}
       MATTERMOST_USER_PASSWORD: ${MATTERMOST_USER_PASSWORD}
+      GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL}
+      GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD}
     depends_on:
       - mattermost
       - switch

@@ -10,6 +10,7 @@ import time
 import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from typing import Any
 
 import httpx
@@ -17,9 +18,13 @@ import requests as sync_requests
 from mattermostdriver import Driver
 from mattermostdriver.exceptions import NoAccessTokenProvided
 
-from switch_core.bridges.collaboration.adapter import CollaborationAdapter
+from switch_core.bridges.collaboration.adapter import (
+    CollaborationAdapter,
+    LiveRuntimeIndicator,
+)
 from switch_core.bridges.collaboration.models import (
     Attachment,
+    AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
     InboundAgentJoin,
@@ -27,6 +32,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 
 logger = logging.getLogger(__name__)
@@ -42,6 +48,12 @@ class MattermostConnectionConfig(BridgeConnectionConfig):
     # address). Used for the channel deeplink so the link works in the user's
     # desktop client. Falls back to `url` when unset.
     public_url: str | None = None
+    # Human account to add to every channel this bridge creates. A bundled
+    # Mattermost has exactly one human, and a room created by an agent names no
+    # users — without this they would never be a member of a private channel and
+    # could not read the room at all. Unset for bridges where membership is
+    # managed on the platform.
+    default_member: str | None = None
 
 
 class MattermostAdapter(CollaborationAdapter):
@@ -68,16 +80,13 @@ class MattermostAdapter(CollaborationAdapter):
         self._seen_post_ids_max = 1000
         self._seen_lock = threading.Lock()
 
-        # (channel_id, agent_name) -> post id of the agent's live "working on
-        # it…" runtime-state message. Mattermost's delete leaves a "(message
-        # deleted)" tombstone, so the message is never deleted — it is edited in
-        # place to a terminal marker when the turn ends (idle) or repurposed
-        # into the operator ping (awaiting-input).
-        self._working_msg: dict[tuple[str, str], str] = {}
-        # (channel_id, agent_name) -> post ids of the live "needs your input"
-        # pings, kept so they can be removed when the turn ends. The working
-        # indicator stays up alongside these — the agent is mid-turn, paused.
-        self._input_pings: dict[tuple[str, str], list[str]] = {}
+        # Mattermost's ordinary delete leaves a "(message deleted)" tombstone,
+        # so the runtime indicator (base class `_working_msg`) is never soft
+        # deleted — it is hard deleted where the server permits it, and
+        # otherwise edited in place to a terminal marker when the turn ends.
+        # Channels where the hard delete has been found unavailable, so the
+        # operator is warned once rather than on every message.
+        self._no_hard_delete_warned: set[str] = set()
 
         self._main_loop: asyncio.AbstractEventLoop | None = None
 
@@ -266,6 +275,87 @@ class MattermostAdapter(CollaborationAdapter):
             )
             return None
 
+    async def send_attachments(
+        self,
+        channel_id: str,
+        sender_name: str,
+        files: list[OutboundAttachment],
+        caption: str | None = None,
+        thread_root_id: str | None = None,
+    ) -> str | None:
+        """Upload several files and attach them all to ONE post — Mattermost
+        posts natively carry a list of file ids."""
+        if not files:
+            return None
+        if len(files) == 1:
+            file = files[0]
+            return await self.send_attachment(
+                channel_id,
+                sender_name,
+                file.filename,
+                file.mimetype,
+                file.data,
+                caption,
+                thread_root_id,
+            )
+        loop = self._main_loop
+        if loop is None:
+            logger.error("Cannot send attachments: event loop not initialized")
+            return None
+        driver = self._bot_drivers.get(sender_name)
+        if not driver:
+            logger.error("No Mattermost driver found for sender '%s'", sender_name)
+            if not self._admin_driver:
+                return None
+            driver = self._admin_driver
+
+        def _upload_all() -> list[str]:
+            ids: list[str] = []
+            for file in files:
+                result = driver.files.upload_file(
+                    channel_id,
+                    files={
+                        "files": (file.filename, io.BytesIO(file.data), file.mimetype)
+                    },
+                )
+                ids.extend(info["id"] for info in result.get("file_infos", []))
+            return ids
+
+        try:
+            file_ids = await loop.run_in_executor(None, _upload_all)
+        except Exception as e:
+            logger.error(
+                "Failed to upload %d attachments to Mattermost channel %s: %s",
+                len(files),
+                channel_id,
+                e,
+            )
+            file_ids = []
+        if not file_ids:
+            return await super().send_attachments(
+                channel_id, sender_name, files, caption, thread_root_id
+            )
+
+        post: dict[str, object] = {
+            "channel_id": channel_id,
+            "message": self.translate_outbound(caption) if caption else "",
+            "file_ids": file_ids,
+        }
+        if thread_root_id is not None:
+            post["root_id"] = thread_root_id
+        try:
+            result = await loop.run_in_executor(None, driver.posts.create_post, post)
+            post_id: str = result.get("id", "")
+            return post_id or None
+        except Exception as e:
+            logger.error(
+                "Failed to post %d attachments to Mattermost channel %s: %s",
+                len(files),
+                channel_id,
+                e,
+            )
+            return None
+
     async def _create_post(
         self,
         driver: Driver,
@@ -350,7 +440,7 @@ class MattermostAdapter(CollaborationAdapter):
 
     # ── Runtime state ──────────────────────────────────────────────────────────
 
-    async def apply_runtime_state(
+    async def _apply_runtime_state(
         self,
         channel_id: str,
         agent_name: str,
@@ -383,11 +473,14 @@ class MattermostAdapter(CollaborationAdapter):
             existing = self._working_msg.get(key)
             if existing is not None:
                 # Refresh the live message in place with the latest activity.
-                await self._patch_post_as(agent_name, existing, body)
+                await self._patch_post_as(agent_name, existing.message_ref, body)
+                self._working_msg[key] = replace(existing, body=body)
                 return
             ref = await self.send_message(channel_id, agent_name, body, thread_root_id)
             if ref is not None:
-                self._working_msg[key] = ref
+                self._working_msg[key] = LiveRuntimeIndicator(
+                    message_ref=ref, body=body, thread_root_id=thread_root_id
+                )
         elif state == "awaiting-input":
             ref = await self._ping_operator(
                 channel_id, agent_name, notify_user, thread_root_id, deeplink_url
@@ -410,6 +503,54 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name, post_id, self.translate_outbound("✓ input received")
             )
 
+    async def _reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Move the indicator only when Mattermost will truly delete the old one.
+
+        This inverts the base class's post-then-delete order. Mattermost can only
+        remove a post without leaving a "(message deleted)" tombstone when the
+        server permits a hard delete (v10.2+, ``EnableAPIPostDeletion``, and a
+        system-admin account). Reposting first and discovering the delete is
+        unavailable would strand a dead marker in the channel on *every*
+        message, so the delete is attempted first and the move is abandoned —
+        loudly — when it fails.
+        """
+        key = (channel_id, agent_name)
+        live = self._working_msg.get(key)
+        if live is None:
+            return
+
+        if not await self._permanent_delete(live.message_ref):
+            if channel_id not in self._no_hard_delete_warned:
+                self._no_hard_delete_warned.add(channel_id)
+                logger.warning(
+                    "Cannot move the runtime indicator in Mattermost channel %s: "
+                    "hard delete is unavailable, so the indicator would leave a "
+                    "marker behind each time it moved. It will stay where it was "
+                    "first posted. Requires Mattermost v10.2+ with "
+                    "ServiceSettings.EnableAPIPostDeletion and a system-admin "
+                    "account.",
+                    channel_id,
+                )
+            return
+
+        ref = await self.send_message(channel_id, agent_name, live.body, thread_root_id)
+        if ref is None:
+            # The old post is already gone, so there is nothing to fall back to.
+            self._working_msg.pop(key, None)
+            logger.error(
+                "Removed the runtime indicator for %s in %s but could not repost "
+                "it; the channel now shows no indicator for this turn",
+                agent_name,
+                channel_id,
+            )
+            return
+
+        self._working_msg[key] = replace(
+            live, message_ref=ref, thread_root_id=thread_root_id
+        )
+
     async def _dispose_working(self, channel_id: str, agent_name: str) -> None:
         """Remove the live "working on it…" message when the turn ends.
 
@@ -418,13 +559,13 @@ class MattermostAdapter(CollaborationAdapter):
         ``ServiceSettings.EnableAPIPostDeletion`` enabled and a system-admin
         account, so when it is unavailable we fall back to editing the message
         in place — never a soft delete, which would leave a tombstone."""
-        post_id = self._working_msg.pop((channel_id, agent_name), None)
-        if post_id is None:
+        live = self._working_msg.pop((channel_id, agent_name), None)
+        if live is None:
             return
-        if await self._permanent_delete(post_id):
+        if await self._permanent_delete(live.message_ref):
             return
         await self._patch_post_as(
-            agent_name, post_id, self.translate_outbound("✓ done")
+            agent_name, live.message_ref, self.translate_outbound("✓ done")
         )
 
     async def _permanent_delete(self, post_id: str) -> bool:
@@ -523,7 +664,30 @@ class MattermostAdapter(CollaborationAdapter):
             )
             channel_id = channel["id"]
 
+        await self._add_default_member(channel_id)
         return channel_id
+
+    async def _add_default_member(self, channel_id: str) -> None:
+        """Add the deployment's human account to a channel we just created.
+
+        Public channels would let them join by navigating, but private ones
+        would not — and a room created by an agent names no users, so nothing
+        else would ever add them. Best-effort and loudly logged: the channel and
+        room already exist by this point, so failing here should not undo them,
+        but it does mean a human cannot see the room.
+        """
+        member = self._config.default_member
+        if not member:
+            return
+        try:
+            await self.add_users_to_channel(channel_id, [member], [])
+        except Exception:
+            logger.exception(
+                "Failed to add default member '%s' to Mattermost channel %s — "
+                "the room exists but no human is in its channel",
+                member,
+                channel_id,
+            )
 
     async def get_channel_type(self, channel_id: str) -> ChannelType:
         if not self._admin_driver or not self._main_loop:
@@ -560,6 +724,21 @@ class MattermostAdapter(CollaborationAdapter):
         base_url = self._config.public_url or self._config.url
         host = re.sub(r"^https?://", "", base_url).rstrip("/")
         return f"mattermost://{host}/{self._config.team_name}/channels/{name}"
+
+    async def home_deeplink(self) -> str | None:
+        """`mattermost://<host>/<team>` — the team's home in the desktop app.
+
+        Uses `public_url` when set, for the same reason `channel_deeplink`
+        does: `url` may be an address only Switch can reach. For the bundled
+        deployment neither is reachable from a user's machine (`url` is the
+        in-compose `http://mattermost:8065` and `public_url` is unset), so a
+        client that knows where it published Mattermost should prefer its own
+        origin over this."""
+        base_url = self._config.public_url or self._config.url
+        if not base_url or not self._config.team_name:
+            return None
+        host = re.sub(r"^https?://", "", base_url).rstrip("/")
+        return f"mattermost://{host}/{self._config.team_name}"
 
     async def add_agents_to_channel(
         self, channel_id: str, agent_names: list[str]
@@ -986,7 +1165,7 @@ class MattermostAdapter(CollaborationAdapter):
             return
 
         if self._on_message:
-            attachments = await self._fetch_image_attachments(
+            attachments, attachment_failures = await self._fetch_attachments(
                 post.get("file_ids", []), ws_loop
             )
             inbound = InboundMessage(
@@ -1000,50 +1179,74 @@ class MattermostAdapter(CollaborationAdapter):
                 agent_name=agent_name,
                 channel_name=channel_name,
                 attachments=attachments,
+                attachment_failures=attachment_failures,
             )
             coro = self._on_message(inbound)
             self._dispatch(coro, loop)  # type: ignore[arg-type]
 
-    async def _fetch_image_attachments(
+    async def _fetch_attachments(
         self, file_ids: list[str], loop: asyncio.AbstractEventLoop
-    ) -> list[Attachment]:
-        """Download image attachments for a post's file ids.
+    ) -> tuple[list[Attachment], list[AttachmentFailure]]:
+        """Download every attachment for a post's file ids, whatever the type.
 
-        Non-image files are skipped (images-only for now). Metadata and bytes
-        are fetched via the admin driver off the websocket loop. A single file
-        that fails to download is logged and skipped rather than dropping the
-        whole message.
+        Metadata and bytes are fetched via the admin driver off the websocket
+        loop. Returns the downloaded attachments and, separately, the ones that
+        could not be relayed (oversize, download failure) so the bridge can
+        disclose them in the room rather than dropping them silently.
         """
         if not file_ids or self._admin_driver is None:
-            return []
+            return [], []
 
         driver = self._admin_driver
         attachments: list[Attachment] = []
+        failures: list[AttachmentFailure] = []
         for file_id in file_ids:
+            filename = file_id
             try:
                 meta = await loop.run_in_executor(
                     None, driver.files.get_file_metadata, file_id
                 )
-                mimetype = str(meta.get("mime_type", ""))
-                if not mimetype.startswith("image/"):
-                    logger.debug(
-                        "[MM-INBOUND] skipping non-image attachment %s (%s)",
-                        file_id,
-                        mimetype or "unknown",
+                mimetype = str(meta.get("mime_type", "")) or "application/octet-stream"
+                filename = str(meta.get("name", file_id))
+                size = meta.get("size")
+                if isinstance(size, int) and size > self._max_attachment_bytes:
+                    logger.warning(
+                        "[MM-INBOUND] attachment %s is %d bytes, over the %d cap",
+                        filename,
+                        size,
+                        self._max_attachment_bytes,
+                    )
+                    failures.append(
+                        AttachmentFailure(
+                            filename=filename,
+                            reason=f"{size} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                        )
                     )
                     continue
-                filename = str(meta.get("name", file_id))
                 resp = await loop.run_in_executor(None, driver.files.get_file, file_id)
                 data: bytes = resp.content
-            except Exception:
+            except Exception as exc:
                 logger.exception(
                     "[MM-INBOUND] failed to download attachment %s", file_id
+                )
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename, reason=f"download failed: {exc}"
+                    )
+                )
+                continue
+            if len(data) > self._max_attachment_bytes:
+                failures.append(
+                    AttachmentFailure(
+                        filename=filename,
+                        reason=f"{len(data)} bytes exceeds the {self._max_attachment_bytes} byte limit",
+                    )
                 )
                 continue
             attachments.append(
                 Attachment(filename=filename, mimetype=mimetype, data=data)
             )
-        return attachments
+        return attachments, failures
 
     async def _handle_user_added(self, event: dict[str, Any]) -> None:
         data: dict[str, Any] = event.get("data", {})

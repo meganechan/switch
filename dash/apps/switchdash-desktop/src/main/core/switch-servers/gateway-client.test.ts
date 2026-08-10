@@ -1,13 +1,32 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type LocalServerPhase,
+  ManagedServerStoppedError,
+} from '@shared/core/managed-switch-server/managed-switch-server';
+import {
+  type HostReachability,
+  HostUnreachableError,
+  unknownHostReachability,
+} from '@shared/core/remote-hosts/reachability';
 
 const getSessionCookie = vi.hoisted(() => vi.fn());
 const refreshSession = vi.hoisted(() => vi.fn());
 const reauthenticateManagedServer = vi.hoisted(() => vi.fn());
 
+const managedServerHostBlocked = vi.hoisted(() => vi.fn<() => HostReachability | null>(() => null));
+const managedServerStoppedPhase = vi.hoisted(() =>
+  vi.fn<() => LocalServerPhase | null>(() => null)
+);
+
+vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
+  managedServerHostBlocked,
+  managedServerStoppedPhase,
+}));
+
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
 
-const { fetchMe } = await import('./gateway-client');
+const { createRoom, fetchBridges, fetchMe, registerKnownAgent } = await import('./gateway-client');
 
 const SERVER = {
   id: 'srv-1',
@@ -194,5 +213,256 @@ describe('gatewayFetch managed-server silent re-auth', () => {
     await expect(fetchMe(SERVER)).rejects.toMatchObject({ kind: 'unauthorized' });
     expect(reauthenticateManagedServer).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+describe('gatewayFetch host reachability gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    managedServerHostBlocked.mockReturnValue(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('fails with the host state, without touching the network or the session', async () => {
+    managedServerHostBlocked.mockReturnValue({
+      ...unknownHostReachability('vm'),
+      status: 'unreachable',
+      lastError: 'connect ETIMEDOUT',
+    });
+
+    await expect(fetchMe(MANAGED)).rejects.toBeInstanceOf(HostUnreachableError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getSessionCookie).not.toHaveBeenCalled();
+  });
+});
+
+describe('gatewayFetch managed-stack gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    managedServerStoppedPhase.mockReturnValue(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('fails with the lifecycle state, without touching the network or the session', async () => {
+    managedServerStoppedPhase.mockReturnValue('stopped');
+
+    await expect(fetchMe(MANAGED)).rejects.toBeInstanceOf(ManagedServerStoppedError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    // The renewal that would otherwise warn about the same absence never runs.
+    expect(getSessionCookie).not.toHaveBeenCalled();
+    expect(refreshSession).not.toHaveBeenCalled();
+  });
+
+  it('names the server, so the failure reads as the state the user is looking at', async () => {
+    managedServerStoppedPhase.mockReturnValue('stopped');
+    await expect(fetchMe(MANAGED)).rejects.toThrow(/Local's Switch stack is not running/);
+  });
+
+  it('lets calls through while the stack is up', async () => {
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+    fetchMock.mockResolvedValue(okMeResponse());
+    await fetchMe(MANAGED);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+});
+
+function jsonResponse(body: unknown): Response {
+  return {
+    status: 200,
+    ok: true,
+    json: async () => body,
+    headers: { getSetCookie: () => [] },
+    text: async () => JSON.stringify(body),
+  } as unknown as Response;
+}
+
+function errorResponse(status: number, body: string): Response {
+  return {
+    status,
+    ok: false,
+    json: async () => ({}),
+    headers: { getSetCookie: () => [] },
+    text: async () => body,
+  } as unknown as Response;
+}
+
+function bodyOf(call: unknown[]): Record<string, unknown> {
+  const init = call[1] as { body: string };
+  return JSON.parse(init.body) as Record<string, unknown>;
+}
+
+describe('room creation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('maps the bridge list, defaulting is_default and home_url when absent', async () => {
+    // `home_url` post-dates the pinned switch-core, so a current server omits
+    // it entirely — that has to read as "no link", not undefined.
+    fetchMock.mockResolvedValue(
+      jsonResponse([
+        {
+          bridge_id: 'b1',
+          bridge_type: 'mattermost',
+          display_name: 'Mattermost',
+          status: 'active',
+          is_default: true,
+          home_url: 'mattermost://chat.example.com/switch',
+        },
+        { bridge_id: 'b2', bridge_type: 'slack', display_name: 'Slack', status: 'stopped' },
+      ]) as never
+    );
+
+    await expect(fetchBridges(SERVER)).resolves.toEqual([
+      {
+        id: 'b1',
+        type: 'mattermost',
+        displayName: 'Mattermost',
+        status: 'active',
+        isDefault: true,
+        homeUrl: 'mattermost://chat.example.com/switch',
+      },
+      {
+        id: 'b2',
+        type: 'slack',
+        displayName: 'Slack',
+        status: 'stopped',
+        isDefault: false,
+        homeUrl: null,
+      },
+    ]);
+  });
+
+  it('always names a bridge and a channel type, never the internal-only escape hatch', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 'room-1',
+        name: 'design',
+        description: 'd',
+        channel_type: 'channel_public',
+        agent_count: 1,
+        bridge_display_name: 'Mattermost',
+        owner_id: 'u1',
+        archived: false,
+        created_at: '2026-01-01T00:00:00Z',
+      }) as never
+    );
+
+    const room = await createRoom(SERVER, {
+      name: 'design',
+      description: 'd',
+      bridgeId: 'b1',
+      agentIds: ['a1'],
+    });
+
+    const body = bodyOf(fetchMock.mock.calls[0]);
+    expect(body).toMatchObject({
+      name: 'design',
+      description: 'd',
+      bridge_id: 'b1',
+      channel_type: 'channel_public',
+      agent_ids: ['a1'],
+    });
+    expect(body).not.toHaveProperty('internal_only');
+    expect(room.ownerId).toBe('u1');
+  });
+
+  it('sends blank instructions as null rather than an empty string', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        id: 'room-1',
+        name: 'design',
+        description: 'd',
+        channel_type: 'channel_public',
+        agent_count: 0,
+        bridge_display_name: null,
+        archived: false,
+        created_at: '2026-01-01T00:00:00Z',
+      }) as never
+    );
+
+    await createRoom(SERVER, {
+      name: 'design',
+      description: 'd',
+      instructions: '   ',
+      bridgeId: 'b1',
+      agentIds: [],
+    });
+
+    expect(bodyOf(fetchMock.mock.calls[0]).instructions).toBeNull();
+  });
+
+  it("unwraps the gateway's detail envelope so a failure can be shown in the user's terms", async () => {
+    fetchMock.mockResolvedValue(errorResponse(400, '{"detail":"Bridge not running: b1"}') as never);
+
+    await expect(
+      createRoom(SERVER, { name: 'x', description: 'y', bridgeId: 'b1', agentIds: [] })
+    ).rejects.toMatchObject({ status: 400, detail: 'Bridge not running: b1' });
+  });
+
+  it('leaves detail unset when the error body is not a detail envelope', async () => {
+    fetchMock.mockResolvedValue(errorResponse(502, '<html>bad gateway</html>') as never);
+
+    await expect(
+      createRoom(SERVER, { name: 'x', description: 'y', bridgeId: 'b1', agentIds: [] })
+    ).rejects.toMatchObject({ status: 502, detail: undefined });
+  });
+});
+
+describe('registerKnownAgent', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+    fetchMock.mockImplementation(
+      async () =>
+        ({
+          status: 200,
+          ok: true,
+          json: async () => ({ id: 'sw-1', api_key: 'tok-123' }),
+          headers: { getSetCookie: () => [] },
+          text: async () => '',
+        }) as unknown as Response
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends the caller-supplied agent_type rather than a hardcoded default', async () => {
+    // The type governs the connector label and the hand-onboarding command the
+    // gateway shows, so a default here would silently mislabel every non-Claude
+    // agent (CHOO-1436).
+    const registered = await registerKnownAgent(SERVER, {
+      name: 'codex-hoot',
+      description: 'Codex running in repo',
+      agentType: 'codex',
+      options: { channels_enabled: true, repo_dir: '/repo' },
+    });
+
+    expect(registered).toEqual({ id: 'sw-1', apiKey: 'tok-123' });
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).toEqual({
+      agent_type: 'codex',
+      name: 'codex-hoot',
+      description: 'Codex running in repo',
+      options: { channels_enabled: true, repo_dir: '/repo' },
+      overwrite: false,
+    });
   });
 });

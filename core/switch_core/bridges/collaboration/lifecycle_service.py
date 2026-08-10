@@ -156,6 +156,7 @@ class CollaborationBridgeLifecycleService:
         adapter.set_service_url_persister(
             lambda service_url: self._persist_service_url(bridge_id, service_url)
         )
+        adapter.set_max_attachment_bytes(self._config.agent_media_max_bytes)
 
         async with self._session_factory() as session:
             bridge_client_record = await self._client_store.get(

@@ -1,76 +1,28 @@
 /**
- * Agent-bridge event shapes and notification formatting, mirrored from the
- * Claude Code connector channel (`connectors/.../channel/server.ts`). switchdash
- * polls the same `/agents/{id}/rooms/{room}/events` endpoint and injects the
- * formatted text into the session's PTY instead of delivering it as an MCP
- * channel notification.
+ * Formatting agent-bridge events for injection into a session's terminal.
+ *
+ * The event *shapes* are protocol, and live in
+ * `@sandbox-quantum/switch-agent-runtime`; they are re-exported here so the
+ * many call sites that import both from this module keep working. What is
+ * genuinely switchdash's is below: turning an event into the line a human (and
+ * an agent reading its own terminal) sees.
  */
 
-/**
- * A pointer to a media attachment on a message event. Mirrors the agent
- * bridge's `AttachmentRef` (and the connector channel's) — metadata plus the
- * Matrix `mxc://` URI only; the bytes are fetched on demand via the
- * media-download endpoint.
- */
-export interface AttachmentRef {
-  filename: string;
-  mimetype: string;
-  size: number;
-  mxc: string;
-  msgtype: string;
-}
-
-export interface MessagePayload {
-  addressed: boolean;
-  sender: string;
-  sender_name: string;
-  message_id: string;
-  body: string;
-  timestamp: number;
-  thread_id?: string | null;
-  attachments?: AttachmentRef[];
-}
-
-export interface CommandPayload {
-  command: string;
-  // Command arguments. For `reset`/`compact` this carries the role name the
-  // agent should re-assume after its context is cleared/compacted (empty when
-  // it held none).
-  args: string;
-  user_id: string;
-  user_name: string;
-  // Thread root of the originating command message, so the completion notice
-  // can be posted back into that same thread. null when not in a thread.
-  thread_id?: string | null;
-}
-
-export interface RoomJoinPayload {
-  member: string;
-  member_name: string;
-  timestamp: number;
-  listening: boolean;
-}
-
-export interface TaskPayload {
-  task_id: string;
-  requester_agent_id: string;
-  performer_agent_id: string;
-  summary?: string;
-  description?: string;
-  update?: string;
-  outcome?: string | null;
-  reason?: string | null;
-}
-
-export interface AgentBridgeEvent {
-  type: string;
-  room_id: string;
-  payload: MessagePayload | CommandPayload | RoomJoinPayload | TaskPayload;
-}
-
-export interface AgentBridgeEventResponse {
-  events: AgentBridgeEvent[];
-}
+export type {
+  AgentBridgeEvent,
+  AttachmentRef,
+  CommandPayload,
+  MessagePayload,
+  RoomJoinPayload,
+  TaskPayload,
+} from '@sandbox-quantum/switch-agent-runtime';
+import type {
+  AgentBridgeEvent,
+  CommandPayload,
+  MessagePayload,
+  RoomJoinPayload,
+  TaskPayload,
+} from '@sandbox-quantum/switch-agent-runtime';
 
 /**
  * Format an agent-bridge event as a self-contained line to inject into the
@@ -140,17 +92,48 @@ export function formatEventForInjection(
 }
 
 /**
- * Annotation appended to an injected message that carried image attachments.
- * Unlike the connector channel — which surfaces images as an `image_path`
- * notification attribute plus a static instruction — the pollers inject plain
- * text into a PTY/tmux pane and have no separate metadata channel, so the
- * annotation itself must both signal the attachments and tell the agent how to
- * view them. `localPaths` are the local files the images were downloaded to.
+ * Annotation appended to an injected message that carried attachments.
+ * Unlike the connector channel — which surfaces them as `image_path` /
+ * `file_path` notification attributes plus a static instruction — the pollers
+ * inject plain text into a PTY/tmux pane and have no separate metadata
+ * channel, so the annotation itself must both signal the attachments and tell
+ * the agent how to read them.
+ *
+ * Images and other files are named separately because the agent treats them
+ * differently (an image is Read to be seen; a `.md`/`.csv`/`.pdb` is Read to be
+ * parsed). `failed` names attachments that could not be downloaded: they are
+ * reported rather than omitted, so the agent never silently believes it saw
+ * everything the sender attached.
  */
-export function formatImageAttachmentAnnotation(localPaths: string[]): string {
-  const count = localPaths.length;
-  const noun = count === 1 ? 'image' : 'images';
-  return `(${count} ${noun} attached — downloaded to ${localPaths.join(', ')}. Read ${
-    count === 1 ? 'it' : 'them'
-  } to view.)`;
+export function formatAttachmentAnnotation(
+  imagePaths: string[],
+  filePaths: string[],
+  failed: string[] = []
+): string | null {
+  const parts: string[] = [];
+  if (imagePaths.length > 0) {
+    const noun = imagePaths.length === 1 ? 'image' : 'images';
+    parts.push(
+      `${imagePaths.length} ${noun} attached — downloaded to ${imagePaths.join(', ')}. Read ${
+        imagePaths.length === 1 ? 'it' : 'them'
+      } to view.`
+    );
+  }
+  if (filePaths.length > 0) {
+    const noun = filePaths.length === 1 ? 'file' : 'files';
+    parts.push(
+      `${filePaths.length} ${noun} attached — downloaded to ${filePaths.join(', ')}. Read ${
+        filePaths.length === 1 ? 'it' : 'them'
+      } to see the contents.`
+    );
+  }
+  if (failed.length > 0) {
+    parts.push(
+      `${failed.length} attachment${failed.length === 1 ? '' : 's'} could NOT be retrieved (${failed.join(
+        ', '
+      )}) — do not assume you have seen ${failed.length === 1 ? 'it' : 'them'}.`
+    );
+  }
+  if (parts.length === 0) return null;
+  return `(${parts.join(' ')})`;
 }

@@ -4,7 +4,9 @@ import hashlib
 import logging
 import re
 import secrets
+import uuid
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -24,7 +26,11 @@ from switch_core.bridges.agent.protocol.agent_detail import (
     list_agent_summaries,
     reparent_agent,
 )
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.connections import (
+    ClientDeclaration,
+    ConnectionRegistry,
+)
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.statuses import compute_agent_statuses
 from switch_core.bridges.agent.protocol.types import (
     AgentEvent,
@@ -116,7 +122,8 @@ class ProtocolService:
         room_service: RoomService,
         client_lifecycle: ClientLifecycleService,
         collab_lifecycle: CollaborationBridgeLifecycleService,
-        event_queue: EventQueue,
+        event_buffer: EventBuffer,
+        connections: ConnectionRegistry,
         task_store: TaskStore,
         request_tracker: RequestTracker,
         resource_request_tracker: ResourceRequestTracker,
@@ -137,7 +144,12 @@ class ProtocolService:
         self.room_service = room_service
         self.client_lifecycle = client_lifecycle
         self.collab_lifecycle = collab_lifecycle
-        self.event_queue = event_queue
+        self.event_buffer = event_buffer
+        # Injected, not constructed: more than one ProtocolService exists in a
+        # running server, and a connection registered through one must be
+        # visible to all of them. Owning a registry here would split the live
+        # connection set in two.
+        self.connections = connections
         self.task_store = task_store
         self.request_tracker = request_tracker
         self.resource_request_tracker = resource_request_tracker
@@ -443,6 +455,55 @@ class ProtocolService:
                     exc_info=True,
                 )
 
+    async def record_client_declaration(
+        self, agent_id: str, connection_id: str, declaration: ClientDeclaration
+    ) -> None:
+        """Persist what a client last said about itself (CHOO-1865).
+
+        Connections live in memory, so what is running right now dies with the
+        process. This is the durable half, and the reason it belongs in Part 1
+        at all: raising an `accepts` floor is a decision made offline, and it
+        can only be made safely against a record of what is actually deployed.
+        Without it the question "what would this break?" has no answer but a
+        guess.
+
+        One record per agent, last write wins, stamped with the connection it
+        came from. The connection id is what makes it interpretable: an agent
+        may hold many connections at once, so without it a second connection
+        declaring less looks like the first client having forgotten what it is,
+        rather than a different client answering.
+
+        A failure here is logged and swallowed: this is bookkeeping about a
+        connection, and losing a version record must never stop an agent
+        connecting. It is logged at warning because a persistently silent
+        recorder would leave the same blind spot as a client that never
+        declared, and that must not pass unnoticed.
+        """
+        if not declaration.declares_protocol and declaration.version is None:
+            return
+
+        record = declaration.as_dict()
+        record["connection_id"] = connection_id
+        record["recorded_at"] = datetime.now(UTC).isoformat()
+        try:
+            async with self.session_factory() as session:
+                agent = await self.agent_store.get(session, agent_id)
+                if agent is None:
+                    return
+                metadata = (
+                    dict(agent.metadata_) if isinstance(agent.metadata_, dict) else {}
+                )
+                metadata["client_declaration"] = record
+                await self.agent_store.update(session, agent_id, metadata_=metadata)
+                await session.commit()
+        except Exception:
+            logger.warning(
+                "Could not record the client declaration for agent %s; it will "
+                "read as unknown until the next connect",
+                agent_id,
+                exc_info=True,
+            )
+
     async def update_agent(
         self,
         agent_id: str,
@@ -504,7 +565,7 @@ class ProtocolService:
         resolved_id = agent.id
         resolved_name = agent.name
         await self.client_lifecycle.stop(client_id)
-        self.event_queue.remove(resolved_id)
+        self.event_buffer.remove(resolved_id)
 
         await self._remove_bridge_identities(resolved_name)
 
@@ -577,7 +638,7 @@ class ProtocolService:
             # holds at most one role (unique agent_id), so the inverse map is
             # well-defined even for shared roles with several holders.
             live_holders = await self.room_role_store.live_holders_for_room(
-                session, room_id
+                session, room_id, self.connections.live_agent_ids()
             )
             roles = await self.room_role_store.list_roles(session, room_id)
             role_name_by_id = {r.id: r.name for r in roles}
@@ -622,7 +683,7 @@ class ProtocolService:
         room_id: str,
     ) -> dict[str, AgentStatus]:
         return await compute_agent_statuses(
-            session, agents, room_id, self.agent_session_store
+            session, agents, room_id, self.agent_session_store, self.connections
         )
 
     async def get_agent_statuses_by_name(
@@ -759,30 +820,40 @@ class ProtocolService:
         self,
         agent_id: str,
         room_id: str,
-        data: bytes,
-        filename: str,
-        mimetype: str,
+        files: list[tuple[bytes, str, str]],
         caption: str | None = None,
         thread_id: str | None = None,
-    ) -> dict[str, str]:
-        """Upload bytes to the Matrix media repository and post them to a room
-        as an m.image / m.file event. Returns {"event_id": ..., "mxc": ...}.
+    ) -> dict[str, object]:
+        """Upload one or more files to the Matrix media repository and post them
+        to a room as m.image / m.file events. `files` is a list of
+        (data, filename, mimetype). Returns
+        {"event_id": <first>, "mxc": <first>, "attachments": [{event_id, mxc,
+        filename}, ...]}.
 
-        Membership in `room_id` is required, mirroring download_media. The
-        payload is capped by config.agent_media_max_bytes — an oversize upload
-        raises rather than being truncated. When `caption` is set it becomes
-        the event body (the filename rides in the `filename` field, per the
-        caption convention the bridges already use inbound). When `thread_id`
-        is set the event is posted into that thread (normalised to its root).
+        Membership in `room_id` is required, mirroring download_media. Every
+        file is validated (non-empty, within config.agent_media_max_bytes)
+        BEFORE anything is sent, so a bad file in the batch fails the whole call
+        rather than leaving a half-posted message in the room. When `caption` is
+        set it becomes the body of the first event (the filename rides in the
+        `filename` field, per the caption convention the bridges already use
+        inbound). When `thread_id` is set the events are posted into that thread
+        (normalised to its root).
+
+        With more than one file the events share an attachment-group marker so
+        receivers can coalesce them into one logical message — Matrix itself has
+        no multi-attachment event.
         """
-        if not data:
-            raise ValueError("attachment is empty")
+        if not files:
+            raise ValueError("no attachments provided")
         max_bytes = self.config.agent_media_max_bytes
-        if len(data) > max_bytes:
-            raise ValueError(
-                f"attachment '{filename}' is {len(data)} bytes, over the "
-                f"{max_bytes}-byte limit (AGENT_MEDIA_MAX_BYTES)"
-            )
+        for data, filename, _mimetype in files:
+            if not data:
+                raise ValueError(f"attachment '{filename}' is empty")
+            if len(data) > max_bytes:
+                raise ValueError(
+                    f"attachment '{filename}' is {len(data)} bytes, over the "
+                    f"{max_bytes}-byte limit (AGENT_MEDIA_MAX_BYTES)"
+                )
         room = await self.require_room_member(agent_id, room_id)
         client = self.client_lifecycle.get_by_agent_id(agent_id)
         if client is None:
@@ -792,27 +863,44 @@ class ProtocolService:
             thread_root_id = await self._resolve_thread_root(
                 client, room.matrix_room_id, thread_id
             )
-        mxc = await client.upload_media(data, mimetype, filename)
-        msgtype = "m.image" if mimetype.startswith("image/") else "m.file"
-        event_id = await client.send_media(
-            room.matrix_room_id,
-            mxc,
-            filename,
-            mimetype,
-            len(data),
-            msgtype=msgtype,
-            caption=caption if caption and caption.strip() else None,
-            thread_root_id=thread_root_id,
-        )
-        if event_id is None:
-            raise ValueError("Failed to send media message")
+
+        total = len(files)
+        group_id = str(uuid.uuid4()) if total > 1 else None
+        posted: list[dict[str, str]] = []
+        for index, (data, filename, mimetype) in enumerate(files):
+            mxc = await client.upload_media(data, mimetype, filename)
+            msgtype = "m.image" if mimetype.startswith("image/") else "m.file"
+            event_id = await client.send_media(
+                room.matrix_room_id,
+                mxc,
+                filename,
+                mimetype,
+                len(data),
+                msgtype=msgtype,
+                caption=(
+                    caption if index == 0 and caption and caption.strip() else None
+                ),
+                thread_root_id=thread_root_id,
+                group=(
+                    {"id": group_id, "index": index, "total": total}
+                    if group_id is not None
+                    else None
+                ),
+            )
+            if event_id is None:
+                raise ValueError(f"Failed to send media message for '{filename}'")
+            posted.append({"event_id": event_id, "mxc": mxc, "filename": filename})
         try:
             await self.set_typing(agent_id, room_id, False)
         except Exception:
             logger.warning(
                 "Failed to clear typing indicator for room %s", room_id, exc_info=True
             )
-        return {"event_id": event_id, "mxc": mxc}
+        return {
+            "event_id": posted[0]["event_id"],
+            "mxc": posted[0]["mxc"],
+            "attachments": posted,
+        }
 
     async def send_targeted_message(
         self,
@@ -880,7 +968,7 @@ class ProtocolService:
                     )
                 role_by_id = {role.id: role.name for role in defined_roles}
                 holders = await self.room_role_store.live_holders_for_room(
-                    session, room_id
+                    session, room_id, self.connections.live_agent_ids()
                 )
                 for role_id, agent_ids in holders.items():
                     if role_by_id.get(role_id) not in roles:
@@ -966,6 +1054,7 @@ class ProtocolService:
         deeplink_url: str | None = None,
         detail: str | None = None,
         control_capabilities: dict[str, bool] | None = None,
+        anchor_event_id: str | None = None,
     ) -> None:
         """Record and broadcast an agent's runtime state in a room.
 
@@ -981,6 +1070,13 @@ class ProtocolService:
         `detail` is a short activity line for the running turn (e.g. "Editing
         foo.py"); like `thread_id` it is transient and rides the event only —
         the bridge surfaces it in place on the live working message.
+
+        `anchor_event_id` is the latest message the reporting connector has
+        actually handed to the agent's session. The bridge repositions the
+        indicator when it changes, so position follows what the agent has
+        genuinely been given rather than what merely arrived in the room. Also
+        transient routing — reported on every refresh, and only a change moves
+        anything.
 
         The `switchdash://` deeplink is rewritten to a gateway HTTP redirect when
         `GATEWAY_PUBLIC_URL` is configured, so the "Open in SwitchDash" link is
@@ -1020,6 +1116,7 @@ class ProtocolService:
             thread_id=thread_id,
             deeplink_url=deeplink_url,
             detail=detail,
+            anchor_event_id=anchor_event_id,
         )
 
     async def _emit_runtime_state(
@@ -1034,6 +1131,7 @@ class ProtocolService:
         thread_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
+        anchor_event_id: str | None = None,
     ) -> None:
         client = self.client_lifecycle.get_by_agent_id(agent_id)
         if client is None or client.nio_client is None:
@@ -1053,6 +1151,7 @@ class ProtocolService:
                 "thread_id": thread_id,
                 "deeplink_url": deeplink_url,
                 "detail": detail,
+                "anchor_event_id": anchor_event_id,
             },
         )
 
@@ -1064,10 +1163,20 @@ class ProtocolService:
         stuck on the bridge. Each non-idle row is checked against the same
         liveness window `!status` uses; stale ones are collapsed to idle and a
         clear event is emitted.
+
+        Liveness is the same union every other reader takes (CHOO-1857): the
+        heartbeat rows for clients still polling, the live connections for
+        clients on the push transport. Checking only the rows made this sweep
+        clear the state of a perfectly live session on every pass — and because
+        the bridge deletes the "working on it…" message on idle and posts a new
+        one on the next update, the visible effect was the status message being
+        deleted and recreated on every refresh rather than edited in place.
         """
         async with self.session_factory() as session:
             rows = await self.agent_runtime_state_store.get_active(session)
         for row in rows:
+            if self.connections.has_session_in(row.agent_id, row.room_id):
+                continue
             async with self.session_factory() as session:
                 live = await self.agent_session_store.get_live_agent_ids(
                     session, [row.agent_id], row.room_id
@@ -1289,7 +1398,7 @@ class ProtocolService:
         async with self.session_factory() as session:
             await self.agent_session_store.touch_heartbeat(session, agent_id, None)
             await session.commit()
-        return await self.event_queue.poll(agent_id, timeout=timeout)
+        return await self.event_buffer.poll(agent_id, timeout=timeout)
 
     async def poll_notifications(
         self, agent_id: str, timeout: float = 10
@@ -1297,14 +1406,14 @@ class ProtocolService:
         """Long-poll the agent's notification stream across all its rooms.
 
         Returns only notifiable events (addressed messages, task events, and
-        room_join events the agent listens for) — see EventQueue. Unlike
+        room_join events the agent listens for) — see EventBuffer. Unlike
         `poll_events`, this does NOT touch any heartbeat: an auto_session
         connector maintains its "watching" presence via the dedicated
         `touch_watch_heartbeat` path, decoupled from this long-poll. Consuming
         this stream never drains the per-room queues, so live session pollers
         are unaffected.
         """
-        return await self.event_queue.poll_notifications(agent_id, timeout=timeout)
+        return await self.event_buffer.poll_notifications(agent_id, timeout=timeout)
 
     async def touch_watch_heartbeat(self, agent_id: str) -> None:
         """Refresh an auto_session connector's global "watching" heartbeat.
@@ -1330,7 +1439,7 @@ class ProtocolService:
         the long-poll cadence so the TTL can stay short.
         """
         await self.require_room_member(agent_id, room_id)
-        return await self.event_queue.poll_room(agent_id, room_id, timeout=timeout)
+        return await self.event_buffer.poll_room(agent_id, room_id, timeout=timeout)
 
     async def report_events(
         self,
@@ -1663,6 +1772,7 @@ class ProtocolService:
                 "type": b.type,
                 "display_name": b.display_name,
                 "status": b.status,
+                "is_default": b.is_default,
             }
             for b in bridges
         ]
@@ -1676,6 +1786,7 @@ class ProtocolService:
         user_names: list[str] | None,
         channel_type: str | None,
         bridge_id: str | None,
+        internal_only: bool = False,
         admin_mode: bool = False,
         security_config: dict[str, Any] | None = None,
         instructions: str | None = None,
@@ -1725,6 +1836,7 @@ class ProtocolService:
             user_names=user_names,
             channel_type=channel_type,  # type: ignore[arg-type]
             bridge_id=bridge_id,
+            internal_only=internal_only,
             admin_mode=admin_mode,
             protection_config=security_config,
             instructions=instructions,
@@ -1957,8 +2069,13 @@ class ProtocolService:
         could `assume_role` it right now: the caller holds no other live lease,
         and the role is either non-exclusive or not live-held by someone else.
         """
-        leases = await self.room_role_store.live_leases_for_room(session, room_id)
-        my_lease = await self.room_role_store.get_agent_live_lease(session, agent_id)
+        alive = self.connections.live_agent_ids()
+        leases = await self.room_role_store.live_leases_for_room(
+            session, room_id, alive
+        )
+        my_lease = await self.room_role_store.get_agent_live_lease(
+            session, agent_id, alive
+        )
         # Resolve holder agent ids → names.
         holder_names: dict[str, str] = {}
         for lease_list in leases.values():
@@ -1975,12 +2092,20 @@ class ProtocolService:
             """Return (present_here, session_room_name) for a lease."""
             if lease.transport_session_id is None:
                 return False, None
-            conn = await self.agent_session_store.get_connected_room(
-                session, lease.transport_session_id
-            )
-            if conn is None:
-                return False, None
-            conn_room_id = conn[1]
+            # A live connection knows its own rooms and has no binding row; the
+            # row is only there for callers that predate connections.
+            connection = self.connections.get(lease.transport_session_id)
+            if connection is not None:
+                if len(connection.rooms) != 1:
+                    return False, None
+                conn_room_id = next(iter(connection.rooms))
+            else:
+                conn = await self.agent_session_store.get_connected_room(
+                    session, lease.transport_session_id
+                )
+                if conn is None:
+                    return False, None
+                conn_room_id = conn[1]
             if conn_room_id == room_id:
                 return True, None
             if conn_room_id not in room_name_cache:
@@ -2085,10 +2210,13 @@ class ProtocolService:
             role = await self.room_role_store.get_role(session, room_id, role_name)
             if role is None:
                 raise ValueError(f"Role '{role_name}' not found in this room")
-            prior = await self.room_role_store.get_agent_live_lease(session, agent_id)
+            alive = self.connections.live_agent_ids()
+            prior = await self.room_role_store.get_agent_live_lease(
+                session, agent_id, alive
+            )
             already_held = prior is not None and prior.role_id == role.id
             await self.room_role_store.acquire_lease(
-                session, role, agent_id, transport_session_id
+                session, role, agent_id, transport_session_id, alive
             )
             await session.commit()
             result = {"role": role.name, "instructions": role.instructions}
@@ -2105,12 +2233,14 @@ class ProtocolService:
         If a live lease is dropped, announce the release in its room.
         """
         async with self.session_factory() as session:
-            live = await self.room_role_store.get_agent_live_lease(session, agent_id)
+            live = await self.room_role_store.get_agent_live_lease(
+                session, agent_id, self.connections.live_agent_ids()
+            )
             released_role: str | None = None
             matrix_room_id: str | None = None
             if live is not None:
                 released_role = await self.room_role_store.agent_room_role(
-                    session, live.room_id, agent_id
+                    session, live.room_id, agent_id, self.connections.live_agent_ids()
                 )
                 room = await self.room_store.get(session, live.room_id)
                 matrix_room_id = room.matrix_room_id if room is not None else None
@@ -2460,6 +2590,7 @@ class ProtocolService:
                 user_store=self.user_store,
                 agent_session_store=self.agent_session_store,
                 room_role_store=self.room_role_store,
+                connections=self.connections,
             )
 
     async def update_agent_detail(
@@ -2514,6 +2645,7 @@ class ProtocolService:
                 user_store=self.user_store,
                 agent_session_store=self.agent_session_store,
                 room_role_store=self.room_role_store,
+                connections=self.connections,
             )
 
     async def get_room_detail(

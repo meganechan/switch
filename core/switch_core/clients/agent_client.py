@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import re
+from dataclasses import dataclass, field
 from typing import Literal
 
 from nio import (
@@ -15,13 +17,15 @@ from nio import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from switch_core.addressing import SenderKind, can_address, parse_policy
+from switch_core.attachments import parse_attachment_group
 from switch_core.bridges.agent.commands import (
     AGENT_GREETINGS,
     COMMANDS_BY_NAME,
     _addressed_by_name_or_role,
     dispatch_command,
 )
-from switch_core.bridges.agent.protocol.event_queue import EventQueue
+from switch_core.bridges.agent.protocol.connections import ConnectionRegistry
+from switch_core.bridges.agent.protocol.event_buffer import EventBuffer
 from switch_core.bridges.agent.protocol.types import (
     AgentEvent,
     AttachmentRef,
@@ -84,6 +88,26 @@ logger = logging.getLogger(__name__)
 # "no session" replies forever. Riding as a field on the plain
 # m.room.message keeps the reply rendering normally for humans.
 AUTO_REPLY_FLAG = "com.switch.auto_reply"
+
+# How long to hold an incomplete multi-attachment group before delivering the
+# parts that did arrive, flagged as incomplete. Groups normally complete in
+# milliseconds (one sender, back-to-back events); this is a safety net so a
+# broken batch surfaces rather than being buffered indefinitely.
+ATTACHMENT_GROUP_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass
+class _PendingAttachmentGroup:
+    """Parts of a multi-attachment message seen so far, keyed by group index."""
+
+    total: int
+    parts: dict[int, AttachmentRef] = field(default_factory=dict)
+    body: str = ""
+    # The index-0 event, kept so a group that has to be flushed incomplete is
+    # still anchored on its canonical first part (message_id / timestamp /
+    # sender) rather than on whichever part happened to arrive last.
+    first_event: RoomMessageMedia | None = None
+
 
 _UNAVAILABLE_MESSAGES = {
     "always_on": (
@@ -155,7 +179,7 @@ class AgentClient(ClientBase[ClientConfig]):
     def __init__(
         self,
         *,
-        event_queue: EventQueue,
+        event_buffer: EventBuffer,
         agent_store: AgentStore,
         room_store: RoomStore,
         bridge_store: CollaborationBridgeStore,
@@ -166,11 +190,12 @@ class AgentClient(ClientBase[ClientConfig]):
         external_user_store: ExternalUserStore,
         request_tracker: RequestTracker,
         resource_request_tracker: ResourceRequestTracker,
+        connections: ConnectionRegistry,
         frontend_base_url: str | None,
         **kwargs: object,
     ) -> None:
         super().__init__(**kwargs)  # type: ignore[arg-type]
-        self._event_queue = event_queue
+        self._event_buffer = event_buffer
         self._agent_store = agent_store
         self._room_store = room_store
         self._bridge_store = bridge_store
@@ -181,11 +206,17 @@ class AgentClient(ClientBase[ClientConfig]):
         self._external_user_store = external_user_store
         self._request_tracker = request_tracker
         self._resource_request_tracker = resource_request_tracker
+        self._connections = connections
         self._frontend_base_url = (
             frontend_base_url.rstrip("/") if frontend_base_url else None
         )
         self._agent: Agent | None = None
         self._room_meta: dict[str, RoomMeta | None] = {}
+        # In-flight multi-attachment groups, by group id, with their safety-net
+        # timers. Both are cleared when a group completes or times out, so a
+        # never-completed group cannot leak.
+        self._attachment_groups: dict[str, _PendingAttachmentGroup] = {}
+        self._attachment_group_timers: dict[str, asyncio.TimerHandle] = {}
 
     @property
     def agent(self) -> Agent:
@@ -261,7 +292,7 @@ class AgentClient(ClientBase[ClientConfig]):
             listening = await self._room_store.get_receives_join_events(
                 session, meta.room_id, self.agent.id
             )
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -342,7 +373,7 @@ class AgentClient(ClientBase[ClientConfig]):
         )
 
         logger.debug("Enqueuing event %s", agent_event.model_dump_json(indent=2))
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             agent_event,
@@ -381,6 +412,143 @@ class AgentClient(ClientBase[ClientConfig]):
         if relates.get("rel_type") == "m.thread":
             thread_id = relates.get("event_id")
 
+        # Several files posted as one message arrive as separate Matrix events
+        # sharing a group marker (Matrix has no multi-attachment event). Hold
+        # them until the group is complete, then emit ONE payload carrying all
+        # of them, so the agent sees one message with N attachments.
+        group = parse_attachment_group(content)
+        if group is None:
+            await self._emit_media(
+                room,
+                event,
+                meta,
+                is_addressed,
+                sender_name,
+                thread_id,
+                [attachment],
+                event.body,
+            )
+            return
+
+        group_id, index, total = group
+        pending = self._attachment_groups.setdefault(
+            group_id, _PendingAttachmentGroup(total=total)
+        )
+        pending.parts[index] = attachment
+        if index == 0:
+            pending.body = event.body
+            pending.first_event = event
+        if len(pending.parts) < total:
+            self._schedule_attachment_group_flush(
+                group_id, room, event, meta, is_addressed, sender_name, thread_id
+            )
+            return
+
+        self._cancel_attachment_group_flush(group_id)
+        self._attachment_groups.pop(group_id, None)
+        # Anchor the coalesced message on part 0, not on whichever part
+        # happened to complete the group, so message_id / timestamp are stable.
+        await self._emit_media(
+            room,
+            pending.first_event or event,
+            meta,
+            is_addressed,
+            sender_name,
+            thread_id,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            pending.body or event.body,
+        )
+
+    def _schedule_attachment_group_flush(
+        self,
+        group_id: str,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+    ) -> None:
+        """Arm the safety-net timer for an incomplete attachment group.
+
+        The group should normally complete within milliseconds — every event is
+        sent back-to-back by one sender. The timer exists so a group that never
+        completes (a failed send mid-batch, a dropped event) surfaces what did
+        arrive, clearly flagged, instead of being buffered forever.
+
+        Armed once per group, NOT re-armed per part: the deadline bounds the
+        whole group, so a batch dribbling in just under the timeout can't hold
+        the buffer open indefinitely.
+        """
+        if group_id in self._attachment_group_timers:
+            return
+        self._attachment_group_timers[group_id] = asyncio.get_running_loop().call_later(
+            ATTACHMENT_GROUP_TIMEOUT_SECONDS,
+            lambda: asyncio.create_task(
+                self._flush_incomplete_attachment_group(
+                    group_id, room, event, meta, is_addressed, sender_name, thread_id
+                )
+            ),
+        )
+
+    def _cancel_attachment_group_flush(self, group_id: str) -> None:
+        timer = self._attachment_group_timers.pop(group_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    async def _flush_incomplete_attachment_group(
+        self,
+        group_id: str,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+    ) -> None:
+        self._attachment_group_timers.pop(group_id, None)
+        pending = self._attachment_groups.pop(group_id, None)
+        if pending is None:
+            return
+        received = len(pending.parts)
+        logger.error(
+            "Attachment group %s incomplete: %d of %d parts arrived within %ss; "
+            "delivering what arrived",
+            group_id,
+            received,
+            pending.total,
+            ATTACHMENT_GROUP_TIMEOUT_SECONDS,
+        )
+        body = pending.body or event.body
+        notice = (
+            f"[incomplete attachment group: {received} of {pending.total} "
+            f"files arrived]"
+        )
+        # Anchor on part 0 when we have it, so the payload's message_id matches
+        # the completed-group case and replies thread off the canonical event.
+        anchor = pending.first_event or event
+        await self._emit_media(
+            room,
+            anchor,
+            meta,
+            is_addressed,
+            sender_name,
+            thread_id,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            f"{body}\n{notice}" if body else notice,
+        )
+
+    async def _emit_media(
+        self,
+        room: MatrixRoom,
+        event: RoomMessageMedia,
+        meta: RoomMeta,
+        is_addressed: bool,
+        sender_name: str,
+        thread_id: str | None,
+        attachments: list[AttachmentRef],
+        body: str,
+    ) -> None:
         reply_thread_root = thread_id if thread_id is not None else event.event_id
         is_addressed = await self._gate_addressed(
             room, event, meta, reply_thread_root, is_addressed
@@ -396,15 +564,15 @@ class AgentClient(ClientBase[ClientConfig]):
                 sender=event.sender,
                 sender_name=sender_name,
                 message_id=event.event_id,
-                body=event.body,
+                body=body,
                 timestamp=event.server_timestamp,
                 thread_id=thread_id,
-                attachments=[attachment],
+                attachments=attachments,
             ),
         )
 
         logger.debug("Enqueuing media event %s", agent_event.model_dump_json(indent=2))
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             agent_event,
@@ -432,7 +600,7 @@ class AgentClient(ClientBase[ClientConfig]):
         if handled:
             return
 
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -525,21 +693,40 @@ class AgentClient(ClientBase[ClientConfig]):
         # it will spin a session up to handle this — promise that rather than
         # the "elsewhere"/offline wording. With no watcher, fall through to the
         # generic offline reply below.
+        # A live connection that declared itself spawn-capable and covers this
+        # room WILL start a session, whatever the agent's configured model says.
+        # Keying the promise off the observed capability rather than the enum
+        # means a mis-set (or merely stale) connection_model can no longer
+        # produce "my connector isn't reporting in" while a watcher is sitting
+        # right there, connected, about to spawn.
+        if self._connections.can_spawn_for(self.agent.id, meta.room_id):
+            return _STARTING_SESSION_MESSAGE
+
         if connection_model == "auto_session":
             async with self.session_factory() as session:
                 watching = await self._agent_session_store.get_live_agent_ids(
                     session, [self.agent.id], None
                 )
-            if self.agent.id in watching:
+            if self.agent.id in watching or self._connections.is_live(self.agent.id):
                 return _STARTING_SESSION_MESSAGE
 
         async with self.session_factory() as session:
             room_ids = await self._agent_session_store.live_connected_rooms(
                 session, self.agent.id
             )
+            # A connection covering a room is a session in it, whether or not
+            # anything wrote an agent_sessions row for it.
+            room_ids = sorted(
+                set(room_ids)
+                | {
+                    room
+                    for conn in self._connections.for_agent(self.agent.id)
+                    for room in conn.rooms
+                }
+            )
             bound_here = await self._agent_session_store.has_room_binding(
                 session, self.agent.id, meta.room_id
-            )
+            ) or self._connections.has_session_in(self.agent.id, meta.room_id)
             names: list[str] = []
             holds_role_here = False
             other_room_ids = [rid for rid in room_ids if rid != meta.room_id]
@@ -551,7 +738,10 @@ class AgentClient(ClientBase[ClientConfig]):
                         names.append(name)
                 holds_role_here = (
                     await self._room_role_store.agent_room_role(
-                        session, meta.room_id, self.agent.id
+                        session,
+                        meta.room_id,
+                        self.agent.id,
+                        self._connections.live_agent_ids(),
                     )
                     is not None
                 )
@@ -630,6 +820,17 @@ class AgentClient(ClientBase[ClientConfig]):
         )
         if connection_model == "session_passive":
             return False
+        # Union of the two presence sources while both kinds of client exist
+        # (CHOO-1857 stage B): a client on the push transport keeps only a
+        # connection, one still polling keeps only the heartbeat row.
+        if connection_model == "always_on":
+            if self._connections.is_live(self.agent.id):
+                return True
+        elif self._connections.has_session_in(self.agent.id, room_id):
+            # A claimed room slot, not mere coverage: an `all`-scope watcher
+            # covering this room is not a session that can answer.
+            return True
+
         heartbeat_room = None if connection_model == "always_on" else room_id
         async with self.session_factory() as session:
             live = await self._agent_session_store.get_live_agent_ids(
@@ -650,7 +851,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -674,7 +875,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -696,7 +897,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -719,7 +920,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -742,7 +943,7 @@ class AgentClient(ClientBase[ClientConfig]):
         meta = await self._resolve_room_meta(room.room_id)
         if meta is None:
             return
-        self._event_queue.enqueue(
+        self._event_buffer.enqueue(
             self.agent.id,
             meta.room_id,
             AgentEvent(
@@ -967,7 +1168,7 @@ class AgentClient(ClientBase[ClientConfig]):
             return False
         async with self.session_factory() as session:
             role_name = await self._room_role_store.agent_room_role(
-                session, room_id, self.agent.id
+                session, room_id, self.agent.id, self._connections.live_agent_ids()
             )
         if not role_name:
             return False

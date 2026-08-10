@@ -1,10 +1,10 @@
 import { makeAutoObservable, runInAction } from 'mobx';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
-import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { events, rpc } from '@renderer/lib/ipc';
 import type {
   DockerAvailability,
   LocalServerStatus,
+  SwitchVersionDrift,
 } from '@shared/core/managed-switch-server/managed-switch-server';
 import {
   localServerLogChannel,
@@ -47,6 +47,11 @@ export class LocalServerStore {
 
   get isRunning(): boolean {
     return this.phase === 'running';
+  }
+
+  /** Set when the stack's switch-core differs from the version this build pins. */
+  get drift(): SwitchVersionDrift | null {
+    return this.status?.drift ?? null;
   }
 
   get isTransitioning(): boolean {
@@ -112,6 +117,10 @@ export class LocalServerStore {
           this.docker = { available: false, reason: result.reason, detail: result.detail };
           this.error = result.detail;
         });
+      } else if (result.kind === 'version-downgrade') {
+        // The refusal is already on the pushed status as `drift`, which the
+        // drift notice explains in full — a second copy in the generic error
+        // alert would just say the same thing twice.
       } else if (result.kind === 'error') {
         runInAction(() => {
           this.error = result.message;
@@ -150,12 +159,11 @@ export class LocalServerStore {
       this.error = null;
     });
     try {
-      // Delete the managed server's agents first (same path as the sidebar's
-      // "Remove agent", so they drop out of the tree), then wipe the stack —
-      // the wipe destroys their server-side identity, so leaving them would
-      // strand them as "Unnamed agent" rows.
-      await this.removeManagedAgents();
+      // The reset deletes the stack's agents itself — their server-side
+      // identity dies with it — so this only has to refresh what the deletion
+      // changed underneath the UI.
       await rpc.localSwitchServer.reset();
+      await agentsStore.load();
       await switchServersStore.init();
     } catch (cause) {
       this.setError(cause);
@@ -164,22 +172,6 @@ export class LocalServerStore {
         this.busy = false;
       });
     }
-  }
-
-  /** Remove every location whose agent belongs to the managed local server. */
-  private async removeManagedAgents(): Promise<void> {
-    const managedId = switchServersStore.servers.find((s) => s.managed)?.id;
-    if (!managedId) return;
-    await agentsStore.load();
-    const locationIds = new Set<string>();
-    for (const [locationId, agents] of agentsStore.byLocation) {
-      if (agents.some((a) => a.serverId === managedId)) locationIds.add(locationId);
-    }
-    const manager = getLocationManagerStore();
-    for (const locationId of locationIds) {
-      await manager.removeLocation(locationId);
-    }
-    await agentsStore.load();
   }
 
   private setError(cause: unknown): void {

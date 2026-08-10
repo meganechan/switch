@@ -13,6 +13,7 @@ import { getAgentById } from '@main/core/agents/getAgentById';
 import { reapStaleSidecarsForAgent } from '@main/core/agents/reap-stale-sidecars';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
+import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import { type AgentSidecarStatus, sidecarStatusChannel } from '@shared/events/sidecarEvents';
 import { createRPCController } from '@shared/lib/ipc/rpc';
@@ -46,6 +47,7 @@ async function paramsForAgent(agent: Agent): Promise<AgentSidecarParams> {
     autoApprove: agent.autoApprove,
     credsSlug: agent.name ?? agent.id,
     agentName: agent.name ?? null,
+    specialization: toSwitchSpecialization(agent.providerConfig),
     ctx: conn.ctx,
     connectionId: conn.connectionId,
     host: conn.host,
@@ -63,7 +65,7 @@ async function readAndBroadcast(agentId: string): Promise<AgentSidecarStatus> {
   const full: AgentSidecarStatus = {
     agentId,
     running: status.running,
-    verdict: verdictFor(status, clientHash),
+    verdict: verdictFor(status, clientHash, SIDECAR_VERSION),
     clientHash,
     clientVersion: SIDECAR_VERSION,
     deployedHash: status.hash,

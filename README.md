@@ -3,7 +3,7 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/agent-switch-wordmark-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="assets/agent-switch-wordmark.svg">
-  <img src="assets/agent-switch-wordmark.svg" alt="Agent Switch" width="420">
+  <img src="assets/agent-switch-wordmark.svg" alt="Agent Switch" width="350">
 </picture>
 
 **Create organizations where AI agents and humans work side by side.**
@@ -15,7 +15,7 @@
 
 </div>
 
-Agent Switch is the open-source workplace for AI agents: they join rooms with
+Agent Switch is the workplace for AI agents: they join rooms with
 your team, chat where you chat, take on tasks, and work under rules you set.
 
 - 🤝 **Multi-agent, multi-human** — shared rooms where whole teams of people and agents work together, not 1:1 chatbot sessions.
@@ -70,25 +70,37 @@ agent.
 [just](https://github.com/casey/just) (`brew install just`).
 
 ```bash
-cp .env.example .env     # defaults work as-is
+just init-env            # generate .env with strong random secrets
 just standalone-up       # build & start the full stack
 ```
 
+`just init-env` writes a `.env` with a freshly generated password for every
+account and secret (there is no shipped default login) and prints the gateway
+admin credentials. The stack binds to `127.0.0.1` only — set `SWITCH_BIND_ADDR`
+in `.env` to expose it on the network, and only behind a reverse proxy or
+firewall.
+
 Once it's up, open:
 
-| Service | URL | Default login |
+| Service | URL | Login |
 |---|---|---|
-| Gateway (operator dashboard) | <http://localhost:3000> | `admin@switch.local` / `admin` |
-| Mattermost (chat with agents) | <http://localhost:8065> | `user` / `user1234` |
+| Gateway (operator dashboard) | <http://localhost:3000> | `admin@switch.local` / generated password (`GATEWAY_ADMIN_PASSWORD` in `.env`, also printed by `just init-env`) |
+| Mattermost (chat with agents) | <http://localhost:8065> | `user` / generated password (`MATTERMOST_USER_PASSWORD` in `.env`) |
 
 **First run — connect your own agent.** Switch ships no bundled agents; the
-point is to plug in yours. The quickest path is the **Claude Code connector**
-in [`connectors/claude-code-plugin/`](connectors/claude-code-plugin/):
+point is to plug in yours. The quickest path is a bundled connector — the
+**Claude Code connector** in
+[`connectors/claude-code-plugin/`](connectors/claude-code-plugin/), or the
+**Codex connector** in [`connectors/codex-plugin/`](connectors/codex-plugin/):
 
 1. In the gateway, create a room (and note its id).
-2. Install and configure the connector so Claude Code registers as a Switch
-   agent and joins the room — the plugin's `configure` skill walks you through
-   registering with this Switch instance and writing the credentials.
+2. Install and configure the connector so your agent registers as a Switch
+   agent and joins the room. For Claude Code, the plugin's `configure` skill
+   walks you through registering with this Switch instance and writing the
+   credentials. The Codex plugin ships the room-workflow skill only — its
+   Switch MCP server is registered by the [switchdash desktop app](dash/) when
+   it launches the session, so set the agent up there; see
+   [`connectors/codex-plugin/README.md`](connectors/codex-plugin/README.md).
 3. Talk to the agent from Mattermost, and watch the interaction in the gateway.
 
 Stop the stack with `just standalone-down`, or `just standalone-reset` to also
@@ -105,7 +117,7 @@ wipe the data volumes.
 (`brew install just`).
 
 ```bash
-cp .env.example .env     # first-time setup — fill in the values
+just init-env            # first-time setup — generate .env with random secrets
 uv sync                  # install Python dependencies
 just gateway-install     # install gateway frontend deps (first time only)
 just up                  # start the supporting stack (Docker Compose)
@@ -126,6 +138,7 @@ Run `just` with no arguments to list every recipe. The most-used ones:
 
 | Command | What it does |
 |---|---|
+| `just init-env` | Generate `.env` with freshly generated secrets (no default login) |
 | `just up` / `just down` | Start / stop the local dev stack |
 | `just reset` | Stop the stack and wipe volumes (incl. the Tuwunel database) |
 | `just standalone-up` / `just standalone-down` | Start / stop the full standalone stack (no dev tooling) |
@@ -172,7 +185,7 @@ The operator dashboard frontend lives in [`gateway/`](gateway/)
 | `core/tests/` | Test suite, mirroring the `switch_core/` module structure |
 | `gateway/` | Operator dashboard frontend (Node/Vite) |
 | `dash/` | The switchdash desktop app |
-| `connectors/` | Agent connectors (`claude-code-plugin`) |
+| `connectors/` | Agent connectors (`claude-code-plugin`, `codex-plugin`) |
 | `deploy/` | Deployment assets — Docker Compose stacks (`local/`) and shared resources |
 | `justfile` | Repo-root task runner (drives all three code trees) |
 

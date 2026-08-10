@@ -1,3 +1,4 @@
+import type { SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
 import { generateAgentLaunchSpec } from '@main/core/agents/generate-agent-launch-spec';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { log } from '@main/lib/logger';
@@ -27,6 +28,9 @@ export interface AgentSidecarParams {
   /** The agent's name — so auto-started sessions launch as it with its own
    * identity (a definitions-capable provider passes it as `--agent <name>`). */
   agentName: string | null;
+  /** Per-agent model / effort / instructions folded into auto-started sessions'
+   * launch profile. */
+  specialization?: SwitchLaunchSpecialization;
   ctx: IExecutionContext;
   connectionId: string;
   host: SidecarHost;
@@ -39,6 +43,8 @@ async function buildLauncher(params: AgentSidecarParams): Promise<RemoteSidecarL
     deeplinkScheme: params.deeplinkScheme,
     autoApprove: params.autoApprove,
     agentName: params.agentName,
+    credsSlug: params.credsSlug,
+    specialization: params.specialization,
     ctx: params.ctx,
     connectionId: params.connectionId,
   });
@@ -52,7 +58,14 @@ async function buildLauncher(params: AgentSidecarParams): Promise<RemoteSidecarL
       launchSpec,
       credsSlug: params.credsSlug,
     },
-    log,
+    // Bound once here so every line the launcher writes names the agent it is
+    // acting for. Sidecar work runs off watchers rather than an RPC call, so
+    // there is no ambient scope for it to inherit.
+    log: log.child({
+      component: 'sidecar-launcher',
+      agentSlug: params.credsSlug,
+      agentName: params.agentName ?? undefined,
+    }),
   });
 }
 

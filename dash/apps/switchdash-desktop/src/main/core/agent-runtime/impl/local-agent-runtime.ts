@@ -2,10 +2,12 @@ import { homedir } from 'node:os';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { dirTrustService } from '@main/core/agent-hooks/dir-trust-service';
 import { ensureHooksInstalled } from '@main/core/agent-hooks/hook-config-service';
+import { prepareAgentLaunchProfile } from '@main/core/agent-runtime/agent-launch-profile';
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
-import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
+import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
+import { getAgentById } from '@main/core/agents/getAgentById';
 import { localDependencyManager } from '@main/core/dependencies/dependency-managers';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import type { IExecutionContext } from '@main/core/execution-context/types';
@@ -20,12 +22,15 @@ import { getTerminalColorEnv } from '@main/core/pty/terminal-color-scheme';
 import { killTmuxSession, makeAgentTmuxSessionName } from '@main/core/pty/tmux-session-name';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { providerOverrideSettings } from '@main/core/settings/provider-settings-service';
-import { readAgentSwitchEnv } from '@main/core/switch-rooms/switch-credentials';
+import { npmRegistryAuthEnv } from '@main/core/switch-rooms/npm-registry-auth';
+import { readAgentSwitchEnvFromFs } from '@main/core/switch-rooms/switch-credentials';
 import { switchNotificationPoller } from '@main/core/switch-rooms/switch-notification-poller';
 import { switchRoomService } from '@main/core/switch-rooms/switch-room-service';
 import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
+import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
+import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
@@ -97,7 +102,17 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
     isResuming: boolean = false,
     initialPrompt?: string
   ): Promise<void> {
-    return this.startInternal(session, initialSize, isResuming, initialPrompt, false);
+    // Establishes the scope the PTY spawn and everything else below inherits,
+    // so those lines name their session without being handed its id.
+    return runWithLogContext(
+      {
+        component: 'local-agent-runtime',
+        sessionId: this.sessionId,
+        agentId: session.agentId,
+        agentName: session.agentName ?? undefined,
+      },
+      () => this.startInternal(session, initialSize, isResuming, initialPrompt, false)
+    );
   }
 
   private async startInternal(
@@ -118,11 +133,19 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
     if (!spawnToken) return;
 
     try {
+      // The toggle lives on the agent, so read it from the agent: the value on
+      // the session is a copy taken at creation and never refreshed, which left
+      // an existing session launching without the flag no matter how often the
+      // user set it. It stays as the fallback for a session whose agent row is
+      // gone.
+      const agentRecord = await getAgentById(session.agentId);
+      const autoApprove = agentRecord?.autoApprove ?? session.autoApprove ?? false;
+
       await dirTrustService.maybeAutoTrustLocal({
         providerId: session.providerId,
         cwd: this.sessionPath,
         homedir: homedir(),
-        force: session.autoApprove === true,
+        force: autoApprove,
       });
       await ensureHooksInstalled({
         providerId: session.providerId,
@@ -144,15 +167,44 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         cachedStatePath,
       });
 
+      // A session talks to Switch as its own agent, not whatever identity happens
+      // to sit in `.claude/settings.local.json`. Real env vars outrank every
+      // settings file and reach the spawned MCP server, so inject the agent's
+      // identity last (highest precedence): a subagent from its definition creds,
+      // and a plain agent from its provider-neutral `.switch/agents/<slug>.json`
+      // (empty when absent — the session then falls back to settings.local.json,
+      // which Claude reads natively).
+      // Resolved before the command is built because a provider that registers
+      // the Switch server at launch keys it on this identity (see below).
+      const workspaceFs = createPluginFs(this.sessionPath);
+      const identityVars =
+        session.agentName && repoAgents
+          ? await repoAgents.readLaunchEnv(workspaceFs, session.agentName)
+          : await readAgentSwitchEnvFromFs(workspaceFs, agentCredsSlug(session), log);
+
+      // Apply the provider's per-agent specialization: for Codex, a profile
+      // under `~/.codex` carrying model / effort / instructions, loaded with
+      // `--profile <slug>`. The Switch MCP server is not written here — the
+      // connector plugin registers it from its own bundled `.mcp.json`.
+      const launchProfileArgs = await prepareAgentLaunchProfile(plugin, {
+        homeFs: createPluginFs(homedir()),
+        slug: agentCredsSlug(session),
+        workingDir: this.sessionPath,
+        specialization: toSwitchSpecialization(agentRecord?.providerConfig),
+      });
+
       const agentCommand = plugin.behavior.prompt!.buildCommand({
         cli: executableCli,
         extraArgs: parseExtraArgs(providerConfig?.extraArgs),
-        // The provider owns how to run as the named agent (CHOO-1440).
-        agentArgs:
-          session.agentName && repoAgents
+        // The provider owns how to run as the named agent (CHOO-1440), and how to
+        // load its per-agent specialization when that needs a config file.
+        agentArgs: [
+          ...(session.agentName && repoAgents
             ? repoAgents.launchArgs(this.sessionPath, session.agentName)
-            : [],
-        autoApprove: session.autoApprove ?? false,
+            : []),
+          ...launchProfileArgs,
+        ],
+        autoApprove,
         initialPrompt: agentSession.isResuming ? undefined : initialPrompt,
         sessionId: agentSession.sessionId,
         providerSessionId: session.providerSessionId ?? undefined,
@@ -165,6 +217,48 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
 
       const tmuxSessionName = this.tmux ? makeAgentTmuxSessionName(this.sessionId) : undefined;
 
+      const ptyId = makePtyId(session.providerId, this.sessionId);
+      const port = agentHookService.getPort();
+      const token = agentHookService.getToken();
+      const colorEnv = await getTerminalColorEnv();
+
+      // Open this session's Switch connection before the session exists, and
+      // hand it the id. Its tool calls then arrive on the connection switchdash
+      // is reading, so `connect_to_room` claims the room *there* and the server
+      // tells us which room the session is in. Before this, the two held
+      // separate connections and switchdash had to infer the room by scraping
+      // the agent's tool response through a hook.
+      //
+      // Order matters: the server refuses a call naming a connection that is
+      // not open, and the session may call connect_to_room immediately.
+      // Null when the session has no Switch credentials — most sessions —
+      // in which case nothing here applies and the var is simply absent.
+      const switchConnectionId = await switchNotificationPoller.ensureForSession({
+        sessionId: this.sessionId,
+        providerId: session.providerId,
+        ptyId,
+      });
+
+      // The Claude Code plugin resolves its MCP server with `npx` from a
+      // private registry, so the session needs to know where that registry is
+      // and how to authenticate. Empty when `gh` has no token, which lets the
+      // session start regardless — a session with no MCP server beats no
+      // session, and the missing login is reported at host setup.
+      const npmAuthEnv = await npmRegistryAuthEnv();
+
+      const sessionEnv = {
+        ...buildAgentEnv({
+          hook: port > 0 ? { port, ptyId, token } : undefined,
+          providerVars,
+          shellProfile: this.shellProfile,
+        }),
+        ...colorEnv,
+        ...this.sessionEnvVars,
+        ...identityVars,
+        ...npmAuthEnv,
+        ...(switchConnectionId ? { SWITCH_CONNECTION_ID: switchConnectionId } : {}),
+      };
+
       const resolved = resolveLocalPtySpawn({
         platform: process.platform,
         env: process.env,
@@ -175,6 +269,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
           shellProfile: this.shellProfile,
           shellSetup: this.shellSetup,
           tmuxSessionName,
+          paneEnv: tmuxSessionName ? sessionEnv : undefined,
         },
       });
 
@@ -182,37 +277,12 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         sessionId: ptySessionId,
       });
 
-      const ptyId = makePtyId(session.providerId, this.sessionId);
-      const port = agentHookService.getPort();
-      const token = agentHookService.getToken();
-      const colorEnv = await getTerminalColorEnv();
-      // A session talks to Switch as its own agent, not whatever identity happens
-      // to sit in `.claude/settings.local.json`. Real env vars outrank every
-      // settings file and reach the spawned MCP server, so inject the agent's
-      // identity last (highest precedence): a subagent from its definition creds,
-      // and a plain agent from its provider-neutral `.switch/agents/<id>.json`
-      // (empty when absent — the session then falls back to settings.local.json,
-      // which Claude reads natively). Lets agents sharing a location keep distinct
-      // identities (CHOO-1440).
-      const subagentVars =
-        session.agentName && repoAgents
-          ? await repoAgents.readLaunchEnv(createPluginFs(this.sessionPath), session.agentName)
-          : await readAgentSwitchEnv(agentSettingsPath(this.sessionPath, session.agentId), log);
       const pty = spawnLocalPty({
         id: ptySessionId,
         command: resolved.command,
         args: resolved.args,
         cwd: resolved.cwd,
-        env: {
-          ...buildAgentEnv({
-            hook: port > 0 ? { port, ptyId, token } : undefined,
-            providerVars,
-            shellProfile: this.shellProfile,
-          }),
-          ...colorEnv,
-          ...this.sessionEnvVars,
-          ...subagentVars,
-        },
+        env: sessionEnv,
         cols: spawnSize.cols,
         rows: spawnSize.rows,
       });
@@ -271,7 +341,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       // resume polling that room — the connect_to_room hook only fires on a
       // live tool call, so a resumed session would otherwise go silent.
       void switchRoomService
-        .restorePoller({
+        .restoreConnection({
           sessionId: this.sessionId,
           providerId: session.providerId,
           ptyId,

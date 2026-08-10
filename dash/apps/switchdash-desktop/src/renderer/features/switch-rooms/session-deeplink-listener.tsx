@@ -3,8 +3,8 @@ import { toast } from 'sonner';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
-import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { events } from '@renderer/lib/ipc';
+import { scopeToLocationServer } from '@renderer/lib/layout/scope-to-server';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { sessionDeeplinkChannel } from '@shared/core/switch-rooms/switchRoomEvents';
 import { pickDeeplinkTarget } from './session-deeplink-resolve';
@@ -78,9 +78,6 @@ export function SessionDeeplinkListener(): null {
           });
           return;
         }
-        // Scope the sidebar to the session's server first; otherwise its location
-        // is filtered out of the server-scoped tree and the reveal has nothing
-        // to expand.
         console.info('[deeplink] navigating to session', {
           linkSessionId: sessionId,
           matchedSessionId: match.sessionId,
@@ -88,9 +85,10 @@ export function SessionDeeplinkListener(): null {
           locationId: match.locationId,
           roomId,
         });
-        if (!agentsStore.loaded) await agentsStore.load();
-        const serverId = agentsStore.serverIdForLocation(match.locationId);
-        if (serverId) await switchServersStore.setActive(serverId);
+        // Scope the sidebar to the session's server first; otherwise its location
+        // is filtered out of the server-scoped tree and the reveal has nothing
+        // to expand.
+        await scopeToLocationServer(match.locationId);
         sidebarStore.revealSessionInRoom(match.locationId, roomId);
         sidebarStore.requestScrollToSession(match.sessionId);
         appState.navigation.navigate('session', match);

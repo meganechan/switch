@@ -96,6 +96,9 @@ class RoomCreateRequest(BaseModel):
     join_event_listeners: list[str] | None = None
     user_names: list[str] | None = None
     bridge_id: str | None = None
+    # Opt out of the instance default bridge: create a room with no external
+    # channel. Ignored when bridge_id is set.
+    internal_only: bool = False
     external_channel_id: str | None = None
     group_id: str | None = None
     read_visibility: str = "public"
@@ -410,8 +413,14 @@ class BridgeDetail(BaseModel):
     display_name: str
     status: str
     agent_greetings_enabled: bool
+    is_default: bool
     room_count: int
     created_at: str
+    # Link that opens this bridge's workspace in its messaging app, built by
+    # the live adapter. None when the bridge is not running, or the platform
+    # offers no such link. Never carries a credential — only ids that the
+    # platform already puts in its own URLs.
+    home_url: str | None = None
 
 
 class BridgeUpdateRequest(BaseModel):
@@ -427,6 +436,10 @@ class BridgeCreateRequest(BaseModel):
     bridge_type: str
     display_name: str
     connection_config: dict[str, object]
+    # Nominate this bridge as the one new rooms land on when none is named.
+    # Set by the headless standalone bootstrap so a fresh deployment bridges
+    # rooms out of the box.
+    set_as_default: bool = False
 
 
 class ExternalUserSummary(BaseModel):
@@ -485,9 +498,45 @@ class CreateUserRequest(BaseModel):
 class AuthConfigResponse(BaseModel):
     # Read unauthenticated by the login page to decide which login methods to
     # show. `oidc_provider_label` is the button text (e.g. "Okta").
+    #
+    # Nothing version-related may be added here: this is the one gateway
+    # response served without a session, and version disclosure is
+    # authenticated everywhere (CHOO-1865).
     password_login_enabled: bool
     oidc_enabled: bool
     oidc_provider_label: str | None
+
+
+class ContractRangeResponse(BaseModel):
+    """The revisions of one contract this server implements and still handles."""
+
+    speaks: int
+    accepts: int
+
+
+class ServerDeclaration(BaseModel):
+    """What switch-core says about itself to an authenticated client.
+
+    `version` is null when switch-core cannot read its own version. Null means
+    unknown and must be rendered as such — never as current.
+    """
+
+    version: str | None
+    contracts: dict[str, ContractRangeResponse]
+
+
+class SessionUserResponse(UserResponse):
+    """The authenticated user, plus what the server is (CHOO-1865).
+
+    The server's declaration rides the session response rather than sitting on
+    an endpoint of its own, because the authentication surface is deliberately
+    frozen — never versioned, permanently backward-compatible, and excluded
+    from `gateway-api`. That makes it the one path guaranteed to work, so a
+    client can always get far enough in to be told what is wrong. A compat
+    check must not depend on the thing whose compatibility is in question.
+    """
+
+    server: ServerDeclaration
 
 
 # ── References ──────────────────────────────────────────────────────────────

@@ -1,11 +1,13 @@
+import { deleteAgentsForServer } from '@main/core/switch-servers/delete-server-agents';
 import { getManagedServer } from '@main/core/switch-servers/servers-store';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import { COMPATIBLE_SWITCH_VERSION } from '@shared/app-identity';
-import type {
-  DockerAvailability,
-  LocalServerStatus,
-  StartLocalServerResult,
+import {
+  type DockerAvailability,
+  type LocalServerStatus,
+  type StartLocalServerResult,
+  switchVersionDowngradeMessage,
 } from '@shared/core/managed-switch-server/managed-switch-server';
 import {
   localServerLogChannel,
@@ -13,6 +15,7 @@ import {
 } from '@shared/events/localSwitchServerEvents';
 import { isStackRunning } from './compose';
 import { LOCAL_SERVER_NAME } from './constants';
+import { readVersionStatus } from './deployed-version';
 import { LocalServerHost } from './host/local-host';
 import type { ServerHost } from './host/types';
 import { resetStack, startStack, stopStack } from './pipeline';
@@ -32,6 +35,8 @@ class LocalServerService {
     phase: 'stopped',
     serverId: null,
     version: COMPATIBLE_SWITCH_VERSION,
+    deployedVersion: null,
+    drift: null,
     message: null,
     error: null,
   };
@@ -53,15 +58,26 @@ class LocalServerService {
   }
 
   /** Reconcile status at boot so a stack that survived the last quit shows as
-   * running without the user re-starting it. */
+   * running without the user re-starting it, and so an app update that moved
+   * the switch-core pin underneath it surfaces as drift instead of leaving the
+   * user on a stale core indefinitely (CHOO-1736).
+   *
+   * The drift probe also runs for a stopped stack: its data volumes still hold
+   * whatever schema the last version migrated to, which is exactly what makes a
+   * downgrade unsafe. */
   async initialize(): Promise<void> {
+    const host: ServerHost = new LocalServerHost();
     try {
       const managed = await getManagedServer();
-      if (managed && (await isStackRunning(new LocalServerHost()))) {
+      if (!managed) return;
+      if (await isStackRunning(host)) {
         this.setStatus({ phase: 'running', serverId: managed.id, message: null, error: null });
       }
+      this.setStatus(await readVersionStatus(host, COMPATIBLE_SWITCH_VERSION));
     } catch (error) {
       log.warn('local-switch-server: boot status reconcile failed', { error });
+    } finally {
+      host.dispose();
     }
   }
 
@@ -84,10 +100,27 @@ class LocalServerService {
       });
       if (result.kind === 'docker-unavailable') {
         this.setStatus({ phase: 'error', error: result.detail });
+      } else if (result.kind === 'version-downgrade') {
+        this.setStatus({
+          phase: 'error',
+          message: null,
+          error: switchVersionDowngradeMessage(result.deployed, result.expected),
+          deployedVersion: result.deployed,
+          drift: { deployed: result.deployed, expected: result.expected, direction: 'downgrade' },
+        });
       } else if (result.kind === 'error') {
         this.setStatus({ phase: 'error', error: result.message });
       } else {
-        this.setStatus({ phase: 'running', serverId: result.serverId, message: null, error: null });
+        // The pipeline just wrote this build's pin and converged the containers
+        // onto it, so any drift the boot probe found is now resolved.
+        this.setStatus({
+          phase: 'running',
+          serverId: result.serverId,
+          message: null,
+          error: null,
+          deployedVersion: COMPATIBLE_SWITCH_VERSION,
+          drift: null,
+        });
       }
       return result;
     } catch (error) {
@@ -123,14 +156,20 @@ class LocalServerService {
   }
 
   /** Destroy the stack AND its data volumes, and drop the stored secrets so the
-   * next start is a clean install. Irreversible — the caller must confirm. The
-   * caller (renderer) removes the managed server's agents first, since their
-   * server-side identity is wiped here. */
+   * next start is a clean install. Irreversible — the caller must confirm.
+   *
+   * The stack's agents are deleted first, here rather than in the caller: the
+   * wipe destroys their server-side identity, and an agent that outlives it
+   * keeps a dead endpoint and a token for nobody. Doing it behind the reset is
+   * what stops a second caller from forgetting. */
   async reset(): Promise<void> {
     if (this.busy) throw new Error('A local-server operation is already in progress.');
     this.busy = true;
     const host: ServerHost = new LocalServerHost();
     try {
+      this.setStatus({ phase: 'stopping', message: 'Removing agents…' });
+      const server = await getManagedServer();
+      if (server) await deleteAgentsForServer(server.id);
       this.setStatus({ phase: 'stopping', message: 'Destroying containers and data…' });
       await resetStack(host);
       this.setStatus({ phase: 'stopped', message: null, error: null });

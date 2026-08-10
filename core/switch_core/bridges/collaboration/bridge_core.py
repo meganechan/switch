@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nio import (
@@ -16,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from switch_core.aliases import AliasError, validate_alias_format
+from switch_core.attachments import parse_attachment_group
 from switch_core.bridges.collaboration.adapter import CollaborationAdapter
 from switch_core.bridges.collaboration.models import (
     ChannelType,
@@ -24,6 +27,7 @@ from switch_core.bridges.collaboration.models import (
     InboundCommand,
     InboundMessage,
     InboundUserJoin,
+    OutboundAttachment,
 )
 from switch_core.clients.admin_messages import ADMIN_MARKER, AdminMessageType
 from switch_core.clients.client_base import ClientBase, ClientConfig
@@ -47,6 +51,26 @@ logger = logging.getLogger(__name__)
 # How long to wait for a freshly-invited external-user puppet to actually join a
 # room before giving up on relaying its message.
 PUPPET_JOIN_TIMEOUT = 30.0
+
+# How long to hold an incomplete outbound attachment group before relaying the
+# parts that arrived, flagged as incomplete (see _schedule_outbound_group_flush).
+OUTBOUND_GROUP_TIMEOUT_SECONDS = 5.0
+
+
+@dataclass
+class _PendingOutboundGroup:
+    """Files of a multi-attachment message seen so far, keyed by group index."""
+
+    total: int
+    parts: dict[int, OutboundAttachment] = field(default_factory=dict)
+    caption: str | None = None
+    first_event_id: str | None = None
+
+
+# How long a queued runtime-indicator move waits before it runs, so a burst of
+# messages to the same agent costs one move rather than one per message. Short
+# enough that the indicator still reads as following the conversation.
+_INDICATOR_MOVE_DELAY_SECONDS = 1.0
 
 _LOBBY_DEPRECATION_NOTICE = (
     "👋 This isn't where you talk to agents — direct messages to the Switch "
@@ -116,6 +140,19 @@ class BridgeCore:
         # spawn a duplicate room. Handlers skip adoption while a channel is in
         # this set. See begin_provisioning / end_provisioning.
         self._provisioning_channels: set[str] = set()
+        # Outbound multi-attachment messages still assembling, with their
+        # safety-net timers. Cleared on completion or timeout so a group that
+        # never completes cannot leak.
+        self._outbound_groups: dict[str, _PendingOutboundGroup] = {}
+        self._outbound_group_timers: dict[str, asyncio.TimerHandle] = {}
+        # (channel_id, agent_name) whose runtime indicator is due to be moved
+        # below newly-arrived traffic, and the thread each should land in.
+        # See _schedule_indicator_move.
+        self._indicator_move_timers: dict[tuple[str, str], asyncio.TimerHandle] = {}
+        self._indicator_move_targets: dict[tuple[str, str], str | None] = {}
+        # (channel_id, agent_name) -> the last message the agent reported having
+        # been handed. Cleared when its turn ends. See _follow_reported_anchor.
+        self._reported_anchors: dict[tuple[str, str], str] = {}
 
     @property
     def adapter(self) -> CollaborationAdapter:
@@ -387,6 +424,16 @@ class BridgeCore:
                     matrix_room_id,
                 )
 
+        # An attachment the platform offered but we could not relay must be
+        # visible in the room, not swallowed. Append it to the message body so
+        # both the agent and the humans see that a file went missing.
+        if msg.attachment_failures:
+            notes = "\n".join(
+                f"_attachment not relayed: {failure.filename} — {failure.reason}_"
+                for failure in msg.attachment_failures
+            )
+            content = f"{content}\n{notes}" if content.strip() else notes
+
         if not msg.attachments:
             event_id = await puppet.send_message(
                 matrix_room_id,
@@ -416,6 +463,11 @@ class BridgeCore:
         # event stands in for the post for threading / correlation purposes.
         caption = content if content.strip() else None
         first_event_id: str | None = None
+        total = len(msg.attachments)
+        # A platform post hands us all its files at once, so the group is known
+        # up front — no waiting on the receiving side to learn how many to
+        # expect. Matrix carries them as `total` events sharing this id.
+        group_id = str(uuid.uuid4()) if total > 1 else None
         for index, attachment in enumerate(msg.attachments):
             mxc = await puppet.upload_media(
                 attachment.data, attachment.mimetype, attachment.filename
@@ -432,6 +484,11 @@ class BridgeCore:
                 msgtype=msgtype,
                 caption=caption if index == 0 else None,
                 thread_root_id=thread_root_id,
+                group=(
+                    {"id": group_id, "index": index, "total": total}
+                    if group_id is not None
+                    else None
+                ),
             )
             if event_id is None:
                 logger.error(
@@ -981,6 +1038,11 @@ class BridgeCore:
                 external_post_id=message_ref,
             )
 
+        if sender_name is not None:
+            await self._move_indicator_for_sender(
+                channel_id, sender_name, thread_root_ref
+            )
+
     async def _outbound_thread_root_ref(
         self, event_content: dict[str, object], channel_id: str
     ) -> str | None:
@@ -1014,10 +1076,14 @@ class BridgeCore:
         Mirrors handle_outbound_message: puppet media is skipped (it originated
         on the platform), the caption convention is unpacked (a `filename` key
         means the body is a caption), and the relayed post is recorded in the
-        message map so replies thread both ways. Images relay natively via the
-        adapter's send_attachment; other file types get a disclosed text notice
-        (matching the images-only inbound path) rather than a silent drop.
-        `client` is the bridge's Matrix client, used to fetch the media bytes.
+        message map so replies thread both ways. Any file type relays natively
+        via the adapter; a file whose bytes can't be fetched or that exceeds the
+        relay cap gets a disclosed text notice rather than a silent drop.
+
+        A message carrying several files arrives as several Matrix events
+        sharing a group marker; they are buffered here and relayed as ONE
+        platform post. `client` is the bridge's Matrix client, used to fetch the
+        media bytes.
         """
         logger.debug(
             "[BRIDGE-OUT] matrix media event from=%s room=%s body=%s",
@@ -1063,8 +1129,17 @@ class BridgeCore:
         )
 
         message_ref: str | None
-        if event_content.get("msgtype") != "m.image":
-            note = f"_sent a file that isn't relayed yet: {filename}_"
+        data = await self._download_matrix_media(client, event.url, filename)
+        if data is None or len(data) > self._max_attachment_bytes:
+            if data is not None:
+                logger.warning(
+                    "[BRIDGE-OUT] attachment %s is %d bytes, over the "
+                    "%d-byte relay cap",
+                    filename,
+                    len(data),
+                    self._max_attachment_bytes,
+                )
+            note = f"_sent an attachment that couldn't be relayed: {filename}_"
             body = f"{caption}\n{note}" if caption else note
             message_ref = await self._adapter.send_message(
                 channel_id,
@@ -1073,34 +1148,41 @@ class BridgeCore:
                 thread_root_id=thread_root_ref,
             )
         else:
-            data = await self._download_matrix_media(client, event.url, filename)
-            if data is None or len(data) > self._max_attachment_bytes:
-                if data is not None:
-                    logger.warning(
-                        "[BRIDGE-OUT] attachment %s is %d bytes, over the "
-                        "%d-byte relay cap",
-                        filename,
-                        len(data),
-                        self._max_attachment_bytes,
+            # Part of a multi-file message? Hold it until the whole group has
+            # arrived, then relay all of it as one platform post.
+            group = parse_attachment_group(event_content)
+            if group is not None:
+                group_id, index, total = group
+                pending = self._outbound_groups.setdefault(
+                    group_id, _PendingOutboundGroup(total=total)
+                )
+                pending.parts[index] = OutboundAttachment(
+                    filename=filename, mimetype=mimetype, data=data
+                )
+                if index == 0:
+                    pending.caption = caption
+                    pending.first_event_id = event.event_id
+                if len(pending.parts) < total:
+                    self._schedule_outbound_group_flush(
+                        group_id, channel_id, sender_name, thread_root_ref
                     )
-                note = f"_sent an attachment that couldn't be relayed: {filename}_"
-                body = f"{caption}\n{note}" if caption else note
-                message_ref = await self._adapter.send_message(
-                    channel_id,
-                    sender_name,
-                    self._adapter.translate_outbound(body),
-                    thread_root_id=thread_root_ref,
+                    return
+                self._cancel_outbound_group_flush(group_id)
+                self._outbound_groups.pop(group_id, None)
+                await self._relay_outbound_group(
+                    pending, channel_id, sender_name, thread_root_ref
                 )
-            else:
-                message_ref = await self._adapter.send_attachment(
-                    channel_id,
-                    sender_name,
-                    filename,
-                    mimetype,
-                    data,
-                    caption=caption,
-                    thread_root_id=thread_root_ref,
-                )
+                return
+
+            message_ref = await self._adapter.send_attachment(
+                channel_id,
+                sender_name,
+                filename,
+                mimetype,
+                data,
+                caption=caption,
+                thread_root_id=thread_root_ref,
+            )
 
         if message_ref is not None:
             await self._record_message_map(
@@ -1108,6 +1190,92 @@ class BridgeCore:
                 matrix_event_id=event.event_id,
                 external_post_id=message_ref,
             )
+
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
+
+    def _schedule_outbound_group_flush(
+        self,
+        group_id: str,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        """Arm the safety net for an incomplete outbound attachment group.
+
+        A group normally completes immediately — the sender posts its events
+        back-to-back. This timer guarantees that a batch that never completes
+        still reaches the platform, flagged, instead of being held forever.
+
+        Armed once per group, NOT re-armed per part, so the deadline bounds the
+        whole group rather than the gap between parts.
+        """
+        if group_id in self._outbound_group_timers:
+            return
+        self._outbound_group_timers[group_id] = asyncio.get_running_loop().call_later(
+            OUTBOUND_GROUP_TIMEOUT_SECONDS,
+            lambda: asyncio.create_task(
+                self._flush_incomplete_outbound_group(
+                    group_id, channel_id, sender_name, thread_root_ref
+                )
+            ),
+        )
+
+    def _cancel_outbound_group_flush(self, group_id: str) -> None:
+        timer = self._outbound_group_timers.pop(group_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    async def _flush_incomplete_outbound_group(
+        self,
+        group_id: str,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        self._outbound_group_timers.pop(group_id, None)
+        pending = self._outbound_groups.pop(group_id, None)
+        if pending is None:
+            return
+        received = len(pending.parts)
+        logger.error(
+            "[BRIDGE-OUT] attachment group %s incomplete: %d of %d parts arrived "
+            "within %ss; relaying what arrived",
+            group_id,
+            received,
+            pending.total,
+            OUTBOUND_GROUP_TIMEOUT_SECONDS,
+        )
+        notice = (
+            f"_incomplete attachment group: relaying {received} of "
+            f"{pending.total} files_"
+        )
+        pending.caption = f"{pending.caption}\n{notice}" if pending.caption else notice
+        await self._relay_outbound_group(
+            pending, channel_id, sender_name, thread_root_ref
+        )
+
+    async def _relay_outbound_group(
+        self,
+        pending: _PendingOutboundGroup,
+        channel_id: str,
+        sender_name: str,
+        thread_root_ref: str | None,
+    ) -> None:
+        message_ref = await self._adapter.send_attachments(
+            channel_id,
+            sender_name,
+            [pending.parts[i] for i in sorted(pending.parts)],
+            caption=pending.caption,
+            thread_root_id=thread_root_ref,
+        )
+        if message_ref is not None and pending.first_event_id is not None:
+            await self._record_message_map(
+                external_channel_id=channel_id,
+                matrix_event_id=pending.first_event_id,
+                external_post_id=message_ref,
+            )
+
+        await self._move_indicator_for_sender(channel_id, sender_name, thread_root_ref)
 
     async def _download_matrix_media(
         self, client: ClientBase[Any], mxc: str | None, filename: str
@@ -1181,6 +1349,48 @@ class BridgeCore:
             deeplink_url=event.deeplink_url,
             detail=event.detail,
         )
+        await self._follow_reported_anchor(
+            channel_id,
+            event.agent_name,
+            event.state,
+            event.anchor_event_id,
+            thread_root_ref,
+        )
+
+    async def _follow_reported_anchor(
+        self,
+        channel_id: str,
+        agent_name: str,
+        state: str,
+        anchor_event_id: str | None,
+        thread_root_ref: str | None,
+    ) -> None:
+        """Move the indicator when the agent reports it has been handed a
+        newer message than the one it was last positioned against.
+
+        Position follows what the agent has actually received, not what merely
+        arrived in the room — a message the agent has not been given yet must
+        not make the indicator look like the agent has seen it. The periodic
+        activity refresh repeats the current anchor, so it never moves anything.
+        """
+        key = (channel_id, agent_name)
+        if state != "working":
+            self._reported_anchors.pop(key, None)
+            return
+        if anchor_event_id is None:
+            return
+
+        if self._reported_anchors.get(key) == anchor_event_id:
+            return
+        previous = self._reported_anchors.get(key)
+        self._reported_anchors[key] = anchor_event_id
+        if previous is None:
+            # First anchor of the turn — the indicator was only just posted
+            # against it, so there is nothing to move.
+            return
+
+        self._indicator_move_targets[key] = thread_root_ref
+        await self._run_indicator_move(key)
 
     # ── Protection sync ──────────────────────────────────────────────────────
 
@@ -1208,6 +1418,63 @@ class BridgeCore:
         else:
             translated = self._adapter.translate_outbound(new_content)
             await self._adapter.update_message(channel_id, message_ref, translated)
+
+    # ── Runtime-indicator positioning ─────────────────────────────────────────
+
+    async def _move_indicator_for_sender(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Follow a message the agent itself just posted."""
+        if agent_name in self._adapter.agents_with_live_runtime_state(channel_id):
+            self._schedule_indicator_move(channel_id, agent_name, thread_root_id)
+
+    def _schedule_indicator_move(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Queue a move of this agent's runtime indicator, coalescing bursts.
+
+        Messages arriving while a move is already queued are absorbed into it,
+        so a rapid exchange costs one delete-and-repost rather than one per
+        message. The delay is deliberately not extended by later messages —
+        a sustained conversation would otherwise starve the move indefinitely.
+
+        ``thread_root_id`` is the thread the triggering message belongs to, and
+        the one the indicator will land in. A coalesced burst keeps the most
+        recent one, so the indicator follows the conversation's latest thread
+        rather than the one that opened the window.
+        """
+        key = (channel_id, agent_name)
+        self._indicator_move_targets[key] = thread_root_id
+        if key in self._indicator_move_timers:
+            return
+
+        loop = asyncio.get_running_loop()
+        self._indicator_move_timers[key] = loop.call_later(
+            _INDICATOR_MOVE_DELAY_SECONDS,
+            lambda: asyncio.ensure_future(self._run_indicator_move(key)),
+        )
+
+    async def _run_indicator_move(self, key: tuple[str, str]) -> None:
+        # An anchor-driven move runs immediately rather than through the timer,
+        # so a coalescing window opened by outbound traffic may still be
+        # pending; it would otherwise fire a second, redundant move.
+        timer = self._indicator_move_timers.pop(key, None)
+        if timer is not None:
+            timer.cancel()
+        thread_root_id = self._indicator_move_targets.pop(key, None)
+        channel_id, agent_name = key
+        try:
+            await self._adapter.reposition_runtime_state(
+                channel_id, agent_name, thread_root_id
+            )
+        except Exception:
+            # The indicator is cosmetic; a platform failure here must not take
+            # down the bridge callback that happened to trigger it.
+            logger.exception(
+                "[BRIDGE-OUT] failed to move the runtime indicator for %s in %s",
+                agent_name,
+                channel_id,
+            )
 
     # ── Message-map helpers ───────────────────────────────────────────────────
 

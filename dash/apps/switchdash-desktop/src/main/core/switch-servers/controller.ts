@@ -1,5 +1,6 @@
 import type { Result } from '@switchdash/shared';
 import { suggestAgentDefaults } from '@main/core/agents/agent-defaults';
+import { knownAgentTypeForProvider } from '@main/core/agents/known-agent-type';
 import { propagateServerApiUrl } from '@main/core/agents/propagate-server-api-url';
 import { registerAgentIdentity } from '@main/core/agents/register-agent-identity';
 import { resolveAgentServers } from '@main/core/agents/resolve-servers';
@@ -8,19 +9,31 @@ import { writeSwitchSettings } from '@main/core/agents/write-switch-settings';
 import { appService } from '@main/core/app/service';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
-import { isManagedServerRunning } from '@main/core/managed-switch-server/managed-server-status';
+import {
+  isManagedServerRunning,
+  managedServerHostBlocked,
+} from '@main/core/managed-switch-server/managed-server-status';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
+import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  BundledChatSignIn,
+  CreateBridgeParams,
+  CreateBridgeResult,
+  CreateRoomParams,
+  CreateRoomResult,
   PasswordLoginParams,
   ProvisionAgentParams,
   ProvisionAgentResult,
   ProvisionRemoteAgentParams,
   RemoteAgentRoom,
   RemoteAgentSummary,
+  RemoteBridge,
+  RemoteBridgeType,
   RemoteExternalUser,
   RemoteRoomGroup,
   RemoteRoomRole,
@@ -34,7 +47,12 @@ import type {
 } from '@shared/core/switch-servers/switch-servers';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
+import { withResolvedHomeUrls } from './bridge-home-url';
+import { bundledChatSignInFor } from './bundled-chat-sign-in';
+import { createBridgeOnServer } from './create-bridge';
+import { createRoomOnServer } from './create-room';
 import {
+  addRoomAgents,
   agentExistsOnServer,
   fetchAddressingPolicy,
   fetchAgentDetail,
@@ -42,11 +60,15 @@ import {
   fetchAgents,
   fetchAllExternalUsers,
   fetchAuthConfig,
+  fetchBridges,
+  fetchBridgeTypes,
   fetchMe,
+  fetchRoomAgentIds,
   fetchRoomGroups,
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
+  removeRoomAgent,
   updateAddressingPolicy,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
@@ -67,6 +89,20 @@ async function requireServer(serverId: string): Promise<SwitchServer> {
   if (!server) {
     throw new Error(`No Switch server with id ${serverId}`);
   }
+  return server;
+}
+
+/**
+ * Resolve a server and refuse to touch its gateway while the host it is managed
+ * on is unreachable (CHOO-1780). `gatewayFetch` enforces the same rule at the
+ * transport, so this is for the paths that reach the gateway some other way —
+ * sign-in and the dashboard window — and for failing before the side effects a
+ * write would otherwise start.
+ */
+async function requireReachableServer(serverId: string): Promise<SwitchServer> {
+  const server = await requireServer(serverId);
+  const blocked = managedServerHostBlocked(server);
+  if (blocked) throw new HostUnreachableError(blocked);
   return server;
 }
 
@@ -105,15 +141,15 @@ export const switchServersController = createRPCController({
   setActiveServer: (serverId: string): Promise<void> => setActiveServerId(serverId),
 
   getAuthConfig: async (serverId: string): Promise<SwitchAuthConfig> =>
-    fetchAuthConfig(await requireServer(serverId)),
+    fetchAuthConfig(await requireReachableServer(serverId)),
 
   passwordLogin: async (params: PasswordLoginParams) => {
-    const server = await requireServer(params.serverId);
+    const server = await requireReachableServer(params.serverId);
     return passwordLogin(server, params.email, params.password);
   },
 
   oidcLogin: async (serverId: string): Promise<Result<true, LoginError>> =>
-    oidcLogin(await requireServer(serverId)),
+    oidcLogin(await requireReachableServer(serverId)),
 
   logout: (serverId: string): Promise<void> => deleteSessionCookie(serverId),
 
@@ -127,7 +163,7 @@ export const switchServersController = createRPCController({
    * origin.
    */
   openGatewayPage: async (params: { serverId: string; url: string }): Promise<void> => {
-    const server = await requireServer(params.serverId);
+    const server = await requireReachableServer(params.serverId);
     if (server.managed) {
       await openAuthenticatedGatewayPage(server, params.url);
     } else {
@@ -167,6 +203,58 @@ export const switchServersController = createRPCController({
   listRemoteRooms: async (serverId: string): Promise<RemoteRoomSummary[]> =>
     fetchRooms(await requireServer(serverId)),
 
+  listRemoteBridges: async (serverId: string): Promise<RemoteBridge[]> => {
+    const server = await requireReachableServer(serverId);
+    return withResolvedHomeUrls(server, await fetchBridges(server));
+  },
+
+  listRemoteBridgeTypes: async (serverId: string): Promise<RemoteBridgeType[]> =>
+    fetchBridgeTypes(await requireReachableServer(serverId)),
+
+  /**
+   * The bundled chat's address and sign-in for a managed server (CHOO-1787).
+   *
+   * The password crosses IPC only when the renderer asks — the card fetches on
+   * expand, not on render — so it is not sitting in every server page's memory.
+   * Do not log the result.
+   */
+  getBundledChatSignIn: async (serverId: string): Promise<BundledChatSignIn> =>
+    bundledChatSignInFor(await getServer(serverId)),
+
+  /**
+   * Attach a collaboration bridge to the chosen server (CHOO-1784).
+   *
+   * `params.connectionConfig` carries platform credentials. They cross the IPC
+   * boundary once, on the way out, and are never written to switchdash's disk
+   * or returned to the renderer — the server stores them. Keep it that way: do
+   * not log `params` here.
+   */
+  createBridge: async (params: CreateBridgeParams): Promise<CreateBridgeResult> => {
+    const server = await requireReachableServer(params.serverId);
+    return createBridgeOnServer(server, {
+      bridgeType: params.bridgeType,
+      displayName: params.displayName,
+      connectionConfig: params.connectionConfig,
+      setAsDefault: params.setAsDefault,
+    });
+  },
+
+  /**
+   * Create a room on the chosen server, owned by the signed-in user. Room
+   * provisioning stays server-side (`POST /gateway/rooms`); this only maps
+   * recoverable failures onto a typed result the modal can act on.
+   */
+  createRoom: async (params: CreateRoomParams): Promise<CreateRoomResult> => {
+    const server = await requireReachableServer(params.serverId);
+    return createRoomOnServer(server, {
+      name: params.name,
+      description: params.description,
+      instructions: params.instructions,
+      bridgeId: params.bridgeId,
+      agentIds: params.agentIds,
+    });
+  },
+
   listAgentRooms: async (params: {
     serverId: string;
     agentId: string;
@@ -175,6 +263,29 @@ export const switchServersController = createRPCController({
 
   listRoomRoles: async (params: { serverId: string; roomId: string }): Promise<RemoteRoomRole[]> =>
     fetchRoomRoles(await requireServer(params.serverId), params.roomId),
+
+  listRoomAgentIds: async (params: { serverId: string; roomId: string }): Promise<string[]> =>
+    fetchRoomAgentIds(await requireServer(params.serverId), params.roomId),
+
+  /**
+   * Add agents to a room. Failures propagate as-is: the caller shows the
+   * gateway's own words (e.g. an agent whose server-side client is not running,
+   * which the gateway rejects) rather than a generic message.
+   */
+  addRoomAgents: async (params: {
+    serverId: string;
+    roomId: string;
+    agentIds: string[];
+  }): Promise<void> =>
+    addRoomAgents(await requireReachableServer(params.serverId), params.roomId, params.agentIds),
+
+  /** Remove one agent from a room. Membership only — the agent is not deleted. */
+  removeRoomAgent: async (params: {
+    serverId: string;
+    roomId: string;
+    agentId: string;
+  }): Promise<void> =>
+    removeRoomAgent(await requireReachableServer(params.serverId), params.roomId, params.agentId),
 
   listRemoteRoomGroups: async (serverId: string): Promise<RemoteRoomGroup[]> =>
     fetchRoomGroups(await requireServer(serverId)),
@@ -210,16 +321,17 @@ export const switchServersController = createRPCController({
     }
   },
 
-  suggestAgentDefaults: async (params: { dir: string }): Promise<AgentDefaults> =>
-    suggestAgentDefaults(params.dir),
+  suggestAgentDefaults: async (params: {
+    dir: string;
+    providerId: AgentProviderId;
+  }): Promise<AgentDefaults> => suggestAgentDefaults(params.dir, params.providerId),
 
   /**
-   * Register a new Claude Code agent on the chosen server (owned by the
-   * signed-in user) and write its credentials into the directory's
-   * `.claude/settings.local.json`. This is the desktop equivalent of running
-   * the switch-connector `configure` skill. Recoverable gateway failures are
-   * mapped to a typed result; the minted token is written to disk and never
-   * returned.
+   * Register a new agent on the chosen server (owned by the signed-in user) and
+   * write its credentials into the directory's `.claude/settings.local.json`.
+   * This is the desktop equivalent of running the switch-connector `configure`
+   * skill. Recoverable gateway failures are mapped to a typed result; the minted
+   * token is written to disk and never returned.
    */
   provisionAgent: async (params: ProvisionAgentParams): Promise<ProvisionAgentResult> => {
     const server = await requireServer(params.serverId);
@@ -229,6 +341,9 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.dir,
       autoSession: params.autoSession,
+      // Provisioning writes `.claude/settings.local.json` — this is the Claude
+      // Code path by construction, not a fallback.
+      agentType: knownAgentTypeForProvider('claude'),
     });
     if (registered.kind !== 'created') return registered;
 
@@ -260,6 +375,8 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.remoteRepoDir,
       autoSession: params.autoSession,
+      // Remote provisioning likewise writes `.claude/settings.local.json`.
+      agentType: knownAgentTypeForProvider('claude'),
     });
     if (registered.kind !== 'created') return registered;
 

@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { index, integer, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 import { versionedJsonColumn } from '@main/db/versioned-column';
+import { agentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { sessionConfig } from '@shared/core/sessions/session-config';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
@@ -160,6 +161,9 @@ export const agents = sqliteTable(
     // Defaults false for local agents; onboarding seeds it true for remote
     // agents (see onboard-agent). Editable per agent in location settings.
     autoApprove: integer('auto_approve', { mode: 'boolean' }).notNull().default(false),
+    // Per-agent, provider-specific launch config (Codex model / effort /
+    // instructions folded into the agent's Codex profile). Null when unset.
+    providerConfig: versionedJsonColumn(agentProviderConfig)('provider_config'),
     createdAt: text('created_at')
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -222,6 +226,41 @@ export const remoteHostReachability = sqliteTable('remote_host_reachability', {
     .default(sql`CURRENT_TIMESTAMP`),
 });
 
+/**
+ * A remote host's setup run (CHOO-1809). Onboarding is a sequence — check and
+ * install each prerequisite in turn — and a sequence that cannot be resumed is
+ * a sequence that strands the host the first time step 3 fails. Persisting the
+ * plan is what makes "continue where you left off" possible across an app
+ * restart, and what lets the host list say *why* a host is not ready without
+ * re-probing it.
+ *
+ * `steps` is the JSON-serialised HostSetupStep[]. It is stored as one document
+ * rather than a child table because it is only ever read and written whole, and
+ * its shape is owned by the shared setup model rather than by SQL. It is
+ * validated on read — a row we cannot parse raises instead of silently
+ * degrading to "no plan", which would read as "nothing left to do".
+ */
+export const remoteHostSetupPlans = sqliteTable('remote_host_setup_plans', {
+  /** The `~/.ssh/config` Host alias. One plan per host. */
+  sshHost: text('ssh_host').primaryKey(),
+  /**
+   * One of HostSetupPlanStatus — 'idle' | 'complete'. Rows written before the
+   * automated run was removed may still say 'running' or 'halted'; the plan
+   * store maps those on read.
+   */
+  status: text('status').notNull().default('idle'),
+  /** JSON-encoded HostSetupStep[]. */
+  steps: text('steps').notNull(),
+  /** The step in flight, or the one that halted the run. */
+  currentStepId: text('current_step_id'),
+  createdAt: text('created_at')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
+
 export const sessions = sqliteTable(
   'sessions',
   {
@@ -254,6 +293,33 @@ export const sessions = sqliteTable(
     agentIdIdx: index('idx_sessions_agent_id').on(table.agentId),
   })
 );
+
+/**
+ * The Switch room a session is attending, durable across restarts so a resumed
+ * session re-polls its room without waiting for the agent to call
+ * `connect_to_room` again.
+ *
+ * Keyed by session and cascaded from it: a session (or the agent above it)
+ * going away takes its room connection with it. That cascade is the point of
+ * the table — the previous storage, a single JSON blob in `app_settings`,
+ * referenced nothing and so outlived the sessions it described, resurrecting
+ * pollers for agents whose Switch server had been destroyed.
+ *
+ * `switchAgentId` is the identity on the Switch side (an agent's
+ * `SWITCH_AGENT_ID`), not `agents.id` — it is reported by the connecting agent
+ * and carried for display, so it is deliberately not a foreign key.
+ */
+export const sessionRoomConnections = sqliteTable('session_room_connections', {
+  sessionId: text('session_id')
+    .primaryKey()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
+  roomId: text('room_id').notNull(),
+  roomName: text('room_name'),
+  switchAgentId: text('switch_agent_id'),
+  updatedAt: text('updated_at')
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+});
 
 export const messages = sqliteTable(
   'messages',
@@ -319,3 +385,5 @@ export type RemoteHostRow = typeof remoteHosts.$inferSelect;
 export type RemoteHostInsert = typeof remoteHosts.$inferInsert;
 export type RemoteHostReachabilityRow = typeof remoteHostReachability.$inferSelect;
 export type RemoteHostReachabilityInsert = typeof remoteHostReachability.$inferInsert;
+export type RemoteHostSetupPlanRow = typeof remoteHostSetupPlans.$inferSelect;
+export type RemoteHostSetupPlanInsert = typeof remoteHostSetupPlans.$inferInsert;

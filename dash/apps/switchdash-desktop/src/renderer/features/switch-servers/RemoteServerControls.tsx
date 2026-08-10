@@ -15,6 +15,7 @@ import {
 } from '@renderer/lib/ui/dialog';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { remoteServerStore } from './remote-server-store';
+import { VersionDriftNotice } from './VersionDriftNotice';
 
 const card = 'rounded-lg border border-border bg-card p-4';
 
@@ -25,11 +26,9 @@ const card = 'rounded-lg border border-border bg-card p-4';
  */
 export const RemoteServerControls = observer(function RemoteServerControls({
   sshHost,
-  serverId,
   name,
 }: {
   sshHost: string;
-  serverId: string;
   /** The registered server's name, reused when restarting so the record's name
    * is preserved (not blanked). */
   name: string;
@@ -43,10 +42,20 @@ export const RemoteServerControls = observer(function RemoteServerControls({
   }, [store, sshHost]);
 
   const status = store.statusFor(sshHost);
-  const transitioning = store.isTransitioning(sshHost);
+  const hostBlocked = store.isHostBlocked(sshHost);
+  // Every lifecycle action rides the host's SSH connection, so none of them can
+  // succeed while it is down — disable rather than let them fail (CHOO-1780).
+  const transitioning = store.isTransitioning(sshHost) || hostBlocked;
   const running = store.isRunning(sshHost);
   const docker = store.dockerFor(sshHost);
   const dockerUnavailable = docker && !docker.available ? docker : null;
+  const drift = store.driftFor(sshHost);
+  // Report the version the host is actually on, not the one this build wants —
+  // they diverge exactly when the drift notice below has something to say.
+  const runningVersion = status.deployedVersion ?? status.version;
+  // A stack ahead of this build must not be started at all: doing so would point
+  // it at a core older than its database has migrated to (CHOO-1736).
+  const downgradeBlocked = drift?.direction === 'downgrade';
 
   return (
     <div className={`${card} space-y-4`}>
@@ -54,11 +63,18 @@ export const RemoteServerControls = observer(function RemoteServerControls({
         <div className="space-y-1">
           <h3 className="text-sm font-medium text-foreground">Managed server</h3>
           <p className="text-xs text-foreground-muted">
-            Runs the full Switch stack in Docker on {sshHost}, bridged to this computer over SSH.
+            Runs the full Switch stack in Docker on {sshHost}, bridged to this computer over SSH
+            {runningVersion ? ` (switch-core ${runningVersion})` : ''}.
           </p>
         </div>
         <PhaseBadge sshHost={sshHost} />
       </div>
+
+      <VersionDriftNotice
+        drift={drift}
+        disabled={transitioning}
+        onRestart={() => void store.start(sshHost, name)}
+      />
 
       {status.message && transitioning && (
         <div className="flex items-center gap-2 text-sm text-foreground-muted">
@@ -100,11 +116,11 @@ export const RemoteServerControls = observer(function RemoteServerControls({
         ) : (
           <Button
             size="sm"
-            disabled={transitioning}
+            disabled={transitioning || downgradeBlocked}
             onClick={() => void store.start(sshHost, name)}
           >
             <Play className="size-4" />
-            {status.phase === 'error' ? 'Retry' : 'Start'}
+            {status.phase === 'error' && !downgradeBlocked ? 'Retry' : 'Start'}
           </Button>
         )}
       </div>
@@ -139,7 +155,7 @@ export const RemoteServerControls = observer(function RemoteServerControls({
         disabled={transitioning}
         onConfirm={() => {
           setResetOpen(false);
-          void store.reset(sshHost, serverId);
+          void store.reset(sshHost);
         }}
       />
     </div>
@@ -186,6 +202,16 @@ const ResetDialog = observer(function ResetDialog({
 });
 
 const PhaseBadge = observer(function PhaseBadge({ sshHost }: { sshHost: string }) {
+  // Never report a stack state we cannot currently observe: with the host down,
+  // `running` is a memory of the last time we could see it (CHOO-1780).
+  if (remoteServerStore.isHostBlocked(sshHost)) {
+    return (
+      <span className="flex items-center gap-1.5 text-xs text-foreground-muted">
+        <span aria-hidden className="inline-block size-2 rounded-full bg-amber-500" />
+        Host unreachable
+      </span>
+    );
+  }
   const phase = remoteServerStore.phaseFor(sshHost);
   const label: Record<typeof phase, string> = {
     stopped: 'Stopped',

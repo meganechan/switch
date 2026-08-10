@@ -10,7 +10,7 @@ The target architecture is documented in `docs/`.
 
 ## Switchdash
 
-`dash/` is a local-first desktop app (Electron; an open-source fork, upstream
+`dash/` is a local-first desktop app (Electron; a fork, upstream
 attribution in `dash/NOTICE`) for managing the local AI coding-agent sessions that
 participate in Switch. The upstream app is built around coding workflows
 (projects → sessions → conversations); switchdash is being reworked
@@ -28,7 +28,7 @@ own `dash/CLAUDE.md` (→ `AGENTS.md`); read that before working in the app.
 uv sync                          # install/update Python dependencies
 
 # Local dev infrastructure (Docker Compose)
-cp .env.example .env             # first-time setup
+just init-env                    # first-time setup — generate .env with random secrets
 just up                          # start Switch locally
 just down                        # stop Switch
 
@@ -74,18 +74,66 @@ just test -k "test_name"         # run specific test
 - Session management: API endpoints use middleware-provided sessions; background work creates sessions explicitly
 - All participants in rooms are Matrix clients (matrix-nio) connecting to Tuwunel
 
-## Claude Code connector plugin
+## Connector plugins
 
-The `switch-connector` Claude Code plugin lives in `connectors/claude-code-plugin/`
-(skill in `skills/switch/SKILL.md`, MCP server, hooks, channel). When you change
-how agents interact with Switch — new/changed MCP tools, in-room commands,
-room workflow, or anything an agent-facing client needs to know:
+There are **two** connector plugins under `connectors/`, one per agent host, and
+each ships its own copy of the Switch room-workflow skill at
+`skills/switch/SKILL.md`:
 
-- **Update the skill** (`connectors/claude-code-plugin/skills/switch/SKILL.md`)
-  so the documented workflow matches the actual behavior.
-- **Bump the plugin version** in
-  `connectors/claude-code-plugin/.claude-plugin/plugin.json` so installs pick
-  up the change.
+- `connectors/claude-code-plugin/` — manifest `.claude-plugin/plugin.json`.
+  Ships the skill plus an MCP config (`.mcp.json`) and hooks. It contains **no
+  runtime code**: the MCP server is `@sandbox-quantum/switch-agent-runtime`,
+  fetched with `npx` and built from `dash/packages/switch-agent-runtime/`.
+  switchdash imports the same package for its protocol client, so there is one
+  implementation of the agent protocol rather than a copy per consumer.
+- `connectors/codex-plugin/` — manifest `.codex-plugin/plugin.json`. Ships the
+  skill plus its own MCP config, declared as `"mcpServers": "./.mcp.json"`, so a
+  Codex session gets the Switch tools from the plugin alone. Codex does not
+  expand `${VAR}` in a bundled config, so the server names its variables under
+  `env_vars` and Codex forwards them **by name** from its own environment — no
+  expansion, and no secret in the file. An unset name is simply not forwarded,
+  which is why the list can include the switchdash-only variables without
+  breaking a standalone session (the Claude connector cannot do this: `${VAR}`
+  expansion makes every declared variable mandatory).
+
+  The plugin's `.mcp.json` also carries `default_tools_approval_mode =
+  "approve"`, so the Switch tools never prompt. It has to live there rather than
+  in anything switchdash writes: **no per-server setting can be layered onto a
+  plugin-provided MCP server.** An `mcp_servers.switch.*` entry with no
+  transport of its own — from the base config, a profile, or `-c` on argv —
+  makes Codex reject the whole config as "invalid transport" and the session
+  dies with it.
+
+  switchdash writes a per-agent Codex profile
+  (`$CODEX_HOME/<slug>.config.toml`, launched with `--profile <slug>`) carrying
+  **only** model, reasoning effort and instructions. It registers no MCP server.
+  An agent that specializes none of those gets no profile and no `--profile`
+  argv at all.
+
+  Note a connector plugin is only upgraded when a user clicks Update in
+  settings, and Codex caches an install per version, so an install on an older
+  plugin has no Switch tools until it is upgraded.
+
+When you change how agents interact with Switch — new/changed MCP tools, in-room
+commands, room workflow, or anything an agent-facing client needs to know:
+
+- **Update both skills.** A room-workflow change must land in
+  `connectors/claude-code-plugin/skills/switch/SKILL.md` *and*
+  `connectors/codex-plugin/skills/switch/SKILL.md` so the documented workflow
+  matches actual behavior on both hosts.
+- **Bump the versions of whatever you changed, in the same commit.** Not at
+  release time — it gets forgotten, and then a version number is a claim nobody
+  can trust. `dash/AGENTS.md` has the table (both plugins, runtime package,
+  sidecar) and the rules for which digit moves.
+- **Diff the two skills after editing.** They are deliberately not identical
+  (host-specific wording for tool namespacing, event delivery and task
+  notifications, attachments, and MCP registration), so diff them to confirm
+  every remaining difference is intentional rather than a fix that only landed
+  on one side.
+- **Publishing the runtime is a tag**, not a merge:
+  `git tag switch-agent-runtime-v<version> && git push origin <tag>`. It works
+  from a branch, so a version can be tested before it lands. The tag must match
+  the version in `package.json` or the workflow fails.
 
 ## Code Style
 
@@ -123,11 +171,21 @@ Tests live in `core/tests/switch_core/` mirroring the module structure. Uses pyt
 
 ## Reference Documentation
 
-The target architecture docs are in `docs/`:
-- `docs/ARCHITECTURE.md` — system overview
-- `docs/switch-core/CODEBASE.md` — module structure and interfaces
-- `docs/switch-core/DATA_MODEL.md` — database schema
-- `docs/switch-core/ROOM_DESIGN.md` — room design and client types
-- `docs/api/API.md` — HTTP API spec
-- `docs/api/MCP.md` — MCP server spec
-- `docs/bridges/` — bridge specifications
+Everything under `docs/` is listed here; if it is not in this list, it does not
+exist:
+- `docs/ARCHITECTURE.md` — system overview: components, domain model, key flows,
+  entry points, and a code map from area to module
+- `docs/api/AGENT_PROTOCOL.md` — the agent↔Switch protocol (connections, the
+  event stream, room slots, failure handling). Authoritative where it and
+  `ARCHITECTURE.md` overlap
+- `docs/bridges/` — collaboration bridge setup: `README.md` plus one page each
+  for Slack, Mattermost, Discord, and Teams
+
+There is no separate schema, room-design, HTTP-API or MCP-surface document. Read
+those from the code: `core/switch_core/db/models.py` for the schema,
+`core/switch_core/room_service.py` for room provisioning and lifecycle,
+`core/switch_core/bridges/agent/api/handlers.py` for the HTTP surface, and
+`core/switch_core/bridges/agent/operations/definitions.py` for the agent tool
+surface — one definition serves both the MCP server
+(`bridges/agent/mcp/server.py`) and the HTTP front door
+(`bridges/agent/api/operations.py`), so the two cannot drift.

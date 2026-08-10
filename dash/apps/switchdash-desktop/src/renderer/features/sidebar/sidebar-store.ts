@@ -16,7 +16,12 @@ import {
   isValidProviderId,
   type AgentProviderId,
 } from '@shared/core/providers/agent-provider-registry';
-import type { SidebarGrouping, SidebarSnapshot, SidebarSessionSortBy } from '@shared/view-state';
+import type {
+  SidebarGrouping,
+  SidebarRoomSortBy,
+  SidebarSnapshot,
+  SidebarSessionSortBy,
+} from '@shared/view-state';
 
 const AGENT_CONNECTION_KINDS: readonly AgentConnectionKind[] = ['local', 'remote'];
 
@@ -50,12 +55,28 @@ export function roomViewGroupKey(roomKey: string): string {
   return `rv:${roomKey}`;
 }
 
+/**
+ * `collapsedGroupKeys` key for an agent listed under a room (room-focused view).
+ *
+ * Keyed by the pair, not by the agent: the same agent appears under every room
+ * it belongs to, and those rows are separate places in the tree. Keying on the
+ * agent alone made them one row rendered many times — collapse one and they all
+ * collapsed.
+ */
+export function roomAgentGroupKey(roomKey: string, agentId: string): string {
+  return `ra:${roomKey}|${agentId}`;
+}
+
 function parseSidebarGrouping(value: unknown): SidebarGrouping | undefined {
   return value === 'agent' || value === 'room' ? value : undefined;
 }
 
 function parseSidebarSessionSortBy(value: unknown): SidebarSessionSortBy | undefined {
   return value === 'created-at' || value === 'updated-at' ? value : undefined;
+}
+
+function parseSidebarRoomSortBy(value: unknown): SidebarRoomSortBy | undefined {
+  return value === 'name' || value === 'created-at' || value === 'updated-at' ? value : undefined;
 }
 
 export type SessionSortKind = 'created' | 'updated';
@@ -110,12 +131,16 @@ export function applyManualOrder<T>(
 }
 
 export class SidebarStore implements Snapshottable<SidebarSnapshot> {
-  locationOrder: string[] = [];
+  /**
+   * Manual order of the top-level agents (agent-focused grouping), by agent id.
+   * The agent is the unit the sidebar lists and the user drags; a location can
+   * hold several agents, so ordering by location cannot express a drag that
+   * moves one of them past its neighbour.
+   */
+  agentOrder: string[] = [];
   sessionOrderByLocation: Record<string, string[]> = {};
   /** Manual order of top-level rooms (room-focused grouping). */
   roomOrder: string[] = [];
-  /** Manual order of items within a grouped-view sub-group, keyed by container id. */
-  groupOrder: Record<string, string[]> = {};
   expandedLocationIds = observable.set<string>();
   sessionSortBy: SidebarSessionSortBy = 'created-at';
   grouping: SidebarGrouping = 'agent';
@@ -132,6 +157,16 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   filterProviderIds = observable.set<AgentProviderId>();
   filterHasLiveSession = false;
   /**
+   * Room-focused sort and filters. Separate from the agent ones because the two
+   * views filter and order different things: a room is a place, an agent is a
+   * worker, and a dimension that narrows one has no honest meaning in the other.
+   * Rooms default to name order, which is what they had before they were
+   * sortable at all.
+   */
+  roomSortBy: SidebarRoomSortBy = 'name';
+  filterBridgeTypes = observable.set<string>();
+  filterRoomHasLiveSession = false;
+  /**
    * Session whose row should scroll itself into view once it mounts. Set by the
    * deeplink handler (after revealing/expanding the tree) so the landed session
    * is centered in the sidebar; the row clears it after scrolling.
@@ -145,6 +180,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       collapsedGroupKeys: false,
       filterConnections: false,
       filterProviderIds: false,
+      filterBridgeTypes: false,
       sidebarRows: computed,
       pinnedSidebarEntries: computed,
       filteredLocations: computed,
@@ -191,19 +227,17 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return agentsStore.serverIdForLocation(locationId) === activeServerId;
   }
 
+  /**
+   * Server-scoped locations, newest first. Locations are no longer a level of
+   * the sidebar tree — the manual order the user drags lives on agents and
+   * rooms — so this is the plain default order the agent list is built from.
+   */
   get orderedLocations(): LocationStore[] {
     const all = Array.from(this.locationManager.locations.values()).filter((location) =>
       this.isLocationInActiveScope(location.id)
     );
 
-    return [...all].sort((a, b) => {
-      const ai = this.locationOrder.indexOf(a.id);
-      const bi = this.locationOrder.indexOf(b.id);
-      if (ai === -1 && bi === -1) return this.compareSidebarLocations(a, b);
-      if (ai === -1) return -1;
-      if (bi === -1) return 1;
-      return ai - bi;
-    });
+    return [...all].sort((a, b) => this.compareSidebarLocations(a, b));
   }
 
   /** The representative agent of a location (the agent shown on its sidebar row):
@@ -234,13 +268,25 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     return false;
   }
 
-  /** Whether any filter dimension is currently narrowing the sidebar. */
+  /** Whether any agent filter is currently narrowing the agent list. Scopes the
+   * locations both trees read, so it applies whatever the grouping. */
   get hasActiveFilters(): boolean {
     return (
       this.filterConnections.size > 0 ||
       this.filterProviderIds.size > 0 ||
       this.filterHasLiveSession
     );
+  }
+
+  /** Whether any room filter is currently narrowing the room list. */
+  get hasActiveRoomFilters(): boolean {
+    return this.filterBridgeTypes.size > 0 || this.filterRoomHasLiveSession;
+  }
+
+  /** Whether the view on screen is being narrowed — what the filter button's
+   * "on" dot reflects, so it reports the filters you can actually see. */
+  get hasActiveFiltersInCurrentView(): boolean {
+    return this.grouping === 'room' ? this.hasActiveRoomFilters : this.hasActiveFilters;
   }
 
   /** A location passes when it satisfies every active filter dimension. */
@@ -383,17 +429,19 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   get snapshot(): SidebarSnapshot {
     return {
       expandedLocationIds: [...this.expandedLocationIds],
-      locationOrder: [...this.locationOrder],
+      agentOrder: [...this.agentOrder],
       sessionOrderByLocation: { ...this.sessionOrderByLocation },
       sessionSortBy: this.sessionSortBy,
       grouping: this.grouping,
       expandedRoomKeys: [...this.expandedRoomKeys],
       collapsedGroupKeys: [...this.collapsedGroupKeys],
       roomOrder: [...this.roomOrder],
-      groupOrder: { ...this.groupOrder },
       filterConnections: [...this.filterConnections],
       filterProviderIds: [...this.filterProviderIds],
       filterHasLiveSession: this.filterHasLiveSession,
+      roomSortBy: this.roomSortBy,
+      filterBridgeTypes: [...this.filterBridgeTypes],
+      filterRoomHasLiveSession: this.filterRoomHasLiveSession,
     };
   }
 
@@ -401,8 +449,8 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (snapshot.expandedLocationIds !== undefined) {
       this.expandedLocationIds.replace(snapshot.expandedLocationIds);
     }
-    if (snapshot.locationOrder !== undefined) {
-      this.locationOrder = [...snapshot.locationOrder];
+    if (snapshot.agentOrder !== undefined) {
+      this.agentOrder = [...snapshot.agentOrder];
     }
     if (snapshot.sessionOrderByLocation !== undefined) {
       this.sessionOrderByLocation = { ...snapshot.sessionOrderByLocation };
@@ -422,9 +470,6 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (snapshot.roomOrder !== undefined) {
       this.roomOrder = [...snapshot.roomOrder];
     }
-    if (snapshot.groupOrder !== undefined) {
-      this.groupOrder = { ...snapshot.groupOrder };
-    }
     if (snapshot.filterConnections !== undefined) {
       this.filterConnections.replace(snapshot.filterConnections.filter(isAgentConnectionKind));
     }
@@ -433,6 +478,14 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     }
     if (snapshot.filterHasLiveSession !== undefined) {
       this.filterHasLiveSession = snapshot.filterHasLiveSession;
+    }
+    const roomSortBy = parseSidebarRoomSortBy(snapshot.roomSortBy);
+    if (roomSortBy !== undefined) this.roomSortBy = roomSortBy;
+    if (snapshot.filterBridgeTypes !== undefined) {
+      this.filterBridgeTypes.replace(snapshot.filterBridgeTypes);
+    }
+    if (snapshot.filterRoomHasLiveSession !== undefined) {
+      this.filterRoomHasLiveSession = snapshot.filterRoomHasLiveSession;
     }
   }
 
@@ -477,7 +530,27 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.filterHasLiveSession = value;
   }
 
+  toggleFilterBridgeType(bridgeType: string): void {
+    if (this.filterBridgeTypes.has(bridgeType)) this.filterBridgeTypes.delete(bridgeType);
+    else this.filterBridgeTypes.add(bridgeType);
+  }
+
+  setFilterRoomHasLiveSession(value: boolean): void {
+    this.filterRoomHasLiveSession = value;
+  }
+
+  setRoomSortBy(sortBy: SidebarRoomSortBy): void {
+    this.roomSortBy = sortBy;
+  }
+
+  /** Clear the filters of the view on screen. The other view's stay put — they
+   * are not visible from here, so clearing them would be an unseen change. */
   clearFilters(): void {
+    if (this.grouping === 'room') {
+      this.filterBridgeTypes.clear();
+      this.filterRoomHasLiveSession = false;
+      return;
+    }
     this.filterConnections.clear();
     this.filterProviderIds.clear();
     this.filterHasLiveSession = false;
@@ -540,34 +613,26 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     this.sessionOrderByLocation = {};
   }
 
-  setLocationOrder(ids: string[]): void {
-    this.locationOrder = ids;
+  setAgentOrder(ids: string[]): void {
+    this.agentOrder = ids;
   }
 
   setRoomOrder(ids: string[]): void {
     this.roomOrder = ids;
   }
 
-  setGroupOrder(containerId: string, ids: string[]): void {
-    this.groupOrder = { ...this.groupOrder, [containerId]: ids };
-  }
-
-  /** Top-level room keys reordered by the saved manual room order. */
-  orderRoomKeys(roomKeys: string[]): string[] {
-    return applyManualOrder(roomKeys, (key) => key, this.roomOrder, false);
-  }
-
   /**
-   * Items within a grouped-view sub-group reordered by its saved manual order.
-   * `newFirst` surfaces freshly-arrived items at the top (used for sessions).
+   * Top-level agents reordered by the saved manual order. An agent the user has
+   * never dragged sorts after the ones they have, keeping a newly-added agent
+   * from displacing an arrangement they set deliberately.
    */
-  orderGroupItems<T>(
-    containerId: string,
-    items: T[],
-    getId: (item: T) => string,
-    newFirst: boolean
-  ): T[] {
-    return applyManualOrder(items, getId, this.groupOrder[containerId], newFirst);
+  orderAgents<T>(agents: T[], getId: (agent: T) => string): T[] {
+    return applyManualOrder(agents, getId, this.agentOrder, false);
+  }
+
+  /** Top-level rooms reordered by the saved manual room order, same rule. */
+  orderRooms<T>(rooms: T[], getId: (room: T) => string): T[] {
+    return applyManualOrder(rooms, getId, this.roomOrder, false);
   }
 
   mergeSessionOrder(locationId: string, sessions: SessionStore[]): SessionStore[] {

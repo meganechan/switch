@@ -94,24 +94,30 @@ export type AgentProviderDefinition = {
   supportsHooks?: boolean;
 };
 
+/**
+ * Provider ids and display metadata, plus a mirror of each provider's argv shape.
+ *
+ * The argv fields here are descriptive, not authoritative: nothing reads them at
+ * spawn time. `packages/plugins/src/agents/impl/<id>/index.ts` builds the real
+ * command, so change the plugin first and update the mirror to match.
+ */
 export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
   {
     id: 'codex',
     name: 'Codex',
     description:
-      'CLI that connects to OpenAI models for location-aware code assistance and terminal workflows.',
+      'CLI that connects to OpenAI models for project-aware code assistance and terminal workflows.',
     docUrl: 'https://github.com/openai/codex',
     installCommand: 'npm install -g @openai/codex',
     commands: ['codex'],
     versionArgs: ['--version'],
     cli: 'codex',
-    // `--dangerously-bypass-hook-trust` lets Codex run switchdash's own hooks (notably the
-    // SessionStart hook that reports the rollout session id) without an interactive trust
-    // prompt. Automations always auto-approve and can't answer that prompt, so without this
-    // the session id is never captured and resume falls back to `codex resume --last`,
-    // reattaching the globally-most-recent Codex session instead of this one.
-    autoApproveFlag:
-      '-c approval_policy="never" -c sandbox_mode="danger-full-access" --dangerously-bypass-hook-trust',
+    // Hook trust is a default arg, not an auto-approve one: Codex skips any hook
+    // it has no persisted trust entry for, and switchdash's status signals and
+    // rollout-id capture are hooks. Kept in sync with the plugin by the parity
+    // test in src/main/core/providers/provider-argv-parity.test.ts.
+    defaultArgs: ['--dangerously-bypass-hook-trust'],
+    autoApproveFlag: '-c approval_policy="never"',
     initialPromptFlag: '',
     resumeFlag: 'resume',
     sessionIdFlag: ' ',

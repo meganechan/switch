@@ -2,7 +2,8 @@
 
 Runs as a short-lived init container in docker-compose. Waits for Switch and
 Mattermost to be healthy, bootstraps the Mattermost admin/team, then registers
-the Mattermost bridge via the Switch collaboration API.
+the Mattermost bridge via the authorized Switch gateway API — logging in as the
+seeded gateway admin first, since bridge administration is an admin action.
 """
 
 import os
@@ -12,6 +13,8 @@ import time
 import httpx
 
 SWITCH_URL = os.environ["SWITCH_URL"]
+GATEWAY_ADMIN_EMAIL = os.environ["GATEWAY_ADMIN_EMAIL"]
+GATEWAY_ADMIN_PASSWORD = os.environ["GATEWAY_ADMIN_PASSWORD"]
 MATTERMOST_URL = os.environ["MATTERMOST_URL"]
 MATTERMOST_URL_FOR_SWITCH = os.environ.get(
     "MATTERMOST_URL_FOR_SWITCH", "http://localhost:8065"
@@ -162,16 +165,43 @@ def setup_mattermost() -> None:
 
 
 def register_bridge() -> None:
-    """Register Mattermost bridge with Switch via the collaboration API."""
+    """Register Mattermost bridge with Switch via the authorized gateway API.
+
+    Bridge administration is admin-gated, so we log in as the seeded gateway
+    admin (cookie-based JWT) and drive the same authorized endpoint the
+    dashboard uses — there is no unauthenticated bridge-admin surface.
+    """
     client = httpx.Client(base_url=SWITCH_URL, timeout=10)
 
+    # Authenticate as the seeded gateway admin; the login sets the switch_auth
+    # cookie on the client, which every subsequent gateway call carries.
+    resp = client.post(
+        "/gateway/auth/login",
+        json={"email": GATEWAY_ADMIN_EMAIL, "password": GATEWAY_ADMIN_PASSWORD},
+    )
+    if not resp.is_success:
+        print(
+            "ERROR: Could not log in to the Switch gateway as "
+            f"{GATEWAY_ADMIN_EMAIL}: {resp.status_code} {resp.text}"
+        )
+        sys.exit(1)
+
     # Check if bridge already registered
-    resp = client.get("/collab/bridges")
+    resp = client.get("/gateway/collaborations")
     if resp.is_success:
         bridges = resp.json()
         for bridge in bridges:
             if bridge.get("bridge_type") == "mattermost":
-                print(f"Mattermost bridge already registered: {bridge['bridge_id']}")
+                bridge_id = bridge["bridge_id"]
+                print(f"Mattermost bridge already registered: {bridge_id}")
+                # Adopt the default on an instance that predates it, so an
+                # existing deployment gains the invariant on its next setup run
+                # rather than only new ones.
+                if not any(b.get("is_default") for b in bridges):
+                    client.post(
+                        f"/gateway/collaborations/{bridge_id}/default"
+                    ).raise_for_status()
+                    print(f"Set Mattermost bridge as default: {bridge_id}")
                 client.close()
                 return
 
@@ -181,20 +211,28 @@ def register_bridge() -> None:
         "admin_user": MATTERMOST_ADMIN_USER,
         "admin_password": MATTERMOST_ADMIN_PASSWORD,
         "team_name": MATTERMOST_TEAM_NAME,
+        # The bundled deployment's single human. Added to every channel this
+        # bridge creates so they can read rooms that agents created without
+        # naming any users — including private ones, which they could not
+        # otherwise join.
+        "default_member": MATTERMOST_USER,
     }
     if MATTERMOST_PUBLIC_URL:
         connection_config["public_url"] = MATTERMOST_PUBLIC_URL
     resp = client.post(
-        "/collab/bridges",
+        "/gateway/collaborations",
         json={
             "bridge_type": "mattermost",
             "display_name": "Mattermost",
             "connection_config": connection_config,
+            # The bundled Mattermost is the deployment's own chat, so it is
+            # what rooms should bridge to when the caller names nothing.
+            "set_as_default": True,
         },
     )
     resp.raise_for_status()
     data = resp.json()
-    print(f"Registered Mattermost bridge: {data['bridge_id']}")
+    print(f"Registered Mattermost bridge: {data['bridge_id']} (default)")
 
     client.close()
 

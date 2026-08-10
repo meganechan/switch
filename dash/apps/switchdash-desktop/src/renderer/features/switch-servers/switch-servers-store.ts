@@ -1,4 +1,5 @@
 import { makeAutoObservable, runInAction } from 'mobx';
+import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { rpc } from '@renderer/lib/ipc';
 import type {
   ServerConnectionStatus,
@@ -34,6 +35,14 @@ export class SwitchServersStore {
 
   constructor() {
     makeAutoObservable(this);
+  }
+
+  /** Whether this server is managed on a host the reachability manager has
+   * marked unreachable — nothing it serves can be fetched until that clears. */
+  isHostBlocked(serverId: string): boolean {
+    const server = this.servers.find((s) => s.id === serverId);
+    if (!server?.managed || server.managementKind !== 'remote' || !server.sshHost) return false;
+    return hostReachabilityStore.isBlocked(server.sshHost);
   }
 
   get activeServer(): SwitchServer | null {
@@ -116,6 +125,10 @@ export class SwitchServersStore {
 
   async ensureAuthConfig(serverId: string): Promise<void> {
     if (this.authConfigs.has(serverId)) return;
+    // The gateway of a server on an unreachable host cannot answer, and the
+    // host-unreachable surface already states why — don't paint the global
+    // error banner with a doomed fetch (CHOO-1780).
+    if (this.isHostBlocked(serverId)) return;
     try {
       const config = await rpc.switchServers.getAuthConfig(serverId);
       runInAction(() => {
@@ -184,10 +197,12 @@ export class SwitchServersStore {
   /**
    * Delete a server. For a managed server this first tears down its stack (the
    * Docker/SSH reset — stops containers and destroys the stack's data), since
-   * removing the record while the stack keeps running would strand it. External
-   * servers have no stack, so this is a plain de-register. In both cases the
-   * server's agents are unlinked but kept (see {@link removeServer}), never
-   * deleted. Returns false if the teardown or de-register failed.
+   * removing the record while the stack keeps running would strand it. That
+   * teardown also deletes the stack's agents, whose identity it destroys.
+   *
+   * External servers have no stack: de-registering one destroys nothing, so its
+   * agents keep working and are merely unlinked (see {@link removeServer}).
+   * Returns false if the teardown or de-register failed.
    */
   async deleteServer(serverId: string): Promise<boolean> {
     this.clearError();

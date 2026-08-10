@@ -108,7 +108,7 @@ export async function onboardAgent(params: OnboardAgentParams): Promise<OnboardA
       dir: params.dir,
       message:
         sshHost === null
-          ? 'This directory is not configured as a Switch agent. Configure the agent first (run the switch-connector configure skill) before adding it.'
+          ? "This directory is not configured as a Switch agent. Configure it first — from Settings → Agents, or with the Claude Code connector's `configure` skill — before adding it."
           : `The remote directory ${params.dir} on ${sshHost} is not configured as a Switch agent.`,
     });
   }
@@ -141,17 +141,18 @@ export async function onboardAgent(params: OnboardAgentParams): Promise<OnboardA
   });
 
   // Mirror the agent's credentials into its provider-neutral per-agent file
-  // (`.switch/agents/<agentId>.json`), the authoritative identity switchdash
-  // injects at launch so agents sharing a location don't collide on the single
-  // `.claude/settings.local.json` identity (CHOO-1440). Local agents only — a
-  // remote agent's dir lives on its VM. Best-effort: the launch/poller fall back
-  // to `settings.local.json`, so a failure here does not break onboarding.
+  // (`.switch/agents/<name>.json`), the authoritative identity switchdash injects
+  // at launch so agents sharing a location don't collide on the single
+  // `.claude/settings.local.json` identity (CHOO-1440). Keyed by `name` — the one
+  // key-space every reader uses. Local agents only — a remote agent's dir lives on
+  // its VM. Best-effort: the launch/poller fall back to `settings.local.json`, so
+  // a failure here does not break onboarding.
   if (sshHost === null) {
     const creds = await readSwitchAgentCredentials(params.dir, log);
     if (creds) {
       await writeAgentNeutralSettings({
         dir: params.dir,
-        slug: agent.id,
+        slug: agent.name,
         apiEndpoint: creds.apiEndpoint,
         apiToken: creds.token,
         agentId: creds.agentId,

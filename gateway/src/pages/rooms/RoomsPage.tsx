@@ -4,7 +4,7 @@ import ArchiveOutlined from "@mui/icons-material/ArchiveOutlined";
 import FolderOutlined from "@mui/icons-material/FolderOutlined";
 import UnarchiveOutlined from "@mui/icons-material/UnarchiveOutlined";
 import { Box, Button, Chip, CircularProgress, Stack, Typography } from "@mui/material";
-import type { GridColDef, GridRowId } from "@mui/x-data-grid-pro";
+import type { GridColDef, GridRowId } from "@mui/x-data-grid";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { AccessChip } from "../../components/AccessControls";
@@ -16,8 +16,17 @@ import {
   unarchiveRoom,
 } from "../../data/api";
 import { useRoomGroups, useRooms } from "../../data/hooks";
+import { EM_DASH, MONO_SX, channelTypeLabel, formatDate } from "../../theme/hootFormat";
 import { buildGroupIndex, effectiveColor, groupPathName } from "./groupTree";
 import { RoomFilters, filterRooms, useRoomFilterState } from "./roomFilters";
+
+function Missing() {
+  return (
+    <Typography component="span" variant="body2" sx={{ color: "text.secondary" }}>
+      {EM_DASH}
+    </Typography>
+  );
+}
 
 function ColorDot({ color }: { color: string }) {
   return (
@@ -102,7 +111,7 @@ export default function RoomsPage() {
               <span>{groupPathName(row.group_id, byId) || row.group_name}</span>
             </Stack>
           ) : (
-            "—"
+            <Missing />
           ),
       },
       {
@@ -110,40 +119,61 @@ export default function RoomsPage() {
         headerName: "Owner",
         flex: 1,
         minWidth: 150,
-        renderCell: ({ value, row }) => value ?? (row.owner_id ? row.owner_id : "—"),
+        renderCell: ({ value, row }) =>
+          value ??
+          (row.owner_id ? (
+            <Typography component="span" sx={MONO_SX}>
+              {row.owner_id}
+            </Typography>
+          ) : (
+            <Missing />
+          )),
       },
       {
         field: "read_visibility",
         headerName: "Access",
-        width: 120,
+        width: 108,
         renderCell: ({ row }) => <AccessChip pair={row} />,
       },
       {
         field: "channel_type",
         headerName: "Type",
-        width: 120,
+        width: 150,
         renderCell: ({ value }) =>
-          value ? <Chip label={value} size="small" /> : "—",
+          value ? (
+            <Chip label={channelTypeLabel(value as string)} size="small" />
+          ) : (
+            <Missing />
+          ),
       },
-      { field: "agent_count", headerName: "Agents", width: 90, type: "number" },
+      { field: "agent_count", headerName: "Agents", width: 84, type: "number" },
       {
         field: "connected_user_count",
-        headerName: "Connected Users",
-        width: 140,
+        headerName: "Users",
+        width: 84,
         type: "number",
       },
       {
         field: "bridge_display_name",
         headerName: "Bridge",
-        width: 160,
+        width: 130,
         renderCell: ({ value }) =>
-          value ? <Chip label={value} size="small" color="info" /> : "—",
+          value ? (
+            <Chip label={value} size="small" />
+          ) : (
+            <Missing />
+          ),
       },
-      { field: "created_at", headerName: "Created", width: 180 },
+      {
+        field: "created_at",
+        headerName: "Created",
+        width: 116,
+        valueFormatter: (value) => formatDate(value as string),
+      },
       {
         field: "actions",
         headerName: "",
-        width: 140,
+        width: 116,
         sortable: false,
         filterable: false,
         renderCell: ({ row }) => (
