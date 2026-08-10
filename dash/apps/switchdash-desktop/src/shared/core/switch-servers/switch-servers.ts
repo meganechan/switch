@@ -222,6 +222,24 @@ export type RemoteBridge = {
 };
 
 /**
+ * How to sign in to a managed deployment's bundled Mattermost directly — in a
+ * browser, on a phone, or in the desktop Mattermost client (CHOO-1787).
+ *
+ * `unavailable` carries the reason in words a user can act on, and is the only
+ * alternative to real values: the credentials are per-deployment and generated,
+ * so a plausible-looking default would be worse than saying nothing.
+ */
+export type BundledChatSignIn =
+  | {
+      kind: 'available';
+      /** Origin to paste into the Mattermost client's "server URL" field. */
+      url: string;
+      username: string;
+      password: string;
+    }
+  | { kind: 'unavailable'; reason: string };
+
+/**
  * One credential field a bridge type needs, projected from the JSON Schema the
  * gateway derives from the adapter's Pydantic config model.
  *

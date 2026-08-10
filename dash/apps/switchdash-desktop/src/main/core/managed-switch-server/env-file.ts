@@ -2,6 +2,7 @@ import {
   LOCAL_SERVER_ADMIN_EMAIL,
   LOCAL_SERVER_BIND_ADDR,
   LOCAL_SERVER_MATTERMOST_TEAM,
+  LOCAL_SERVER_MATTERMOST_USER,
 } from './constants';
 import { apiUrlFor, gatewayUrlFor, type LocalServerPorts } from './free-port';
 import type { LocalServerSecrets } from './secret-values';
@@ -67,7 +68,7 @@ export function buildEnvFile(params: LocalServerEnvParams): string {
     'MATTERMOST_ADMIN_USER=admin',
     `MATTERMOST_ADMIN_PASSWORD=${secrets.mattermostAdminPassword}`,
     `MATTERMOST_TEAM_NAME=${LOCAL_SERVER_MATTERMOST_TEAM}`,
-    'MATTERMOST_USER=user',
+    `MATTERMOST_USER=${LOCAL_SERVER_MATTERMOST_USER}`,
     `MATTERMOST_USER_PASSWORD=${secrets.mattermostUserPassword}`,
     '',
   ].join('\n');

@@ -8,6 +8,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { BundledChatSignIn } from './BundledChatSignIn';
 import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
 
@@ -30,6 +31,9 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
   const queryClient = useQueryClient();
   const showConnectMessagingApp = useShowModal('connectMessagingAppModal');
   const isAdmin = switchServersStore.statusFor(serverId)?.user?.role === 'admin';
+  // Only a stack switchdash runs has a chat whose credentials it generated and
+  // can therefore show; anyone else's Mattermost is their own to hand out.
+  const isManaged = !!switchServersStore.servers.find((s) => s.id === serverId)?.managed;
 
   const bridgesQuery = useQuery({
     queryKey: ['remote-bridges', serverId],
@@ -84,32 +88,39 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
       ) : (
         <ul className="mt-3 space-y-2">
           {bridges.map((bridge) => (
-            <li key={bridge.id} className="flex items-center gap-2 text-sm">
-              {hasBridgeIcon(bridge.type) ? (
-                <BridgeIcon bridgeType={bridge.type} size={16} />
-              ) : (
-                <MessageSquare className="size-4 text-foreground-muted" />
-              )}
-              <span className="min-w-0 flex-1 truncate text-foreground">{bridge.displayName}</span>
-              {/* Offered only when the link resolves — an older server, or a
+            <li key={bridge.id} className="text-sm">
+              <div className="flex items-center gap-2">
+                {hasBridgeIcon(bridge.type) ? (
+                  <BridgeIcon bridgeType={bridge.type} size={16} />
+                ) : (
+                  <MessageSquare className="size-4 text-foreground-muted" />
+                )}
+                <span className="min-w-0 flex-1 truncate text-foreground">
+                  {bridge.displayName}
+                </span>
+                {/* Offered only when the link resolves — an older server, or a
                   bridge that is down, reports none, and a button that cannot
                   do anything is worse than no button. */}
-              {bridge.homeUrl && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-label={`Open ${bridgePlatformLabel(bridge.type)}`}
-                  onClick={() => void rpc.app.openExternal(bridge.homeUrl as string)}
-                >
-                  <ExternalLink className="size-3.5" />
-                  Open
-                </Button>
-              )}
-              {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
-              {/* Surfaced only when it is NOT active: a bridge that is down
+                {bridge.homeUrl && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Open ${bridgePlatformLabel(bridge.type)}`}
+                    onClick={() => void rpc.app.openExternal(bridge.homeUrl as string)}
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Open
+                  </Button>
+                )}
+                {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
+                {/* Surfaced only when it is NOT active: a bridge that is down
                   cannot back a new room, and the room-creation picker silently
                   omits it, so this is where that becomes visible. */}
-              {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+                {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+              </div>
+              {isManaged && bridge.type === 'mattermost' && (
+                <BundledChatSignIn serverId={serverId} />
+              )}
             </li>
           ))}
         </ul>

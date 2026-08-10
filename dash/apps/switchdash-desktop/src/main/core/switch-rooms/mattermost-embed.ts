@@ -1,4 +1,5 @@
 import { session as electronSession } from 'electron';
+import { LOCAL_SERVER_MATTERMOST_USER } from '@main/core/managed-switch-server/constants';
 import { managedServerSecretsKey } from '@main/core/managed-switch-server/host/host-for-server';
 import { loadOrCreateSecrets } from '@main/core/managed-switch-server/secrets';
 import { getServer } from '@main/core/switch-servers/servers-store';
@@ -12,7 +13,6 @@ import {
 import { mattermostOriginFor } from './mattermost-origin';
 
 const MATTERMOST_AUTH_COOKIE = 'MMAUTHTOKEN';
-const MATTERMOST_USER = 'user';
 
 /**
  * Log the shared `user` account into Mattermost so the webview's partition
@@ -55,7 +55,7 @@ async function installMattermostSession(origin: string, serverId: string): Promi
     },
     credentials: 'include',
     body: JSON.stringify({
-      login_id: MATTERMOST_USER,
+      login_id: LOCAL_SERVER_MATTERMOST_USER,
       password: secrets.mattermostUserPassword,
     }),
   });
