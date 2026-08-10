@@ -979,7 +979,7 @@ async def get_room_history(
     before_ms = parse_timestamp_ms(before) if before else None
 
     try:
-        raw_messages = await protocol.read_context(
+        context = await protocol.read_context(
             agent.id,
             room_id,
             limit=limit,
@@ -992,19 +992,23 @@ async def get_room_history(
         raise HTTPException(status_code=403, detail=str(e)) from e
 
     messages: list[HistoryMessage] = []
-    for msg_dict in raw_messages:
-        sender = msg_dict.get("sender")
-        sender_name = msg_dict.get("sender_name") or sender
-        body = msg_dict.get("body")
-        ts = msg_dict.get("timestamp")
-        if body:
+    for group in context["threads"]:
+        for entry in [group["root"], *group["replies"]]:
+            body = entry.get("body")
+            if not body:
+                continue
+            sender = entry.get("sender")
             messages.append(
                 HistoryMessage(
-                    sender=sender, sender_name=sender_name, body=body, timestamp=ts
+                    sender=sender,
+                    sender_name=entry.get("sender_name") or sender,
+                    body=body,
+                    timestamp=entry.get("timestamp"),
                 )
             )
+    messages.sort(key=lambda m: m.timestamp or 0)
 
-    return HistoryResponse(events=messages, has_more=len(messages) >= limit)
+    return HistoryResponse(events=messages, has_more=context["truncated"])
 
 
 # Participants endpoint

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from nio import (
     DownloadError,
     RoomGetEventError,
+    RoomMemberEvent,
     RoomMessageMedia,
     RoomMessagesError,
 )
@@ -105,6 +106,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _VALID_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
+
+# History pagination. The homeserver caps a /messages page regardless of what
+# we ask for, and state events consume it without ever reaching the caller, so
+# one page is never a reliable window. The page cap bounds a single read_context
+# call; hitting it is reported as `truncated` rather than passed off as the
+# whole story.
+HISTORY_PAGE_SIZE = 100
+HISTORY_MAX_PAGES = 20
 
 
 class AgentExistsError(Exception):
@@ -1242,12 +1251,47 @@ class ProtocolService:
 
         return {
             "id": event.event_id,
+            "kind": "message",
             "sender": event.sender,
             "sender_name": sender_name,
             "body": body,
             "timestamp": getattr(event, "server_timestamp", None),
             "attachments": attachments,
         }
+
+    @staticmethod
+    def _join_dict(event: RoomMemberEvent) -> dict[str, Any] | None:
+        """Build a timeline entry for someone joining the room.
+
+        Only a transition *into* join counts: a display-name change or avatar
+        update is also an m.room.member event with membership "join", and
+        replaying those as arrivals would be a lie.
+        """
+        if event.membership != "join" or event.prev_membership == "join":
+            return None
+        content = event.content or {}
+        name = content.get("displayname") or event.state_key
+        return {
+            "id": event.event_id,
+            "kind": "room_join",
+            "sender": event.state_key,
+            "sender_name": name,
+            "body": f"{name} joined the room",
+            "timestamp": getattr(event, "server_timestamp", None),
+            "attachments": [],
+        }
+
+    def _timeline_entry(self, event: Any) -> dict[str, Any] | None:
+        """Map a nio timeline event to an agent-facing entry, or None to skip.
+
+        Messages and joins are the timeline; every other state event (leaves,
+        topic changes, power levels) is noise an agent cannot act on.
+        """
+        if isinstance(event, RoomMemberEvent):
+            return self._join_dict(event)
+        if getattr(event, "body", None):
+            return self._message_dict(event)
+        return None
 
     @staticmethod
     def _thread_root_id(event: Any) -> str:
@@ -1271,20 +1315,31 @@ class ProtocolService:
         limit: int = 50,
         since_ms: int | None = None,
         before_ms: int | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Fetch room history grouped into threads.
 
-        Returns thread groups ordered by latest activity (most-recently-active
-        last, so the tail is the freshest), each shaped as::
+        Returns::
 
-            {"root": <message>, "replies": [<message>, ...]}
+            {"threads": [...], "truncated": bool, "oldest_timestamp": int|None}
 
-        where <message> is {"id", "sender", "sender_name", "body", "timestamp"}.
-        Top-level messages are roots with an empty replies list; replies are
-        ordered oldest-first within a thread. A root that falls outside the
-        fetched window but has a reply inside it is fetched on demand; if it
-        cannot be fetched it is returned as an elided stub so the reply is not
-        lost.
+        where each thread group is ordered by latest activity (most-recently-
+        active last, so the tail is the freshest) and shaped as::
+
+            {"root": <entry>, "replies": [<entry>, ...]}
+
+        An <entry> is {"id", "kind", "sender", "sender_name", "body",
+        "timestamp", "attachments"}. `kind` is "message" for something someone
+        said and "room_join" for an arrival. Top-level entries are roots with
+        an empty replies list; replies are ordered oldest-first within a
+        thread. A root that falls outside the fetched window but has a reply
+        inside it is fetched on demand; if it cannot be fetched it is returned
+        as an elided stub so the reply is not lost.
+
+        `truncated` is True when older history exists that this call did not
+        reach — the caller asked for more than it got. It is deliberately
+        conservative: a window that ends exactly on `limit` reports truncated
+        even if nothing older happens to exist. A short history must never be
+        mistaken for a complete one.
         """
         room = await self.require_room_member(agent_id, room_id)
         client = self.client_lifecycle.get_by_agent_id(agent_id)
@@ -1293,42 +1348,67 @@ class ProtocolService:
         if client.nio_client is None:
             raise ValueError("Agent client not connected to Matrix")
 
-        resp = await client.nio_client.room_messages(
-            room.matrix_room_id, start="", limit=limit * 5
-        )
-
-        if isinstance(resp, RoomMessagesError):
-            raise ValueError(f"Failed to fetch room history: {resp.message}")
-
-        # resp.chunk is newest-first. Collect up to `limit` messages within the
-        # window, then group them by thread root.
+        # Walk backwards page by page until the window is satisfied. A single
+        # page is not enough: the homeserver caps its size, and state events
+        # that never reach the caller still consume it.
         groups: dict[str, dict[str, Any]] = {}
-        seen = 0
-        for event in resp.chunk:
-            body = getattr(event, "body", None)
-            if not body:
-                continue
-            ts = getattr(event, "server_timestamp", None)
-            if since_ms is not None and ts is not None and ts < since_ms:
-                continue
-            if before_ms is not None and ts is not None and ts >= before_ms:
-                continue
+        collected = 0
+        oldest_ts: int | None = None
+        start: str | None = None
+        pages = 0
+        exhausted = False
 
-            root_id = self._thread_root_id(event)
-            msg = self._message_dict(event)
-            group = groups.setdefault(
-                root_id, {"root": None, "replies": [], "latest": 0}
+        while collected < limit and pages < HISTORY_MAX_PAGES:
+            resp = await client.nio_client.room_messages(
+                room.matrix_room_id, start=start, limit=HISTORY_PAGE_SIZE
             )
-            if msg["id"] == root_id:
-                group["root"] = msg
-            else:
-                group["replies"].append(msg)
-            if ts is not None and ts > group["latest"]:
-                group["latest"] = ts
+            if isinstance(resp, RoomMessagesError):
+                raise ValueError(f"Failed to fetch room history: {resp.message}")
+            pages += 1
 
-            seen += 1
-            if seen >= limit:
+            chunk = list(resp.chunk)
+            end = getattr(resp, "end", None)
+
+            for event in chunk:
+                ts = getattr(event, "server_timestamp", None)
+                # Newer than the window: keep walking back towards it.
+                if before_ms is not None and ts is not None and ts >= before_ms:
+                    continue
+                # Older than the window: pagination runs newest-first, so
+                # everything beyond this point is older too.
+                if since_ms is not None and ts is not None and ts < since_ms:
+                    exhausted = True
+                    break
+
+                entry = self._timeline_entry(event)
+                if entry is None:
+                    continue
+
+                root_id = self._thread_root_id(event)
+                group = groups.setdefault(
+                    root_id, {"root": None, "replies": [], "latest": 0}
+                )
+                if entry["id"] == root_id:
+                    group["root"] = entry
+                else:
+                    group["replies"].append(entry)
+                if ts is not None and ts > group["latest"]:
+                    group["latest"] = ts
+                if ts is not None and (oldest_ts is None or ts < oldest_ts):
+                    oldest_ts = ts
+
+                collected += 1
+                if collected >= limit:
+                    break
+
+            if exhausted:
                 break
+            # No continuation token, or the server stopped moving: this is the
+            # start of the room.
+            if not end or end == start:
+                exhausted = True
+                break
+            start = end
 
         # Resolve roots that fall outside the fetched window (orphan replies).
         for root_id, group in groups.items():
@@ -1338,11 +1418,25 @@ class ProtocolService:
                 )
 
         ordered = sorted(groups.values(), key=lambda g: g["latest"])
-        result: list[dict[str, Any]] = []
+        threads: list[dict[str, Any]] = []
         for group in ordered:
             group["replies"].reverse()  # chunk was newest-first → oldest-first
-            result.append({"root": group["root"], "replies": group["replies"]})
-        return result
+            threads.append({"root": group["root"], "replies": group["replies"]})
+
+        if not exhausted:
+            logger.warning(
+                "read_context truncated in %s: %d entries over %d pages, "
+                "older history not reached",
+                room.matrix_room_id,
+                collected,
+                pages,
+            )
+
+        return {
+            "threads": threads,
+            "truncated": not exhausted,
+            "oldest_timestamp": oldest_ts,
+        }
 
     async def _fetch_root(
         self, client: ClientBase[Any], matrix_room_id: str, root_id: str
@@ -1363,6 +1457,7 @@ class ProtocolService:
             )
             return {
                 "id": root_id,
+                "kind": "message",
                 "sender": None,
                 "sender_name": None,
                 "body": None,
