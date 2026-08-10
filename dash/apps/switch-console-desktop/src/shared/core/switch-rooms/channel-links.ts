@@ -26,7 +26,7 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0']);
  * The web address for a bridge channel or workspace link, or null when the link
  * is not one we know how to translate.
  *
- * `mattermostOrigin` is where switchdash can actually reach this server's
+ * `mattermostOrigin` is where Switch Console can actually reach this server's
  * Mattermost, which it only knows for stacks it runs itself. Pass null
  * otherwise and the host named by the deeplink is used.
  */

@@ -14,7 +14,7 @@ describe('openRoomChannel', () => {
     openExternal.mockResolvedValue(undefined);
   });
 
-  it('opens a Mattermost channel on the origin switchdash reaches it on', async () => {
+  it('opens a Mattermost channel on the origin Switch Console reaches it on', async () => {
     // The deeplink itself only opens the desktop app; the web address opens
     // either way, which is the whole point of the fix.
     await openRoomChannel({

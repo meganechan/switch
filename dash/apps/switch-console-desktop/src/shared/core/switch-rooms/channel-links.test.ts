@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { browserUrlForChannelLink } from './channel-links';
 
 describe('browserUrlForChannelLink', () => {
-  it('rebases a Mattermost deeplink onto the origin switchdash reaches it on', () => {
-    // A managed stack publishes Mattermost on a port switchdash chose, so the
+  it('rebases a Mattermost deeplink onto the origin Switch Console reaches it on', () => {
+    // A managed stack publishes Mattermost on a port Switch Console chose, so the
     // host the gateway baked into the deeplink is not the one that works here.
     expect(
       browserUrlForChannelLink(

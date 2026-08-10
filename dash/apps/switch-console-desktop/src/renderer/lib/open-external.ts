@@ -10,7 +10,7 @@ export function reportOpenFailure(failureTitle: string, failureDetail: string): 
 }
 
 /**
- * Report an attempt to open something outside switchdash, saying so when it did
+ * Report an attempt to open something outside Switch Console, saying so when it did
  * not work.
  *
  * The main process has always reported whether the hand-off succeeded, and
@@ -38,7 +38,7 @@ export async function reportOpenAttempt(
   return false;
 }
 
-/** Open a URL outside switchdash, reporting a failure rather than swallowing it. */
+/** Open a URL outside Switch Console, reporting a failure rather than swallowing it. */
 export function openExternalUrl(url: string, failureTitle: string): Promise<boolean> {
   return reportOpenAttempt(rpc.app.openExternal(url), failureTitle, url);
 }

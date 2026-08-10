@@ -3,7 +3,7 @@ import { browserUrlForChannelLink } from '@shared/core/switch-rooms/channel-link
 import { mattermostOriginFor } from './mattermost-origin';
 
 /**
- * Open a room's bridged channel outside switchdash.
+ * Open a room's bridged channel outside Switch Console.
  *
  * The gateway describes a channel with the link its platform prefers, which for
  * Mattermost and Slack is one only their desktop app answers. Handing that
