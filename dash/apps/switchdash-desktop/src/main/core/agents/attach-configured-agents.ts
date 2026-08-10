@@ -76,10 +76,13 @@ export async function attachConfiguredAgents(
   if (!server) throw new Error(`No Switch server with id ${params.serverId}`);
 
   const discovered = new Map(
-    (await discoverConfiguredAgents({ sshHost: params.sshHost, dir: params.dir })).map((d) => [
-      d.name,
-      d,
-    ])
+    (
+      await discoverConfiguredAgents({
+        sshHost: params.sshHost,
+        dir: params.dir,
+        serverId: params.serverId,
+      })
+    ).map((d) => [d.name, d])
   );
 
   const selected: Array<{ name: string; providerId: AgentProviderId }> = [];
@@ -100,7 +103,7 @@ export async function attachConfiguredAgents(
     return err({
       type: 'invalid-directory',
       dir: params.dir,
-      message: 'Every selected agent is already attached here.',
+      message: `Every selected agent is already attached to ${server.name} here.`,
     });
   }
 

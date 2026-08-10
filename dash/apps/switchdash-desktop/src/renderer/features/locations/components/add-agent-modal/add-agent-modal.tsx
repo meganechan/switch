@@ -223,14 +223,16 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       discoverSshHost ?? 'local',
       discoverDir,
       pickState.providerId,
+      pickState.serverId,
     ],
     queryFn: () =>
       rpc.agents.discoverLocationAgents({
         sshHost: discoverSshHost,
         dir: discoverDir,
         providerId: pickState.providerId!,
+        serverId: pickState.serverId!,
       }),
-    enabled: !!pickState.providerId && discoverDir.trim().length > 0,
+    enabled: !!pickState.providerId && !!pickState.serverId && discoverDir.trim().length > 0,
   });
   // Agents already configured in the directory, found by their provider-neutral
   // Switch credentials rather than by any provider's definition format. This is
@@ -238,10 +240,19 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // way a provider with no definition concept (Codex) is visible at all
   // (CHOO-1937). Provider-agnostic, so it does not wait on the type picker.
   const configuredQuery = useQuery({
-    queryKey: ['discoverConfiguredAgents', discoverSshHost ?? 'local', discoverDir],
+    queryKey: [
+      'discoverConfiguredAgents',
+      discoverSshHost ?? 'local',
+      discoverDir,
+      pickState.serverId,
+    ],
     queryFn: () =>
-      rpc.agents.discoverConfiguredAgents({ sshHost: discoverSshHost, dir: discoverDir }),
-    enabled: discoverDir.trim().length > 0,
+      rpc.agents.discoverConfiguredAgents({
+        sshHost: discoverSshHost,
+        dir: discoverDir,
+        serverId: pickState.serverId!,
+      }),
+    enabled: !!pickState.serverId && discoverDir.trim().length > 0,
   });
 
   // Definitions that can join Switch and switchdash hasn't already onboarded — the
@@ -316,9 +327,10 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // existing vs create new" only once BOTH have settled — otherwise the create
   // form flashes up first and then flips to the onboard list when discovery lands
   // (CHOO-1440).
+  const scanTargetChosen = !!pickState.serverId && discoverDir.trim().length > 0;
   const isDiscovering =
-    (!!pickState.providerId && discoverDir.trim().length > 0 && discoverQuery.isPending) ||
-    (discoverDir.trim().length > 0 && configuredQuery.isPending);
+    (!!pickState.providerId && scanTargetChosen && discoverQuery.isPending) ||
+    (scanTargetChosen && configuredQuery.isPending);
   const isChecking =
     (isRemoteRun
       ? shouldDetectRemote && remoteAgentQuery.isPending
@@ -693,21 +705,29 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
       footer={
         <DialogFooter>
-          {switchAgent ? (
-            <ConfirmButton
-              type="button"
-              onClick={() => void handleSubmit()}
-              disabled={!canSubmitDetected}
-            >
-              {submitLabel}
-            </ConfirmButton>
-          ) : hasOnboardable && !createMode ? (
+          {/* The onboard list comes first, and deliberately outranks a detected
+              legacy agent. The body renders the list whenever there is something
+              to onboard, so a footer that branched on detection first put the
+              wrong button under it: a directory carrying another server's
+              `.claude/settings.local.json` showed the detected-agent button, which
+              then verified that foreign agent against this server, failed, and
+              stayed disabled forever — with the onboardable list visible above it
+              and no way to submit it (CHOO-2044). */}
+          {hasOnboardable && !createMode ? (
             <ConfirmButton
               type="button"
               onClick={() => void handleOnboard()}
               disabled={!canOnboard}
             >
               {submitState === 'creating' ? 'Adding...' : `Add ${selectedNames.size} selected`}
+            </ConfirmButton>
+          ) : switchAgent ? (
+            <ConfirmButton
+              type="button"
+              onClick={() => void handleSubmit()}
+              disabled={!canSubmitDetected}
+            >
+              {submitLabel}
             </ConfirmButton>
           ) : isMissingRemoteAgent ? (
             <ConfirmButton
@@ -866,6 +886,31 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
                 </span>
               </span>
             </div>
+            {/* The detected agent belongs to whichever server its on-disk config
+                was written for, which need not be the one being added to. Saying
+                so is the difference between an explained dead end and a button
+                that is simply disabled for no stated reason (CHOO-2044). */}
+            {verifyState === 'not-found' && (
+              <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
+                <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+                <span>
+                  The agent configured in this directory is not registered on
+                  {targetServer ? ` ${targetServer.name}` : ' the active server'} — it belongs to a
+                  different Switch server. Onboard one of this directory&apos;s agents instead, or
+                  switch to the server it belongs to.
+                </span>
+              </div>
+            )}
+            {verifyState === 'unauthenticated' && (
+              <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
+                <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+                <span>
+                  You are not signed in to
+                  {targetServer ? ` ${targetServer.name}` : ' the active server'}, so this agent
+                  cannot be verified.
+                </span>
+              </div>
+            )}
             {switchServersStore.servers.length === 0 && (
               <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
                 <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />

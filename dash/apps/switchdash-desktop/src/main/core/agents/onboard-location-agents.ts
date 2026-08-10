@@ -17,7 +17,7 @@ import { basenameFromAnyPath } from '@shared/path-name';
 import { agentEvents } from './agent-events';
 import { resolveWorkspaceFsFor, type WorkspaceFs } from './agent-workspace-fs';
 import { createAgent } from './createAgent';
-import { getAgents } from './getAgents';
+import { getLocationAgentsOnServer } from './getAgents';
 import { registerAgentIdentity } from './register-agent-identity';
 import { reconcileAgentAutoSessionFromGateway } from './setAgentAutoSession';
 import { writeNeutralAgentSettingsFs } from './write-switch-settings';
@@ -175,7 +175,9 @@ export async function onboardLocationAgents(
     name: params.locationName ?? basenameFromAnyPath(params.dir) ?? params.providerId,
   });
 
-  const existing = new Set((await getAgents(location.id)).map((a) => a.name));
+  const existing = new Set(
+    (await getLocationAgentsOnServer(location.id, params.serverId)).map((a) => a.name)
+  );
 
   const workspace = await resolveWorkspaceFsFor(params.sshHost, params.dir);
   const created: Agent[] = [];
@@ -190,7 +192,7 @@ export async function onboardLocationAgents(
       return err({
         type: 'invalid-directory',
         dir: params.dir,
-        message: 'No Claude agents available to onboard in this directory.',
+        message: `No Claude agents available to onboard in this directory onto ${server.name}.`,
       });
     }
 
@@ -245,7 +247,7 @@ export async function onboardLocationAgents(
     return err({
       type: 'invalid-directory',
       dir: params.dir,
-      message: 'Every agent in this directory is already onboarded here.',
+      message: `Every agent in this directory is already onboarded onto ${server.name}.`,
     });
   }
 
