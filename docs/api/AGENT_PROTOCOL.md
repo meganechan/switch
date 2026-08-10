@@ -885,10 +885,11 @@ three renews is unaffected and unaware.
    of every union above.
 7. Remove the polling endpoints.
 
-Opportunistic, both relevant to this work: the `DORMANT` display bug, and
-`read_context`'s deep-history pagination, which discards Matrix's continuation
-token and so cannot page past roughly `limit * 5` events — this matters more
-once "re-read context" is the documented recovery path for a gap.
+Opportunistic, relevant to this work: the `DORMANT` display bug.
+`read_context`'s deep-history pagination is **done** (CHOO-2034) — it follows
+Matrix's continuation token, pages backwards for `before`, and reports
+`truncated` when it stops short, which matters now that "re-read context" is
+the documented recovery path for a gap.
 
 Both connector skills (`claude-code-plugin`, `codex-plugin`) and both plugin
 versions must be updated when the agent-facing contract changes.

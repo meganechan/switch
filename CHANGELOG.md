@@ -41,6 +41,23 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Fixed
+- `read_context` now pages the homeserver instead of reading a single
+  `/messages` page, so agents see the whole room rather than the last slice of
+  it (CHOO-2034). `before` pages backwards into older history rather than
+  filtering one page, and the response reports `truncated` and
+  `oldest_timestamp` so a shortened read can never pass as a complete one. Room
+  joins now appear in the timeline as `kind: "room_join"` entries. The
+  `GET /agents/{id}/rooms/{id}/history` endpoint, which read the result as a
+  flat message list when it has always been thread groups and so returned no
+  events at all, is fixed with it.
+
+#### Changed
+- **Breaking (agent-facing):** `read_context` returns
+  `{threads, truncated, oldest_timestamp}` rather than a bare list of thread
+  groups, and every entry carries a `kind` (CHOO-2034). Both connector skills
+  are updated.
+
 ### [0.12.4] - 2026-08-09
 
 #### Added
@@ -830,6 +847,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+### [0.8.0] - 2026-08-10
+
+#### Changed
+- Document `read_context`'s new response shape — `truncated` /
+  `oldest_timestamp` and the per-entry `kind` — and tell the agent not to
+  conclude anything from a truncated read (CHOO-2034).
+
 ### [0.7.9] - 2026-08-09
 
 #### Changed
@@ -850,6 +874,12 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.3.0] - 2026-08-10
+
+#### Changed
+- Skill updated for `read_context`'s new response shape — `truncated` /
+  `oldest_timestamp` and the per-entry `kind` (CHOO-2034).
 
 ### [0.2.1] - 2026-08-09
 
