@@ -161,6 +161,30 @@ replacing the render-time inversion:
 - The per-agent view, where it is still needed, is derived *from* this — not
   alongside it.
 
+### 3.1b One state, many writers, one reader
+
+Agreed with louis.amaudruz: the room state is written from several directions
+but read from exactly one place.
+
+Writers, all through the same store API rather than into private caches:
+
+- **Local mutation** — create room, add/remove agent. Seeds the fields it
+  already knows (a room created here knows its own name) and then confirms
+  against the server.
+- **Server read** — the room list and room-keyed membership. Fills gaps and
+  corrects drift; also the background reconcile.
+- **Live push** — session→room today; server-pushed membership later, if it is
+  built. Slots in as a third writer without changing anything downstream.
+
+Reader: everything. Room rows, the member list, the counter, the invite picker.
+No component holds its own copy and none fetches at render time. Because the
+store is observable, a write from any of the three writers repaints the sidebar
+without a per-callsite refresh — which is what makes "the view updates" a
+property of the design instead of something each callsite must remember.
+
+The current failure is precisely the absence of this: five caches, so a write
+lands in one and misses the others.
+
 ### 3.2 Derive rendered numbers from the rendered collection
 
 The badge becomes the length of the collection rendered beneath it. Not a
@@ -227,6 +251,6 @@ collapses to an empty array and renders as a confident zero.
    server-side agent cannot be invited from switchdash at all, and the room row
    discloses the count it cannot draw so a hidden member is not mistaken for an
    absent one.
-3. **Polling.** Focus-only reconcile means a switchdash left open in the
-   foreground never notices external changes. Add a slow background poll, or
-   accept it and rely on the freshness disclosure?
+3. ~~**Polling.**~~ **Decided (louis.amaudruz).** Add a slow background
+   reconcile so externally-originated changes converge on their own rather than
+   only on window focus.
