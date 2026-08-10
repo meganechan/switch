@@ -32,6 +32,13 @@ Still `switchdash`, deliberately — **do not "fix" these**:
   starts an existing install empty and orphans its Postgres volume
 - the macOS app id (`com.switchdash.*`) — it carries registration and update
   continuity for copies installed before the rename, and nobody reads it
+- the name the app announces to the OS (`OS_APP_NAME`, passed to `app.setName`) —
+  `safeStorage` encrypts against a key the OS files under it, bound the first time
+  the app touches the keychain and never re-read, so a renamed build gets an empty
+  key and cannot read the saved sign-ins or the local server's credentials sitting
+  in the shared database. Measured on macOS: the bundle names are not consulted,
+  only this call. Nothing a user reads comes from it — display strings take
+  `PRODUCT_NAME`
 - the `switchdash://` deeplink scheme — links already posted into Slack and Mattermost
   are permanent, and deployed Mattermost stacks whitelist the scheme in their config
 - the per-project config file (`.switchdash.json`) and per-repo state dir

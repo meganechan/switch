@@ -4,13 +4,21 @@ const env = (import.meta as ImportMetaWithEnv).env;
 const isDev = env?.DEV === true;
 const isCanary = env?.VITE_BUILD === 'canary';
 
-// What a user reads, what the OS installs, and where data lives are three
-// different names here, and only the last one is frozen.
+// What a user reads, what the app calls itself to the OS, and where data lives
+// are three different names here, and only the first one moved.
 //
 // USER_DATA_DIR_NAME holds the database, so it stays `switchdash` forever:
 // renaming it starts an existing install from an empty database. APP_ID stays
 // with it — it is what macOS registration and update continuity key off, and
 // nobody reads it.
+//
+// OS_APP_NAME is frozen for the same reason and is the least obvious of the
+// three. `safeStorage` encrypts against a key the OS files under the name the
+// app announces at startup (measured on macOS: neither bundle key is consulted,
+// only `app.setName`), and that name is bound the first time the app touches
+// the keychain, never re-read. Moving it hands a renamed build an empty key
+// while the old ciphertext stays in the shared database — every saved sign-in
+// and the local server's own credentials become unreadable, with no way back.
 //
 // PRODUCT_NAME, APP_NAME_LOWER and ARTIFACT_PREFIX did move (CHOO-2008). The
 // cost is paid once, at the release that changes them: Linux package managers
@@ -18,6 +26,7 @@ const isCanary = env?.VITE_BUILD === 'canary';
 // `switchdash`, so the old one has to be removed by hand.
 export const APP_ID = isCanary ? 'com.switchdash.canary' : 'com.switchdash.stable';
 export const PRODUCT_NAME = isCanary ? 'Switch Console Canary' : 'Switch Console';
+export const OS_APP_NAME = isCanary ? 'Switchdash Canary' : 'Switchdash';
 export const APP_NAME_LOWER = isCanary ? 'switch-console-canary' : 'switch-console';
 export const USER_DATA_DIR_NAME = isDev
   ? 'switchdash-dev'

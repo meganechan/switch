@@ -1,5 +1,6 @@
 import { app, clipboard, Menu, shell } from 'electron';
 import { events } from '@main/lib/events';
+import { PRODUCT_NAME } from '@shared/app-identity';
 import {
   menuCheckForUpdatesChannel,
   menuGiveFeedbackChannel,
@@ -17,7 +18,7 @@ import { getMainWindow } from './window';
 
 function copyVersionInfo(): void {
   const lines = [
-    `${app.getName()} ${app.getVersion()}`,
+    `${PRODUCT_NAME} ${app.getVersion()}`,
     `Platform: ${process.platform} ${process.arch}`,
     `Electron: ${process.versions.electron}`,
   ];
