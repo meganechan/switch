@@ -223,9 +223,18 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
    * in flight, so repeated calls remain safe.
    */
   async attach(): Promise<void> {
-    if (!this.known || this.pty) return;
+    if (this.pty) return;
+    // Loud, because the pool has no way to see the difference: a runtime that
+    // silently declines looks exactly like one that attached, and the terminal
+    // stays blank with nothing in the log to explain it. A runtime reaches the
+    // pool at provision time but only learns its session from `ensureAttachable`,
+    // so this fires when provisioning skipped that step.
+    if (!this.known || !this.session) {
+      throw new Error(
+        `SshAgentRuntime: cannot attach session ${this.sessionId} — the runtime was never made attachable (known=${this.known}, session=${this.session !== null})`
+      );
+    }
     const session = this.session;
-    if (!session) return;
     return this.withLogScope(() => this.attachInternal(session));
   }
 

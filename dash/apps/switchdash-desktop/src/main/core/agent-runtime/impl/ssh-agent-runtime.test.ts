@@ -798,6 +798,31 @@ describe('SshAgentRuntime', () => {
     expect(openSsh2Pty).toHaveBeenCalledTimes(2);
   });
 
+  // A runtime joins the attachment pool at provision time but learns its session
+  // only from `ensureAttachable`. Returning quietly here is indistinguishable to
+  // the pool from a successful attach: it logs `remote_attach`, reports the
+  // session attached, and the user stares at an empty pane with nothing in the
+  // log. Observed on a real host — every click logged an attach and
+  // `attachedCount` never left 0.
+  it('fails loudly when asked to attach before it knows its session', async () => {
+    mockSpawn([]);
+    const provider = sshProvider({ tmux: true });
+
+    await expect(provider.attach()).rejects.toThrow(/never made attachable/);
+    expect(openSsh2Pty).not.toHaveBeenCalled();
+  });
+
+  it('attaches once ensureAttachable has told it which session it serves', async () => {
+    mockSpawn([]);
+    const provider = sshProvider({ tmux: true });
+
+    await provider.ensureAttachable(session());
+    await provider.attach();
+
+    expect(openSsh2Pty).toHaveBeenCalledTimes(1);
+    expect(provider.isAttached()).toBe(true);
+  });
+
   it('does not report the agent as exited when a session is evicted', async () => {
     // The sidebar derives status from hook events; a deliberate detach must not
     // look like the agent stopping, or every eviction would flip it to idle.

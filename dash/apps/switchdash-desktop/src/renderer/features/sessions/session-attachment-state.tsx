@@ -1,16 +1,22 @@
-import { Loader2, MonitorPlay, RefreshCw, TriangleAlert } from 'lucide-react';
+import { Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
+import { useCallback, useEffect } from 'react';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';
 import type { AttachState } from './stores/session-agent-store';
 
 /**
- * What a remote session shows instead of a terminal.
+ * What a remote session shows on the way to its terminal.
  *
  * Only so many sessions per host keep a terminal open at once — they share one
- * SSH connection, and past a handful the slower tunnels stop answering. A
- * detached session is not stopped: its agent is running on the VM and its
- * status in the sidebar stays live. The copy has to say that, or an empty pane
- * reads as a broken session.
+ * SSH connection, and past a handful the slower tunnels stop answering. Which
+ * ones those are is not the user's problem: opening a session attaches it and
+ * evicts the least-recently-viewed one on that host, so `detached` is a state
+ * this pane passes through, never one it settles in. It therefore asks for the
+ * attach itself rather than offering a button — a session you are looking at
+ * and cannot see is a bug, not a choice to present.
+ *
+ * A detached session is not a stopped one: its agent keeps running on the VM
+ * and its status in the sidebar stays live.
  */
 export function SessionAttachmentState({
   state,
@@ -21,13 +27,21 @@ export function SessionAttachmentState({
   sessionId: string;
   host: string | null;
 }) {
-  const attach = () => {
+  const attach = useCallback(() => {
     void rpc.sessions.attachSession(sessionId).catch((error: unknown) => {
       log.warn('SessionAttachmentState: attach request failed', { sessionId, error });
     });
-  };
+  }, [sessionId]);
 
-  if (state === 'attaching') {
+  // Focus reporting normally attaches before this pane renders. This covers the
+  // orders it cannot: a session evicted while its view stays mounted, and a
+  // reconnect that replays fewer sessions than are open.
+  const shouldSelfAttach = state === 'detached';
+  useEffect(() => {
+    if (shouldSelfAttach) attach();
+  }, [shouldSelfAttach, attach]);
+
+  if (state === 'attaching' || state === 'detached') {
     return (
       <Centered>
         <Loader2 className="h-5 w-5 animate-spin text-foreground-muted" />
@@ -53,24 +67,7 @@ export function SessionAttachmentState({
     );
   }
 
-  return (
-    <Centered>
-      <MonitorPlay className="h-6 w-6 text-foreground-muted" />
-      <p className="font-mono text-sm font-medium">Terminal not attached</p>
-      <p className="font-mono text-xs text-foreground-muted">
-        This agent is running{host ? ` on ${host}` : ''} and its status stays live. Attach to watch
-        it or type to it.
-      </p>
-      <ActionButton
-        onClick={attach}
-        icon={<MonitorPlay className="h-3 w-3" />}
-        label="Attach terminal"
-      />
-      <p className="font-mono text-[11px] text-foreground-muted">
-        Scrollback from before attaching is not restored.
-      </p>
-    </Centered>
-  );
+  return null;
 }
 
 function Centered({ children }: { children: React.ReactNode }) {
