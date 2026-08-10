@@ -33,7 +33,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: dash
+    working-directory: console
 
 jobs:
   # Creates the (assetless) Release up front so the platform jobs can run
@@ -106,9 +106,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version-file: dash/.nvmrc
+          node-version-file: console/.nvmrc
           cache: pnpm
-          cache-dependency-path: dash/pnpm-lock.yaml
+          cache-dependency-path: console/pnpm-lock.yaml
 
       - name: Verify tag matches package.json version
         if: startsWith(github.ref, 'refs/tags/')
@@ -144,7 +144,7 @@ jobs:
           echo "APPLE_API_KEY=$RUNNER_TEMP/appstore/AuthKey.p8" >> "$GITHUB_ENV"
 
       - name: Package (mac arm64, no publish)
-        working-directory: dash/apps/switch-console-desktop
+        working-directory: console/apps/switch-console-desktop
         env:
           # Developer ID signing: when the cert secret is set, electron-builder
           # signs with it and the config enables notarization. When it's empty,
@@ -159,7 +159,7 @@ jobs:
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        working-directory: dash/apps/switch-console-desktop
+        working-directory: console/apps/switch-console-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -179,8 +179,8 @@ jobs:
         with:
           name: switch-console-macos-arm64
           path: |
-            dash/apps/switch-console-desktop/release/*.dmg
-            dash/apps/switch-console-desktop/release/*.zip
+            console/apps/switch-console-desktop/release/*.dmg
+            console/apps/switch-console-desktop/release/*.zip
           if-no-files-found: error
 
   build-linux:
@@ -202,9 +202,9 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version-file: dash/.nvmrc
+          node-version-file: console/.nvmrc
           cache: pnpm
-          cache-dependency-path: dash/pnpm-lock.yaml
+          cache-dependency-path: console/pnpm-lock.yaml
 
       - name: Install rpm tooling
         # electron-builder's rpm target needs the `rpm` binary; deb + AppImage
@@ -232,12 +232,12 @@ jobs:
         run: pnpm run build
 
       - name: Package (linux x64, no publish)
-        working-directory: dash/apps/switch-console-desktop
+        working-directory: console/apps/switch-console-desktop
         run: pnpm exec electron-builder --linux --publish never --config electron-builder.config.ts
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        working-directory: dash/apps/switch-console-desktop
+        working-directory: console/apps/switch-console-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -255,9 +255,9 @@ jobs:
         with:
           name: switch-console-linux-x64
           path: |
-            dash/apps/switch-console-desktop/release/*.AppImage
-            dash/apps/switch-console-desktop/release/*.deb
-            dash/apps/switch-console-desktop/release/*.rpm
+            console/apps/switch-console-desktop/release/*.AppImage
+            console/apps/switch-console-desktop/release/*.deb
+            console/apps/switch-console-desktop/release/*.rpm
           if-no-files-found: error
 
   # Flips the draft to a published Release, once — and only once — every platform
@@ -269,7 +269,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [create-release, build-macos, build-linux]
     if: startsWith(github.ref, 'refs/tags/')
-    # This job never checks out, so the workflow-level `dash` working directory
+    # This job never checks out, so the workflow-level `console` working directory
     # does not exist for it.
     defaults:
       run:

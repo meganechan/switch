@@ -281,12 +281,12 @@ def read_declared_version(relative_path: str) -> str:
 # which is all that is needed to stop them drifting.
 LITERAL_CHECKS: list[tuple[str, str, str]] = [
     (
-        "dash/apps/switch-console-desktop/src/shared/app-identity.ts",
+        "console/apps/switch-console-desktop/src/shared/app-identity.ts",
         "COMPATIBLE_SWITCH_VERSION",
         "switch-console.pins.switch-core",
     ),
     (
-        "dash/apps/switch-console-desktop/src/shared/app-identity.canary.ts",
+        "console/apps/switch-console-desktop/src/shared/app-identity.canary.ts",
         "COMPATIBLE_SWITCH_VERSION",
         "switch-console.pins.switch-core",
     ),
@@ -461,14 +461,14 @@ TARGETS = [
     Target(REPO_ROOT / "core" / "switch_core" / "artifacts.py", render_python),
     # Switch Console: the desktop app and the sidecar it bundles and deploys.
     Target(
-        REPO_ROOT / "dash" / "packages" / "shared" / "src" / "artifacts.ts",
+        REPO_ROOT / "console" / "packages" / "shared" / "src" / "artifacts.ts",
         render_typescript,
     ),
     # agent-runtime: published to a registry, so it cannot depend on the
     # unpublished workspace package above and carries its own copy.
     Target(
         REPO_ROOT
-        / "dash"
+        / "console"
         / "packages"
         / "switch-agent-runtime"
         / "src"

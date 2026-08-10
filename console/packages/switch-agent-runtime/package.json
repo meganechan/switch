@@ -9,7 +9,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/sandbox-quantum/switch.git",
-    "directory": "dash/packages/switch-agent-runtime"
+    "directory": "console/packages/switch-agent-runtime"
   },
   "bin": {
     "switch-agent-runtime": "./dist/bin.mjs"

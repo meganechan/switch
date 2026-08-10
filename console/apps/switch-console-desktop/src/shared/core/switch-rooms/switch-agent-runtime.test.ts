@@ -49,7 +49,7 @@ const codexSwitchServer = (): SwitchServerEntry => switchServerIn(CODEX_MCP_JSON
 function runtimePackageVersion(): string {
   let dir = dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 12; i++) {
-    const candidate = join(dir, 'dash/packages/switch-agent-runtime/package.json');
+    const candidate = join(dir, 'console/packages/switch-agent-runtime/package.json');
     if (existsSync(candidate)) {
       return (JSON.parse(readFileSync(candidate, 'utf8')) as { version: string }).version;
     }
