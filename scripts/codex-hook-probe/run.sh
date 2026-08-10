@@ -117,7 +117,7 @@ echo
 # the probe reports "HOOK DID NOT FIRE" for reasons that have nothing to do with
 # what it is measuring. Switch Console passes the same flag on every Codex session
 # (see `CODEX_HOOK_TRUST_FLAG` in
-# dash/packages/plugins/src/agents/impl/codex/hooks.ts).
+# console/packages/plugins/src/agents/impl/codex/hooks.ts).
 CODEX_HOME="$CODEX_HOME" codex exec \
   --dangerously-bypass-approvals-and-sandbox \
   --dangerously-bypass-hook-trust \

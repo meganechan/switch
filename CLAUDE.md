@@ -10,8 +10,8 @@ The target architecture is documented in `docs/`.
 
 ## Switch Console
 
-`dash/` is a local-first desktop app (Electron; a fork, upstream
-attribution in `dash/NOTICE`) for managing the local AI coding-agent sessions that
+`console/` is a local-first desktop app (Electron; a fork, upstream
+attribution in `console/NOTICE`) for managing the local AI coding-agent sessions that
 participate in Switch. The upstream app is built around coding workflows
 (projects → sessions → conversations); Switch Console is being reworked
 around **Switch agents and their sessions** — which rooms an agent belongs to and
@@ -19,7 +19,7 @@ is connected to, its config (working dir, identity), and scheduling: e.g.
 auto-starting a Claude Code session when a Slack user addresses an agent that has
 no live session, viewing all sessions in one place, and injecting prompts into a
 running TUI when the provider can't push events into a live session. It has its
-own `dash/CLAUDE.md` (→ `AGENTS.md`); read that before working in the app.
+own `console/CLAUDE.md` (→ `AGENTS.md`); read that before working in the app.
 
 ## Common Commands
 
@@ -48,7 +48,7 @@ just test -k "test_name"         # run specific test
 
 ## Architecture
 
-**Directory:** `core/switch_core/` — the main Python service package (import root `switch_core`, distribution name `switch-core`). The repo top level splits into three code trees: `core/` (backend package + tests), `gateway/` (operator dashboard frontend), and `dash/` (desktop app).
+**Directory:** `core/switch_core/` — the main Python service package (import root `switch_core`, distribution name `switch-core`). The repo top level splits into three code trees: `core/` (backend package + tests), `gateway/` (operator dashboard frontend), and `console/` (desktop app).
 
 **Module layout:**
 - `config.py` — Pydantic `BaseSettings`; all config from environment variables
@@ -83,7 +83,7 @@ each ships its own copy of the Switch room-workflow skill at
 - `connectors/claude-code-plugin/` — manifest `.claude-plugin/plugin.json`.
   Ships the skill plus an MCP config (`.mcp.json`) and hooks. It contains **no
   runtime code**: the MCP server is `@sandbox-quantum/switch-agent-runtime`,
-  fetched with `npx` and built from `dash/packages/switch-agent-runtime/`.
+  fetched with `npx` and built from `console/packages/switch-agent-runtime/`.
   Switch Console imports the same package for its protocol client, so there is one
   implementation of the agent protocol rather than a copy per consumer.
 - `connectors/codex-plugin/` — manifest `.codex-plugin/plugin.json`. Ships the
@@ -123,7 +123,7 @@ commands, room workflow, or anything an agent-facing client needs to know:
   matches actual behavior on both hosts.
 - **Bump the versions of whatever you changed, in the same commit.** Not at
   release time — it gets forgotten, and then a version number is a claim nobody
-  can trust. `dash/AGENTS.md` has the table (both plugins, runtime package,
+  can trust. `console/AGENTS.md` has the table (both plugins, runtime package,
   sidecar) and the rules for which digit moves.
 - **Diff the two skills after editing.** They are deliberately not identical
   (host-specific wording for tool namespacing, event delivery and task
