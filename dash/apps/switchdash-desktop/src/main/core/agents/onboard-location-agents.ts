@@ -70,6 +70,13 @@ function registrationError(
  * Resolve the Switch identity to onboard a definition under: reuse existing
  * credentials when their identity still exists on the server, otherwise register
  * a fresh identity and write the credentials (adopting a plain subagent).
+ *
+ * A definition that already carries credentials naming an identity this server
+ * does not have belongs to a *different* Switch server, and is refused. Minting a
+ * fresh identity for it would be the natural-looking fallback and is exactly the
+ * wrong move: the credentials are written back under the same name, so the other
+ * server's agent is overwritten on disk and stops working, silently (CHOO-2044).
+ * Adoption is for definitions with no Switch identity at all.
  */
 async function resolveIdentity(
   name: string,
@@ -104,6 +111,13 @@ async function resolveIdentity(
       }
       throw cause;
     }
+    return {
+      ok: false,
+      error: {
+        type: 'error',
+        message: `"${name}" is already registered with another Switch server (${creds.apiEndpoint}) and cannot be imported into ${ctx.server.name}. Onboard it from that server, or create a new agent here under a different name.`,
+      },
+    };
   }
 
   // No usable credentials — adopt: mint a fresh identity and write its creds,

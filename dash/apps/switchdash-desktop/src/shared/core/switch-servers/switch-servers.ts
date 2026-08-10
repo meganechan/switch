@@ -9,6 +9,17 @@
  * in the encrypted secrets store, never in plain settings.
  */
 
+/**
+ * Whether two Switch API endpoints name the same server, ignoring a trailing
+ * slash — which is not a difference. This is how an agent's on-disk
+ * `SWITCH_API_ENDPOINT` is matched to a registered server, so the main process and
+ * the renderer must agree on it: the renderer decides which discovered agents are
+ * importable, and the main process enforces it.
+ */
+export function sameApiEndpoint(a: string, b: string): boolean {
+  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+}
+
 /** A registered Switch server. Non-secret connection metadata only. */
 export type SwitchServer = {
   id: string;

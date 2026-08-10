@@ -47,7 +47,10 @@ import {
 import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
-import type { ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
+import {
+  sameApiEndpoint,
+  type ProvisionAgentResult,
+} from '@shared/core/switch-servers/switch-servers';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
@@ -267,24 +270,45 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const attachableAgents = (configuredQuery.data ?? []).filter(
     (a) => !a.alreadyAgent && !definitionNames.has(a.name)
   );
+  // An identity belongs to the server that issued it, so importing one into a
+  // different server is not a thing that can happen: the onboard path would find
+  // the id absent here, mint a replacement, and write it over the credentials the
+  // other server's agent runs on. Say who it belongs to and leave it alone — the
+  // way in is to create a new agent (CHOO-2044).
+  const foreignCredentialReason = (endpoint: string | null): string | null => {
+    if (endpoint === null || !targetServer) return null;
+    if (sameApiEndpoint(endpoint, targetServer.apiUrl)) return null;
+    return `Already registered with another Switch server (${endpoint}), so it cannot be imported into ${targetServer.name}. Create a new agent instead.`;
+  };
+
   const onboardableAgents: OnboardableAgent[] = [
     ...definitionAgents.map((a) => ({
       name: a.name,
       description: a.description,
       kind: (a.registered ? 'import' : 'adopt') as AdoptKind,
       providerLabel: null,
+      blockedReason: foreignCredentialReason(a.credentialEndpoint),
     })),
     ...attachableAgents.map((a) => {
       const providerId = a.providerId ?? pickState.providerId ?? null;
+      const providerLabel = providerId ? (getProvider(providerId)?.name ?? providerId) : null;
       return {
         name: a.name,
         description: null,
         kind: 'attach' as AdoptKind,
-        providerLabel: providerId ? (getProvider(providerId)?.name ?? providerId) : null,
+        providerLabel,
+        blockedReason:
+          providerLabel === null
+            ? 'Pick an agent type above to attach this one — the directory does not say which runs it.'
+            : null,
       };
     }),
   ];
   const hasOnboardable = onboardableAgents.length > 0;
+  /** Rows that cannot be brought in — listed with their reason, never selectable. */
+  const blockedNames = new Set(
+    onboardableAgents.filter((a) => a.blockedReason !== null).map((a) => a.name)
+  );
   /** Attachable rows keyed by name, with the provider resolved for submission. */
   const attachByName = new Map(
     attachableAgents.flatMap((a) => {
@@ -299,12 +323,12 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // are the checked definitions to onboard (default: all).
   const [createMode, setCreateMode] = useState(false);
   const [selectedNames, setSelectedNames] = useState<Set<string>>(new Set());
-  // Default-select only what can actually be submitted: an attach row whose
-  // provider is unknown is disabled until a type is picked, and pre-checking it
-  // would just block the button with no visible cause. Picking a type unblocks
-  // the row, which changes this key and folds it into the selection.
+  // Default-select only what can actually be submitted: a blocked row (unknown
+  // provider, or an identity belonging to another server) is disabled, and
+  // pre-checking it would just block the button with no visible cause. Resolving
+  // the block changes this key and folds the row into the selection.
   const onboardableKey = onboardableAgents
-    .filter((a) => !(a.kind === 'attach' && a.providerLabel === null))
+    .filter((a) => a.blockedReason === null)
     .map((a) => a.name)
     .join('|');
   useEffect(() => {
@@ -619,11 +643,15 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const handleOnboard = async () => {
     // `canOnboard` already requires a server; repeated so the calls below narrow.
     if (!canOnboard || !pickState.serverId) return;
-    const attachSelected = [...selectedNames].flatMap((name) => {
+    // Blocked rows are disabled in the list, so a selected one means the list went
+    // stale under the user. Dropping them here keeps a stale tick from reaching a
+    // path that would refuse it — or worse, act on it.
+    const submittable = [...selectedNames].filter((name) => !blockedNames.has(name));
+    const attachSelected = submittable.flatMap((name) => {
       const providerId = attachByName.get(name);
       return providerId ? [{ name, providerId }] : [];
     });
-    const onboardSelected = [...selectedNames].filter((name) => !attachByName.has(name));
+    const onboardSelected = submittable.filter((name) => !attachByName.has(name));
     if (onboardSelected.length > 0 && !pickState.providerId) return;
     setSubmitState('creating');
     setCloseGuard(true);
@@ -680,15 +708,16 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     }
   };
 
+  const submittableNames = [...selectedNames].filter((name) => !blockedNames.has(name));
   // A definition still needs the picked agent type to run under; an attach row
   // carries its own (inferred from disk, or the picked one as a fallback).
-  const selectionNeedsProviderPick = [...selectedNames].some((name) => !attachByName.has(name));
+  const selectionNeedsProviderPick = submittableNames.some((name) => !attachByName.has(name));
   // Adopting agents that already exist in the directory still puts them on this
   // host, so it answers to the same gates as creating one. Omitting them here
   // let you onboard onto a host that was unreachable or missing prerequisites.
   const canOnboard =
     hasOnboardable &&
-    selectedNames.size > 0 &&
+    submittableNames.length > 0 &&
     !!pickState.serverId &&
     (!selectionNeedsProviderPick || !!pickState.providerId) &&
     runHostReachable &&
@@ -719,7 +748,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               onClick={() => void handleOnboard()}
               disabled={!canOnboard}
             >
-              {submitState === 'creating' ? 'Adding...' : `Add ${selectedNames.size} selected`}
+              {submitState === 'creating' ? 'Adding...' : `Add ${submittableNames.length} selected`}
             </ConfirmButton>
           ) : switchAgent ? (
             <ConfirmButton

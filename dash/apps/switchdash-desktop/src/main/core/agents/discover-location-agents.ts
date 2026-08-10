@@ -10,6 +10,12 @@ export type DiscoveredLocationAgent = {
   description: string | null;
   /** Whether the definition already carries Switch credentials on disk. */
   registered: boolean;
+  /** The Switch endpoint those credentials name, when they carry one. This is
+   * which server the existing identity belongs to — an identity can only be
+   * imported into the server that issued it, so the modal needs it to tell an
+   * importable row from one that belongs elsewhere (CHOO-2044). Null for a plain
+   * definition with no Switch setup, which is adoptable anywhere. */
+  credentialEndpoint: string | null;
   /** Whether the definition can join Switch (its tools allowlist keeps the
    * connector's MCP tools, or it inherits all tools). */
   eligible: boolean;
@@ -49,11 +55,14 @@ export async function discoverLocationAgents(params: {
   try {
     const definitions = await behavior.discoverDefinitions(workspace.fs);
     const local = await behavior.discoverLocal(workspace.fs, workspace.homeFs);
-    const credentialled = new Set(local.filter((l) => l.switchAgentId !== null).map((l) => l.name));
+    const credentialled = new Map(
+      local.filter((l) => l.switchAgentId !== null).map((l) => [l.name, l.apiEndpoint])
+    );
     return definitions.map((def) => ({
       name: def.name,
       description: def.description,
       registered: def.registered || credentialled.has(def.name),
+      credentialEndpoint: credentialled.get(def.name) ?? null,
       eligible: def.eligible,
       alreadyAgent: existing.has(def.name),
     }));

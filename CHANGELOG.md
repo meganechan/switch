@@ -313,6 +313,14 @@ version of their own to them without also giving them a release of their own.
   onboarding a single agent to a second server appeared to drag the rest across
   with it. Nothing had been onboarded; each agent is now drawn under its own
   server, and a shared directory shows under all of them (CHOO-2044).
+- Onboarding an agent whose credentials belong to **another** Switch server no
+  longer overwrites those credentials. The import path looked the existing
+  identity up on the target server, did not find it, and fell back to minting a
+  fresh one — writing it back over the same `.switch/agents/<name>.json` and
+  silently breaking the agent the other server was still running. It now refuses
+  and names the server the identity belongs to. Such agents are listed in the
+  Add Agent modal but not selectable, with the reason shown; a plain definition
+  carrying no Switch identity is still adopted as before (CHOO-2044).
 - The Add Agent modal no longer offers a permanently disabled button over a list
   it will not submit. A directory carrying another server's leftover
   `.claude/settings.local.json` took the detected-agent branch, verified that
