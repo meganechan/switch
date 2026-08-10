@@ -547,19 +547,34 @@ async def read_context(
     limit: int = 50,
     since: str | None = None,
     before: str | None = None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     """Get the conversation timeline for the connected room, grouped into threads.
 
-    Returns a list of thread groups ordered by latest activity (most-recently
-    active LAST, so the tail is the freshest), each shaped as::
+    Returns::
 
-        {"root": <message>, "replies": [<message>, ...]}
+        {"threads": [...], "truncated": bool, "oldest_timestamp": int|None}
 
-    where <message> is {"id", "sender", "sender_name", "body", "timestamp",
-    "attachments"}. Top-level messages are roots with an empty `replies` list;
-    replies are oldest-first within a thread. Use a root's (or any message's)
-    `id` as the `thread_id` argument to post_message / send_targeted_message to
-    reply into that thread.
+    `threads` is a list of thread groups ordered by latest activity (most-
+    recently active LAST, so the tail is the freshest), each shaped as::
+
+        {"root": <entry>, "replies": [<entry>, ...]}
+
+    where <entry> is {"id", "kind", "sender", "sender_name", "body",
+    "timestamp", "attachments"}. Top-level entries are roots with an empty
+    `replies` list; replies are oldest-first within a thread. Use a root's (or
+    any entry's) `id` as the `thread_id` argument to post_message /
+    send_targeted_message to reply into that thread.
+
+    `kind` is "message" for something a participant said, or "room_join" for
+    someone arriving in the room (body reads "<name> joined the room"). Joins
+    are part of the timeline so the history explains who appeared and when.
+
+    **`truncated` matters.** It is True when older history exists that this
+    call did not reach — you are looking at a partial conversation. Widen
+    `limit`, or page backwards with `before` set to `oldest_timestamp`, before
+    concluding you have the full picture. It is deliberately conservative: a
+    read that ends exactly on `limit` reports truncated even if nothing older
+    exists.
 
     `attachments` is a (usually empty) list of files on the message, each
     {"filename", "mimetype", "size", "mxc", "msgtype"}. Any file type can
@@ -568,15 +583,17 @@ async def read_context(
     you can read.
 
     Args:
-        limit: Maximum number of messages to scan (default 50), grouped into
-            threads before returning.
+        limit: Maximum number of timeline entries to return (default 50),
+            grouped into threads. History is paged from the homeserver until
+            this many are collected or the room's start is reached.
         since: ISO-8601 timestamp string (e.g. "2026-05-20T20:55:00Z"). Only
-            messages at or after this time are returned. Use this when an event
+            entries at or after this time are returned. Use this when an event
             arrives to fetch just the recent context — pass a timestamp a few
             minutes before the event ts. None = no lower bound.
-        before: ISO-8601 timestamp string. Only messages strictly before this
-            time are returned. Combine with `since` to page through history.
-            None = no upper bound.
+        before: ISO-8601 timestamp string. Only entries strictly before this
+            time are returned; history is paged backwards to reach them, so
+            this genuinely walks into older history. Combine with `since` to
+            page through a window. None = no upper bound.
 
     The room is implicit (the session's currently connected room). Reads
     fail if you have not called connect_to_room first.
