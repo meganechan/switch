@@ -60,7 +60,7 @@ cache, and that set is only ever this install's **local** agents. Two facts
 follow, and they cause most of the observed bugs:
 
 1. A room's member list can only ever contain agents that exist locally in this
-   switchdash. Server-side agents are structurally unrenderable.
+   Switch Console. Server-side agents are structurally unrenderable.
 2. A membership that was never fetched, and a membership that failed to fetch,
    both read as "this agent is in no rooms" — indistinguishable from the truth.
 
@@ -247,8 +247,8 @@ collapses to an empty array and renders as a confident zero.
    leaves case 2 (non-local agents) unfixable. Worth doing the full thing?
 2. ~~**Non-local agents.**~~ **Decided (louis.amaudruz).** Both the room's
    member list and the invite picker are restricted to agents that exist on this
-   switchdash — the sidebar only shows what it can act on. Consequences: a
-   server-side agent cannot be invited from switchdash at all, and the room row
+   Switch Console — the sidebar only shows what it can act on. Consequences: a
+   server-side agent cannot be invited from Switch Console at all, and the room row
    discloses the count it cannot draw so a hidden member is not mistaken for an
    absent one.
 3. ~~**Polling.**~~ **Decided (louis.amaudruz).** Add a slow background

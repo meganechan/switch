@@ -1,4 +1,4 @@
-import { Emitter, err, ok, type Result } from '@switchdash/shared';
+import { Emitter, err, ok, type Result } from '@switch-console/shared';
 import type { IExecutionContext } from '../../exec/execution-context';
 import { isTransportFailure } from '../../exec/transport-error';
 import { consoleLogger, type Logger } from '../../lib/logger';
@@ -68,7 +68,7 @@ function isRealInstallMethod(kind: Provenance['kind'] | null | undefined): kind 
 }
 
 /**
- * Derives whether switchdash can manage (update/uninstall) an installation given its
+ * Derives whether Switch Console can manage (update/uninstall) an installation given its
  * provenance and the dependency's update/uninstall strategy.
  *
  * - CLI strategy: always manageable (binary self-updates regardless of install source)

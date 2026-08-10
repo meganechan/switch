@@ -11,7 +11,7 @@ import {
 describe('buildCodexProfileToml', () => {
   it('registers no MCP server — the connector plugin owns that now', () => {
     // The plugin's bundled `.mcp.json` declares the Switch server, so writing it
-    // here too would duplicate it for switchdash sessions only. Nothing may be
+    // here too would duplicate it for Switch Console sessions only. Nothing may be
     // layered onto a plugin-provided server either: any `mcp_servers.switch.*`
     // without a transport of its own makes Codex reject the whole config
     // ("invalid transport"), taking the session with it.

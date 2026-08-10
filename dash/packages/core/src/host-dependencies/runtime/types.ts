@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import z from 'zod';
 import type {
   InstallMethod,
@@ -119,13 +119,13 @@ export function resolveSelectedSource(override: InstallOverride | null): Selecte
 }
 
 /**
- * Returns true when an installation can be updated via switchdash's update action.
+ * Returns true when an installation can be updated via Switch Console's update action.
  *
  * Uses the installation's `manageable` flag (computed from provenance + descriptor
  * strategy) plus the strategy kind:
  *   - CLI strategy: always true when manageable (binary self-updates regardless of source)
  *   - package-manager strategy: true when manageable (confirmed provenance)
- *   - auto / none: never updatable through switchdash
+ *   - auto / none: never updatable through Switch Console
  */
 export function installationCanUpdate(
   inst: Installation,
@@ -189,7 +189,7 @@ export function normalizeSelection(raw: unknown): InstallOverride | null {
  * it is the literal string 'path' or 'cli' (preserved for backward-compat lookups).
  *
  * Provenance captures how the binary was installed and the confidence level.
- * `manageable` indicates whether switchdash can update/uninstall this installation.
+ * `manageable` indicates whether Switch Console can update/uninstall this installation.
  */
 export type Installation = {
   /**
@@ -204,7 +204,7 @@ export type Installation = {
   pathEntry: string | null;
   /** True when this is the current PATH winner (first `which` result). */
   isActive: boolean;
-  /** Whether switchdash can manage (update/uninstall) this installation via its UI. */
+  /** Whether Switch Console can manage (update/uninstall) this installation via its UI. */
   manageable: boolean;
   /** How this binary was installed and how confidently we know it. */
   provenance: Provenance;

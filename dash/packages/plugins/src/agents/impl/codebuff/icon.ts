@@ -1,4 +1,4 @@
-import type { AgentIconAsset } from '@switchdash/core/agents/plugins';
+import type { AgentIconAsset } from '@switch-console/core/agents/plugins';
 
 export const icon: AgentIconAsset = {
   kind: 'image',

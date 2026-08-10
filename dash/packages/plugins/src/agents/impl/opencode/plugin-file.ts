@@ -1,4 +1,4 @@
-// Verbatim source of the OpenCode switchdash notifications plugin, embedded as a string constant.
+// Verbatim source of the OpenCode Switch Console notifications plugin, embedded as a string constant.
 export const OPENCODE_PLUGIN_CONTENT = `\
 /* global fetch, process */
 

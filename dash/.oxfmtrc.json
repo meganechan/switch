@@ -32,7 +32,7 @@
     "internalPattern": ["@/", "@root/", "@shared/", "@main/", "@renderer/"]
   },
   "sortTailwindcss": {
-    "stylesheet": "./apps/switchdash-desktop/src/renderer/index.css"
+    "stylesheet": "./apps/switch-console-desktop/src/renderer/index.css"
   },
   "sortPackageJson": true
 }

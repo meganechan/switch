@@ -1,7 +1,7 @@
 import {
   buildMinimalJsonHookConfig,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const KIRO_HOOKS_PATH = '.kiro/agents/switchdash.json';
 
@@ -17,7 +17,7 @@ export function buildKiroHookConfig() {
     ],
     {
       name: 'switchdash',
-      description: 'Switchdash-managed Kiro agent configuration for lifecycle hooks.',
+      description: 'Switch Console-managed Kiro agent configuration for lifecycle hooks.',
     }
   );
 }

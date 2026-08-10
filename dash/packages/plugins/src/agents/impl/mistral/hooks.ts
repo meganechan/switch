@@ -1,11 +1,11 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import {
   buildFlatTomlHookConfig,
   makeNotificationHookCommand,
   makeStdinHookCommand,
   readTomlConfig,
   writeTomlConfig,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const MISTRAL_HOOKS_PATH = '.vibe/hooks.toml';
 export const MISTRAL_CONFIG_PATH = '.vibe/config.toml';
@@ -17,7 +17,7 @@ const MISTRAL_HOOK_ENTRIES = [
     command: makeStdinHookCommand('stop'),
     timeout: 10,
     strict: false,
-    description: 'Notify Switchdash when Mistral Vibe finishes an agent turn.',
+    description: 'Notify Switch Console when Mistral Vibe finishes an agent turn.',
   },
   {
     name: 'switchdash-ask-user-question',
@@ -26,7 +26,7 @@ const MISTRAL_HOOK_ENTRIES = [
     command: makeNotificationHookCommand('permission_prompt'),
     timeout: 10,
     strict: false,
-    description: 'Notify Switchdash when Mistral Vibe asks for user input.',
+    description: 'Notify Switch Console when Mistral Vibe asks for user input.',
   },
 ];
 

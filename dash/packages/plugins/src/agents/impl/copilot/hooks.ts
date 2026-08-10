@@ -1,5 +1,5 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import type { HookRegistration } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import type { HookRegistration } from '@switch-console/core/agents/plugins';
 import {
   SWITCHDASH_MARKER,
   buildFlatEntry,
@@ -8,7 +8,7 @@ import {
   makeStdinHookCommand,
   readJsonConfig,
   writeJsonConfig,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const COPILOT_HOOKS_PATH = '.github/hooks/switchdash.json';
 

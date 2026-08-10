@@ -1,6 +1,6 @@
-# Installing switchdash
+# Installing Switch Console
 
-switchdash is distributed as a desktop app through **GitHub Releases on this
+Switch Console is distributed as a desktop app through **GitHub Releases on this
 repository** (`sandbox-quantum/switch`). The repo is private, so the release
 downloads are automatically limited to people with repo-read access — there is
 no separate sign-up or allowlist. No need to build from source.
@@ -16,8 +16,8 @@ no separate sign-up or allowlist. No need to build from source.
    `sandbox-quantum/switch`.
 2. Open the repo's **[Releases](https://github.com/sandbox-quantum/switch/releases)**
    page.
-3. Find the latest release titled **`switchdash <version>`** (tag
-   `switchdash-v<version>`).
+3. Find the latest release titled **`Switch Console <version>`** (tag
+   `switch-console-v<version>`).
 4. Under **Assets**, download the file for your platform — `.dmg` on macOS, or
    one of `.AppImage` / `.deb` / `.rpm` on Linux.
 
@@ -27,16 +27,16 @@ Workforce hub to be added as a repo reader.
 ### Option B — command line
 
 ```bash
-# Latest switchdash release (requires `gh auth login` with repo access):
-gh release list --repo sandbox-quantum/switch | grep switchdash-v
+# Latest Switch Console release (requires `gh auth login` with repo access):
+gh release list --repo sandbox-quantum/switch | grep switch-console-v
 
 # Download the installer from a specific release (macOS):
-gh release download switchdash-v<version> \
+gh release download switch-console-v<version> \
   --repo sandbox-quantum/switch \
   --pattern '*.dmg'
 
 # Linux — pick the format your distro uses:
-gh release download switchdash-v<version> \
+gh release download switch-console-v<version> \
   --repo sandbox-quantum/switch \
   --pattern '*.AppImage'   # or '*.deb' / '*.rpm'
 ```
@@ -47,23 +47,23 @@ gh release download switchdash-v<version> \
 ## Install (macOS)
 
 1. Open the downloaded `.dmg`.
-2. Drag **Switchdash** into your **Applications** folder.
+2. Drag **Switch Console** into your **Applications** folder.
 
 ### First launch — one-time Gatekeeper bypass
 
 These builds are **unsigned** (no Apple Developer certificate), so macOS
 Gatekeeper blocks the first launch. Clear it once, either way:
 
-- **Right-click → Open**: right-click (or Control-click) Switchdash in
+- **Right-click → Open**: right-click (or Control-click) Switch Console in
   Applications, choose **Open**, then confirm **Open** in the dialog. macOS
   remembers the choice for future launches.
 - **Or via Terminal**:
 
   ```bash
-  xattr -dr com.apple.quarantine /Applications/Switchdash.app
+  xattr -dr com.apple.quarantine "/Applications/Switch Console.app"
   ```
 
-After that, launch switchdash normally.
+After that, launch Switch Console normally.
 
 ## Install (Linux x64)
 
@@ -72,20 +72,20 @@ Linux builds are **unsigned**. Pick the format your distro uses:
 - **AppImage** — no install step; make it executable and run it:
 
   ```bash
-  chmod +x switchdash-x86_64.AppImage
-  ./switchdash-x86_64.AppImage
+  chmod +x switch-console-x86_64.AppImage
+  ./switch-console-x86_64.AppImage
   ```
 
 - **Debian / Ubuntu** (`.deb`):
 
   ```bash
-  sudo apt install ./switchdash-amd64.deb
+  sudo apt install ./switch-console-amd64.deb
   ```
 
 - **Fedora / RHEL** (`.rpm`):
 
   ```bash
-  sudo dnf install ./switchdash-x86_64.rpm
+  sudo dnf install ./switch-console-x86_64.rpm
   ```
 
 > The app does not yet set a `desktopName`, so desktop environments may not
@@ -94,13 +94,13 @@ Linux builds are **unsigned**. Pick the format your distro uses:
 
 ## Updating
 
-switchdash checks this repo's Releases for new versions in-app. Because the repo
+Switch Console checks this repo's Releases for new versions in-app. Because the repo
 is private, the updater authenticates using the **GitHub CLI token you already
 have** — no extra login inside the app:
 
 1. Make sure the [`gh` CLI](https://cli.github.com) is installed and you've run
    `gh auth login` once.
-2. switchdash reads your token via `gh auth token` and offers the update when
+2. Switch Console reads your token via `gh auth token` and offers the update when
    one is available (Settings → checks automatically; you can also recheck
    manually).
 
@@ -112,9 +112,14 @@ re-install (drag over the old app).
 
 ## Notes
 
-- Release **asset filenames are prefixed `switchdash-`** (e.g. `switchdash-arm64.dmg`).
-  The release identity — app id, artifact names, and signing — all carry the
-  **switchdash** name.
-- switchdash releases use the `switchdash-v*` tag prefix and are published with
+- Release **asset filenames are prefixed `switch-console-`** (e.g.
+  `switch-console-arm64.dmg`). The macOS app id still reads `com.switchdash.*`,
+  which is deliberate — it is what carries update continuity for copies
+  installed before the rename, and no user sees it.
+- **Upgrading a Linux install from a pre-rename build:** `apt` and `dnf` see
+  `switch-console` as a new package rather than an upgrade of `switchdash`, so
+  remove the old one yourself (`sudo apt remove switchdash`) or the two sit
+  side by side.
+- Switch Console releases use the `switch-console-v*` tag prefix and are published with
   the repo-wide "Latest" badge **off**, so they never collide with other release
   streams in this repo.

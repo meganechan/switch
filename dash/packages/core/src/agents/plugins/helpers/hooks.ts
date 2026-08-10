@@ -6,7 +6,7 @@ export type HookCommandOptions = {
 
 export const SWITCHDASH_MARKER = 'SWITCHDASH_HOOK_PORT';
 
-/** Filter out switchdash-managed entries from a hook array. */
+/** Filter out Switch Console-managed entries from a hook array. */
 export function filterUserHooks<T>(entries: T[], stringify?: (entry: T) => string): T[] {
   const toStr = stringify ?? JSON.stringify;
   return entries.filter((entry) => !toStr(entry).includes(SWITCHDASH_MARKER));

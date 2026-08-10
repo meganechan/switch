@@ -1,6 +1,6 @@
 # Architecture Overview
 
-All paths are relative to `apps/switchdash-desktop/`.
+All paths are relative to `apps/switch-console-desktop/`.
 
 ## Process Model
 
@@ -8,7 +8,7 @@ All paths are relative to `apps/switchdash-desktop/`.
 - `src/preload/`: Electron preload bridge — exposes typed `invoke`, `eventSend`, `eventOn` to renderer
 - `src/renderer/`: React UI — app shell (`app/`), feature areas (`features/`), shared infrastructure (`lib/`), typed RPC client
 - `src/shared/`: Agent provider registry, IPC primitives (RPC + events), shared domain types under `src/shared/core/`
-- `src/sidecar/`: The headless on-host sidecar that keeps a remote session running while switchdash is closed. Not an Electron process — see `remote-execution.md`
+- `src/sidecar/`: The headless on-host sidecar that keeps a remote session running while Switch Console is closed. Not an Electron process — see `remote-execution.md`
 
 ## Boot Sequence
 
@@ -23,7 +23,7 @@ All paths are relative to `apps/switchdash-desktop/`.
 
 - `electron.vite.config.ts` — electron-vite config for main, preload, and renderer builds.
 - `vitest.config.ts` — Vitest config with five test projects: `node`, `main-db`, `fixtures`, `migrations`, and `browser` (Playwright-backed renderer tests).
-- Single `tsconfig.json` (in `apps/switchdash-desktop/`) for all app targets.
+- Single `tsconfig.json` (in `apps/switch-console-desktop/`) for all app targets.
 
 ## Read Next
 

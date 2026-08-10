@@ -1,10 +1,10 @@
 {
-  "name": "@switchdash/shared",
+  "name": "@switch-console/shared",
   "version": "1.0.0",
-  "description": "Shared primitives for Switchdash",
+  "description": "Shared primitives for Switch Console",
   "license": "Apache-2.0",
   "author": {
-    "name": "Switchdash Contributors"
+    "name": "Switch Console Contributors"
   },
   "files": [
     "dist"
@@ -22,7 +22,7 @@
     "dev": "tsdown --watch",
     "build": "tsdown",
     "test": "vitest run",
-    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switchdash-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/shared\"'",
+    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switch-console-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/shared\"'",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "typecheck": "tsgo --noEmit -p tsconfig.json"

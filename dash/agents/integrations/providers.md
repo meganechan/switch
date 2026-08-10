@@ -35,7 +35,7 @@ apart; the other providers' mirrors are unguarded, so treat them as hints, not f
 ## Agent Hooks And Notifications
 
 Agent activity, completion, and attention notifications come from explicit hooks or plugins
-installed by `src/main/core/agent-hooks/`. Switchdash does not infer agent status from terminal
+installed by `src/main/core/agent-hooks/`. Switch Console does not infer agent status from terminal
 output. If a provider has no hook/plugin integration for an event, the renderer should not show
 or notify an inferred status for that event.
 
@@ -43,9 +43,9 @@ or notify an inferred status for that event.
 
 - Claude uses deterministic `--session-id` values for conversation isolation.
 - Agents that cannot receive an interactive initial prompt via argv or stdin use keystroke
-  injection — Switchdash types the prompt into the TUI after startup.
+  injection — Switch Console types the prompt into the TUI after startup.
 - `src/main/core/agent-hooks/agent-hook-service.ts` forwards hook events to renderer windows and can show OS notifications. It also writes hook config files for hook-capable providers, including `.claude/settings.local.json`, `.qwen/settings.json`, and provider-specific global hook files.
-- Qwen Code hooks use the documented Qwen settings schema in `.qwen/settings.json`. Switchdash installs command hooks for permission requests and session end/stop events while preserving unrelated user hooks.
+- Qwen Code hooks use the documented Qwen settings schema in `.qwen/settings.json`. Switch Console installs command hooks for permission requests and session end/stop events while preserving unrelated user hooks.
 
 ## Adding Or Changing A Provider
 

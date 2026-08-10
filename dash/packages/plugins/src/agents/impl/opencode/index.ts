@@ -1,10 +1,10 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   createFileDropPlugin,
   npmDependency,
   opencodeMcpAdapter,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { OPENCODE_PLUGIN_CONTENT } from './plugin-file';
 
 const OPENCODE_PLUGIN_PATH = '.opencode/plugins/switchdash-notifications.js';

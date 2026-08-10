@@ -1,19 +1,63 @@
 # Project Overview
 
-Switchdash is a cross-platform, local-first Electron app for orchestrating multiple AI
+Switch Console is a cross-platform, local-first Electron app for orchestrating multiple AI
 coding agents in parallel. Each agent runs in its own session in its location's directory
 (there are no Git worktrees). An agent runs either locally or — when configured remote — on an
-SSH host, where it runs inside tmux next to a switchdash-deployed sidecar so it keeps
-working and listening to its Switch rooms while switchdash is closed (CHOO-1059). It
+SSH host, where it runs inside tmux next to an app-deployed sidecar so it keeps
+working and listening to its Switch rooms while the app is closed (CHOO-1059). It
 combines provider-agnostic CLI agent execution, session management,
 terminal sessions, MCP and skills, and packaging for desktop releases.
 
-Switchdash is a fork; upstream attribution is recorded in `NOTICE`. The
-product is fully rebranded to switchdash: packages (`@switchdash/*`), the app directory
-(`apps/switchdash-desktop/`), the user-data directory, the per-project config file
-(`.switchdash.json`), the macOS app id (`com.switchdash.*`), release artifact names
-(`ARTIFACT_PREFIX`), and the agent-hook HTTP protocol (`X-Switchdash-*` headers) all carry
-the switchdash name. The **update feed** points at GitHub Releases on the private
+## The name: display vs identity (CHOO-2008)
+
+Switch Console is a fork; upstream attribution is recorded in `NOTICE`. The app was
+previously called **switchdash**, and before that `emdash`.
+
+The rename covered the display name, the source tree and the release artifacts. What
+did **not** move is anything already written to a user's disk or already spoken to
+something deployed — those names are frozen, and the split is load-bearing.
+
+Renamed: `PRODUCT_NAME`, the workspace packages (`@switch-console/*`), the app
+directory (`apps/switch-console-desktop/`), the binary and package names
+(`APP_NAME_LOWER`), the release artifacts (`ARTIFACT_PREFIX`) and tags
+(`switch-console-v*`), the Windows signing profile, and every name that lives
+only inside this repo — log filenames, the renderer-log IPC channel, temp-file
+prefixes, `TERM_PROGRAM`, the oxlint plugin namespace, the icon asset folder,
+the Nix package, the updater cache directories and the BYOI tooling names.
+
+Still `switchdash`, deliberately — **do not "fix" these**:
+
+- the user-data directory (`USER_DATA_DIR_NAME`) and the SQLite file `switchdash.db` —
+  it holds the database, and the compose project names derive from it, so renaming
+  starts an existing install empty and orphans its Postgres volume
+- the macOS app id (`com.switchdash.*`) — it carries registration and update
+  continuity for copies installed before the rename, and nobody reads it
+- the name the app announces to the OS (`OS_APP_NAME`, passed to `app.setName`) —
+  `safeStorage` encrypts against a key the OS files under it, bound the first time
+  the app touches the keychain and never re-read, so a renamed build gets an empty
+  key and cannot read the saved sign-ins or the local server's credentials sitting
+  in the shared database. Measured on macOS: the bundle names are not consulted,
+  only this call. Nothing a user reads comes from it — display strings take
+  `PRODUCT_NAME`
+- the `switchdash://` deeplink scheme — links already posted into Slack and Mattermost
+  are permanent, and deployed Mattermost stacks whitelist the scheme in their config
+- the per-project config file (`.switchdash.json`) and per-repo state dir
+  (`.switchdash/`)
+- `SWITCHDASH_*` environment variables and the `X-Switchdash-*` hook headers — baked
+  into hook commands already written into users' own agent config files, and into
+  sidecars already deployed on remote hosts
+
+The artifact-registry key was on this list and should not have been. The name is
+a lookup key inside each build, not something that crosses a wire: a sidecar is
+handed the resulting `speaks`/`accepts` numbers and never sees the name. It is
+now `switch-console` in `artifacts.yaml`, in `SIDECAR_CLIENT_ARTIFACT`, and as
+the `CHANGELOG.md` section that tracks it.
+
+One cost was accepted rather than avoided: because `APP_NAME_LOWER` moved, `apt` and
+`dnf` treat `switch-console` as a new package rather than an upgrade of `switchdash`,
+so a Linux user upgrading across the rename has to remove the old package by hand.
+
+The **update feed** points at GitHub Releases on the private
 `sandbox-quantum/switch` repo (see `electron-builder.config.ts` `publish`): the app
 distributes to repo-readers and authenticates the updater with the user's `gh` CLI token
 (`src/main/core/updates/github-token.ts`). The SQLite database file is `switchdash.db`;
@@ -24,20 +68,20 @@ pre-rebrand name is retained).
 
 ## Repository Structure
 
-This is a pnpm workspace monorepo. The Electron app lives in `apps/switchdash-desktop/`
-(package `@switchdash/switchdash-desktop`). Unless prefixed otherwise, `src/...`, `drizzle/`,
+This is a pnpm workspace monorepo. The Electron app lives in `apps/switch-console-desktop/`
+(package `@switch-console/desktop`). Unless prefixed otherwise, `src/...`, `drizzle/`,
 `scripts/`, `build/`, and config-file paths in this document and in `agents/` docs are
-relative to `apps/switchdash-desktop/`.
+relative to `apps/switch-console-desktop/`.
 
 Repo root:
 
 - `.claude/` - Local Claude agent settings for this checkout.
 - `agents/` - Agent-facing architecture, workflow, convention, integration, and risk docs.
-- `apps/switchdash-desktop/` - The Electron desktop app (everything below).
+- `apps/switch-console-desktop/` - The Electron desktop app (everything below).
 - `packages/` - Shared workspace packages.
   - `packages/core/` - Transport-agnostic core runtime primitives.
   - `packages/shared/` - Shared workspace primitives, including the `Result<T, E>` type
-    (`@switchdash/shared`).
+    (`@switch-console/shared`).
   - `packages/plugins/` - Plugin interfaces and helpers, and the agent provider plugins
     under `src/agents/impl/<id>/`.
   - `packages/switch-agent-runtime/` - The published agent runtime; sessions run a pinned
@@ -45,7 +89,7 @@ Repo root:
 - Root config files - `pnpm-workspace.yaml`, root `package.json` with aggregate scripts,
   `.nvmrc`, `.oxfmtrc.json`, `.oxlintrc.json`.
 
-Inside `apps/switchdash-desktop/`:
+Inside `apps/switch-console-desktop/`:
 
 - `build/` - Electron packaging assets; avoid edits unless working on packaging or signing.
 - `drizzle/` - Generated Drizzle SQL migrations and metadata.
@@ -64,7 +108,7 @@ Inside `apps/switchdash-desktop/`:
 
 The repo root has aggregate scripts (`dev`, `build`, `test`, `lint`, `format`,
 `format:check`, `typecheck`) that fan out through the pnpm workspace. App-specific
-commands run from `apps/switchdash-desktop/`.
+commands run from `apps/switch-console-desktop/`.
 
 Install dependencies (repo root):
 
@@ -79,10 +123,10 @@ once, then runs package watch builds and the Electron app in parallel:
 pnpm run dev
 ```
 
-Start only the Electron app from `apps/switchdash-desktop/`:
+Start only the Electron app from `apps/switch-console-desktop/`:
 
 ```bash
-cd apps/switchdash-desktop
+cd apps/switch-console-desktop
 pnpm run dev
 pnpm run d
 ```
@@ -108,14 +152,14 @@ dev setup:
 SWITCHDASH_DB_FILE=/tmp/switchdash-scratch.db pnpm run dev
 ```
 
-From `apps/switchdash-desktop/`, this starts only the Electron app:
+From `apps/switch-console-desktop/`, this starts only the Electron app:
 
 ```bash
-cd apps/switchdash-desktop
+cd apps/switch-console-desktop
 SWITCHDASH_DB_FILE=/tmp/switchdash-scratch.db pnpm run dev
 ```
 
-Reset the dev databases from `apps/switchdash-desktop/`:
+Reset the dev databases from `apps/switch-console-desktop/`:
 
 ```bash
 pnpm run db:reset
@@ -178,7 +222,7 @@ pnpm run reset
   trailing commas where valid in ES5, and sorted imports.
 - Lint with `oxlint`; config is `.oxlintrc.json` with correctness errors,
   TypeScript, React hooks, and local repo rules enabled.
-- TypeScript strict mode is enabled in `apps/switchdash-desktop/tsconfig.json`, the single
+- TypeScript strict mode is enabled in `apps/switch-console-desktop/tsconfig.json`, the single
   tsconfig for all app targets.
 - Avoid `any`; if a registry or boundary needs it, keep the escape local and documented.
 - Use top-level `import` statements; do not use `require()`.
@@ -240,7 +284,7 @@ switch rooms, switch servers, switch setup, terminal shell, terminals, updates, 
 view state. `agents` and `providers` are different things — see
 `agents/architecture/main-process.md`. Stateful main-process concerns use singleton
 services; expected failures should use the `Result<T, E>` pattern from the
-`@switchdash/shared` workspace package.
+`@switch-console/shared` workspace package.
 
 ### Logging
 
@@ -352,7 +396,7 @@ pnpm run lint
 - Do not bypass path-safety, shell escaping, or validation helpers.
 - Use `pnpm-lock.yaml` for dependency integrity and review dependency changes.
 
-## The Sidecar Mirrors switchdash — Check Both
+## The Sidecar Mirrors Switch Console — Check Both
 
 `src/sidecar/` is a second, headless implementation of what the desktop app does
 for a session: it starts sessions, keeps them connected to their room, and
@@ -414,11 +458,11 @@ reaches no session until the tag is pushed and the pins follow.
 Two traps worth knowing rather than rediscovering:
 
 - **A sidecar major replaces every sidecar on sight, live sessions included.**
-  It is judged on the contract *switchdash* speaks to, not on how much changed
+  It is judged on the contract *Switch Console* speaks to, not on how much changed
   inside. Changing how the sidecar talks to Switch is not a major.
 - **A *new* sidecar endpoint is a minor, not a major.** A major only achieves
   anything if `MIN_SUPPORTED_SIDECAR_MAJOR` moves with it, and that kills every
-  older sidecar on sight — including one an older switchdash on the same host
+  older sidecar on sight — including one an older Switch Console on the same host
   then kills right back, each replacing the other forever. The client owns the
   detection instead: call the endpoint, and when an older sidecar 404s it, fail
   the operation with a message naming the upgrade rather than continuing
@@ -497,13 +541,13 @@ pnpm run test
   permissions" promises unattended approvals, not unattended filesystem and
   network access, so the user's own `sandbox_mode` from `~/.codex/config.toml`
   stands. Measured against codex-cli 0.146.0, Codex runs hooks **outside** the
-  sandbox, so switchdash's `curl http://127.0.0.1:$SWITCHDASH_HOOK_PORT/hook`
+  sandbox, so Switch Console's `curl http://127.0.0.1:$SWITCHDASH_HOOK_PORT/hook`
   hooks return 200 under `workspace-write` — the loopback block applies to
   model-generated commands only. See
   `packages/plugins/src/agents/impl/codex/index.ts`.
-- Every switchdash-launched Codex session — not only auto-approving ones — carries
+- Every Codex session launched by Switch Console — not only auto-approving ones — carries
   `--dangerously-bypass-hook-trust`. Codex skips any hook it has no persisted
-  `trusted_hash` for, which would take switchdash's own hooks with it; the flag is
+  `trusted_hash` for, which would take Switch Console's own hooks with it; the flag is
   per-invocation and also un-gates hooks the user added to `~/.codex/hooks.json`
   themselves. Rationale and the rejected alternative are on `CODEX_HOOK_TRUST_FLAG` in
   `packages/plugins/src/agents/impl/codex/hooks.ts`.
@@ -541,7 +585,7 @@ pnpm run test
 - [Shared modules](agents/architecture/shared.md)
 - [Remote execution: hosts, reachability, sidecar](agents/architecture/remote-execution.md)
 - [Switch rooms and sessions](agents/architecture/switch-rooms.md)
-- [Data model (switchdash vs. its upstream origin)](agents/architecture/data-model.md)
+- [Data model (Switch Console vs. its upstream origin)](agents/architecture/data-model.md)
 - [Testing workflow](agents/workflows/testing.md)
 - [Provider integration](agents/integrations/providers.md)
 - [MCP integration](agents/integrations/mcp.md)

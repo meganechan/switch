@@ -1,10 +1,10 @@
 # Testing And Validation
 
-All paths are relative to `apps/switchdash-desktop/`.
+All paths are relative to `apps/switch-console-desktop/`.
 
 ## Core Local Gate
 
-Run these before merging (from the repo root or `apps/switchdash-desktop/`):
+Run these before merging (from the repo root or `apps/switch-console-desktop/`):
 
 ```bash
 pnpm run format
