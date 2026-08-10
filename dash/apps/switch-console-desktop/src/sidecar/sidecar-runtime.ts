@@ -268,7 +268,7 @@ export class SidecarRuntime {
       // keystrokes (those go through Switch Console's main process over SSH), so it
       // can't gate on human typing yet — a known follow-up for the attached case.
       isHumanTyping: () => false,
-      mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', sessionId),
+      mediaDir: path.join(os.tmpdir(), 'switch-console-switch-media', sessionId),
       // The server naming this connection's room is what records it here, so a
       // session that moves rooms is followed without re-reading a hook.
       onRoomChanged: (room) => {

@@ -225,7 +225,7 @@ describe('spawnProxyCommand', () => {
     ]);
   });
   it('provides a duplex socket and cleanup for a real child process', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-proxy-command-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-proxy-command-'));
     const script = join(dir, 'proxy.js');
     await writeFile(
       script,
@@ -296,7 +296,7 @@ describe('terminateProxyChild', () => {
 
 describe('bounded proxy debug logs', () => {
   it('keeps only the newest stderr lines', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-proxy-logs-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-proxy-logs-'));
     const script = join(dir, 'proxy.js');
     await writeFile(
       script,

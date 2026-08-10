@@ -11,7 +11,7 @@ const ctx: SessionControlContext = {
 };
 
 describe('resolveSessionControl', () => {
-  it('reports no support for a provider switchdash cannot drive', () => {
+  it('reports no support for a provider Switch Console cannot drive', () => {
     const control = resolveSessionControl('gemini');
     expect(control.capabilities).toEqual({ reset: false, compact: false, interrupt: false });
     expect(control.plan('interrupt', ctx)).toBeNull();

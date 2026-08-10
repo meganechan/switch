@@ -71,8 +71,8 @@ RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/
 USER devuser
 WORKDIR /home/devuser
 
-RUN git config --global user.email "devuser@switchdash-dev" \
-    && git config --global user.name "Switchdash Dev" \
+RUN git config --global user.email "devuser@switch-console-dev" \
+    && git config --global user.name "Switch Console Dev" \
     && git config --global init.defaultBranch main \
     && git config --global safe.directory '*'
 

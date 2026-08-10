@@ -38,7 +38,7 @@ describe('bundledChatSignInFor', () => {
     });
   });
 
-  it('offers nothing for a server switchdash does not run', async () => {
+  it('offers nothing for a server Switch Console does not run', async () => {
     const result = await bundledChatSignInFor(EXTERNAL);
 
     expect(result.kind).toBe('unavailable');

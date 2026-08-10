@@ -13,7 +13,7 @@ import {
 describe('terminal-image-injection', () => {
   it('detects unstable Chromium drop paths', () => {
     expect(isUnstableDropPath('/var/folders/xx/T/Drops/image.png')).toBe(true);
-    expect(isUnstableDropPath('/var/folders/xx/T/switchdash-drop-123-image.png')).toBe(false);
+    expect(isUnstableDropPath('/var/folders/xx/T/switch-console-drop-123-image.png')).toBe(false);
     expect(isUnstableDropPath('/Users/me/Desktop/shot.png')).toBe(false);
   });
 

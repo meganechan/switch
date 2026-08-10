@@ -86,12 +86,12 @@ Change `FORWARD_AGENT` to `"true"` if Git commit signing or nested SSH/Git comma
 Containers are removed automatically when a task is terminated. To manually clean up any leftover containers:
 
 ```bash
-docker ps --filter label=switchdash.purpose=byoi-workspace
-docker rm -f $(docker ps -aq --filter label=switchdash.purpose=byoi-workspace)
+docker ps --filter label=switch-console.purpose=byoi-workspace
+docker rm -f $(docker ps -aq --filter label=switch-console.purpose=byoi-workspace)
 ```
 
 To remove the cached Docker image and force a rebuild on the next provision:
 
 ```bash
-docker rmi switchdash-byoi-workspace
+docker rmi switch-console-byoi-workspace
 ```

@@ -65,7 +65,7 @@ const config: Configuration = {
   // setAsDefaultProtocolClient call only suffices for the un-packaged dev app.
   protocols: [
     {
-      name: 'switchdash deeplink',
+      name: 'Switch Console deeplink',
       schemes: ['switchdash'],
     },
   ],
@@ -105,13 +105,13 @@ const config: Configuration = {
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] },
     ],
-    icon: 'src/assets/images/switchdash/switchdash-beta.icns',
+    icon: 'src/assets/images/switch-console/switch-console-beta.icns',
     // electron-builder reads the App Store Connect API key from APPLE_API_KEY
     // (path to .p8) / APPLE_API_KEY_ID / APPLE_API_ISSUER when notarize is on.
     notarize: hasDeveloperIdCert,
   },
   dmg: {
-    icon: 'src/assets/images/switchdash/switchdash-beta.icns',
+    icon: 'src/assets/images/switch-console/switch-console-beta.icns',
     window: { width: 530, height: 319 },
     contents: [
       { x: 132, y: 150, type: 'file' },
@@ -144,7 +144,7 @@ const config: Configuration = {
     packageName: APP_NAME_LOWER,
   },
   win: {
-    icon: 'src/assets/images/switchdash/app-icon-beta.png',
+    icon: 'src/assets/images/switch-console/app-icon-beta.png',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'msi', arch: ['x64'] },

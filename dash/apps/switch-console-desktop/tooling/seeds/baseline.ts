@@ -28,9 +28,9 @@ export async function baseline(db: AppDb): Promise<void> {
   await db.insert(locations).values([
     {
       id: LOCATION_A_ID,
-      name: 'switchdash',
+      name: 'switch-console',
       sshHost: '',
-      dir: '/home/dev/projects/switchdash',
+      dir: '/home/dev/projects/switch-console',
     },
     {
       id: LOCATION_B_ID,
@@ -54,7 +54,7 @@ export async function baseline(db: AppDb): Promise<void> {
     {
       id: AGENT_A_ID,
       locationId: LOCATION_A_ID,
-      name: 'switchdash',
+      name: 'switch-console',
       providerId: 'claude',
       switchAgentId: 'switch-agent-a',
       apiEndpoint: 'https://switch.example.com',

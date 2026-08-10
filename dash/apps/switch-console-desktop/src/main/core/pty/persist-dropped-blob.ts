@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { app, clipboard, nativeImage } from 'electron';
 
 export const MAX_DROPPED_BLOB_BYTES = 50 * 1024 * 1024;
-export const DROPPED_BLOB_FILENAME_PREFIX = 'switchdash-drop-';
+export const DROPPED_BLOB_FILENAME_PREFIX = 'switch-console-drop-';
 export const DROPPED_BLOB_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const execFileAsync = promisify(execFile);
@@ -77,7 +77,7 @@ async function convertHeicLikeBytesToPng(bytes: Uint8Array, ext: string): Promis
     throw new Error('HEIC/HEIF image conversion is only supported on macOS');
   }
 
-  const tempDir = await mkdtemp(join(app.getPath('temp'), 'switchdash-heic-'));
+  const tempDir = await mkdtemp(join(app.getPath('temp'), 'switch-console-heic-'));
   const inputPath = join(tempDir, `input${ext === '.heif' ? '.heif' : '.heic'}`);
   const outputPath = join(tempDir, 'output.png');
 

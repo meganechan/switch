@@ -21,7 +21,7 @@ const config: Configuration = {
   // the base config for details).
   protocols: [
     {
-      name: 'switchdash deeplink',
+      name: 'Switch Console deeplink',
       schemes: ['switchdash'],
     },
   ],
@@ -57,11 +57,11 @@ const config: Configuration = {
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] },
     ],
-    icon: 'src/assets/images/switchdash/switchdash-canary.icns',
+    icon: 'src/assets/images/switch-console/switch-console-canary.icns',
     notarize: false,
   },
   dmg: {
-    icon: 'src/assets/images/switchdash/switchdash-canary.icns',
+    icon: 'src/assets/images/switch-console/switch-console-canary.icns',
     window: { width: 530, height: 319 },
     contents: [
       { x: 132, y: 150, type: 'file' },
@@ -88,7 +88,7 @@ const config: Configuration = {
     packageName: APP_NAME_LOWER,
   },
   win: {
-    icon: 'src/assets/images/switchdash/app-icon-canary.png',
+    icon: 'src/assets/images/switch-console/app-icon-canary.png',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'msi', arch: ['x64'] },
@@ -96,8 +96,8 @@ const config: Configuration = {
     azureSignOptions: {
       publisherName: 'General Action, Inc.',
       endpoint: 'https://eus.codesigning.azure.net/',
-      certificateProfileName: 'switchdash-public',
-      codeSigningAccountName: 'switchdash',
+      certificateProfileName: 'switch-console-public',
+      codeSigningAccountName: 'switch-console',
     },
   },
   msi: {

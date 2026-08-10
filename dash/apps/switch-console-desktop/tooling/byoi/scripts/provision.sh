@@ -12,7 +12,7 @@ set -euo pipefail
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-IMAGE_NAME="switchdash-byoi-workspace"
+IMAGE_NAME="switch-console-byoi-workspace"
 CONTAINER_USER="devuser"
 CONTAINER_PASS="devpass"
 WORKSPACE_PATH="/home/devuser/workspace"
@@ -49,13 +49,13 @@ fi
 
 # ── Start container ───────────────────────────────────────────────────────────
 
-CONTAINER_NAME="switchdash-ws-$(date +%s)-$$"
+CONTAINER_NAME="switch-console-ws-$(date +%s)-$$"
 
 # Forward API keys if set in the host environment.
 # Add more -e flags here for other keys your agent needs.
 docker run -d \
   --name "$CONTAINER_NAME" \
-  --label "switchdash.purpose=byoi-workspace" \
+  --label "switch-console.purpose=byoi-workspace" \
   -p "0:22" \
   -v "$(pwd):/repo-source:ro" \
   ${ANTHROPIC_API_KEY:+-e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY"} \

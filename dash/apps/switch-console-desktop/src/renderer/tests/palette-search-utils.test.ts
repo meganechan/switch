@@ -24,7 +24,7 @@ function room(over: Pick<RemoteRoomSummary, 'id' | 'name'>): RemoteRoomSummary {
 }
 
 const ROOMS = [
-  room({ id: 'r1', name: 'switchdash search bar' }),
+  room({ id: 'r1', name: 'switch-console search bar' }),
   room({ id: 'r2', name: 'Switch Workforce hub' }),
   room({ id: 'r3', name: 'release engineering' }),
 ];
@@ -47,7 +47,7 @@ describe('matchRooms', () => {
   });
 
   it('matches mid-word, so a term inside a compound name is still found', () => {
-    expect(matchRooms(ROOMS, 'dash').map((r) => r.id)).toEqual(['r1']);
+    expect(matchRooms(ROOMS, 'onsole').map((r) => r.id)).toEqual(['r1']);
     expect(matchRooms(ROOMS, 'lease').map((r) => r.id)).toEqual(['r3']);
   });
 

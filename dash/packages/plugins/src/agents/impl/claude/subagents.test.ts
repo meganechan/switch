@@ -175,7 +175,7 @@ describe('claudeRepoAgentsBehavior.writeDefinition / readDefinition', () => {
     expect(attrs?.tools).toEqual(['Read', 'Grep']);
   });
 
-  it('strips the retired switch-channel rule an older switchdash wrote', async () => {
+  it('strips the retired switch-channel rule an older Switch Console wrote', async () => {
     const workspaceFs = fakeFs({
       [defRel('reviewer')]: [
         '---',

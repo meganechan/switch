@@ -199,7 +199,7 @@ export function buildTerminalEnv(
   // Terminal identity — always override so xterm capabilities are correct.
   env.TERM = 'xterm-256color';
   env.COLORTERM = 'truecolor';
-  env.TERM_PROGRAM = 'switchdash';
+  env.TERM_PROGRAM = 'switch-console';
 
   // Ensure SHELL reflects the user's configured shell on POSIX. Native Windows
   // shells are selected via ComSpec by the spawn resolver, not SHELL.
@@ -249,7 +249,7 @@ export function buildAgentEnv(options: AgentEnvOptions = {}): Record<string, str
   const env: Record<string, string> = {
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
-    TERM_PROGRAM: 'switchdash',
+    TERM_PROGRAM: 'switch-console',
     HOME: process.env.HOME || os.homedir(),
     USER: process.env.USER || os.userInfo().username,
     PATH: resolvedPath,

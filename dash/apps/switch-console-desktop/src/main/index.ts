@@ -2,7 +2,7 @@ import './app/configure-app-identity';
 import { join } from 'node:path';
 import { config as dotenvConfig } from 'dotenv';
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor } from 'electron';
-import dockIcon from '@/assets/images/switchdash/icon-dock.png?asset';
+import dockIcon from '@/assets/images/switch-console/icon-dock.png?asset';
 import { PRODUCT_NAME } from '@shared/app-identity';
 import { registerRPCRouter } from '@shared/lib/ipc/rpc';
 import { flushPendingDeeplink, setupDeeplinks } from './app/deeplinks';

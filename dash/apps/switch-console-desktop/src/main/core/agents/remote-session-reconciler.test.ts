@@ -112,7 +112,7 @@ describe('RemoteSessionReconciler', () => {
     remoteSessionReconciler.dispose();
   });
 
-  it('adopts a VM session switchdash has never seen, keyed by the VM session id', async () => {
+  it('adopts a VM session Switch Console has never seen, keyed by the VM session id', async () => {
     knownRows = [];
     httpGetJsonOverChannel.mockResolvedValue({
       sessions: [{ sessionId: 'session-new', roomId: 'room-1' }],
@@ -126,7 +126,7 @@ describe('RemoteSessionReconciler', () => {
     expect(provisionSession).toHaveBeenCalledWith('session-new');
   });
 
-  it('skips a VM session that already has a switchdash row', async () => {
+  it('skips a VM session that already has a Switch Console row', async () => {
     knownRows = [{ id: 'session-known' }];
     httpGetJsonOverChannel.mockResolvedValue({
       sessions: [{ sessionId: 'session-known', roomId: 'room-1' }],

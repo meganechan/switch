@@ -156,7 +156,7 @@ describe('discoverConfiguredAgents', () => {
     expect((await scan())[0]).toMatchObject({ providerId: 'codex', providerSource: 'launch-spec' });
   });
 
-  it('marks agents this switchdash already has a row for', async () => {
+  it('marks agents this Switch Console already has a row for', async () => {
     h.state.agentNames = ['mine'];
     h.state.workspace = fakeFs({
       '.switch/agents/mine.json': creds('sw-mine'),

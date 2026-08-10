@@ -54,7 +54,12 @@ describe('searchService', () => {
 
     await fixture.db
       .insert(locations)
-      .values({ id: 'loc-1', name: 'switchdash repo', sshHost: '', dir: '/tmp/switchdash' });
+      .values({
+        id: 'loc-1',
+        name: 'switch-console repo',
+        sshHost: '',
+        dir: '/tmp/switch-console',
+      });
     await fixture.db
       .insert(locations)
       .values({ id: 'loc-2', name: 'other repo', sshHost: '', dir: '/tmp/other' });
@@ -322,7 +327,7 @@ describe('searchService', () => {
     it('does not index locations', () => {
       searchService.initialize();
 
-      expect(searchService.search({ query: 'switchdash repo' }).items).toEqual([]);
+      expect(searchService.search({ query: 'switch-console repo' }).items).toEqual([]);
       expect(searchService.search({ query: 'other repo' }).items).toEqual([]);
     });
   });

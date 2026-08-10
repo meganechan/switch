@@ -289,7 +289,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     ]);
   });
 
-  it('preserves user hooks and removes only switchdash entries on delete', async () => {
+  it('preserves user hooks and removes only Switch Console entries on delete', async () => {
     const userEntry = { hooks: [{ type: 'command', command: 'echo hi' }] };
     const fs = createMemoryFs({
       [CODEX_HOOKS_PATH]: JSON.stringify({ hooks: { Stop: [userEntry] } }),

@@ -14,7 +14,7 @@ interface MermaidRenderRequest {
 
 export function createMermaidRenderId(): string {
   idCounter += 1;
-  return `switchdash-mermaid-${idCounter}`;
+  return `switch-console-mermaid-${idCounter}`;
 }
 
 export async function renderMermaidDiagram({

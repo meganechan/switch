@@ -8,7 +8,7 @@ import type { PtyExitInfo } from './pty';
 const tempDirs: string[] = [];
 
 async function tempCwd(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'switchdash-local-pty-'));
+  const dir = await mkdtemp(join(tmpdir(), 'switch-console-local-pty-'));
   tempDirs.push(dir);
   return dir;
 }

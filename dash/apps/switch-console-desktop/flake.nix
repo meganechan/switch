@@ -1,5 +1,5 @@
 {
-  description = "Nix dev shell for the Switchdash Electron workspace";
+  description = "Nix dev shell for the Switch Console Electron workspace";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -89,10 +89,10 @@
             pkgs.patchelf
           ];
         cleanSrc = lib.cleanSource ./.;
-        switchdashPackage =
+        switchConsolePackage =
           if pkgs.stdenv.isLinux then
             pkgs.stdenv.mkDerivation rec {
-              pname = "switchdash";
+              pname = "switch-console";
               version = packageJson.version;
               src = cleanSrc;
               pnpmDeps =
@@ -124,7 +124,7 @@
                 pkgs.libutempter
               ];
               env = {
-                HOME = "$TMPDIR/switchdash-home";
+                HOME = "$TMPDIR/switch-console-home";
                 npm_config_build_from_source = "true";
                 npm_config_manage_package_manager_versions = "false";
                 # Skip Electron binary download during pnpm install
@@ -134,7 +134,7 @@
               buildPhase = ''
                 runHook preBuild
 
-                mkdir -p "$TMPDIR/switchdash-home"
+                mkdir -p "$TMPDIR/switch-console-home"
                 pnpm config set manage-package-manager-versions false
 
                 # Build the app (renderer + main)
@@ -161,38 +161,38 @@
                   exit 1
                 fi
 
-                install -d $out/share/switchdash
-                cp -R "$unpackedDir" $out/share/switchdash/
+                install -d $out/share/switch-console
+                cp -R "$unpackedDir" $out/share/switch-console/
 
                 if ls "$distDir"/*.AppImage >/dev/null 2>&1; then
                   for image in "$distDir"/*.AppImage; do
-                    install -Dm755 "$image" "$out/share/switchdash/$(basename "$image")"
+                    install -Dm755 "$image" "$out/share/switch-console/$(basename "$image")"
                   done
                 fi
 
                 install -d $out/bin
-                cat <<EOF > $out/bin/switchdash
+                cat <<EOF > $out/bin/switch-console
 #!${pkgs.bash}/bin/bash
 set -euo pipefail
 
-APP_ROOT="$out/share/switchdash/linux-unpacked"
-exec "\$APP_ROOT/switchdash" "\$@"
+APP_ROOT="$out/share/switch-console/linux-unpacked"
+exec "\$APP_ROOT/switch-console" "\$@"
 EOF
-                chmod +x $out/bin/switchdash
+                chmod +x $out/bin/switch-console
 
                 runHook postInstall
               '';
 
               meta = {
-                description = "Switchdash – multi-agent orchestration desktop app";
+                description = "Switch Console – multi-agent orchestration desktop app";
                 homepage = "https://github.com/sandbox-quantum/switch";
                 license = lib.licenses.asl20;
                 platforms = [ "x86_64-linux" ];
               };
             }
           else
-            pkgs.writeShellScriptBin "switchdash" ''
-              echo "The packaged Switchdash app is currently only available for Linux when using Nix." >&2
+            pkgs.writeShellScriptBin "switch-console" ''
+              echo "The packaged Switch Console app is currently only available for Linux when using Nix." >&2
               exit 1
             '';
       in {
@@ -200,18 +200,18 @@ EOF
           packages = sharedEnv;
 
           shellHook = ''
-            echo "Switchdash dev shell ready"
+            echo "Switch Console dev shell ready"
             echo "Node: $(node --version)"
             echo "Run 'pnpm run d' for the full dev loop."
           '';
         };
 
-        packages.switchdash = switchdashPackage;
-        packages.default = switchdashPackage;
+        packages.switch-console = switchConsolePackage;
+        packages.default = switchConsolePackage;
 
         apps.default = {
           type = "app";
-          program = "${switchdashPackage}/bin/switchdash";
+          program = "${switchConsolePackage}/bin/switch-console";
         };
       });
 }

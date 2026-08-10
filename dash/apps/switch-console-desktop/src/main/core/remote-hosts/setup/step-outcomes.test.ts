@@ -265,7 +265,7 @@ describe('describeInstallFailure — npm cannot write the global prefix', () => 
     expect(message).not.toContain("@openai'");
   });
 
-  it('says switchdash will not escalate on its own', () => {
+  it('says Switch Console will not escalate on its own', () => {
     // The user should know why we did not just sudo it, rather than assuming
     // the install is broken.
     const message = describeInstallFailure('Codex', 'Install command failed.', eacces);

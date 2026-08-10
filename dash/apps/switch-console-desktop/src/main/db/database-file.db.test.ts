@@ -30,7 +30,7 @@ describe('resolveDefaultDatabasePath (emdash -> switchdash migration)', () => {
   let dir: string;
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'switchdash-db-'));
+    dir = mkdtempSync(join(tmpdir(), 'switch-console-db-'));
   });
 
   afterEach(() => {

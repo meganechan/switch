@@ -49,7 +49,7 @@ const CHROMELESS_CSS = `
   }
 
   /* Workspace-administration affordances that do not belong in an embedded
-     room: the reader is a switchdash user looking at one conversation, and
+     room: the reader is a Switch Console user looking at one conversation, and
      acting on any of these would take them somewhere the pane cannot show.
      Add to this list as more surface: each entry is one Mattermost control. */
 
@@ -94,7 +94,7 @@ function whenDocumentElement(attach: () => void): void {
 function injectChromelessCss(): void {
   whenDocumentElement(() => {
     const style = document.createElement('style');
-    style.setAttribute('data-switchdash', 'chromeless');
+    style.setAttribute('data-switch-console', 'chromeless');
     style.textContent = CHROMELESS_CSS;
     document.documentElement.appendChild(style);
   });
@@ -135,6 +135,6 @@ for (const step of [
   } catch (cause) {
     // Nothing here is load-bearing enough to justify blanking the pane, but a
     // silent partial failure is what cost us the last round of debugging.
-    console.error(`switchdash guest preload: ${step.name} failed`, cause);
+    console.error(`Switch Console guest preload: ${step.name} failed`, cause);
   }
 }

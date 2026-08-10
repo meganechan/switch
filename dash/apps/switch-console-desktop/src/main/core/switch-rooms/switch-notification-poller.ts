@@ -251,7 +251,7 @@ class SwitchNotificationPoller {
       control: resolveSessionControl(ctx.providerId),
       deeplinkScheme: DEEPLINK_SCHEME,
       isHumanTyping: () => isHumanInputRecent(ptySessionId),
-      mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', ctx.sessionId),
+      mediaDir: path.join(os.tmpdir(), 'switch-console-switch-media', ctx.sessionId),
       // The server naming this connection's room is the authoritative signal,
       // so it is what updates the session→room map the UI reads. The
       // connect_to_room hook writes the same map, and now only matters for

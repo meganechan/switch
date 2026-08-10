@@ -16,7 +16,7 @@ function checkSource(context, node) {
 
 export default {
   meta: {
-    name: 'switchdash',
+    name: 'switch-console',
   },
   rules: {
     'no-tooling-imports': {

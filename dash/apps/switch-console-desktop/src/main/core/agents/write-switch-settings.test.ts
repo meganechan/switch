@@ -21,7 +21,7 @@ import {
 let dir: string;
 
 beforeEach(async () => {
-  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'switchdash-settings-'));
+  dir = await fs.mkdtemp(path.join(os.tmpdir(), 'switch-console-settings-'));
 });
 
 afterEach(async () => {

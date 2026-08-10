@@ -53,7 +53,7 @@ describe('propagateServerApiUrl', () => {
   beforeEach(async () => {
     fixture = await openFixture('empty');
     mocks.db = fixture.db;
-    tmpRoot = await nodeFs.mkdtemp(path.join(os.tmpdir(), 'switchdash-propagate-'));
+    tmpRoot = await nodeFs.mkdtemp(path.join(os.tmpdir(), 'switch-console-propagate-'));
 
     await fixture.db.insert(switchServers).values([
       {

@@ -50,7 +50,7 @@ describe('reapStaleSidecarsForAgent', () => {
     h.state.hostListing = '';
   });
 
-  it('spares a co-located agent this switchdash does not manage', async () => {
+  it('spares a co-located agent this Switch Console does not manage', async () => {
     // The shared-host case: someone else onboarded `theirs` in the same
     // directory. It is absent from this install's database, and reaping against
     // that alone would kill a sidecar doing real work for another person.

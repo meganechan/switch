@@ -14,7 +14,7 @@ describe('detectSwitchAgent', () => {
   let dir: string;
 
   beforeEach(async () => {
-    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'switchdash-detect-'));
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'switch-console-detect-'));
   });
 
   afterEach(async () => {

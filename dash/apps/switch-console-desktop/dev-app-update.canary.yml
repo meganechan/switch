@@ -3,4 +3,4 @@ owner: sandbox-quantum
 repo: switch
 channel: canary
 allowPrerelease: true
-updaterCacheDirName: switchdash-canary-updater
+updaterCacheDirName: switch-console-canary-updater

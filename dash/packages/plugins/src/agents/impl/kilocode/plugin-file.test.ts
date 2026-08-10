@@ -26,7 +26,7 @@ function createMemoryFs(): PluginFs & { files: Map<string, string> } {
 }
 
 describe('kilocode plugin hooks', () => {
-  it('installs the switchdash notifications plugin into the Kilo workspace plugin path', async () => {
+  it('installs the Switch Console notifications plugin into the Kilo workspace plugin path', async () => {
     const fs = createMemoryFs();
 
     const written = await provider.behavior.plugins?.installPlugin(fs, {

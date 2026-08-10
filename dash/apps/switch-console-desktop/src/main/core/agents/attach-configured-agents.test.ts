@@ -170,7 +170,7 @@ describe('attachConfiguredAgents', () => {
     expect(h.createAgent).not.toHaveBeenCalled();
   });
 
-  it('skips an agent this switchdash already has', async () => {
+  it('skips an agent this Switch Console already has', async () => {
     h.state.agentNames = ['theirs'];
 
     const result = await attachConfiguredAgents(params([{ name: 'theirs', providerId: 'codex' }]));

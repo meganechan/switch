@@ -14,8 +14,8 @@ import { resolveLogContext } from './log-context';
 const MAX_LOG_BYTES = 5 * 1024 * 1024;
 const DIAGNOSTIC_LOG_BYTES = 500 * 1024;
 const RETAINED_LOG_FILES = 5;
-const LOG_FILE_NAME = 'switchdash.log';
-const DIAGNOSTIC_ATTACHMENT_FILENAME = 'switchdash-diagnostics.log';
+const LOG_FILE_NAME = 'switch-console.log';
+const DIAGNOSTIC_ATTACHMENT_FILENAME = 'switch-console-diagnostics.log';
 const RENDERER_LOG_PAYLOAD_LIMIT = 64 * 1024;
 const PROCESS_EXIT_FLUSH_TIMEOUT_MS = 1000;
 const FLUSH_INTERVAL_MS = 250;
@@ -317,7 +317,7 @@ function flushAndExit() {
 }
 
 export function registerRendererLogHandler(ipcMain: Electron.IpcMain) {
-  ipcMain.on('switchdash:renderer-log', (event, payload: unknown) => {
+  ipcMain.on('switch-console:renderer-log', (event, payload: unknown) => {
     if (!isTrustedRendererSender(event.senderFrame)) return;
     const parsed = parseRendererLog(payload);
     if (!parsed) return;

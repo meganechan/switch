@@ -55,7 +55,7 @@ describe('resolveSshConfig', () => {
   });
 
   it('executes ssh -G for the selected alias and throws stderr on failure', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-ssh-g-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-ssh-g-'));
     const sshPath = join(dir, 'ssh');
     await writeFile(
       sshPath,
@@ -79,7 +79,7 @@ exit 255
   });
 
   it('times out ssh -G so Match exec cannot hang callers indefinitely', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-ssh-g-timeout-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-ssh-g-timeout-'));
     const sshPath = join(dir, 'ssh');
     await writeFile(
       sshPath,
@@ -95,7 +95,7 @@ sleep 2
   });
 
   it('bounds ssh -G output with maxBuffer', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-ssh-g-max-buffer-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-ssh-g-max-buffer-'));
     const sshPath = join(dir, 'ssh');
     await writeFile(
       sshPath,
@@ -111,7 +111,7 @@ printf '%0600d\\n' 0
   });
 
   it('can resolve a real OpenSSH config file through an injected runner', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'switchdash-ssh-config-'));
+    const dir = await mkdtemp(join(tmpdir(), 'switch-console-ssh-config-'));
     const configPath = join(dir, 'config');
     await writeFile(
       configPath,

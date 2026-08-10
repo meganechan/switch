@@ -27,7 +27,7 @@ describe('withResolvedHomeUrls', () => {
     mattermostOriginFor.mockResolvedValue('http://127.0.0.1:8065');
   });
 
-  it("uses switchdash's own origin for a managed stack's Mattermost", async () => {
+  it("uses Switch Console's own origin for a managed stack's Mattermost", async () => {
     // The gateway reports the in-compose address, which resolves to nothing on
     // the user's machine. Switch Console published the port, so it knows better.
     const [resolved] = await withResolvedHomeUrls(MANAGED, [

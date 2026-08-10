@@ -22,7 +22,7 @@ vi.mock('@main/core/settings/settings-service', () => ({
     get: vi.fn().mockImplementation((key: string) => {
       if (key === 'location') return Promise.resolve({ tmuxByDefault: false });
       return Promise.resolve({
-        defaultWorktreeDirectory: '/tmp/switchdash/worktrees',
+        defaultWorktreeDirectory: '/tmp/switch-console/worktrees',
       });
     }),
   },
@@ -83,7 +83,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('seeds default preserve patterns when the repo has no shared config', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
@@ -94,7 +94,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('seeds default preserve patterns when shared config omits preservePatterns', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(
       path.join(rootPath, '.switchdash.json'),
@@ -109,7 +109,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('does not seed default preserve patterns when shared config defines preservePatterns', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(
       path.join(rootPath, '.switchdash.json'),
@@ -122,7 +122,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('migrates shareable settings from a local-only root config', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(
       path.join(rootPath, '.switchdash.json'),
@@ -153,7 +153,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('migrates local-only shareable settings for rows already base-migrated', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(
       path.join(rootPath, '.switchdash.json'),
@@ -197,7 +197,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('keeps cleanly tracked shareable settings file-backed', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(
       path.join(rootPath, '.switchdash.json'),
@@ -222,18 +222,20 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('does not seed computed worktreeDirectory into location settings', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
 
     await expect(provider.get()).resolves.not.toHaveProperty('worktreeDirectory');
-    await expect(provider.getDefaultWorktreeDirectory()).resolves.toBe('/tmp/switchdash/worktrees');
-    await expect(provider.getWorktreeDirectory()).resolves.toBe('/tmp/switchdash/worktrees');
+    await expect(provider.getDefaultWorktreeDirectory()).resolves.toBe(
+      '/tmp/switch-console/worktrees'
+    );
+    await expect(provider.getWorktreeDirectory()).resolves.toBe('/tmp/switch-console/worktrees');
   });
 
   it('keeps computed worktreeDirectory default separate from configured overrides', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
     const expectedOverridePath = path.resolve(rootPath, 'worktrees');
@@ -245,12 +247,14 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
 
     const expectedOverride = fs.realpathSync(expectedOverridePath);
     await expect(provider.get()).resolves.toMatchObject({ worktreeDirectory: expectedOverride });
-    await expect(provider.getDefaultWorktreeDirectory()).resolves.toBe('/tmp/switchdash/worktrees');
+    await expect(provider.getDefaultWorktreeDirectory()).resolves.toBe(
+      '/tmp/switch-console/worktrees'
+    );
     await expect(provider.getWorktreeDirectory()).resolves.toBe(expectedOverride);
   });
 
   it('stores the selected GitHub account as base location settings', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
 
@@ -264,7 +268,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('stores null GitHub account selection as an explicit location override', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
 
@@ -278,7 +282,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('patches the selected GitHub account without replacing other base settings', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const row = {
       baseSettingsJson: JSON.stringify({
@@ -314,7 +318,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('retries legacy config migration after a failed attempt', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const row = {
       baseSettingsJson: '{}',
@@ -342,7 +346,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('clears shareable fields without validating base settings', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     const row = {
       baseSettingsJson: JSON.stringify({
@@ -380,7 +384,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('normalizes and canonicalizes local absolute worktreeDirectory on update', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
@@ -396,7 +400,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('rejects local relative worktreeDirectory values', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
@@ -409,7 +413,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('rejects foreign absolute worktreeDirectory values for local locations', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);
@@ -423,7 +427,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('surfaces local worktreeDirectory validation errors', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
     fs.writeFileSync(path.join(rootPath, 'not-a-directory'), 'file');
 
@@ -439,7 +443,7 @@ describe('LocationSettingsProvider worktreeDirectory validation', () => {
   });
 
   it('clears blank local worktreeDirectory values', async () => {
-    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switchdash-settings-local-'));
+    const rootPath = fs.mkdtempSync(path.join(os.tmpdir(), 'switch-console-settings-local-'));
     tempDirs.push(rootPath);
 
     const provider = new LocalLocationSettingsProvider(locationId(), rootPath);

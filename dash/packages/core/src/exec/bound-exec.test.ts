@@ -6,7 +6,7 @@ import { createBoundExec, ExecError } from './index';
 
 describe('BoundExec', () => {
   it('runs a configured executable from a fixed cwd', async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-'));
+    const cwd = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-'));
     const result = await createBoundExec({ file: process.execPath, cwd }).exec([
       '-e',
       'console.log(process.cwd())',
@@ -17,7 +17,7 @@ describe('BoundExec', () => {
   });
 
   it('streams stdout and lets the consumer stop early', async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-stream-'));
+    const cwd = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-stream-'));
     const chunks: string[] = [];
 
     await createBoundExec({ file: process.execPath, cwd }).execStreaming(
@@ -32,7 +32,7 @@ describe('BoundExec', () => {
   });
 
   it('throws ExecError with serializable process details on non-zero exit', async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-error-'));
+    const cwd = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-error-'));
     await expect(
       createBoundExec({ file: 'git', cwd }).exec(['rev-parse', '--not-a-real-flag'])
     ).rejects.toMatchObject({
@@ -43,7 +43,7 @@ describe('BoundExec', () => {
   });
 
   it('uses the configured executable path', async () => {
-    const dir = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-bin-'));
+    const dir = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-bin-'));
     const executable = path.join(dir, 'tool.sh');
     const logPath = path.join(dir, 'calls.log');
     await writeFile(
@@ -60,7 +60,7 @@ describe('BoundExec', () => {
   });
 
   it('rejects timed-out processes with an ExecError', async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-timeout-'));
+    const cwd = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-timeout-'));
 
     await expect(
       createBoundExec({ file: process.execPath, cwd }).exec(
@@ -75,7 +75,7 @@ describe('BoundExec', () => {
   });
 
   it('escalates timed-out processes that ignore SIGTERM', async () => {
-    const cwd = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-exec-timeout-kill-'));
+    const cwd = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-exec-timeout-kill-'));
     const pidPath = path.join(cwd, 'child.pid');
 
     await expect(

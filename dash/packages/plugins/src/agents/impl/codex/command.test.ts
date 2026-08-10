@@ -10,7 +10,7 @@ const base: CommandContext = {
   cli: 'codex',
   autoApprove: false,
   isResuming: false,
-  sessionId: 'switchdash-session',
+  sessionId: 'switch-console-session',
   model: '',
 };
 

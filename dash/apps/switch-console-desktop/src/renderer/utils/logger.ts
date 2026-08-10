@@ -15,6 +15,6 @@ export const log = createLogger({
       source: entry.source,
       context: entry.context,
     };
-    window.electronAPI?.eventSend('switchdash:renderer-log', safe);
+    window.electronAPI?.eventSend('switch-console:renderer-log', safe);
   },
 });

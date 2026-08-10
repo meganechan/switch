@@ -52,8 +52,12 @@ for (const devApp of devElectronApps) {
 }
 
 // Re-register the installed app so Launch Services rediscovers it as the
-// switchdash:// handler.
+// switchdash:// handler. The pre-rename bundle names are still listed: a machine
+// that has not upgraded yet has the app under the old name and nothing else.
 const installed = [
+  '/Applications/Switch Console.app',
+  path.join(process.env.HOME ?? '', 'Applications', 'Switch Console.app'),
+  '/Applications/Switch Console Canary.app',
   '/Applications/Switchdash.app',
   path.join(process.env.HOME ?? '', 'Applications', 'Switchdash.app'),
   '/Applications/Switchdash Canary.app',
@@ -63,11 +67,11 @@ if (installed) {
   console.log(`Re-registering installed app: ${installed}`);
   lsregister(['-f', installed]);
   console.log(
-    'Done. Launch the installed Switchdash app once — it reclaims switchdash:// as the default handler.'
+    'Done. Launch the installed Switch Console app once — it reclaims switchdash:// as the default handler.'
   );
 } else {
   console.log(
-    'Stale dev handler cleared, but no installed Switchdash.app was found.\n' +
+    'Stale dev handler cleared, but no installed Switch Console app was found.\n' +
       'Launch the installed app once and it will reclaim the switchdash:// scheme.'
   );
 }

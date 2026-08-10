@@ -178,7 +178,7 @@ describe('checking an agent-plugin step', () => {
     expect(await checkStep(SSH_HOST, manager, step({}))).toEqual({ outcome: 'missing' });
   });
 
-  it('reports unknown — not missing — for a type switchdash cannot drive', async () => {
+  it('reports unknown — not missing — for a type Switch Console cannot drive', async () => {
     // "We cannot answer this" is not "it is not installed".
     mocks.checkForUpdates.mockResolvedValue(status({ supported: false, installed: false }));
 

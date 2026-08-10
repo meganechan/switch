@@ -12,7 +12,7 @@ interface CacheEntry {
 async function fetchJson(url: string): Promise<unknown> {
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'switchdash-latest-version',
+      'User-Agent': 'switch-console-latest-version',
       Accept: 'application/json',
     },
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
