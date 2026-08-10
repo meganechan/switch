@@ -33,7 +33,7 @@ export interface SwitchSettingsCredentials {
  * `.switch/agents/<slug>.json` that {@link mergeAgentCredentials} writes.
  *
  * Removing rather than merging forward matters: a merge would carry a token
- * written by an older switchdash forward into a file that no longer needs one.
+ * written by an older Switch Console forward into a file that no longer needs one.
  *
  * Pure: takes the existing file text (or null when absent/unreadable) and
  * returns the text to write. Shared by the local writer and the remote (SFTP)
@@ -97,7 +97,7 @@ export function mergeSwitchSettings(
  * The two files are not interchangeable. `.claude/settings.local.json` is
  * Claude Code's own, read by any session in the directory, and it only needs to
  * say who the agent is — the runtime resolves the rest. `.switch/agents/<slug>.json`
- * is the per-agent credential switchdash injects at launch and the runtime falls
+ * is the per-agent credential Switch Console injects at launch and the runtime falls
  * back to, so the token lives here, in exactly one place.
  */
 export function mergeAgentCredentials(
