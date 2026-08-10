@@ -2,7 +2,7 @@
  * The agent bridge's SSE framing.
  *
  * One implementation, imported by everything that speaks the protocol: the
- * local MCP runtime next to the agent, and switchdash. It used to exist twice —
+ * local MCP runtime next to the agent, and Switch Console. It used to exist twice —
  * separate deployables, no shared package — and the copies drifted within a day
  * of being made. This package is what removed the excuse.
  *

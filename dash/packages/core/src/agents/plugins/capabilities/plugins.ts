@@ -16,8 +16,8 @@ export type IPlugins = {
 /**
  * PluginsDescriptor describes how an agent loads extension plugins.
  *
- * kind: 'file-drop' — switchdash drops a file into the agent's plugin directory
- * kind: 'cli'       — switchdash invokes the agent's CLI to install/manage plugins
+ * kind: 'file-drop' — Switch Console drops a file into the agent's plugin directory
+ * kind: 'cli'       — Switch Console invokes the agent's CLI to install/manage plugins
  * kind: 'none'      — the agent does not support plugins
  */
 export const pluginsCapability = definePluginCapability<IPlugins>()(

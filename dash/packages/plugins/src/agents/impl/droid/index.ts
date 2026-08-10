@@ -1,5 +1,5 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
-import { buildStandardCommand, droidMcpAdapter } from '@switchdash/core/agents/plugins/helpers';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
+import { buildStandardCommand, droidMcpAdapter } from '@switch-console/core/agents/plugins/helpers';
 import { buildDroidHookConfig } from './hooks';
 import { icon } from './icon';
 

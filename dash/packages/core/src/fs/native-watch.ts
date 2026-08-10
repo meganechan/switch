@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import parcelWatcher from '@parcel/watcher';
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import type { RawFileEvent } from './types';
 
 const RESUBSCRIBE_DELAY_MS = 250;

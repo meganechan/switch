@@ -255,11 +255,11 @@ async def _dispatch_control_command(
     integration profile, then — for `session_dependent` — checks that a live
     session actually reports it can execute the command (via its runtime-state
     control capabilities). When actionable, acknowledges in the room and queues
-    a `command` event for the agent's controller (e.g. switchdash) to execute.
+    a `command` event for the agent's controller (e.g. Switch Console) to execute.
 
     Two distinct "can't act" cases are reported separately: no live session in
     the room at all (`no_live_session_msg`) vs. a live session that can't be
-    controlled from here — e.g. not started from switchdash (`no_session_msg`).
+    controlled from here — e.g. not started from Switch Console (`no_session_msg`).
     """
     agent = await client._fresh_agent()
     profile = agent.integration_profile or {}
@@ -310,7 +310,7 @@ async def _dispatch_control_command(
         args = role or ""
 
     # Mirror the runtime "working" surface: link back to the session in
-    # switchdash when we know its deeplink.
+    # Switch Console when we know its deeplink.
     body = f"{ack} ([Open in Switch Console]({deeplink}))" if deeplink else ack
     await _reply(client, room, event, body)
     client._event_buffer.enqueue(
@@ -347,7 +347,7 @@ async def _cmd_reset(
         ),
         no_session_msg=(
             "My session can't be reset from here — it wasn't started from "
-            "switchdash, so my operator needs to reset it manually (e.g. by "
+            "Switch Console, so my operator needs to reset it manually (e.g. by "
             "restarting my session)."
         ),
     )
@@ -368,7 +368,7 @@ async def _cmd_compact(
         ),
         no_session_msg=(
             "I can't compact from here — my session wasn't started from "
-            "switchdash, so my operator needs to compact it manually."
+            "Switch Console, so my operator needs to compact it manually."
         ),
     )
 
@@ -388,7 +388,7 @@ async def _cmd_interrupt(
         ),
         no_session_msg=(
             "I can't be interrupted from here — my session wasn't started from "
-            "switchdash, so my operator needs to interrupt it manually."
+            "Switch Console, so my operator needs to interrupt it manually."
         ),
     )
 
@@ -649,7 +649,7 @@ def _format_status_lines(
 ) -> str:
     """Render the !status summary: one line per agent (sorted by name) with
     its presence emoji + label, runtime state (if any), agent_type, task
-    capabilities, and a switchdash deeplink to its session when one is known.
+    capabilities, and a Switch Console deeplink to its session when one is known.
 
     The deeplink is shown only for an agent whose session is LIVE in this room:
     the stored link is per (agent, room) and survives a room switch, so once the

@@ -1,9 +1,9 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   geminiMcpAdapter,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { icon } from './icon';
 
 export const plugin = definePlugin(

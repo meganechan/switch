@@ -10,7 +10,7 @@
 - `package.json`
 - `electron-builder.config.ts`
 - `electron-builder.canary.config.ts`
-- `.github/workflows/switchdash-release.yml` — the release pipeline (repo root, **not** under `dash/`)
+- `.github/workflows/switch-console-release.yml` — the release pipeline (repo root, **not** under `dash/`)
 
 There is no `scripts/release/` directory. Releasing is done by the GitHub Actions
 workflow above, which calls `electron-builder` directly; the packaging, notarization and
@@ -77,7 +77,7 @@ The app does **not** override `autoUpdater.channel`; the GitHub provider resolve
 
 The release repo is private, so a plain feed fetch 404s. `github-token.ts` sources a token
 from the user's `gh` CLI and it is handed to `autoUpdater.setFeedURL(...)` rather than
-exported as `GH_TOKEN`. That is deliberate and worth preserving: switchdash's environment
+exported as `GH_TOKEN`. That is deliberate and worth preserving: Switch Console's environment
 is inherited by every child process it spawns — including `gh` itself, which prefers
 `GH_TOKEN` over its keyring — so a token parked there outlives the login it came from and
 shadows the next one until the app restarts.

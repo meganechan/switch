@@ -1,10 +1,10 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   ampMcpAdapter,
   buildStandardCommand,
   createFileDropPlugin,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { AMP_PLUGIN_CONTENT } from './plugin-file';
 
 const AMP_PLUGIN_PATH = '.amp/plugins/switchdash-hook.ts';

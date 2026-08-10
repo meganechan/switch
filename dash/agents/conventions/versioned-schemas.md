@@ -2,7 +2,7 @@
 
 ## Why versioned schemas?
 
-Switchdash is a desktop app. Users may run an older version for weeks or months before
+Switch Console is a desktop app. Users may run an older version for weeks or months before
 updating. JSON blobs stored in SQLite columns must remain readable by any app version
 that could encounter them, so schema evolution must be explicit and backward compatible.
 

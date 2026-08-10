@@ -7,14 +7,14 @@ export type CommandContext = {
   /**
    * Provider-produced args that run the CLI as a specific named agent (from the
    * repo-agents capability's `launchArgs`), e.g. Claude's `--agent <name>
-   * --settings <creds>`. Kept distinct from user `extraArgs`: switchdash asks the
+   * --settings <creds>`. Kept distinct from user `extraArgs`: Switch Console asks the
    * provider how to run agent <name>, and the provider owns the answer (CHOO-1440).
    */
   agentArgs?: string[];
   autoApprove: boolean;
   initialPrompt?: string;
-  /** Switchdash session UUID — used as the session token for providers that track their
-   * own session across the switchdash lifetime (e.g. claude --session-id, opencode --session). */
+  /** Switch Console session UUID — used as the session token for providers that track their
+   * own session across the Switch Console lifetime (e.g. claude --session-id, opencode --session). */
   sessionId?: string;
   /** Provider-native session identifier stored by the agent classifier. When present, used
    * for resume on providers that generate their own session IDs (e.g. grok, copilot, kimi,

@@ -1,5 +1,8 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
-import { buildStandardCommand, cursorMcpAdapter } from '@switchdash/core/agents/plugins/helpers';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
+import {
+  buildStandardCommand,
+  cursorMcpAdapter,
+} from '@switch-console/core/agents/plugins/helpers';
 import { icon } from './icon';
 
 export const plugin = definePlugin(

@@ -1,4 +1,4 @@
-import { err, ok } from '@switchdash/shared';
+import { err, ok } from '@switch-console/shared';
 import { describe, expect, it, vi } from 'vitest';
 import type { IExecutionContext } from '../../exec/execution-context';
 import { HostDependencyManager } from './host-dependency-manager';

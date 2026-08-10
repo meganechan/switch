@@ -1,6 +1,6 @@
 import { Buffer } from 'node:buffer';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import type { CanonicalHookEvent, HookRegistration } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import type { CanonicalHookEvent, HookRegistration } from '@switch-console/core/agents/plugins';
 import {
   SWITCHDASH_MARKER,
   buildNestedEntry,
@@ -9,7 +9,7 @@ import {
   makeStdinHookCommand,
   readJsonConfig,
   writeJsonConfig,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const GROK_HOOKS_PATH = '.grok/hooks/switchdash.json';
 

@@ -2,7 +2,7 @@ name: PR CI
 
 # Pull-request checks for the three code trees (core/, dash/, gateway/) plus a
 # repo-wide secret scan. Complements the tag-driven release workflows
-# (switch-release.yml, switchdash-release.yml) — this file is the ongoing
+# (switch-release.yml, switch-console-release.yml) — this file is the ongoing
 # per-PR gate, they publish on tags.
 #
 # Fork safety: this uses `pull_request` (NOT `pull_request_target`), so runs
@@ -67,7 +67,7 @@ jobs:
             dash:
               - *shared
               - 'dash/**'
-              # switchdash bundles a generated copy of this file, and the job
+              # Switch Console bundles a generated copy of this file, and the job
               # below verifies the copy is current — so a change here has to
               # run the dash job even though it lives outside dash/.
               - 'deploy/local/standalone-docker-compose.yml'
@@ -85,8 +85,8 @@ jobs:
               - 'core/pyproject.toml'
               - 'dash/packages/shared/src/artifacts.ts'
               - 'dash/packages/switch-agent-runtime/src/artifacts.ts'
-              - 'dash/apps/switchdash-desktop/package.json'
-              - 'dash/apps/switchdash-desktop/src/shared/app-identity*.ts'
+              - 'dash/apps/switch-console-desktop/package.json'
+              - 'dash/apps/switch-console-desktop/src/shared/app-identity*.ts'
               - 'dash/packages/switch-agent-runtime/package.json'
               - 'connectors/**/plugin.json'
 
@@ -125,7 +125,7 @@ jobs:
         run: uv run --project core pytest -c core/pyproject.toml core/tests/
 
   dash:
-    name: Switchdash (dash)
+    name: Switch Console (dash)
     needs: changes
     if: ${{ needs.changes.outputs.dash == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
@@ -161,7 +161,7 @@ jobs:
       # comment asking nicely, which is how it silently stopped running once
       # already (CHOO-1865).
       - name: Bundled standalone compose is current
-        run: pnpm --filter switchdash-desktop run sync:compose:check
+        run: pnpm --filter switch-console-desktop run sync:compose:check
 
       - name: Build workspace packages
         run: pnpm -r --filter './packages/**' run build

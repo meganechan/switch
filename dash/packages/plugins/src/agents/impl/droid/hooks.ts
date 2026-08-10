@@ -1,7 +1,7 @@
 import {
   buildNestedJsonHookConfig,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const DROID_HOOKS_PATH = '.factory/settings.json';
 

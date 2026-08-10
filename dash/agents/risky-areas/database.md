@@ -23,7 +23,7 @@
 
 ### Tooling folder
 
-All dev and test infrastructure lives in `tooling/` inside `apps/switchdash-desktop/`.
+All dev and test infrastructure lives in `tooling/` inside `apps/switch-console-desktop/`.
 Nothing in `tooling/` is part of the production Electron bundle — the `@tooling`
 alias only exists in `vitest.config.ts`, not in `electron.vite.config.ts`.
 
@@ -68,7 +68,7 @@ installed under `tooling/node-deps/` (compiled for system Node). The app's
 ### Migration authoring checklist
 
 1. **Isolate your dev DB**: run the app with `SWITCHDASH_DB_FILE` pointing at a scratch path
-   so you're not working against your personal switchdash database
+   so you're not working against your personal Switch Console database
 
 2. **Snapshot the pre-migration baseline**:
    ```bash

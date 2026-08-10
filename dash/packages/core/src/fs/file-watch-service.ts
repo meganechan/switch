@@ -1,4 +1,4 @@
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import { ResourceMap } from '../lib';
 import { NativeWatch } from './native-watch';
 import { realpathOrResolve } from './paths';

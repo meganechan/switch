@@ -1,10 +1,10 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import type { HookRegistration } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import type { HookRegistration } from '@switch-console/core/agents/plugins';
 import {
   SWITCHDASH_MARKER,
   filterUserHooks,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { parse as parseTOML, stringify as stringifyTOML } from 'smol-toml';
 
 export const KIMI_CONFIG_PATH = '.kimi-code/config.toml';
@@ -23,11 +23,11 @@ const KIMI_HOOK_SPECS = [
 
 function buildKimiHookEntries(existing: unknown[]): unknown[] {
   const userEntries = filterUserHooks(existing as Record<string, unknown>[]);
-  const switchdashEntries = KIMI_HOOK_SPECS.map(({ hookKey, command }) => ({
+  const switchConsoleEntries = KIMI_HOOK_SPECS.map(({ hookKey, command }) => ({
     event: hookKey,
     command,
   }));
-  return [...userEntries, ...switchdashEntries];
+  return [...userEntries, ...switchConsoleEntries];
 }
 
 /**

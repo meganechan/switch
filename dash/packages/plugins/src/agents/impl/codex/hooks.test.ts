@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { HookEvent, PluginFs } from '@switchdash/core/agents/plugins';
+import type { HookEvent, PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CODEX_CONFIG_PATH, CODEX_HOOKS_PATH, buildCodexHookConfig } from './hooks';
 import { plugin } from './index';
@@ -15,7 +15,7 @@ const execFileAsync = promisify(execFile);
  * feeding it an event payload on stdin the way Codex does, and report the URL
  * and request body it would have posted.
  *
- * A copy of the harness in `@switchdash/core`'s `helpers/hooks.test.ts`; this
+ * A copy of the harness in `@switch-console/core`'s `helpers/hooks.test.ts`; this
  * package resolves that one through `dist` subpath exports, which do not carry
  * test files.
  */
@@ -57,7 +57,7 @@ async function runHookCommand(
   }
 }
 
-/** The `command` strings switchdash writes into Codex's `hooks.json`, by event. */
+/** The `command` strings Switch Console writes into Codex's `hooks.json`, by event. */
 async function installedCommands(): Promise<Record<string, string>> {
   const fs = createMemoryFs();
   await buildCodexHookConfig().writeHooks(fs, []);
@@ -226,7 +226,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     // The tool hooks exist for the runtime status line and so cover every tool.
     // Room tracking is not among their jobs: since the agent-bridge push
     // transport (CHOO-1857), a session's room is claimed on the connection
-    // switchdash opens and hands it as SWITCH_CONNECTION_ID, so the server
+    // Switch Console opens and hands it as SWITCH_CONNECTION_ID, so the server
     // reports the room back and the old `connect_to_room` scrape is gone.
     const fs = createMemoryFs();
     await buildCodexHookConfig().writeHooks(fs, []);
@@ -289,7 +289,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     ]);
   });
 
-  it('preserves user hooks and removes only switchdash entries on delete', async () => {
+  it('preserves user hooks and removes only Switch Console entries on delete', async () => {
     const userEntry = { hooks: [{ type: 'command', command: 'echo hi' }] };
     const fs = createMemoryFs({
       [CODEX_HOOKS_PATH]: JSON.stringify({ hooks: { Stop: [userEntry] } }),
@@ -300,7 +300,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     let config = JSON.parse((await fs.read(CODEX_HOOKS_PATH))!) as {
       hooks: Record<string, unknown[]>;
     };
-    // The user's own Stop hook survives alongside the injected switchdash one.
+    // The user's own Stop hook survives alongside the injected Switch Console one.
     expect(config.hooks.Stop).toHaveLength(2);
 
     await cfg.deleteHooks(fs);

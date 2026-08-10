@@ -21,7 +21,7 @@ export interface ContractRange {
  */
 export const ARTIFACT_VERSIONS = {
   'switch-core': '0.12.4',
-  switchdash: '0.19.3',
+  'switch-console': '0.19.3',
   'agent-runtime': '0.2.0',
   sidecar: '1.8.0',
   gateway: '0.12.4',
@@ -48,16 +48,16 @@ export const CONTRACTS = {
   // The HTTP API switch-core serves to first-party UI clients. Excludes the authentication surface, which is deliberately frozen and unversioned so that a client can always authenticate far enough to be told what is wrong.
   'gateway-api': {
     'switch-core': { speaks: 1, accepts: 1 },
-    switchdash: { speaks: 1, accepts: 1 },
+    'switch-console': { speaks: 1, accepts: 1 },
   },
-  // The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which switchdash's local-server mode drives.
+  // The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which Switch Console's local-server mode drives.
   'stack-compose': {
-    switchdash: { speaks: 1, accepts: 1 },
+    'switch-console': { speaks: 1, accepts: 1 },
     compose: { speaks: 1, accepts: 1 },
   },
-  // How switchdash controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
+  // How Switch Console controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
   'sidecar-control': {
-    switchdash: { speaks: 1, accepts: 1 },
+    'switch-console': { speaks: 1, accepts: 1 },
     sidecar: { speaks: 1, accepts: 1 },
   },
   // The database schema switch-core expects. Internal to switch-core — this contract is never disclosed in an externally facing response.

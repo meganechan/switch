@@ -38,8 +38,8 @@ export type RepoAgentDefinition = {
 export const SWITCH_CONNECTOR_TOOL_RULES = ['mcp__plugin_switch-connector_switch'] as const;
 
 /**
- * Every rule switchdash has ever authored, including ones it no longer writes.
- * The paths that strip switchdash's own contributions back out — the subagent
+ * Every rule Switch Console has ever authored, including ones it no longer writes.
+ * The paths that strip Switch Console's own contributions back out — the subagent
  * form's read-back and the teardown that removes Switch settings — match against
  * this, so a working directory set up before the connector's two MCP servers
  * became one runtime is still cleaned up completely instead of keeping a rule
@@ -91,7 +91,7 @@ export type RepoAgentAttributes = Record<string, RepoAgentAttributeValue>;
 
 /**
  * How an agent provider creates, runs, and credentials the named agents defined
- * in a working directory. Switchdash has no notion of "subagents" — it just asks
+ * in a working directory. Switch Console has no notion of "subagents" — it just asks
  * a provider to create and run an agent with a given name in a directory, and to
  * support several such agents in one directory. HOW the provider does that (Claude
  * Code uses subagents; another provider might use something else) is entirely the

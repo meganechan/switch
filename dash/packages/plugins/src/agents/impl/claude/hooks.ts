@@ -1,4 +1,4 @@
-import type { CanonicalHookEvent, NotificationType } from '@switchdash/core/agents/plugins';
+import type { CanonicalHookEvent, NotificationType } from '@switch-console/core/agents/plugins';
 import {
   baseName,
   buildNestedJsonHookConfig,
@@ -9,7 +9,7 @@ import {
   toolInputOf,
   toolLabel,
   toolNameOf,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const CLAUDE_SETTINGS_PATH = '.claude/settings.local.json';
 
@@ -155,7 +155,7 @@ export function buildClaudeHookConfig() {
       { hookKey: 'Notification', command: makeStdinHookCommand('notification') },
       { hookKey: 'Stop', command: makeStdinHookCommand('stop') },
       // Switch room detection: report the room a session connects to so
-      // switchdash can surface membership and drive notification injection.
+      // Switch Console can surface membership and drive notification injection.
       {
         hookKey: 'PostToolUse',
         matcher: 'mcp__.*__connect_to_room',
