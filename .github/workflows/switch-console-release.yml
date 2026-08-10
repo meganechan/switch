@@ -20,8 +20,7 @@ name: Switch Console release
 # Builds are signed + notarized with the org's Developer ID when the Apple secrets
 # (APPLE_CSC_LINK / APPLE_CSC_KEY_PASSWORD / APPLE_API_KEY_P8 / APPLE_API_KEY_ID /
 # APPLE_API_ISSUER) are present; without them they fall back to an unsigned ad-hoc
-# build. Auto-update is disabled in the shipped app (VITE_SWITCHDASH_AUTOUPDATE=off)
-# so it never pulls from the upstream release feed.
+# build.
 
 on:
   push:

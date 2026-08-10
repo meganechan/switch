@@ -14,7 +14,7 @@ export const RELEASE_REPO_OWNER = 'sandbox-quantum';
 export const RELEASE_REPO_NAME = 'switch';
 
 // Mirrors COMPATIBLE_SWITCH_VERSION in ./app-identity.ts. Both are checked
-// against `switchdash.pins.switch-core` in artifacts.yaml by `just artifacts`,
+// against `switch-console.pins.switch-core` in artifacts.yaml by `just artifacts`,
 // so they can no longer drift apart — this used to say "keep in sync" and rely
 // on whoever edited one remembering the other (CHOO-1865).
 export const COMPATIBLE_SWITCH_VERSION = '0.12.3';

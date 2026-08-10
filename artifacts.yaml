@@ -64,7 +64,7 @@ artifacts:
     declared_in: core/pyproject.toml
     published_as: switch-core
 
-  switchdash:
+  switch-console:
     description: The desktop app.
     version: 0.19.3
     declared_in: dash/apps/switch-console-desktop/package.json
@@ -153,7 +153,7 @@ contracts:
       wrong.
     artifacts:
       switch-core: { speaks: 1, accepts: 1 }
-      switchdash: { speaks: 1, accepts: 1 }
+      switch-console: { speaks: 1, accepts: 1 }
 
   stack-compose:
     description: >-
@@ -161,7 +161,7 @@ contracts:
       names, profiles, and environment variables — which Switch Console's
       local-server mode drives.
     artifacts:
-      switchdash: { speaks: 1, accepts: 1 }
+      switch-console: { speaks: 1, accepts: 1 }
       compose: { speaks: 1, accepts: 1 }
 
   sidecar-control:
@@ -169,7 +169,7 @@ contracts:
       How Switch Console controls a deployed sidecar on a remote host: the ready
       file it reads, and the control channel it opens.
     artifacts:
-      switchdash: { speaks: 1, accepts: 1 }
+      switch-console: { speaks: 1, accepts: 1 }
       sidecar: { speaks: 1, accepts: 1 }
 
   db-schema:

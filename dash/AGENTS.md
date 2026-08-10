@@ -39,9 +39,12 @@ Still `switchdash`, deliberately — **do not "fix" these**:
 - `SWITCHDASH_*` environment variables and the `X-Switchdash-*` hook headers — baked
   into hook commands already written into users' own agent config files, and into
   sidecars already deployed on remote hosts
-- the `switchdash` key in `artifacts.yaml` — the name the app declares to a sidecar
-  during compatibility negotiation — and the matching `## switchdash` section in
-  the root `CHANGELOG.md`, which tracks that artifact
+
+The artifact-registry key was on this list and should not have been. The name is
+a lookup key inside each build, not something that crosses a wire: a sidecar is
+handed the resulting `speaks`/`accepts` numbers and never sees the name. It is
+now `switch-console` in `artifacts.yaml`, in `SIDECAR_CLIENT_ARTIFACT`, and as
+the `CHANGELOG.md` section that tracks it.
 
 One cost was accepted rather than avoided: because `APP_NAME_LOWER` moved, `apt` and
 `dnf` treat `switch-console` as a new package rather than an upgrade of `switchdash`,

@@ -35,7 +35,7 @@ Do not give any of them a version of their own without also giving it a release
 of its own — a version nobody publishes independently is a number that drifts
 from reality, which is exactly what `Chart.yaml` did while it claimed `0.2.1`.
 
-The separately-versioned artifacts are switch-core, switchdash, the
+The separately-versioned artifacts are switch-core, switch-console, the
 agent-runtime package, the sidecar, and the two connector plugins.
 
 ### A known gap: the Helm chart has no contract
@@ -63,7 +63,7 @@ peer still on it, and it can never be raised past what is running in the field.
 1. **Bump the version** in `core/pyproject.toml` (`[project].version`).
 2. **Update `CHANGELOG.md`**: under the `## switch-core` section, move the
    `### [Unreleased]` items under a new `### [X.Y.Z]` heading and note the date.
-   (The desktop app has its own `## switchdash` section, versioned separately.)
+   (The desktop app has its own `## switch-console` section, versioned separately.)
 3. **Commit** the bump + changelog on a release branch and merge to `main`.
 4. **Tag and push**: the tag MUST be `switch-v<version>` and match
    `core/pyproject.toml` (the workflow verifies this and fails on mismatch):
@@ -89,7 +89,7 @@ The desktop app (`dash/`) releases on its own tag, `switch-console-v<version>`, 
 `.github/workflows/switch-console-release.yml`. The tag MUST match
 `dash/apps/switch-console-desktop/package.json` `version` (the workflow verifies
 this and fails on mismatch). Procedure: bump `package.json`, cut the
-`## switchdash` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
+`## switch-console` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
 publishes a **GitHub Release** (macOS arm64 signed + notarized; Linux x64
 AppImage/deb/rpm, unsigned).
 

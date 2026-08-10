@@ -40,7 +40,7 @@ export const RELEASE_REPO_NAME = 'switch';
 // (src/main/core/managed-switch-server/resources/standalone-docker-compose.pinned.yml)
 // so a Switch Console release pins a known-good switch-core stack.
 //
-// Declared in artifacts.yaml under `switchdash.pins.switch-core`, and CHECKED
+// Declared in artifacts.yaml under `switch-console.pins.switch-core`, and CHECKED
 // against it by `just artifacts` (CHOO-1865). A literal rather than an import
 // because electron-builder loads this module under bare Node, where
 // extensionless ESM specifiers do not resolve — so it cannot import anything.

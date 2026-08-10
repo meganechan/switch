@@ -18,14 +18,14 @@ leaves its contracts alone.
 - **switch-core** — the backend service (`core/`). Released by tagging
   `switch-v<version>`; the version lives in `core/pyproject.toml`. See
   [RELEASING.md](RELEASING.md).
-- **switchdash** — the desktop app (`dash/`). Released by tagging
+- **switch-console** — the desktop app (`dash/`). Released by tagging
   `switch-console-v<version>`; the version lives in
   `dash/apps/switch-console-desktop/package.json`.
 - **agent-runtime** — the Switch protocol client and MCP runtime
   (`dash/packages/switch-agent-runtime/`), published to a package registry.
-- **sidecar** — the remote runtime switchdash deploys to an agent host
+- **sidecar** — the remote runtime Switch Console deploys to an agent host
   (`dash/apps/switch-console-desktop/src/sidecar/`). Versioned in
-  `sidecar-version.ts` and deployed by switchdash, not published separately.
+  `sidecar-version.ts` and deployed by Switch Console, not published separately.
 - **switch-connector** / **switch-connector-codex** — the two connector plugins
   (`connectors/`), versioned in their respective plugin manifests.
 
@@ -292,7 +292,7 @@ version of their own to them without also giving them a release of their own.
 
 ---
 
-## switchdash
+## switch-console
 
 ### [Unreleased]
 

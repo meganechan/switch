@@ -39,7 +39,7 @@ export const SIDECAR_VERSION = artifactVersion('sidecar');
 export const SIDECAR_ARTIFACT = 'sidecar';
 
 /** The artifact name Switch Console declares itself as, on the same contract. */
-export const SIDECAR_CLIENT_ARTIFACT = 'switchdash';
+export const SIDECAR_CLIENT_ARTIFACT = 'switch-console';
 
 /** What a sidecar of this build speaks. Written into its ready file. */
 export const SIDECAR_CONTROL = contractRange('sidecar-control', SIDECAR_ARTIFACT);

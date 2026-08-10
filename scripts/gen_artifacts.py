@@ -283,12 +283,12 @@ LITERAL_CHECKS: list[tuple[str, str, str]] = [
     (
         "dash/apps/switch-console-desktop/src/shared/app-identity.ts",
         "COMPATIBLE_SWITCH_VERSION",
-        "switchdash.pins.switch-core",
+        "switch-console.pins.switch-core",
     ),
     (
         "dash/apps/switch-console-desktop/src/shared/app-identity.canary.ts",
         "COMPATIBLE_SWITCH_VERSION",
-        "switchdash.pins.switch-core",
+        "switch-console.pins.switch-core",
     ),
 ]
 
