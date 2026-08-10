@@ -52,14 +52,12 @@ describe('searchService', () => {
     mocks.db = fixture.db;
     mocks.sqlite = fixture.sqlite;
 
-    await fixture.db
-      .insert(locations)
-      .values({
-        id: 'loc-1',
-        name: 'switch-console repo',
-        sshHost: '',
-        dir: '/tmp/switch-console',
-      });
+    await fixture.db.insert(locations).values({
+      id: 'loc-1',
+      name: 'switch-console repo',
+      sshHost: '',
+      dir: '/tmp/switch-console',
+    });
     await fixture.db
       .insert(locations)
       .values({ id: 'loc-2', name: 'other repo', sshHost: '', dir: '/tmp/other' });

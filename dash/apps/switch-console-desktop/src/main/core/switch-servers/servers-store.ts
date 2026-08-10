@@ -259,7 +259,7 @@ export async function setActiveServerId(id: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 export async function getSessionCookie(serverId: string): Promise<string | null> {
-  return encryptedAppSecretsStore.getSecret(cookieSecretKey(serverId));
+  return encryptedAppSecretsStore.readRecoverableSecret(cookieSecretKey(serverId));
 }
 
 export async function setSessionCookie(serverId: string, jwt: string): Promise<void> {

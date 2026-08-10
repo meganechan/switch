@@ -4,14 +4,21 @@ import { generateSecrets } from './secret-values';
 const getSecret = vi.fn();
 const setSecret = vi.fn();
 
+class FakeUndecryptableSecretError extends Error {
+  constructor(readonly key: string) {
+    super(`Stored secret '${key}' exists but could not be decrypted.`);
+  }
+}
+
 vi.mock('@main/core/secrets/encrypted-app-secrets-store', () => ({
   encryptedAppSecretsStore: {
     getSecret: (...args: unknown[]) => getSecret(...args),
     setSecret: (...args: unknown[]) => setSecret(...args),
   },
+  UndecryptableSecretError: FakeUndecryptableSecretError,
 }));
 
-const { loadOrCreateSecrets } = await import('./secrets');
+const { loadOrCreateSecrets, readSecrets } = await import('./secrets');
 
 describe('generateSecrets', () => {
   it('populates every field with a non-empty value', () => {
@@ -63,12 +70,35 @@ describe('loadOrCreateSecrets', () => {
     expect(setSecret).not.toHaveBeenCalled();
   });
 
-  it('propagates a decryption failure rather than treating it as absent', async () => {
-    getSecret.mockRejectedValue(new Error("Stored secret 'host-a' could not be decrypted."));
+  it('refuses to mint replacements when the stored bundle cannot be decrypted', async () => {
+    getSecret.mockRejectedValue(new FakeUndecryptableSecretError('host-a'));
 
     await expect(loadOrCreateSecrets({ secretsKey: 'host-a' })).rejects.toThrow(
-      /could not be decrypted/
+      /credentials for this managed server are unreadable/
     );
+    expect(setSecret).not.toHaveBeenCalled();
+  });
+
+  it('lets an unrelated storage failure through untouched', async () => {
+    getSecret.mockRejectedValue(new Error('database is locked'));
+
+    await expect(loadOrCreateSecrets({ secretsKey: 'host-a' })).rejects.toThrow(
+      /database is locked/
+    );
+    expect(setSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe('readSecrets', () => {
+  beforeEach(() => {
+    getSecret.mockReset();
+    setSecret.mockReset();
+  });
+
+  it('shows nothing rather than throwing when the bundle cannot be decrypted', async () => {
+    getSecret.mockRejectedValue(new FakeUndecryptableSecretError('host-a'));
+
+    await expect(readSecrets({ secretsKey: 'host-a' })).resolves.toBeNull();
     expect(setSecret).not.toHaveBeenCalled();
   });
 });

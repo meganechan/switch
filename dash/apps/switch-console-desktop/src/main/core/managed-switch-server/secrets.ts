@@ -1,4 +1,7 @@
-import { encryptedAppSecretsStore } from '@main/core/secrets/encrypted-app-secrets-store';
+import {
+  encryptedAppSecretsStore,
+  UndecryptableSecretError,
+} from '@main/core/secrets/encrypted-app-secrets-store';
 import type { ServerHost } from './host/types';
 import { generateSecrets, type LocalServerSecrets } from './secret-values';
 
@@ -13,7 +16,13 @@ type StoredSecrets =
   | { kind: 'unreadable'; cause: unknown };
 
 async function readStoredSecrets(host: Pick<ServerHost, 'secretsKey'>): Promise<StoredSecrets> {
-  const existing = await encryptedAppSecretsStore.getSecret(host.secretsKey);
+  let existing: string | null;
+  try {
+    existing = await encryptedAppSecretsStore.getSecret(host.secretsKey);
+  } catch (cause) {
+    if (!(cause instanceof UndecryptableSecretError)) throw cause;
+    return { kind: 'unreadable', cause };
+  }
   if (!existing) return { kind: 'missing' };
   try {
     return { kind: 'present', secrets: JSON.parse(existing) as LocalServerSecrets };
