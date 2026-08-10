@@ -23,11 +23,11 @@ const KIMI_HOOK_SPECS = [
 
 function buildKimiHookEntries(existing: unknown[]): unknown[] {
   const userEntries = filterUserHooks(existing as Record<string, unknown>[]);
-  const switchdashEntries = KIMI_HOOK_SPECS.map(({ hookKey, command }) => ({
+  const switchConsoleEntries = KIMI_HOOK_SPECS.map(({ hookKey, command }) => ({
     event: hookKey,
     command,
   }));
-  return [...userEntries, ...switchdashEntries];
+  return [...userEntries, ...switchConsoleEntries];
 }
 
 /**

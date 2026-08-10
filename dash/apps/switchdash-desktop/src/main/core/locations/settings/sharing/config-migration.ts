@@ -11,7 +11,7 @@ import { codexConfigMigrator } from './codex-config-migration';
 import { conductorConfigMigrator } from './conductor-config-migration';
 import { paseoConfigMigrator } from './paseo-config-migration';
 import { supersetConfigMigrator } from './superset-config-migration';
-import { CONFIG_FILE } from './switchdash-config-file';
+import { CONFIG_FILE } from './switch-console-config-file';
 
 export type LocationConfigMigrator = {
   provider: LocationConfigMigration['provider'];

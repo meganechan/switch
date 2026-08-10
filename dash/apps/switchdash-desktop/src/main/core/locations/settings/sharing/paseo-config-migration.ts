@@ -13,7 +13,7 @@ import type { UpdateLocationSettingsError } from '@shared/core/locations/locatio
 import type { LocationProvider } from '../../location-provider';
 import { parseJsonObject } from '../location-settings-json';
 import type { LocationConfigMigrator } from './config-migration';
-import { CONFIG_FILE } from './switchdash-config-file';
+import { CONFIG_FILE } from './switch-console-config-file';
 
 const PASEO_CONFIG_FILE = 'paseo.json';
 

@@ -13,7 +13,7 @@ export function confirmOpenExternalLink(url: string, onError?: (error: unknown) 
 
   showModal('confirmExternalLinkModal', {
     url: normalizedUrl,
-    canOpenInSwitchdashBrowser: false,
+    canOpenInSwitchConsoleBrowser: false,
     onSuccess: () => {
       // `onError` used to hang off a rejection that never came: the main
       // process reports a refusal as a value, so it never threw and the

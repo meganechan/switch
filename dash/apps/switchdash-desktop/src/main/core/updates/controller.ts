@@ -1,7 +1,7 @@
 import { app, shell } from 'electron';
 import { updateService } from '@main/core/updates/update-service';
 import { createRPCController } from '@shared/lib/ipc/rpc';
-import { SWITCHDASH_RELEASES_URL } from '@shared/urls';
+import { SWITCH_CONSOLE_RELEASES_URL } from '@shared/urls';
 import { formatUpdaterError } from './utils';
 
 export const updateController = createRPCController({
@@ -34,7 +34,7 @@ export const updateController = createRPCController({
 
   openLatest: async () => {
     try {
-      await shell.openExternal(SWITCHDASH_RELEASES_URL);
+      await shell.openExternal(SWITCH_CONSOLE_RELEASES_URL);
       setTimeout(() => {
         try {
           app.quit();

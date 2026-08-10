@@ -22,7 +22,7 @@ import { serializeShareableLocationSettings } from '../legacy-shareable-migratio
 import { compactUndefined, parseJsonObject, readJson } from '../location-settings-json';
 import { LocationSettingsRepository } from '../location-settings-storage';
 import type { LocationSettingsPatch, LocationSettingsProvider } from '../provider';
-import { CONFIG_FILE } from '../sharing/switchdash-config-file';
+import { CONFIG_FILE } from '../sharing/switch-console-config-file';
 
 export type DbLocationSettingsProviderOptions = {
   git?: LocationSettingsGitInspector;

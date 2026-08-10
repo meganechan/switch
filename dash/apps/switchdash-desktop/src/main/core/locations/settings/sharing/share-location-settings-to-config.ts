@@ -9,9 +9,9 @@ import {
 } from './location-settings-target-resolver';
 import {
   CONFIG_FILE,
-  parseSwitchdashConfigObject,
+  parseSwitchConsoleConfigObject,
   patchShareableLocationSettingsFields,
-} from './switchdash-config-file';
+} from './switch-console-config-file';
 
 function writeConfigFailed(message: string): Result<void, UpdateLocationSettingsError> {
   return err({ type: 'write-config-failed', message });
@@ -37,7 +37,7 @@ export async function shareLocationSettingsToConfig(
     try {
       if (await target.fs.exists(CONFIG_FILE)) {
         const { content } = await target.fs.read(CONFIG_FILE);
-        config = parseSwitchdashConfigObject(content);
+        config = parseSwitchConsoleConfigObject(content);
       } else {
         config = {};
       }

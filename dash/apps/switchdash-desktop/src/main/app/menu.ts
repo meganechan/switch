@@ -9,9 +9,9 @@ import {
   menuUndoChannel,
 } from '@shared/events/appEvents';
 import {
-  SWITCHDASH_DOCS_URL,
-  SWITCHDASH_ISSUES_NEW_URL,
-  SWITCHDASH_RELEASES_URL,
+  SWITCH_CONSOLE_DOCS_URL,
+  SWITCH_CONSOLE_ISSUES_NEW_URL,
+  SWITCH_CONSOLE_RELEASES_URL,
 } from '@shared/urls';
 import { getMainWindow } from './window';
 
@@ -158,13 +158,13 @@ export function setupApplicationMenu(): void {
         {
           label: 'Docs',
           click: () => {
-            void shell.openExternal(SWITCHDASH_DOCS_URL);
+            void shell.openExternal(SWITCH_CONSOLE_DOCS_URL);
           },
         },
         {
           label: 'Changelog',
           click: () => {
-            void shell.openExternal(SWITCHDASH_RELEASES_URL);
+            void shell.openExternal(SWITCH_CONSOLE_RELEASES_URL);
           },
         },
         { type: 'separator' as const },
@@ -174,7 +174,7 @@ export function setupApplicationMenu(): void {
             {
               label: 'Report Issue\u2026',
               click: () => {
-                void shell.openExternal(SWITCHDASH_ISSUES_NEW_URL);
+                void shell.openExternal(SWITCH_CONSOLE_ISSUES_NEW_URL);
               },
             },
             {

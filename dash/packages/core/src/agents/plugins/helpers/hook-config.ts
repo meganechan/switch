@@ -135,13 +135,15 @@ export function buildFlatTomlHookConfig(
   const stringifyEntry = options.stringifyEntry ?? JSON.stringify;
   const getHookEntries = (config: Record<string, unknown>) =>
     Array.isArray(config.hooks) ? (config.hooks as Record<string, unknown>[]) : [];
-  const hasSwitchdashHook = (config: Record<string, unknown>) =>
+  const hasSwitchConsoleHook = (config: Record<string, unknown>) =>
     getHookEntries(config).some((entry) => stringifyEntry(entry).includes(SWITCHDASH_MARKER));
 
   return {
     async readHooks(fs: PluginFs): Promise<HookRegistration[]> {
       const config = await readTomlConfig(fs, configPath);
-      return hasSwitchdashHook(config) ? [{ event: 'switchdash', command: SWITCHDASH_MARKER }] : [];
+      return hasSwitchConsoleHook(config)
+        ? [{ event: 'switchdash', command: SWITCHDASH_MARKER }]
+        : [];
     },
     async writeHooks(fs: PluginFs, _hooks: HookRegistration[]): Promise<string[]> {
       const config = await readTomlConfig(fs, configPath);
@@ -161,7 +163,7 @@ export function buildFlatTomlHookConfig(
     },
     async getHooksInstalled(fs: PluginFs): Promise<boolean> {
       const config = await readTomlConfig(fs, configPath);
-      return hasSwitchdashHook(config);
+      return hasSwitchConsoleHook(config);
     },
   };
 }

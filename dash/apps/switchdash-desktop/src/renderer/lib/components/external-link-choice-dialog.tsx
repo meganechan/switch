@@ -12,14 +12,14 @@ export type ExternalLinkChoice = 'switchdash-browser' | 'external-browser';
 
 export type ExternalLinkChoiceDialogArgs = {
   url: string;
-  canOpenInSwitchdashBrowser: boolean;
+  canOpenInSwitchConsoleBrowser: boolean;
 };
 
 type Props = BaseModalProps<ExternalLinkChoice> & ExternalLinkChoiceDialogArgs;
 
 export function ExternalLinkChoiceDialog({
   url,
-  canOpenInSwitchdashBrowser,
+  canOpenInSwitchConsoleBrowser,
   onSuccess,
   onClose,
 }: Props) {
@@ -41,7 +41,7 @@ export function ExternalLinkChoiceDialog({
         <Button
           className="w-full"
           variant="outline"
-          disabled={!canOpenInSwitchdashBrowser}
+          disabled={!canOpenInSwitchConsoleBrowser}
           onClick={() => onSuccess('switchdash-browser')}
         >
           <Globe className="size-4" />

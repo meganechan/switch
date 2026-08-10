@@ -16,7 +16,7 @@ import {
   updateNotAvailableEvent,
   updateProgressEvent,
 } from '@shared/events/updateEvents';
-import { switchdashReleaseUrl } from '@shared/urls';
+import { switchConsoleReleaseUrl } from '@shared/urls';
 
 const LAST_NOTIFIED_KEY = 'switchdash:update:lastNotified';
 const SNOOZE_HOURS = 6;
@@ -146,7 +146,7 @@ export class UpdateStore {
   }
 
   get releaseUrl(): string {
-    return switchdashReleaseUrl(this.latestVersion);
+    return switchConsoleReleaseUrl(this.latestVersion);
   }
 
   start(): void {

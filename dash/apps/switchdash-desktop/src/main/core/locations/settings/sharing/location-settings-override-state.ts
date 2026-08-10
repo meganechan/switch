@@ -7,7 +7,7 @@ import {
 } from '@shared/core/location-settings/location-settings';
 import { SHAREABLE_FIELD_ACCESSORS } from '@shared/core/location-settings/location-settings-fields';
 import type { LocationSettingsResolvedTarget } from './location-settings-target-resolver';
-import { CONFIG_FILE } from './switchdash-config-file';
+import { CONFIG_FILE } from './switch-console-config-file';
 
 export async function computeLocationSettingsOverrideState(
   targets: LocationSettingsResolvedTarget[]

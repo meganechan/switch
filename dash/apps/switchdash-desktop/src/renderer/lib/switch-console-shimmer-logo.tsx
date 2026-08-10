@@ -4,9 +4,9 @@ import {
   LOGO_TEXT,
   NATURAL_HEIGHT,
   NATURAL_WIDTH,
-} from '@renderer/lib/switchdash-logo';
+} from '@renderer/lib/switch-console-logo';
 
-export function SwitchdashShimmerLogo({
+export function SwitchConsoleShimmerLogo({
   className,
   height = NATURAL_HEIGHT,
   color = 'currentColor',

@@ -13,7 +13,7 @@ import { mergeShareableLocationSettings } from '@shared/core/location-settings/l
 import type { UpdateLocationSettingsError } from '@shared/core/locations/locations';
 import type { LocationProvider } from '../../location-provider';
 import type { LocationConfigMigrator } from './config-migration';
-import { CONFIG_FILE } from './switchdash-config-file';
+import { CONFIG_FILE } from './switch-console-config-file';
 
 const CODEX_ENVIRONMENT_FILE = '.codex/environments/environment.toml';
 

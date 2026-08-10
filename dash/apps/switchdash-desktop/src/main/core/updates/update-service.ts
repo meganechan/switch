@@ -24,7 +24,7 @@ import {
   updateNotAvailableEvent,
   updateProgressEvent,
 } from '@shared/events/updateEvents';
-import { switchdashReleaseApiUrl } from '@shared/urls';
+import { switchConsoleReleaseApiUrl } from '@shared/urls';
 import {
   FAKE_UPDATE_VERSION_ENV_VAR,
   FakeUpdateDriver,
@@ -440,7 +440,7 @@ class UpdateService implements IInitializable, IDisposable {
       // The release feed is a private repo: an unauthenticated read 404s on
       // every release, so reuse the token the update check already relies on.
       const token = await getGithubTokenFromGhCli();
-      const response = await fetch(switchdashReleaseApiUrl(version), {
+      const response = await fetch(switchConsoleReleaseApiUrl(version), {
         headers: token ? { authorization: `token ${token}` } : {},
       });
 

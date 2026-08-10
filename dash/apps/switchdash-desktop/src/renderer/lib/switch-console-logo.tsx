@@ -11,7 +11,7 @@ export const LOGO_FONT_FAMILY =
 
 // The wordmark is rendered as text rather than as baked-in glyph paths so it
 // carries the product name with no upstream logo artwork.
-export function SwitchdashLogo({
+export function SwitchConsoleLogo({
   className,
   height = NATURAL_HEIGHT,
   color = 'currentColor',
