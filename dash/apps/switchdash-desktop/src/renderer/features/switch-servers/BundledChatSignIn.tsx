@@ -69,7 +69,11 @@ function CredentialRow({
 
 /**
  * The bundled chat's address and sign-in, for signing in outside switchdash —
- * a browser, a phone, or the desktop Mattermost client (CHOO-1787).
+ * a browser or the desktop Mattermost client (CHOO-1787).
+ *
+ * Both are on the same machine by necessity: the stack publishes onto loopback
+ * so it is never exposed to the LAN, so the copy must not invite the user to
+ * try a device that cannot reach it.
  *
  * Collapsed by default, and the values are only fetched once it is opened: the
  * password should not cross into the renderer for everyone who merely looks at
@@ -104,8 +108,8 @@ export function BundledChatSignIn({ serverId }: { serverId: string }) {
       {expanded && (
         <div className="mt-2 space-y-2">
           <p className="text-xs text-foreground-muted">
-            Use these to sign in to this chat in a browser, on your phone, or in the Mattermost
-            desktop app.
+            Use these to sign in to this chat in a browser or the Mattermost desktop app on this
+            computer.
           </p>
 
           {signInQuery.isLoading ? (

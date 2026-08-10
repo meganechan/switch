@@ -223,7 +223,9 @@ export type RemoteBridge = {
 
 /**
  * How to sign in to a managed deployment's bundled Mattermost directly — in a
- * browser, on a phone, or in the desktop Mattermost client (CHOO-1787).
+ * browser or the desktop Mattermost client, on the machine running it
+ * (CHOO-1787). The stack publishes onto loopback, so nothing off that machine
+ * can reach the URL.
  *
  * `unavailable` carries the reason in words a user can act on, and is the only
  * alternative to real values: the credentials are per-deployment and generated,
