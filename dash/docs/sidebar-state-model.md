@@ -107,6 +107,31 @@ Also, when the picker's member lookup fails it treats the room as empty: it
 offers agents already in it, and can display "every agent on this server is
 already in the room" when in fact it simply failed to ask.
 
+### Room names are a third independent fetch, and fail silently
+
+A room's **name** does not come from the same read as its membership. It comes
+from the per-server room list, into its own `roomId → name` map, on its own
+schedule (mount + window focus). Both maps are memory-only; neither is
+persisted.
+
+The agent view exposes this most sharply, because there the room *id* and the
+room *name* have different reliability:
+
+- The id comes from the session→room push channel — immediate, and covers any
+  room a session is in, including rooms on servers whose list was never fetched.
+- The name comes from `loadRoomNames`, which **skips every server that is not
+  connected at that moment** and **swallows a failed fetch** (`catch {}`), with
+  no retry until the next focus.
+
+So the view knows a room exists but has never learned its name, and
+`roomLabel` renders `Room 39c66c86` — a plausible-looking label, not a disclosed
+unknown. Because the map is memory-only, every launch also starts with zero
+names, so short ids are visible until the first fetch returns.
+
+Target: the name is part of the same room-keyed read as the membership, an
+unknown name renders as a loading state rather than a short id, and last-known
+names are persisted so a restart does not begin blind.
+
 ### Two more worth fixing while here
 
 - **Agent filters silently narrow room membership.** The member list is built by
@@ -196,9 +221,12 @@ collapses to an empty array and renders as a confident zero.
    The alternative is to fix 3.2 and 3.4 only, which kills the two reported
    symptoms and the silent-empty class, but leaves membership agent-keyed and
    leaves case 2 (non-local agents) unfixable. Worth doing the full thing?
-2. **Non-local agents.** Should a room list members this install has no local
-   agent for — as read-only rows — or keep them out and just disclose the gap?
-   Listing them is the honest answer but it changes what the sidebar is.
+2. ~~**Non-local agents.**~~ **Decided (louis.amaudruz).** Both the room's
+   member list and the invite picker are restricted to agents that exist on this
+   switchdash — the sidebar only shows what it can act on. Consequences: a
+   server-side agent cannot be invited from switchdash at all, and the room row
+   discloses the count it cannot draw so a hidden member is not mistaken for an
+   absent one.
 3. **Polling.** Focus-only reconcile means a switchdash left open in the
    foreground never notices external changes. Add a slow background poll, or
    accept it and rely on the freshness disclosure?
