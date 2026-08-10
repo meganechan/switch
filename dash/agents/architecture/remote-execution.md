@@ -85,7 +85,7 @@ Two properties worth preserving:
 
 ## The sidecar
 
-A remote agent runs inside tmux next to a switchdash-deployed **sidecar**, so it keeps
+A remote agent runs inside tmux next to a Switch Console-deployed **sidecar**, so it keeps
 working and listening to its Switch rooms while Switch Console is closed (CHOO-1059).
 
 `src/sidecar/` is a second, headless implementation of what the desktop does for a

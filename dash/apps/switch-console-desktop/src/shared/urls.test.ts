@@ -7,7 +7,7 @@ import {
 } from './urls';
 
 describe('switchConsoleReleaseTag', () => {
-  it('namespaces the tag with the switchdash prefix', () => {
+  it('namespaces the tag with the switch-console prefix', () => {
     expect(switchConsoleReleaseTag('0.18.2')).toBe('switch-console-v0.18.2');
   });
 

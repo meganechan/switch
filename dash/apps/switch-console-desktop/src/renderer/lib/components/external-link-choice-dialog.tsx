@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@renderer/lib/ui/dialog';
 
-export type ExternalLinkChoice = 'switchdash-browser' | 'external-browser';
+export type ExternalLinkChoice = 'switch-console-browser' | 'external-browser';
 
 export type ExternalLinkChoiceDialogArgs = {
   url: string;
@@ -42,7 +42,7 @@ export function ExternalLinkChoiceDialog({
           className="w-full"
           variant="outline"
           disabled={!canOpenInSwitchConsoleBrowser}
-          onClick={() => onSuccess('switchdash-browser')}
+          onClick={() => onSuccess('switch-console-browser')}
         >
           <Globe className="size-4" />
           Open in Switch Console

@@ -125,7 +125,7 @@ async function applyMattermostTheme(
     });
     if (!saved.ok) throw new Error(`PUT /preferences returned ${saved.status}`);
   } catch (cause) {
-    log.warn('Could not apply the switchdash theme to Mattermost; using its defaults', {
+    log.warn('Could not apply the Switch Console theme to Mattermost; using its defaults', {
       reason: cause instanceof Error ? cause.message : String(cause),
     });
   }

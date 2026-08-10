@@ -215,7 +215,7 @@ export class RemoteHookEventRelay {
     for (const event of result.events) {
       if (event.seq <= this.cursor) continue;
       this.cursor = event.seq;
-      this.deps.log.info('RemoteHookEventRelay: replaying event into switchdash', {
+      this.deps.log.info('RemoteHookEventRelay: replaying event into Switch Console', {
         seq: event.seq,
         type: event.type,
         ptyId: event.ptyId,

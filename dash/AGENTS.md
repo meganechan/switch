@@ -20,7 +20,10 @@ something deployed — those names are frozen, and the split is load-bearing.
 Renamed: `PRODUCT_NAME`, the workspace packages (`@switch-console/*`), the app
 directory (`apps/switch-console-desktop/`), the binary and package names
 (`APP_NAME_LOWER`), the release artifacts (`ARTIFACT_PREFIX`) and tags
-(`switch-console-v*`), and the Windows signing profile.
+(`switch-console-v*`), the Windows signing profile, and every name that lives
+only inside this repo — log filenames, the renderer-log IPC channel, temp-file
+prefixes, `TERM_PROGRAM`, the oxlint plugin namespace, the icon asset folder,
+the Nix package, the updater cache directories and the BYOI tooling names.
 
 Still `switchdash`, deliberately — **do not "fix" these**:
 
@@ -37,7 +40,8 @@ Still `switchdash`, deliberately — **do not "fix" these**:
   into hook commands already written into users' own agent config files, and into
   sidecars already deployed on remote hosts
 - the `switchdash` key in `artifacts.yaml` — the name the app declares to a sidecar
-  during compatibility negotiation
+  during compatibility negotiation — and the matching `## switchdash` section in
+  the root `CHANGELOG.md`, which tracks that artifact
 
 One cost was accepted rather than avoided: because `APP_NAME_LOWER` moved, `apt` and
 `dnf` treat `switch-console` as a new package rather than an upgrade of `switchdash`,
