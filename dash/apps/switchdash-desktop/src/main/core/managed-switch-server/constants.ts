@@ -67,3 +67,9 @@ export const LOCAL_SERVER_BIND_ADDR = '127.0.0.1';
  * rather than inlined because it is also what a link into the bundled
  * Mattermost has to path through — the two must not drift. */
 export const LOCAL_SERVER_MATTERMOST_TEAM = 'switch';
+
+/** The human account the stack's seeder creates (MATTERMOST_USER), paired with
+ * the generated `mattermostUserPassword`. Three places depend on it being the
+ * name the seeder actually used — the generated env, the embed's silent login,
+ * and the sign-in switchdash shows the user — so it is named once here. */
+export const LOCAL_SERVER_MATTERMOST_USER = 'user';

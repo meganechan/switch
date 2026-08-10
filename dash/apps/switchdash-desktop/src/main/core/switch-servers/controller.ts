@@ -21,6 +21,7 @@ import type {
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  BundledChatSignIn,
   CreateBridgeParams,
   CreateBridgeResult,
   CreateRoomParams,
@@ -47,6 +48,7 @@ import type {
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
 import { withResolvedHomeUrls } from './bridge-home-url';
+import { bundledChatSignInFor } from './bundled-chat-sign-in';
 import { createBridgeOnServer } from './create-bridge';
 import { createRoomOnServer } from './create-room';
 import {
@@ -208,6 +210,16 @@ export const switchServersController = createRPCController({
 
   listRemoteBridgeTypes: async (serverId: string): Promise<RemoteBridgeType[]> =>
     fetchBridgeTypes(await requireReachableServer(serverId)),
+
+  /**
+   * The bundled chat's address and sign-in for a managed server (CHOO-1787).
+   *
+   * The password crosses IPC only when the renderer asks — the card fetches on
+   * expand, not on render — so it is not sitting in every server page's memory.
+   * Do not log the result.
+   */
+  getBundledChatSignIn: async (serverId: string): Promise<BundledChatSignIn> =>
+    bundledChatSignInFor(await getServer(serverId)),
 
   /**
    * Attach a collaboration bridge to the chosen server (CHOO-1784).
