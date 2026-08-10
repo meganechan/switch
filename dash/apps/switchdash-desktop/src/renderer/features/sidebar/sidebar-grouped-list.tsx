@@ -21,6 +21,23 @@ import { switchIdentities } from './sidebar-tree-data';
 const ROOM_STATE_RECONCILE_MS = 60_000;
 
 /**
+ * Re-read everything the sidebar's trees are built from: this install's agents,
+ * their room membership, and the room catalogue.
+ *
+ * One function for every "catch up with the world" trigger — first paint, window
+ * focus, signing in to a server, the background reconcile, the retry button. The
+ * bug being fixed here is triggers refreshing different subsets, so they share
+ * one.
+ */
+async function loadSidebarState(force: boolean): Promise<void> {
+  await agentsStore.load();
+  await Promise.all([
+    switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force }),
+    switchRoomsStore.loadRoomNames(),
+  ]);
+}
+
+/**
  * The sidebar body: loads what both trees read, then hands over to whichever
  * one the current grouping calls for.
  *
@@ -34,22 +51,15 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
   const scrollerRef = useRef<HTMLDivElement>(null);
   useScrollSelectionIntoView(scrollerRef);
 
-  // Live session→room connections, room names and room membership all live on
-  // the server; pull them once on mount and refresh on focus.
   useEffect(() => {
     roomConnectionsStore.ensureLoaded();
     void hostReachabilityStore.hydrate();
-    // Room membership is what puts an agent under a room, so it is loaded for
-    // every agent up front rather than lazily per row.
-    const loadRooms = async (force: boolean) => {
-      await agentsStore.load();
-      await switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force });
-    };
-    void loadRooms(false);
+    // The servers have to be known before their rooms can be asked for, but the
+    // agents and their membership do not wait on that.
+    void loadSidebarState(false);
     void switchServersStore.init().then(() => switchRoomsStore.loadRoomNames());
-    const onFocus = () => {
-      void loadRooms(true).then(() => switchRoomsStore.loadRoomNames());
-    };
+
+    const onFocus = () => void loadSidebarState(true);
     window.addEventListener('focus', onFocus);
 
     // A server that was not connected when the rooms were loaded contributed
@@ -62,7 +72,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
           .map((s) => s.id)
           .sort()
           .join(','),
-      () => void loadRooms(true).then(() => switchRoomsStore.loadRoomNames())
+      () => void loadSidebarState(true)
     );
 
     // Nothing pushes room state to the app: a membership changed from Slack,
@@ -71,7 +81,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     // refocuses — so reconcile on a slow timer as well.
     const reconcile = setInterval(() => {
       if (document.hidden) return;
-      void switchRoomsStore.refreshRoomState();
+      void loadSidebarState(true);
     }, ROOM_STATE_RECONCILE_MS);
 
     return () => {
@@ -132,7 +142,7 @@ const RoomStateDisclosure = observer(function RoomStateDisclosure() {
         <button
           type="button"
           className="underline underline-offset-2 hover:text-foreground"
-          onClick={() => void switchRoomsStore.refreshRoomState()}
+          onClick={() => void loadSidebarState(true)}
         >
           Retry
         </button>
