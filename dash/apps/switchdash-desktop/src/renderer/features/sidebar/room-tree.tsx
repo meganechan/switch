@@ -10,6 +10,7 @@ import { SidebarSessionItem } from './session-item';
 import { makeDndId, ROOMS_CONTAINER, SortableBranch, SortableList } from './sidebar-dnd';
 import {
   groupByRoom,
+  isRoomNameKnown,
   isRoomViewActive,
   openRoomInGateway,
   openRoomInMessagingApp,
@@ -132,6 +133,7 @@ export const RoomTree = observer(function RoomTree() {
             header={
               <RoomRow
                 label={roomLabel(roomKey)}
+                nameKnown={isRoomNameKnown(roomKey)}
                 count={agentsInRoom.length}
                 undrawableCount={switchRoomsStore.undrawableMemberCount(roomKey)}
                 expanded={expanded}

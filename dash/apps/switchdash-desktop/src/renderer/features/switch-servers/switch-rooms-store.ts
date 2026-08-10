@@ -45,6 +45,11 @@ export class SwitchRoomsStore {
   readonly loading = new Set<string>();
   /** Last error per key, if the most recent fetch failed. */
   readonly errors = new Map<string, string>();
+  /** Server id → why its room list could not be read, if the last try failed. */
+  private readonly roomListErrors = new Map<string, string>();
+  /** Servers that were not connected when the room list was last refreshed, so
+   * their rooms were never asked for at all. */
+  private unreachableServerIds: string[] = [];
   /** The agents whose membership this store is responsible for keeping current.
    * Recorded on {@link ensureMembershipsFor} so a refresh re-reads the current
    * set rather than only the keys that happen to be cached — an agent created
@@ -190,14 +195,25 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Refresh the room id → name map from every connected server's room list.
-   * Best-effort: a server that fails to respond is skipped (its rooms keep
-   * their last-known names, or fall back to a short id in the UI).
+   * Refresh the room catalogue from every connected server's room list.
+   *
+   * A server that cannot be read keeps its last-known rooms rather than losing
+   * them, but the failure is recorded in {@link roomListErrors} instead of being
+   * swallowed: last-known data rendered as if it were current is the one outcome
+   * worse than showing nothing.
    */
   async loadRoomNames(): Promise<void> {
     const connected = switchServersStore.servers.filter((s) =>
       switchServersStore.isConnected(s.id)
     );
+    runInAction(() => {
+      // Not being connected is not a failure — there is simply nothing to ask
+      // right now — but the rooms on that server are equally unknown, and the
+      // sidebar has to be able to say so.
+      this.unreachableServerIds = switchServersStore.servers
+        .filter((s) => !switchServersStore.isConnected(s.id))
+        .map((s) => s.id);
+    });
     await Promise.all(
       connected.map(async (server) => {
         try {
@@ -206,6 +222,7 @@ export class SwitchRoomsStore {
           // each gateway, so match against that server's signed-in identity.
           const signedInUserId = switchServersStore.statusFor(server.id)?.user?.id ?? null;
           runInAction(() => {
+            this.roomListErrors.delete(server.id);
             for (const room of rooms) {
               this.roomNames.set(room.id, room.name);
               this.roomServerById.set(room.id, server.id);
@@ -222,11 +239,49 @@ export class SwitchRoomsStore {
               signedInUserId ? active.filter((r) => r.ownerId === signedInUserId) : []
             );
           });
-        } catch {
-          // skip this server; names stay best-effort
+        } catch (cause) {
+          runInAction(() => {
+            this.roomListErrors.set(
+              server.id,
+              cause instanceof Error ? cause.message : String(cause)
+            );
+          });
         }
       })
     );
+  }
+
+  /**
+   * Whether the room catalogue on screen is known to be incomplete — a server
+   * that could not be read, or one that is not connected so was never asked.
+   *
+   * The sidebar renders last-known rooms either way, which is the right call;
+   * this is what stops it from passing them off as current.
+   */
+  get roomStateIncomplete(): boolean {
+    return this.roomListErrors.size > 0 || this.unreachableServerIds.length > 0;
+  }
+
+  /** Names of the servers behind {@link roomStateIncomplete}, for disclosure. */
+  get unreadableServerNames(): string[] {
+    const ids = [...new Set([...this.roomListErrors.keys(), ...this.unreachableServerIds])];
+    return ids
+      .map((id) => switchServersStore.servers.find((s) => s.id === id)?.name ?? id)
+      .sort((a, b) => a.localeCompare(b));
+  }
+
+  /**
+   * Agents whose room membership is not known: the fetch failed, or has not run.
+   *
+   * Their rooms cannot list them, so a room can look emptier than it is. That is
+   * indistinguishable from a genuinely empty room unless it is said out loud.
+   */
+  get agentsWithUnknownMembership(): number {
+    return this.trackedIdentities.filter(
+      ({ serverId, switchAgentId }) =>
+        this.roomsByAgent.get(key(serverId, switchAgentId)) === undefined &&
+        !this.isLoading(serverId, switchAgentId)
+    ).length;
   }
 
   /** Cached membership, or undefined if never fetched. */

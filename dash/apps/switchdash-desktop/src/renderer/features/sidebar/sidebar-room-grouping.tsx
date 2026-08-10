@@ -21,6 +21,20 @@ export function roomLabel(roomKey: string): string {
   return switchRoomsStore.roomNameById(roomKey) ?? `Room ${roomKey.slice(0, 8)}`;
 }
 
+/**
+ * Whether a room's label is its real name or a stand-in.
+ *
+ * A room's id reaches the sidebar by live push while its name needs the
+ * server's room list, so the two can be out of step — most often when the
+ * server is not connected, or its list failed to load. The short-id fallback
+ * that results looks exactly like a name, which is what makes it a lie; rows
+ * use this to mark it as not-yet-known instead.
+ */
+export function isRoomNameKnown(roomKey: string): boolean {
+  if (roomKey === UNASSIGNED_ROOM_KEY) return true;
+  return switchRoomsStore.roomNameById(roomKey) !== null;
+}
+
 /** Open a room's detail page in the gateway web app (no-op for Unassigned). */
 export function openRoomInGateway(roomKey: string): void {
   if (roomKey === UNASSIGNED_ROOM_KEY) return;
@@ -105,9 +119,13 @@ export function RoomRow({
   depth = 0,
   bridgeType = null,
   undrawableCount = null,
+  nameKnown = true,
 }: {
   label: string;
   count: number;
+  /** False when `label` is a stand-in because the room's name has not loaded.
+   * Rendered as visibly provisional rather than as the room's name. */
+  nameKnown?: boolean;
   /** Members the server counts that this install cannot draw — agents
    * registered on another switchdash, plus any whose membership failed to load.
    * Disclosed next to the count so a member that exists but cannot be shown is
@@ -165,7 +183,23 @@ export function RoomRow({
           )}
         />
       </SidebarItemMiniButton>
-      <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+      {nameKnown ? (
+        <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground-muted italic">
+                {label}
+              </span>
+            }
+          />
+          <TooltipContent>
+            This room&apos;s name hasn&apos;t loaded — its server is disconnected or did not
+            respond. Shown by id until it does.
+          </TooltipContent>
+        </Tooltip>
+      )}
       {channelLinkable && (
         <Tooltip>
           <TooltipTrigger

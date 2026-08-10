@@ -4,9 +4,9 @@ import type { RemoteRoomSummary } from '@shared/core/switch-servers/switch-serve
 const listRemoteRooms = vi.hoisted(() => vi.fn());
 const listAgentRooms = vi.hoisted(() => vi.fn());
 const serversStore = vi.hoisted(() => ({
-  servers: [] as { id: string; managed?: boolean }[],
+  servers: [] as { id: string; name?: string; managed?: boolean }[],
   activeServerId: null as string | null,
-  isConnected: () => true,
+  isConnected: (_serverId: string): boolean => true,
   statusFor: (serverId: string) => ({ user: { id: `user-of-${serverId}` } }),
 }));
 
@@ -116,6 +116,55 @@ describe('listed rooms', () => {
     await store.loadRoomNames();
 
     expect(store.listedRoomsInActiveScope.map((r: { id: string }) => r.id)).toEqual(['srv-b-room']);
+  });
+
+  it('says the room list is incomplete when a server could not be read', async () => {
+    serversStore.servers = [
+      { id: 'srv-a', name: 'Alpha' },
+      { id: 'srv-b', name: 'Beta' },
+    ];
+    listRemoteRooms.mockImplementation(async (serverId: string) => {
+      if (serverId === 'srv-a') throw new Error('unreachable');
+      return [room('srv-b-room', 'user-of-srv-b')];
+    });
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+
+    expect(store.roomStateIncomplete).toBe(true);
+    expect(store.unreadableServerNames).toEqual(['Alpha']);
+  });
+
+  it('counts a server it never asked as unknown, not as having no rooms', async () => {
+    serversStore.servers = [
+      { id: 'srv-a', name: 'Alpha' },
+      { id: 'srv-b', name: 'Beta' },
+    ];
+    serversStore.isConnected = (serverId: string) => serverId !== 'srv-b';
+    listRemoteRooms.mockImplementation(async () => []);
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+
+    expect(store.roomStateIncomplete).toBe(true);
+    expect(store.unreadableServerNames).toEqual(['Beta']);
+    serversStore.isConnected = () => true;
+  });
+
+  it('clears a server’s failure once it can be read again', async () => {
+    serversStore.servers = [{ id: 'srv-a', name: 'Alpha' }];
+    listRemoteRooms.mockImplementation(async () => {
+      throw new Error('unreachable');
+    });
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+    expect(store.roomStateIncomplete).toBe(true);
+
+    listRemoteRooms.mockImplementation(async () => [room('back', 'user-of-srv-a')]);
+    await store.loadRoomNames();
+
+    expect(store.roomStateIncomplete).toBe(false);
+    expect(store.unreadableServerNames).toEqual([]);
   });
 });
 
@@ -236,6 +285,32 @@ describe('agent memberships', () => {
     await store.refreshRoomState();
 
     expect(store.roomsFor('srv-a', 'agent-late')?.[0].roomId).toBe('room-b');
+  });
+
+  it('reports an agent whose membership failed as unknown, not as in no rooms', async () => {
+    listAgentRooms.mockImplementation(async ({ agentId }: { agentId: string }) => {
+      if (agentId === 'agent-1') throw new Error('nope');
+      return [{ roomId: 'room-b', roomName: 'r', archived: false, status: 'live', roomRole: null }];
+    });
+    const store = new SwitchRoomsStore();
+
+    await store.ensureMembershipsFor([
+      { serverId: 'srv-a', switchAgentId: 'agent-1' },
+      { serverId: 'srv-a', switchAgentId: 'agent-2' },
+    ]);
+
+    expect(store.agentsWithUnknownMembership).toBe(1);
+  });
+
+  it('reports no unknown memberships once every tracked agent has loaded', async () => {
+    const store = new SwitchRoomsStore();
+
+    await store.ensureMembershipsFor([
+      { serverId: 'srv-a', switchAgentId: 'agent-1' },
+      { serverId: 'srv-a', switchAgentId: 'agent-2' },
+    ]);
+
+    expect(store.agentsWithUnknownMembership).toBe(0);
   });
 
   it('lets one agent’s failed lookup stand without losing the others', async () => {
