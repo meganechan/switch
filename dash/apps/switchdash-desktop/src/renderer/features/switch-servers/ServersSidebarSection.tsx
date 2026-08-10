@@ -43,7 +43,7 @@ export const ServersSidebarSection = observer(function ServersSidebarSection() {
     void store.init();
     void localServerStore.init();
     void remoteServerStore.init();
-    const onFocus = () => void store.refreshAllStatuses();
+    const onFocus = () => void store.recoverStale();
     window.addEventListener('focus', onFocus);
     return () => {
       window.removeEventListener('focus', onFocus);

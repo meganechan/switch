@@ -301,6 +301,18 @@ version of their own to them without also giving them a release of their own.
   so switchdash-launched Codex sessions run the published runtime. Ships in the
   next switchdash release.
 
+#### Fixed
+- The server page no longer sits on _"Checking sign-in options…"_ forever after
+  connectivity returns. Which login methods a server offers was read once when
+  the page mounted, and a read that failed was never retried, so a blip left the
+  sign-in form unrendered until you navigated away or restarted. It now recovers
+  on the signals connection status already used — the page's Refresh button,
+  returning to the app window, and a remote host becoming reachable again. The
+  Refresh button in particular re-checked only the connection status, so the one
+  control a user would reach for did nothing visible. A stale error banner now
+  clears once the read succeeds, while still leaving a live error such as a
+  rejected password on screen (CHOO-2042).
+
 ### [0.19.3] - 2026-08-09
 
 #### Added

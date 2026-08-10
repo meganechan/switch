@@ -83,11 +83,17 @@ const ServerMainPanel = observer(function ServerMainPanel() {
     void hostReachabilityStore.hydrate();
   }, []);
 
+  // A blocked host answers nothing and this page renders the host-unreachable
+  // panel instead, so neither read below has a consumer while it is down.
+  // Reading it here also makes the host un-blocking a recovery signal: the
+  // effect re-runs and finally fetches what it skipped (CHOO-2042).
+  const hostBlocked = store.isHostBlocked(serverId);
+
   useEffect(() => {
-    if (!detailsVisible) return;
+    if (!detailsVisible || hostBlocked) return;
     void store.refreshStatus(serverId);
     void store.ensureAuthConfig(serverId);
-  }, [serverId, store, detailsVisible]);
+  }, [serverId, store, detailsVisible, hostBlocked]);
 
   if (!server) {
     return (
@@ -216,7 +222,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
                   variant="outline"
                   size="sm"
                   disabled={refreshing}
-                  onClick={() => void store.refreshStatus(serverId)}
+                  onClick={() => void store.refreshServer(serverId)}
                 >
                   <RefreshCw className="size-4" />
                   Refresh
