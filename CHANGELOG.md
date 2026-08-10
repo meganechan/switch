@@ -42,6 +42,11 @@ version of their own to them without also giving them a release of their own.
 ### [Unreleased]
 
 #### Fixed
+- `read_context` seeks to a `before` window via the homeserver's
+  `timestamp_to_event` rather than paging over everything newer to reach it,
+  and falls back to a scan with its own page budget when the server cannot
+  answer (CHOO-2034). Previously the walk shared the read budget, so a window
+  deep in a busy room returned empty however small a `limit` was asked for.
 - `read_context` now pages the homeserver instead of reading a single
   `/messages` page, so agents see the whole room rather than the last slice of
   it (CHOO-2034). `before` pages backwards into older history rather than

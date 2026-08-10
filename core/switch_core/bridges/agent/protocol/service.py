@@ -8,9 +8,11 @@ import uuid
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+from urllib.parse import quote
 
 from nio import (
     DownloadError,
+    RoomContextError,
     RoomGetEventError,
     RoomMemberEvent,
     RoomMessageMedia,
@@ -114,6 +116,10 @@ _VALID_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 # whole story.
 HISTORY_PAGE_SIZE = 100
 HISTORY_MAX_PAGES = 20
+# Pages spent walking back to a `before` window, budgeted separately from the
+# pages spent reading inside it. Only used when the homeserver cannot answer
+# timestamp_to_event; a scan is the slow path, so it gets room to succeed.
+HISTORY_MAX_SEEK_PAGES = 100
 
 
 class AgentExistsError(Exception):
@@ -1351,23 +1357,55 @@ class ProtocolService:
         # Walk backwards page by page until the window is satisfied. A single
         # page is not enough: the homeserver caps its size, and state events
         # that never reach the caller still consume it.
+        #
+        # Reaching a `before` window and reading inside it are budgeted
+        # separately. Matrix has no timestamp cursor, so a `before` deep in a
+        # busy room can only be reached by paging over everything newer — and
+        # if those pages came out of the read budget, a far-enough-back window
+        # would return empty no matter how small a `limit` the caller asked
+        # for. Seeking is the cost of getting there, not part of the answer.
         groups: dict[str, dict[str, Any]] = {}
         collected = 0
         oldest_ts: int | None = None
-        start: str | None = None
-        pages = 0
+        read_pages = 0
+        seek_pages = 0
         exhausted = False
 
-        while collected < limit and pages < HISTORY_MAX_PAGES:
+        start: str | None = None
+        if before_ms is not None:
+            start = await self._seek_before_token(
+                client, room.matrix_room_id, before_ms
+            )
+
+        while collected < limit and read_pages < HISTORY_MAX_PAGES:
+            if seek_pages >= HISTORY_MAX_SEEK_PAGES:
+                logger.warning(
+                    "read_context gave up seeking back to %s in %s after "
+                    "%d pages; the window was never reached",
+                    before_ms,
+                    room.matrix_room_id,
+                    seek_pages,
+                )
+                break
             resp = await client.nio_client.room_messages(
                 room.matrix_room_id, start=start, limit=HISTORY_PAGE_SIZE
             )
             if isinstance(resp, RoomMessagesError):
                 raise ValueError(f"Failed to fetch room history: {resp.message}")
-            pages += 1
 
             chunk = list(resp.chunk)
             end = getattr(resp, "end", None)
+            # A page that contributes nothing because everything on it is
+            # newer than `before` is a seek, not a read.
+            reached_window = before_ms is None or any(
+                getattr(e, "server_timestamp", None) is not None
+                and getattr(e, "server_timestamp") < before_ms
+                for e in chunk
+            )
+            if reached_window:
+                read_pages += 1
+            else:
+                seek_pages += 1
 
             for event in chunk:
                 ts = getattr(event, "server_timestamp", None)
@@ -1425,11 +1463,12 @@ class ProtocolService:
 
         if not exhausted:
             logger.warning(
-                "read_context truncated in %s: %d entries over %d pages, "
-                "older history not reached",
+                "read_context truncated in %s: %d entries over %d read pages "
+                "(%d spent seeking), older history not reached",
                 room.matrix_room_id,
                 collected,
-                pages,
+                read_pages,
+                seek_pages,
             )
 
         return {
@@ -1437,6 +1476,62 @@ class ProtocolService:
             "truncated": not exhausted,
             "oldest_timestamp": oldest_ts,
         }
+
+    async def _seek_before_token(
+        self, client: ClientBase[Any], matrix_room_id: str, before_ms: int
+    ) -> str | None:
+        """Get a pagination token positioned at `before_ms`, if the server can.
+
+        `/messages` takes a token, not a timestamp, so reaching a `before` deep
+        in a busy room otherwise means paging over everything newer just to
+        arrive. `timestamp_to_event` (Matrix 1.6) jumps straight there.
+
+        Returns None when the homeserver cannot answer — the caller then walks
+        back the slow way. A failure here costs speed, not correctness, so it
+        is logged and swallowed rather than raised.
+        """
+        nio_client = client.nio_client
+        if nio_client is None:
+            return None
+        path = (
+            f"/_matrix/client/v1/rooms/{quote(matrix_room_id, safe='')}"
+            f"/timestamp_to_event?ts={before_ms}&dir=b"
+        )
+        try:
+            resp = await nio_client.send(
+                "GET",
+                path,
+                headers={"Authorization": f"Bearer {nio_client.access_token}"},
+            )
+            if resp.status != 200:
+                logger.info(
+                    "timestamp_to_event unavailable in %s (HTTP %d); "
+                    "falling back to scanning back to the window",
+                    matrix_room_id,
+                    resp.status,
+                )
+                return None
+            event_id = (await resp.json()).get("event_id")
+        except Exception:
+            logger.warning(
+                "timestamp_to_event failed in %s; falling back to scanning",
+                matrix_room_id,
+                exc_info=True,
+            )
+            return None
+        if not event_id:
+            return None
+
+        context = await nio_client.room_context(matrix_room_id, event_id, limit=1)
+        if isinstance(context, RoomContextError):
+            logger.info(
+                "Could not anchor pagination at %s in %s; scanning instead",
+                event_id,
+                matrix_room_id,
+            )
+            return None
+        start_token = context.start
+        return str(start_token) if start_token else None
 
     async def _fetch_root(
         self, client: ClientBase[Any], matrix_room_id: str, root_id: str
