@@ -852,8 +852,6 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
-### [0.8.0] - 2026-08-10
-
 #### Changed
 - Document `read_context`'s new response shape — `truncated` /
   `oldest_timestamp` and the per-entry `kind` — and tell the agent not to
@@ -879,8 +877,6 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
-
-### [0.3.0] - 2026-08-10
 
 #### Changed
 - Skill updated for `read_context`'s new response shape — `truncated` /
