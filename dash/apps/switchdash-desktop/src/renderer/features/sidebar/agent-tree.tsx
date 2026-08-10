@@ -61,6 +61,7 @@ const AgentSessions = observer(function AgentSessions({
             <RoomRow
               label={roomLabel(roomKey)}
               nameKnown={isRoomNameKnown(roomKey)}
+              nameBlockedBySignIn={switchRoomsStore.roomNameBlockedBySignIn(roomKey)}
               count={roomSessions.length}
               expanded={roomExpanded}
               depth={depth}

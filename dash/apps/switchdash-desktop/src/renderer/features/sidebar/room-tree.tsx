@@ -134,6 +134,7 @@ export const RoomTree = observer(function RoomTree() {
               <RoomRow
                 label={roomLabel(roomKey)}
                 nameKnown={isRoomNameKnown(roomKey)}
+                nameBlockedBySignIn={switchRoomsStore.roomNameBlockedBySignIn(roomKey)}
                 count={agentsInRoom.length}
                 undrawableCount={switchRoomsStore.undrawableMemberCount(roomKey)}
                 expanded={expanded}

@@ -120,12 +120,16 @@ export function RoomRow({
   bridgeType = null,
   undrawableCount = null,
   nameKnown = true,
+  nameBlockedBySignIn = false,
 }: {
   label: string;
   count: number;
   /** False when `label` is a stand-in because the room's name has not loaded.
    * Rendered as visibly provisional rather than as the room's name. */
   nameKnown?: boolean;
+  /** True when the name is missing because the room's server is signed out —
+   * something to act on, not to wait for. */
+  nameBlockedBySignIn?: boolean;
   /** Members the server counts that this install cannot draw — agents
    * registered on another switchdash, plus any whose membership failed to load.
    * Disclosed next to the count so a member that exists but cannot be shown is
@@ -195,8 +199,9 @@ export function RoomRow({
             }
           />
           <TooltipContent>
-            This room&apos;s name hasn&apos;t loaded — its server is disconnected or did not
-            respond. Shown by id until it does.
+            {nameBlockedBySignIn
+              ? 'Sign in to this room’s server to see its name. Shown by id until then.'
+              : 'This room’s name hasn’t loaded yet — shown by id until it does.'}
           </TooltipContent>
         </Tooltip>
       )}

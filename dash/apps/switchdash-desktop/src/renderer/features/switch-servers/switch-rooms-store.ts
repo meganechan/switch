@@ -5,6 +5,7 @@ import type {
   RemoteRoomSummary,
 } from '@shared/core/switch-servers/switch-servers';
 import { UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
+import { serverAvailability } from './server-availability';
 import { switchServersStore } from './switch-servers-store';
 
 /** Cache key for an agent's room membership: server + Switch agent id. */
@@ -282,31 +283,51 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Whether the room catalogue on screen is known to be incomplete — a server
-   * that could not be read, or one that is not connected so was never asked.
+   * Whether a room's name is missing because switchdash is not signed in to its
+   * server, rather than because the load has not finished.
    *
-   * The sidebar renders last-known rooms either way, which is the right call;
-   * this is what stops it from passing them off as current.
+   * The room itself is known — an agent's membership put it there — so the row
+   * has to say something. Which of the two it is decides whether the user is
+   * being asked to wait or to act.
    */
-  get roomStateIncomplete(): boolean {
-    return this.unreadableServerNames.length > 0;
+  roomNameBlockedBySignIn(roomId: string): boolean {
+    const serverId = this.roomServerById.get(roomId) ?? switchServersStore.activeServerId;
+    if (!serverId) return false;
+    return serverAvailability(serverId) === 'signed-out';
   }
 
   /**
-   * Names of the servers behind {@link roomStateIncomplete}, for disclosure.
+   * Servers on screen whose room list was asked for and failed.
    *
-   * Scoped to the servers on screen. A server you are not looking at being
-   * unreachable says nothing about what you are looking at, and reporting it
-   * teaches you to ignore the warning.
+   * Distinct from {@link serversNotSignedIn}: this is a fault, it may be
+   * transient, and retrying is a sensible thing to offer.
    */
-  get unreadableServerNames(): string[] {
-    const inScope = new Set(this.serverIdsInScope);
-    const ids = [...new Set([...this.roomListErrors.keys(), ...this.unreachableServerIds])].filter(
-      (id) => inScope.has(id)
+  get serversThatFailedToLoad(): { id: string; name: string }[] {
+    return this.namedServersInScope([...this.roomListErrors.keys()]);
+  }
+
+  /**
+   * Servers on screen that were never asked because switchdash is not signed in
+   * to them.
+   *
+   * Not a fault and not retryable — the user has to sign in. Reporting it as a
+   * failure with a retry button offers an action that cannot work.
+   */
+  get serversNotSignedIn(): { id: string; name: string }[] {
+    return this.namedServersInScope(
+      this.unreachableServerIds.filter((id) => serverAvailability(id) === 'signed-out')
     );
-    return ids
-      .map((id) => switchServersStore.servers.find((s) => s.id === id)?.name ?? id)
-      .sort((a, b) => a.localeCompare(b));
+  }
+
+  private namedServersInScope(serverIds: string[]): { id: string; name: string }[] {
+    const inScope = new Set(this.serverIdsInScope);
+    return [...new Set(serverIds)]
+      .filter((id) => inScope.has(id))
+      .map((id) => ({
+        id,
+        name: switchServersStore.servers.find((s) => s.id === id)?.name ?? id,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /**

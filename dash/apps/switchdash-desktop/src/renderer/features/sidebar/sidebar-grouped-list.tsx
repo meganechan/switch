@@ -7,6 +7,7 @@ import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reac
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { AgentTree } from './agent-tree';
 import { RoomTree } from './room-tree';
@@ -126,12 +127,30 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
  * look identical otherwise.
  */
 const RoomStateDisclosure = observer(function RoomStateDisclosure() {
-  const unreadableServers = switchRoomsStore.unreadableServerNames;
+  const { navigate } = useNavigate();
+  const signedOut = switchRoomsStore.serversNotSignedIn;
+  const failed = switchRoomsStore.serversThatFailedToLoad;
+
+  // Being signed out is the whole explanation, so it is said on its own: the
+  // memberships that "didn't load" are the same fact, and offering a retry for
+  // something only a sign-in can fix sends the user in a circle.
+  if (signedOut.length > 0) {
+    return (
+      <DisclosureBar>
+        Sign in to {signedOut.map((s) => s.name).join(', ')} to see{' '}
+        {signedOut.length === 1 ? 'its' : 'their'} rooms.{' '}
+        <DisclosureAction onClick={() => navigate('server', { serverId: signedOut[0].id })}>
+          Sign in
+        </DisclosureAction>
+      </DisclosureBar>
+    );
+  }
+
   const unknownMemberships = switchRoomsStore.agentsWithUnknownMembership;
-  if (unreadableServers.length === 0 && unknownMemberships === 0) return null;
+  if (failed.length === 0 && unknownMemberships === 0) return null;
 
   const reasons: string[] = [];
-  if (unreadableServers.length > 0) reasons.push(`couldn’t reach ${unreadableServers.join(', ')}`);
+  if (failed.length > 0) reasons.push(`couldn’t reach ${failed.map((s) => s.name).join(', ')}`);
   if (unknownMemberships > 0) {
     reasons.push(
       `${unknownMemberships} ${unknownMemberships === 1 ? 'agent’s' : 'agents’'} rooms didn’t load`
@@ -139,18 +158,36 @@ const RoomStateDisclosure = observer(function RoomStateDisclosure() {
   }
 
   return (
-    <div className="mb-1 flex items-start gap-1.5 rounded-md bg-background-secondary px-2 py-1.5 text-xs text-foreground-muted">
-      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 flex-1">
-        Rooms may be out of date — {reasons.join('; ')}.{' '}
-        <button
-          type="button"
-          className="underline underline-offset-2 hover:text-foreground"
-          onClick={() => void loadSidebarState(true)}
-        >
-          Retry
-        </button>
-      </span>
-    </div>
+    <DisclosureBar>
+      Rooms may be out of date — {reasons.join('; ')}.{' '}
+      <DisclosureAction onClick={() => void loadSidebarState(true)}>Retry</DisclosureAction>
+    </DisclosureBar>
   );
 });
+
+function DisclosureBar({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-1 flex items-start gap-1.5 rounded-md bg-background-secondary px-2 py-1.5 text-xs text-foreground-muted">
+      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 flex-1">{children}</span>
+    </div>
+  );
+}
+
+function DisclosureAction({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="underline underline-offset-2 hover:text-foreground"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}

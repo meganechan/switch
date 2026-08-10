@@ -15,6 +15,8 @@ vi.mock('@renderer/lib/ipc', () => ({
   rpc: { switchServers: { listRemoteRooms, listAgentRooms } },
 }));
 vi.mock('./switch-servers-store', () => ({ switchServersStore: serversStore }));
+vi.mock('./local-server-store', () => ({ localServerStore: { isRunning: true } }));
+vi.mock('./remote-server-store', () => ({ remoteServerStore: { isRunning: () => true } }));
 
 const { SwitchRoomsStore } = await import('./switch-rooms-store');
 
@@ -131,8 +133,7 @@ describe('listed rooms', () => {
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
 
-    expect(store.roomStateIncomplete).toBe(true);
-    expect(store.unreadableServerNames).toEqual(['Alpha']);
+    expect(store.serversThatFailedToLoad.map((s) => s.name)).toEqual(['Alpha']);
   });
 
   it('asks only the active server for its rooms', async () => {
@@ -165,12 +166,12 @@ describe('listed rooms', () => {
 
     // Search loads every server, so Alpha's failure is on the record...
     await store.loadRoomsOnAllServers();
-    expect(store.unreadableServerNames).toEqual(['Alpha']);
+    expect(store.serversThatFailedToLoad.map((s) => s.name)).toEqual(['Alpha']);
 
     // ...but it must not surface while Beta is the server on screen.
     serversStore.activeServerId = 'srv-b';
-    expect(store.roomStateIncomplete).toBe(false);
-    expect(store.unreadableServerNames).toEqual([]);
+    expect(store.serversThatFailedToLoad).toEqual([]);
+    expect(store.serversNotSignedIn).toEqual([]);
   });
 
   it('does not report a disconnected server you are not viewing', async () => {
@@ -185,24 +186,41 @@ describe('listed rooms', () => {
     const store = new SwitchRoomsStore();
     await store.loadRoomsOnAllServers();
 
-    expect(store.unreadableServerNames).toEqual([]);
+    expect(store.serversNotSignedIn).toEqual([]);
     serversStore.isConnected = () => true;
   });
 
-  it('counts a server it never asked as unknown, not as having no rooms', async () => {
+  it('reports a server it is not signed in to as needing sign-in, not as failed', async () => {
+    // Signing in is an action the user takes; a retry button cannot fix it, and
+    // calling it a failure sends them round in a circle.
     serversStore.servers = [
       { id: 'srv-a', name: 'Alpha' },
       { id: 'srv-b', name: 'Beta' },
     ];
+    serversStore.activeServerId = 'srv-b';
     serversStore.isConnected = (serverId: string) => serverId !== 'srv-b';
     listRemoteRooms.mockImplementation(async () => []);
 
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
 
-    expect(store.roomStateIncomplete).toBe(true);
-    expect(store.unreadableServerNames).toEqual(['Beta']);
+    expect(store.serversNotSignedIn.map((s) => s.name)).toEqual(['Beta']);
+    expect(store.serversThatFailedToLoad).toEqual([]);
     serversStore.isConnected = () => true;
+  });
+
+  it('marks a room’s name as blocked on sign-in when its server is signed out', async () => {
+    serversStore.servers = [{ id: 'srv-a', name: 'Alpha' }];
+    serversStore.activeServerId = 'srv-a';
+    serversStore.isConnected = () => false;
+    listRemoteRooms.mockImplementation(async () => []);
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+
+    expect(store.roomNameBlockedBySignIn('some-room')).toBe(true);
+    serversStore.isConnected = () => true;
+    expect(store.roomNameBlockedBySignIn('some-room')).toBe(false);
   });
 
   it('clears a server’s failure once it can be read again', async () => {
@@ -212,13 +230,12 @@ describe('listed rooms', () => {
     });
     const store = new SwitchRoomsStore();
     await store.loadRoomNames();
-    expect(store.roomStateIncomplete).toBe(true);
+    expect(store.serversThatFailedToLoad.map((s) => s.name)).toEqual(['Alpha']);
 
     listRemoteRooms.mockImplementation(async () => [room('back', 'user-of-srv-a')]);
     await store.loadRoomNames();
 
-    expect(store.roomStateIncomplete).toBe(false);
-    expect(store.unreadableServerNames).toEqual([]);
+    expect(store.serversThatFailedToLoad).toEqual([]);
   });
 });
 

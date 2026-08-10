@@ -32,6 +32,7 @@ import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
 import { SidebarMenu, SidebarMenuButton } from '../sidebar/sidebar-primitives';
 import { localServerStore } from './local-server-store';
 import { remoteServerStore } from './remote-server-store';
+import { serverAvailability } from './server-availability';
 import { switchServersStore } from './switch-servers-store';
 
 export const ServersSidebarSection = observer(function ServersSidebarSection() {
@@ -212,15 +213,9 @@ const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: stri
   // session, or room must not clear the "this server is selected" affordance.
   const isScoped = store.activeServerId === serverId;
 
-  // A managed server that isn't running has no gateway to reach, so it can't be
-  // signed into — show it as dormant (grey dot, no sign-in) until it's started.
-  const managedRunning = !server.managed
-    ? true
-    : server.managementKind === 'remote' && server.sshHost
-      ? remoteServerStore.isRunning(server.sshHost)
-      : localServerStore.isRunning;
-  const dormant = server.managed && !managedRunning;
-  const needsSignIn = !dormant && !connected;
+  const availability = serverAvailability(serverId);
+  const dormant = availability === 'dormant';
+  const needsSignIn = availability === 'signed-out';
 
   // Drift is reported for a stopped stack too — its volumes still hold the
   // schema the last version migrated to — so this is deliberately not gated on
