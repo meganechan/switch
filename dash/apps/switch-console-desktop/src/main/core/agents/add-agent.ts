@@ -57,7 +57,7 @@ export type AddAgentResult =
  * Add a new agent to a location: mint its Switch identity on the gateway, write
  * its provider definition (`.claude/agents/<name>.md`) and its per-agent Switch
  * credentials (`.switch/agents/<name>.json`, keyed by name), then create the
- * agent row. Every switchdash-managed agent is a flat, repository-defined agent
+ * agent row. Every Switch Console-managed agent is a flat, repository-defined agent
  * — for a provider that supports definitions it launches as `--agent <name>`
  * with its own identity; there is no "main" agent and no parent (CHOO-1440).
  *

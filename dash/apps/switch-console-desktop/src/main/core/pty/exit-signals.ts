@@ -1,5 +1,5 @@
 export type PtySignal =
-  | 'SIGHUP' // 1  — hangup / PTY master closed (common when switchdash window closes)
+  | 'SIGHUP' // 1  — hangup / PTY master closed (common when Switch Console window closes)
   | 'SIGINT' // 2  — Ctrl+C (user interrupt)
   | 'SIGQUIT' // 3  — Ctrl+\ (quit + core dump)
   | 'SIGILL' // 4  — illegal instruction

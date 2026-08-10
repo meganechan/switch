@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 /**
- * Bundles the switchdash remote runtime sidecar (CHOO-1059) into a single
+ * Bundles the Switch Console remote runtime sidecar (CHOO-1059) into a single
  * Node ESM file deployed to the agent's VM. The VM already has Node (the agent
  * CLI is a Node program), so no native/per-arch binary is needed.
  *

@@ -240,7 +240,7 @@ class CollaborationAdapter(ABC):
         deeplink_url: str | None = None,
         detail: str | None = None,
     ) -> None:
-        """Surface a switchdash-managed agent's runtime state on the channel.
+        """Surface a Switch Console-managed agent's runtime state on the channel.
 
         How a state is rendered is the adapter's choice — this default uses the
         typing indicator for ``working``. Slack and Mattermost override this to
@@ -251,7 +251,7 @@ class CollaborationAdapter(ABC):
         message belonged to; the state surfaces in that thread.
 
         ``deeplink_url``, when set, is an https link (served by the gateway) that
-        opens the agent's session in the switchdash desktop app; adapters that
+        opens the agent's session in the Switch Console desktop app; adapters that
         post a visible status message append it so a reader can jump there.
 
         - ``working`` → typing on.
@@ -402,7 +402,7 @@ class CollaborationAdapter(ABC):
 
     async def channel_deeplink(self, external_channel_id: str) -> str | None:
         """Native deeplink that opens this channel in the platform's desktop
-        app (switchdash → messaging app direction), or None when the platform
+        app (Switch Console → messaging app direction), or None when the platform
         has no such scheme or the link cannot be built.
 
         Each platform owns its link format here — Slack builds a ``slack://``

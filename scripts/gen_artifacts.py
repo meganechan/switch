@@ -459,7 +459,7 @@ def render_typescript(registry: Registry) -> str:
 TARGETS = [
     # switch-core: the agent bridge, the gateway API, and the schema check.
     Target(REPO_ROOT / "core" / "switch_core" / "artifacts.py", render_python),
-    # switchdash: the desktop app and the sidecar it bundles and deploys.
+    # Switch Console: the desktop app and the sidecar it bundles and deploys.
     Target(
         REPO_ROOT / "dash" / "packages" / "shared" / "src" / "artifacts.ts",
         render_typescript,

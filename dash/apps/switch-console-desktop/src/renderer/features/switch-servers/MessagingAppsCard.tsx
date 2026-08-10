@@ -32,7 +32,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
   const queryClient = useQueryClient();
   const showConnectMessagingApp = useShowModal('connectMessagingAppModal');
   const isAdmin = switchServersStore.statusFor(serverId)?.user?.role === 'admin';
-  // Only a stack switchdash runs has a chat whose credentials it generated and
+  // Only a stack Switch Console runs has a chat whose credentials it generated and
   // can therefore show; anyone else's Mattermost is their own to hand out.
   const isManaged = !!switchServersStore.servers.find((s) => s.id === serverId)?.managed;
 

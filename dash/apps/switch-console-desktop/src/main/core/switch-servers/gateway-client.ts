@@ -729,7 +729,7 @@ export async function registerSubagentsBulk(
 
 /**
  * Delete an agent on `server` (session-authed `DELETE /agents/{agentId}`). Used
- * to deregister a subagent's child identity when it is removed from switchdash.
+ * to deregister a subagent's child identity when it is removed from Switch Console.
  * The signed-in user must own the agent.
  */
 export async function deleteAgent(server: SwitchServer, agentId: string): Promise<void> {

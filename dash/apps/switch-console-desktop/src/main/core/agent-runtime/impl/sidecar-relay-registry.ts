@@ -8,7 +8,7 @@ import type { SidecarChannelOpener } from './sidecar-http';
  *
  * A sidecar is agent-scoped: one process on the VM serves every session in that
  * agent's repo dir, and its `/events` ring buffer already carries the events of
- * all of them. switchdash routes each event by the `ptyId` the event itself
+ * all of them. Switch Console routes each event by the `ptyId` the event itself
  * carries (see `dbContextResolver`), never by which relay delivered it — so a
  * single relay per sidecar is sufficient *and* correct.
  *
@@ -54,7 +54,7 @@ export interface RelayAcquireParams {
    * after the session that first opened it is gone.
    */
   resolveEndpoint: EndpointResolver;
-  /** Replays a non-terminated event through switchdash's hook path. Called once per event. */
+  /** Replays a non-terminated event through Switch Console's hook path. Called once per event. */
   sink: (raw: RawHookRequest) => Promise<void>;
 }
 

@@ -77,7 +77,7 @@ The app does **not** override `autoUpdater.channel`; the GitHub provider resolve
 
 The release repo is private, so a plain feed fetch 404s. `github-token.ts` sources a token
 from the user's `gh` CLI and it is handed to `autoUpdater.setFeedURL(...)` rather than
-exported as `GH_TOKEN`. That is deliberate and worth preserving: switchdash's environment
+exported as `GH_TOKEN`. That is deliberate and worth preserving: Switch Console's environment
 is inherited by every child process it spawns — including `gh` itself, which prefers
 `GH_TOKEN` over its keyring — so a token parked there outlives the login it came from and
 shadows the next one until the app restarts.

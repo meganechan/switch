@@ -38,7 +38,7 @@ function initialStatus(sshHost: string): RemoteServerStatus {
 }
 
 /**
- * Supervises switchdash-managed Switch stacks on remote hosts (one per SSH
+ * Supervises Switch Console-managed Switch stacks on remote hosts (one per SSH
  * alias), via the shared {@link startStack} pipeline on a {@link
  * RemoteServerHost}. Unlike the local service, a started host is KEPT ALIVE in
  * `hosts` because it owns the persistent port-forward that makes the stack

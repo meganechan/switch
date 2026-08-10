@@ -1,7 +1,7 @@
 import { Checkbox } from '@renderer/lib/ui/checkbox';
 
 /**
- * How an agent found in the directory will be brought into this switchdash.
+ * How an agent found in the directory will be brought into this Switch Console.
  *
  * - `import` — a provider definition that already carries Switch credentials;
  *   its identity is reused.

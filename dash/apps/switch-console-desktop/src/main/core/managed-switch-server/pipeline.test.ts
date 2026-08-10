@@ -100,7 +100,7 @@ describe('startStack version guard', () => {
     });
     // Nothing on the host may be touched: the existing `.env` still names the
     // version the stack was last started with, so the refusal is recoverable
-    // just by reinstalling the newer switchdash.
+    // just by reinstalling the newer Switch Console.
     expect(writeFile).not.toHaveBeenCalled();
     expect(composeUpMock).not.toHaveBeenCalled();
     expect(logError).toHaveBeenCalledOnce();

@@ -3,7 +3,7 @@ import type { DockerAvailability } from '@shared/core/managed-switch-server/mana
 import type { LocalServerPorts } from '../free-port';
 
 /**
- * A host that runs a switchdash-managed Switch stack via `docker compose`.
+ * A host that runs a Switch Console-managed Switch stack via `docker compose`.
  *
  * Abstracts everything that differs between the local Docker daemon and a
  * remote host's daemon reached over SSH, so the compose pipeline

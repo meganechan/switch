@@ -66,8 +66,8 @@ export class AgentsStore {
 
   /**
    * This install's agents that are registered on a given Switch server, i.e.
-   * the ones switchdash can actually act on there. The room views list and
-   * offer these and no others: an agent registered on some other switchdash
+   * the ones Switch Console can actually act on there. The room views list and
+   * offer these and no others: an agent registered on some other Switch Console
    * cannot be shown under a room or driven from here, so offering it would
    * promise something this app cannot deliver.
    */

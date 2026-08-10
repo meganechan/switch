@@ -24,7 +24,7 @@ import { switchRoomService, type SessionRoomContext } from './switch-room-servic
 /**
  * Polls the Switch agent bridge for room events on behalf of each live session
  * Switch Console manages, and injects addressed messages / task events into the
- * session's PTY as keystrokes. This is the switchdash-side counterpart to the
+ * session's PTY as keystrokes. This is the Switch Console-side counterpart to the
  * in-session connector channel; only one of the two polls a given session's
  * room at a time (see the cede mechanism — managed sessions disable the
  * channel's own poll loop).

@@ -790,7 +790,7 @@ function deadConnectionMessage(operation: string): string {
     return (
       `Switch is unreachable from this session: ${operation} was refused because ` +
       `connection ${CONNECTION_ID} no longer exists on the server.\n\n` +
-      'The supervisor that launched this session (switchdash, or the sidecar on ' +
+      'The supervisor that launched this session (Switch Console, or the sidecar on ' +
       'this host) handed over that connection and has since restarted. The id ' +
       'was read once at startup and cannot be refreshed, so this is permanent ' +
       'for this session — retrying will fail the same way.\n\n' +
@@ -1239,7 +1239,7 @@ function setConnectedRoom(target: string | null) {
     process.stderr.write(
       `switch: joining room ${target}` +
         (OWNS_CONNECTION ? '' : ' (connection shared with the supervisor)') +
-        (SUPPRESS_NOTIFICATIONS ? ' (notifications suppressed: switchdash-managed)' : '') +
+        (SUPPRESS_NOTIFICATIONS ? ' (notifications suppressed: Switch Console-managed)' : '') +
         '\n'
     );
 

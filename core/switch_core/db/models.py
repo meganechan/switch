@@ -611,7 +611,7 @@ class AgentRuntimeState(Base):
 
     Distinct from `AgentSession` (which tracks *reachability*): this captures
     what the agent's live session is *doing* — `'working'`, `'awaiting-input'`,
-    or `'idle'` — derived from the switchdash-managed Claude Code session and
+    or `'idle'` — derived from the Switch Console-managed Claude Code session and
     surfaced on the room's bridged channel. One row per (agent, room), mirroring
     the `AgentSession` grain, so a state is conceptually tied to that room's
     session: when the session's heartbeat lapses the sweep resets the row to

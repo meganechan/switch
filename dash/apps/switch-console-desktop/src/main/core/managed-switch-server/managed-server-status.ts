@@ -6,7 +6,7 @@ import { localServerService } from './local-server-service';
 import { remoteServerService } from './remote-server-service';
 
 /**
- * Whether a switchdash-managed server's stack is currently running — i.e. its
+ * Whether a Switch Console-managed server's stack is currently running — i.e. its
  * lifecycle phase is `running`. Routes to the right supervisor the same way
  * {@link managedServerSecretsKey} does: a remote-managed server reads its
  * per-host status; everything else (local, or a legacy managed row with a null

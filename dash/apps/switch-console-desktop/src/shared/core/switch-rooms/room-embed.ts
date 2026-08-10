@@ -1,5 +1,5 @@
 /**
- * How a room's conversation can be shown inside switchdash.
+ * How a room's conversation can be shown inside Switch Console.
  *
  * This is the seam CHOO-1674's Phase 0 was run to settle. Mattermost's
  * `/_popout/` route looked like the supported way to embed a single channel,

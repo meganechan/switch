@@ -1,10 +1,10 @@
 #!/bin/bash
 # ──────────────────────────────────────────────────────────────────────────────
-# Switchdash BYOI provision script
+# Switch Console BYOI provision script
 #
-# Called by switchdash when a new task is created on a BYOI project. Spins up a
+# Called by Switch Console when a new task is created on a BYOI project. Spins up a
 # fresh Docker container, clones this repo into it, and prints the JSON that
-# switchdash needs to SSH into the container.
+# Switch Console needs to SSH into the container.
 #
 # Requirements on the host: docker, jq
 # ──────────────────────────────────────────────────────────────────────────────

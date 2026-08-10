@@ -49,7 +49,7 @@ export type IMcpBehavior = {
    *
    * This does NOT register the Switch MCP server. Both connector plugins ship
    * that in their own bundled `.mcp.json`, so it is already present for every
-   * session of that host, switchdash-launched or not.
+   * session of that host, Switch Console-launched or not.
    *
    * Claude Code leaves this undefined: it takes its specialization on argv.
    * Codex returns a per-agent profile (`~/.codex/<name>.config.toml`) and

@@ -91,7 +91,7 @@ export type LocalServerStatus = {
 };
 
 /**
- * Raised when a call is made to a switchdash-managed server whose stack is not
+ * Raised when a call is made to a Switch Console-managed server whose stack is not
  * running. The gateway only exists while the stack is up, so reaching for it
  * from a stopped one can only produce a transport error naming a local port
  * that was never the problem — this reports the lifecycle state instead.

@@ -92,7 +92,7 @@ function parseSidecarVersion(version: string | null): {
  * tie-breaker rather than a build check. "Is this the same build" stays on the
  * content hash, for the reasons above; this only answers "is the sidecar already
  * on the host newer than what I ship", so a client never replaces a sidecar
- * deployed by a newer switchdash. Without that ordering, two installs on
+ * deployed by a newer Switch Console. Without that ordering, two installs on
  * different releases sharing a host each see the other's build as an upgrade and
  * replace it in turn, forever (CHOO-1937).
  */

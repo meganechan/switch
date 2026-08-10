@@ -131,7 +131,7 @@ export function RoomRow({
    * something to act on, not to wait for. */
   nameBlockedBySignIn?: boolean;
   /** Members the server counts that this install cannot draw — agents
-   * registered on another switchdash, plus any whose membership failed to load.
+   * registered on another Switch Console, plus any whose membership failed to load.
    * Disclosed next to the count so a member that exists but cannot be shown is
    * not read as a member that is not there. Null when unknown. */
   undrawableCount?: number | null;

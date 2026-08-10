@@ -93,7 +93,7 @@ class ClaudeCodeOptions(KnownAgentOptions):
     instead of `session_addressable`."""
 
     auto_session: bool = False
-    """When True, the operator's connector (switchdash) watches every room this
+    """When True, the operator's connector (Switch Console) watches every room this
     agent belongs to and automatically spins up a Claude Code session — wired
     to the right working dir/identity and connected to the room — the moment the
     agent is addressed in a room where it has no live session. The registered
@@ -299,11 +299,11 @@ class ClaudeCodeKnownAgent(KnownAgent):
 
 class CodexOptions(KnownAgentOptions):
     auto_session: bool = False
-    """When True, the operator's connector (switchdash) watches every room this
+    """When True, the operator's connector (Switch Console) watches every room this
     agent belongs to and auto-spawns a Codex session — connected to the room and
     wired to the agent's identity — the moment the agent is addressed in a room
     where it has no live session. The registered profile becomes `auto_session`.
-    Codex has no plugin-channel of its own; switchdash delivers inbound room
+    Codex has no plugin-channel of its own; Switch Console delivers inbound room
     messages by injecting them into the session's terminal (CHOO-1436)."""
 
     repo_dir: str | None = None
@@ -384,7 +384,7 @@ class CodexKnownAgent(KnownAgent):
 
         Mirrors the Claude Code shape but emits a `codex "…"` command (never a
         `claude` one) and omits Claude-specific flags. Codex sessions are normally
-        auto-managed by switchdash, so this fallback is shown mainly when no
+        auto-managed by Switch Console, so this fallback is shown mainly when no
         connector is watching.
         """
         assert isinstance(options, CodexOptions)

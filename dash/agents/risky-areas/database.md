@@ -68,7 +68,7 @@ installed under `tooling/node-deps/` (compiled for system Node). The app's
 ### Migration authoring checklist
 
 1. **Isolate your dev DB**: run the app with `SWITCHDASH_DB_FILE` pointing at a scratch path
-   so you're not working against your personal switchdash database
+   so you're not working against your personal Switch Console database
 
 2. **Snapshot the pre-migration baseline**:
    ```bash

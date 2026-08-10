@@ -49,8 +49,8 @@ export interface SearchResult {
  * Where a term matched, best first. `null` means the text does not contain the
  * term at all.
  *
- * A term matches if it appears **anywhere** in the text, so "dash" finds
- * `switchdash`. That is the recall a substring search is for, and the grade
+ * A term matches if it appears **anywhere** in the text, so "console" finds
+ * `Switch Console`. That is the recall a substring search is for, and the grade
  * exists to order results rather than to exclude them: an item whose name
  * begins with what you typed should outrank one that merely contains it
  * somewhere in the middle, but both are real answers.

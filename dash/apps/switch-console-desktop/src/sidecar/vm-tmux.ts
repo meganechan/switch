@@ -19,7 +19,7 @@ export function makeTmuxSessionName(sessionId: string): string {
  * Agent pane name, keyed on the shared session id alone. Mirrors Switch Console's
  * `makeAgentTmuxSessionName` so the sidecar and every attached client converge
  * on ONE pane per session (CHOO-1181). Must not fold in locationId — it is
- * switchdash-instance-local and would diverge per client.
+ * Switch Console-instance-local and would diverge per client.
  */
 export function makeAgentTmuxSessionName(sessionId: string): string {
   return makeTmuxSessionName(`session-${sessionId}`);

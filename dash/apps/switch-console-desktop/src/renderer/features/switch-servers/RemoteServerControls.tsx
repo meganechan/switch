@@ -20,7 +20,7 @@ import { VersionDriftNotice } from './VersionDriftNotice';
 const card = 'rounded-lg border border-border bg-card p-4';
 
 /**
- * Lifecycle controls for a switchdash-managed Switch stack running on a remote
+ * Lifecycle controls for a Switch Console-managed Switch stack running on a remote
  * host: live status, Docker guidance, start / stop / reset — driven over the
  * host's SSH connection. Rendered inside the managed remote server's page.
  */

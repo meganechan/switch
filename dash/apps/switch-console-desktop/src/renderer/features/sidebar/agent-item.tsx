@@ -63,7 +63,7 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
   const agentName = agent.name;
   const location = getLocationStore(agent.locationId);
 
-  // The agent's name IS its Switch identity: switchdash chose it, registered it
+  // The agent's name IS its Switch identity: Switch Console chose it, registered it
   // under that name, and keys its credentials and definition by it. Reading the
   // stored one is reading the same value the server holds.
   const label = agent.name || agentName || 'Unnamed agent';

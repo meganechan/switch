@@ -61,7 +61,7 @@ async function verifyAgentOnServer(
 }
 
 /**
- * Enforce that an agent's run location can actually reach a switchdash-managed
+ * Enforce that an agent's run location can actually reach a Switch Console-managed
  * server: a remote-managed server only from this computer or its own host (the
  * desktop reaches it via the SSH forward; the host on loopback — nothing else
  * has a route); a local-managed server only from this computer. External servers

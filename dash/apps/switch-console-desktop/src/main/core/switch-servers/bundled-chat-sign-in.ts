@@ -8,15 +8,15 @@ import type { BundledChatSignIn, SwitchServer } from '@shared/core/switch-server
  * Resolve how a user signs in to a managed deployment's bundled Mattermost.
  *
  * Both halves come from what this deployment actually runs, never from the
- * defaults the docs quote: the origin is built from the host port switchdash
+ * defaults the docs quote: the origin is built from the host port Switch Console
  * chose and persisted for *this* stack, and the password is the generated one
- * in switchdash's encrypted store.
+ * in Switch Console's encrypted store.
  *
  * That store — not the `.env` docker reads — is the source of truth. The env
  * file is rendered *from* the store at every start, and for a remote-managed
  * stack it lives on the remote host, so reading it would be both second-hand
  * and unreachable. It is also the same pair the inline chat pane already logs
- * in with, so what this shows is credentials switchdash is demonstrably using.
+ * in with, so what this shows is credentials Switch Console is demonstrably using.
  *
  * Every failure resolves to `unavailable` with a reason rather than throwing or
  * substituting a default: a wrong-but-plausible password sends the user round a

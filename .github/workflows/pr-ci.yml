@@ -125,7 +125,7 @@ jobs:
         run: uv run --project core pytest -c core/pyproject.toml core/tests/
 
   dash:
-    name: Switchdash (dash)
+    name: Switch Console (dash)
     needs: changes
     if: ${{ needs.changes.outputs.dash == 'true' || github.event_name == 'push' }}
     runs-on: ubuntu-latest

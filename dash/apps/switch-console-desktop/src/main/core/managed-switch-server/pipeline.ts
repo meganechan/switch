@@ -22,7 +22,7 @@ import { clearPorts, resolvePorts } from './ports';
 import { clearSecrets, loadOrCreateSecrets } from './secrets';
 
 /**
- * The transport-agnostic lifecycle for a switchdash-managed Switch stack, run
+ * The transport-agnostic lifecycle for a Switch Console-managed Switch stack, run
  * against a {@link ServerHost}. Shared by the local-server service (a single
  * local host) and the remote-server service (one host per SSH alias); each wraps
  * these with its own phase/status bookkeeping.

@@ -18,7 +18,7 @@ export type RegisterAgentInput = {
  * Register a new agent identity on `server` (owned by the signed-in user) and
  * map recoverable gateway failures to a typed {@link ProvisionAgentResult}
  * (unauthorized→unauthenticated, 409→name-conflict, 400→invalid-name, else
- * error). Every switchdash-managed agent is its own top-level Switch identity —
+ * error). Every Switch Console-managed agent is its own top-level Switch identity —
  * there is no parent/child linkage on the gateway; a Switch Console agent is a flat
  * repository-defined agent (CHOO-1440). Shared by the local and remote create
  * flows so the option mapping stays identical.

@@ -17,7 +17,7 @@ import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './swit
 import { writeNeutralAgentSettingsFs } from './write-switch-settings';
 
 /**
- * Migrate existing switchdash-managed agents to the current storage/definition
+ * Migrate existing Switch Console-managed agents to the current storage/definition
  * layout (CHOO-1440): every agent is a repository-defined agent with a per-agent
  * credentials file at `.switch/agents/<name>.json` and an on-disk definition,
  * both keyed by the agent's single `name`. Pre-CHOO-1440 installs kept

@@ -31,7 +31,7 @@ export const CODEX_CONFIG_PATH = '.codex/config.toml';
  * Switch Console writes those hooks itself, which is the case the flag is documented
  * for ("automation that already vets hook sources"). It is per-invocation and
  * covers every enabled hook, so a hook the user added to `~/.codex/hooks.json`
- * also runs unreviewed in switchdash-launched sessions. Writing per-entry trust
+ * also runs unreviewed in Switch Console-launched sessions. Writing per-entry trust
  * instead would be narrower, but the hash input is undocumented and not
  * derivable from the command text, so it would break silently on a Codex change.
  */

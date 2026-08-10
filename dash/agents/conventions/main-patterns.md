@@ -68,7 +68,7 @@ src/main/core/locations/
 
 Used in: locations, filesystem (`fs/impl/local-fs.ts`), terminals (`terminals/impl/local-terminal-provider.ts`).
 
-**Switchdash is not local-only, and this is the pattern that carries the difference.**
+**Switch Console is not local-only, and this is the pattern that carries the difference.**
 An agent runs either locally or on an SSH host, so the backend behind an interface is a
 real choice rather than a placeholder for one:
 

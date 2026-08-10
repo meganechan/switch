@@ -68,7 +68,7 @@ function CredentialRow({
 }
 
 /**
- * The bundled chat's address and sign-in, for signing in outside switchdash —
+ * The bundled chat's address and sign-in, for signing in outside Switch Console —
  * a browser or the desktop Mattermost client (CHOO-1787).
  *
  * Both are on the same machine by necessity: the stack publishes onto loopback
@@ -77,7 +77,7 @@ function CredentialRow({
  *
  * Collapsed by default, and the values are only fetched once it is opened: the
  * password should not cross into the renderer for everyone who merely looks at
- * the server page. When switchdash cannot read the real values it says which
+ * the server page. When Switch Console cannot read the real values it says which
  * one is missing and why, and shows nothing else — a template password would
  * only send the user round a login loop.
  */

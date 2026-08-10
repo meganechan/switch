@@ -1,4 +1,4 @@
-name: switchdash release
+name: Switch Console release
 
 # Builds the Switch Console desktop app and publishes it to a GitHub Release on this
 # (private) repo, so anyone with repo-read access can install it without building
@@ -66,7 +66,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           version="${GITHUB_REF_NAME#switch-console-v}"
-          notes="switchdash desktop app $version — macOS arm64 and Linux x64.
+          notes="Switch Console desktop app $version — macOS arm64 and Linux x64.
 
           **macOS (arm64):** download the .dmg, open it, drag Switch Console to Applications. Signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass.
 
@@ -75,7 +75,7 @@ jobs:
           In-app updates require a GitHub login via the gh CLI (\`gh auth login\`)."
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "switchdash $version" \
+            --title "Switch Console $version" \
             --draft \
             --notes "$notes"
 
@@ -128,7 +128,7 @@ jobs:
       - name: Rebuild native modules for Electron
         # postinstall skips electron-rebuild under CI; do it explicitly so
         # better-sqlite3 / node-pty match the packaged Electron ABI.
-        run: pnpm --filter @switchdash/switch-console-desktop run rebuild
+        run: pnpm --filter @switch-console/desktop run rebuild
 
       - name: Build workspace packages + app
         # Root recursive build (topological): packages/** then the desktop app.
@@ -178,7 +178,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: switchdash-macos-arm64
+          name: switch-console-macos-arm64
           path: |
             dash/apps/switch-console-desktop/release/*.dmg
             dash/apps/switch-console-desktop/release/*.zip
@@ -227,7 +227,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules for Electron
-        run: pnpm --filter @switchdash/switch-console-desktop run rebuild
+        run: pnpm --filter @switch-console/desktop run rebuild
 
       - name: Build workspace packages + app
         run: pnpm run build
@@ -254,7 +254,7 @@ jobs:
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
-          name: switchdash-linux-x64
+          name: switch-console-linux-x64
           path: |
             dash/apps/switch-console-desktop/release/*.AppImage
             dash/apps/switch-console-desktop/release/*.deb

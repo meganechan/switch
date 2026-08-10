@@ -144,7 +144,7 @@ async def test_live_session_without_capability_reports_switchdash(
     )
 
     assert len(reply.bodies) == 1
-    assert "switchdash" in reply.bodies[0]
+    assert "Switch Console" in reply.bodies[0]
     assert enqueue == []
 
 

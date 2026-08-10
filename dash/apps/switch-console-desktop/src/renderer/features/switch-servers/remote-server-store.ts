@@ -29,7 +29,7 @@ function defaultStatus(sshHost: string): RemoteServerStatus {
 }
 
 /**
- * Renderer store for remote-managed servers — one switchdash-run stack per SSH
+ * Renderer store for remote-managed servers — one Switch Console-run stack per SSH
  * host. Mirrors the main-process supervisor's per-host status (streamed over
  * `remoteServerStatusChannel`) and exposes the lifecycle actions keyed by host.
  * Structurally a per-host version of {@link LocalServerStore}.

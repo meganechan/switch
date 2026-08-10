@@ -283,7 +283,7 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Whether a room's name is missing because switchdash is not signed in to its
+   * Whether a room's name is missing because Switch Console is not signed in to its
    * server, rather than because the load has not finished.
    *
    * The room itself is known — an agent's membership put it there — so the row
@@ -307,7 +307,7 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Servers on screen that were never asked because switchdash is not signed in
+   * Servers on screen that were never asked because Switch Console is not signed in
    * to them.
    *
    * Not a fault and not retryable — the user has to sign in. Reporting it as a

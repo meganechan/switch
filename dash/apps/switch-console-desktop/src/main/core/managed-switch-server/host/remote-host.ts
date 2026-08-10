@@ -33,7 +33,7 @@ type RemoteHostDeps = {
 };
 
 /**
- * A switchdash-managed Switch stack running on a remote host's Docker daemon
+ * A Switch Console-managed Switch stack running on a remote host's Docker daemon
  * over SSH. Commands run via `SshExecutionContext` (a login shell `cd`'d into
  * the working dir); files are written over SFTP; ports are chosen free on both
  * loopbacks and bridged with a persistent mirrored forward so the desktop and

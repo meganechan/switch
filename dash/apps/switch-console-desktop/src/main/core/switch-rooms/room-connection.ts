@@ -433,7 +433,7 @@ export class RoomConnection {
   /**
    * The `<scheme>://session?…` deeplink for this managed session, sent with the
    * runtime-state report so the bridge can link the working / awaiting-input
-   * message back to switchdash. Switch Console owns this link — switch-core relays
+   * message back to Switch Console. Switch Console owns this link — switch-core relays
    * it verbatim. Resolution is by room, so `server`/`agent` are advisory.
    */
   private sessionDeeplink(): string {

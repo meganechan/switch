@@ -19,7 +19,7 @@ const FALLBACK_KNOWN_AGENT_TYPE: KnownAgentType = 'claude-code';
  * Map a Switch Console provider to the gateway known-agent type it registers as.
  *
  * A provider outside the two server-side types has no faithful representation.
- * It still registers as `claude-code` — the generic switchdash-managed shape —
+ * It still registers as `claude-code` — the generic Switch Console-managed shape —
  * because Switch Console drives the session itself and the type mainly determines
  * the connector label and the hand-onboarding command an operator is shown. That
  * mismatch is real (an operator onboarding a Gemini agent by hand is told to run
@@ -30,7 +30,7 @@ export function knownAgentTypeForProvider(providerId: AgentProviderId): KnownAge
   if (known) return known;
 
   log.warn(
-    'knownAgentTypeForProvider: provider has no gateway known-agent type; registering as the generic switchdash-managed shape',
+    'knownAgentTypeForProvider: provider has no gateway known-agent type; registering as the generic Switch Console-managed shape',
     { providerId, registeringAs: FALLBACK_KNOWN_AGENT_TYPE }
   );
   return FALLBACK_KNOWN_AGENT_TYPE;

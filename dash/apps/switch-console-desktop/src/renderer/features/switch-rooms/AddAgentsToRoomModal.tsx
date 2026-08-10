@@ -49,7 +49,7 @@ export const AddAgentsToRoomModal = observer(function AddAgentsToRoomModal({
   // sidebar can disagree about who is already in the room.
   const members = new Set(switchRoomsStore.localMemberIds(roomId));
   // Only this install's agents are offered. An agent registered on another
-  // switchdash could be added server-side but could never be shown or driven
+  // Switch Console could be added server-side but could never be shown or driven
   // from here, so it is not ours to offer.
   const candidates: Candidate[] = serverId
     ? agentsStore

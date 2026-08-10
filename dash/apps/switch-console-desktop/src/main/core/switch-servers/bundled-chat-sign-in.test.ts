@@ -67,7 +67,7 @@ describe('bundledChatSignInFor', () => {
 
   it('treats a bundle missing the chat password as unavailable, not as an empty password', async () => {
     // A partial bundle would otherwise render as a blank password field, which
-    // reads as "the password is empty" rather than "switchdash cannot read it".
+    // reads as "the password is empty" rather than "Switch Console cannot read it".
     readSecrets.mockResolvedValue({ dbPassword: 'x' });
 
     const result = await bundledChatSignInFor(MANAGED);

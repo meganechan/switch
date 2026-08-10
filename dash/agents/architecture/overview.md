@@ -8,7 +8,7 @@ All paths are relative to `apps/switch-console-desktop/`.
 - `src/preload/`: Electron preload bridge — exposes typed `invoke`, `eventSend`, `eventOn` to renderer
 - `src/renderer/`: React UI — app shell (`app/`), feature areas (`features/`), shared infrastructure (`lib/`), typed RPC client
 - `src/shared/`: Agent provider registry, IPC primitives (RPC + events), shared domain types under `src/shared/core/`
-- `src/sidecar/`: The headless on-host sidecar that keeps a remote session running while switchdash is closed. Not an Electron process — see `remote-execution.md`
+- `src/sidecar/`: The headless on-host sidecar that keeps a remote session running while Switch Console is closed. Not an Electron process — see `remote-execution.md`
 
 ## Boot Sequence
 
