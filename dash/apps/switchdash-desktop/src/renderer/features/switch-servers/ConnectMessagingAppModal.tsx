@@ -189,7 +189,7 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                   }}
                 />
                 <p className="mt-1 text-xs text-foreground-muted">
-                  How this connection is labelled in switchdash when you pick it for a room.
+                  How this connection is labelled in Switch Console when you pick it for a room.
                 </p>
               </Field>
 
