@@ -1,18 +1,11 @@
 Switchdash
 Copyright 2025 SandboxAQ
 
-This product is a fork of emdash (https://github.com/generalaction/emdash),
-Copyright General Action, Inc., licensed under the Apache License, Version 2.0.
-
-Portions of this software were originally developed as part of emdash and are
-used and modified here under the terms of the Apache License, Version 2.0. A
-copy of the license is available at:
-
-    http://www.apache.org/licenses/LICENSE-2.0
+Switchdash is a fork of emdash (https://github.com/generalaction/emdash),
+Copyright General Action, Inc., licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0). Portions originally developed as
+part of emdash are used and modified here under the terms of that license.
 
 The "switchdash" name, logos, and associated branding are not part of the
-upstream emdash project and are owned by SandboxAQ.
-
-This software is distributed under the Apache License, Version 2.0, as limited
-by the "Commons Clause" License Condition v1.0 (as modified). See the LICENSE
-file at the repository root for the full terms.
+upstream emdash project and are owned by SandboxAQ. See the repository-root
+LICENSE for the terms that apply to this distribution.
