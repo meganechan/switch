@@ -241,7 +241,10 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Switch credentials rather than by any provider's definition format. This is
   // what an agent someone else set up on a shared host looks like, and the only
   // way a provider with no definition concept (Codex) is visible at all
-  // (CHOO-1937). Provider-agnostic, so it does not wait on the type picker.
+  // (CHOO-1937). The scan itself is provider-agnostic; it still waits on the type
+  // picker because nothing below the directory is shown until a type is chosen, so
+  // scanning earlier would be work (an SSH round trip, for a remote dir) whose
+  // result cannot be displayed.
   const configuredQuery = useQuery({
     queryKey: [
       'discoverConfiguredAgents',
@@ -255,7 +258,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         dir: discoverDir,
         serverId: pickState.serverId!,
       }),
-    enabled: !!pickState.serverId && discoverDir.trim().length > 0,
+    enabled: !!pickState.providerId && !!pickState.serverId && discoverDir.trim().length > 0,
   });
 
   // Definitions that can join Switch and switchdash hasn't already onboarded — the
@@ -424,6 +427,12 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const hostLevelBlocked = isRemoteRun && hostReadiness.blocked && hostReadiness.scope === 'host';
   const canChooseAgentType = runHostReachable && !hostLevelBlocked;
   const canConfigureAgent = canChooseAgentType && runHostReady;
+  // The agent type is the next gate after the host, and it gates everything below
+  // the directory: which agents in the directory can be brought in, and how a new
+  // one is created, both depend on it. Filling in a name, a description and a
+  // config for an agent that has no type yet is answering questions out of order —
+  // the form cannot be submitted from there anyway (CHOO-2044).
+  const canDetailAgent = canConfigureAgent && !!pickState.providerId;
 
   const canSubmitDetected = isRemoteRun
     ? !!pickState.providerId &&
@@ -867,24 +876,20 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           />
         )}
         {canConfigureAgent && !isRemoteRun && (
-          <PickExistingPanel state={pickState} showName={!isMissingSwitchAgent} />
+          <PickExistingPanel state={pickState} showName={canDetailAgent && !isMissingSwitchAgent} />
         )}
-        {isChecking && (
+        {canDetailAgent && isChecking && (
           <p className="text-sm text-foreground-muted">Scanning directory for agents…</p>
         )}
-        {/* A directory chosen with no agent type yet is a half-answered question,
-            and the onboard list cannot be acted on from there: every row needs a
-            type to run under. Say what is missing rather than listing agents under
-            a disabled button (CHOO-2044). */}
-        {canConfigureAgent &&
-          !pickState.providerId &&
-          !isChecking &&
-          discoverDir.trim().length > 0 && (
-            <p className="text-sm text-foreground-muted">
-              Pick an agent type above to scan this directory for agents to bring in.
-            </p>
-          )}
-        {canConfigureAgent && hasOnboardable && !createMode && (
+        {/* A directory chosen with no agent type is a half-answered question, and
+            nothing below can be acted on from there: the agents that could be
+            brought in need a type to run under, and so does a new one. Ask for the
+            type rather than showing a form and a list that cannot be submitted
+            (CHOO-2044). */}
+        {canConfigureAgent && !pickState.providerId && discoverDir.trim().length > 0 && (
+          <p className="text-sm text-foreground-muted">Pick an agent type above to continue.</p>
+        )}
+        {canDetailAgent && hasOnboardable && !createMode && (
           <>
             <OnboardExistingPanel
               agents={onboardableAgents}
@@ -912,7 +917,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             ← Back to existing agents
           </Button>
         )}
-        {canConfigureAgent && isMissingRemoteAgent && showCreate && (
+        {canDetailAgent && isMissingRemoteAgent && showCreate && (
           <>
             <ConfigureAgentPanel
               form={remoteConfigureForm}
@@ -925,7 +930,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             )}
           </>
         )}
-        {switchAgent && (
+        {canDetailAgent && switchAgent && (
           <>
             <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs text-foreground-muted">
               <CheckCircle2 className="mt-0.5 size-3.5 shrink-0 text-green-500" />
@@ -981,7 +986,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             )}
           </>
         )}
-        {canConfigureAgent && isMissingSwitchAgent && showCreate && (
+        {canDetailAgent && isMissingSwitchAgent && showCreate && (
           <>
             <ConfigureAgentPanel
               form={configureForm}
