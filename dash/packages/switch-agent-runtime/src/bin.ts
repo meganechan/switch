@@ -21,7 +21,7 @@
  * from its own getppid(), so each session's hook reaches its own runtime
  * without any cross-session coordination.
  *
- * Identity is resolved in two steps, environment first. switchdash puts the
+ * Identity is resolved in two steps, environment first. Switch Console puts the
  * `SWITCH_*` vars in the session's environment when it launches one itself, and
  * that path is taken whole whenever all three are present. Otherwise the local
  * agent store decides — the working tree says which agents are provisioned
@@ -64,13 +64,13 @@ let API_TOKEN = '';
 let AGENT_ID = '';
 let AGENT_NAME = '';
 
-// When this session is managed by switchdash, switchdash reads the agent
+// When this session is managed by Switch Console, Switch Console reads the agent
 // bridge itself and injects addressed messages into the PTY. Reads are no
 // longer destructive, so both can read the same events without stealing from
 // each other — but the agent would be told twice. So we still hold the
 // connection (it is what correlates every tool call and proves this session is
 // reachable) and simply do not surface events as notifications.
-// Env var name kept for compatibility with switchdash releases in the wild.
+// Env var name kept for compatibility with Switch Console releases in the wild.
 const SUPPRESS_NOTIFICATIONS = process.env.SWITCH_CHANNEL_DISABLE_POLL === '1';
 
 // Claude Code may spawn this server twice on startup: once before settings.env
@@ -374,7 +374,7 @@ type AgentEvent = {
 // delivery rather than this session's room slot.
 
 // A supervisor that spawned this session may hand it a connection to share
-// (switchdash does: it opens the stream, then passes the id in the
+// (Switch Console does: it opens the stream, then passes the id in the
 // environment). Then this process holds no stream and no heartbeat of its own —
 // it only tags its tool calls with the id, so the server can tell which session
 // is calling and which room that session is in.
@@ -844,7 +844,7 @@ async function callOperation(
       ],
       // Object results are also returned as structured content. The remote MCP
       // server produced this for free (FastMCP derives it from the return
-      // type), and hosts read the tool's *fields* from it — switchdash's
+      // type), and hosts read the tool's *fields* from it — Switch Console's
       // connect_to_room hook takes room_id and agent_id straight off the tool
       // response. Text alone leaves them with a blob they cannot address, so
       // the session silently never gets bound to its room.
@@ -1120,7 +1120,7 @@ function startStream() {
         // and a room subscribed afterwards would arrive too late for the
         // buffered events this reconnect exists to recover.
         //
-        // Not when switchdash is managing this session, though. It runs its own
+        // Not when Switch Console is managing this session, though. It runs its own
         // connection for the room and claims the slot; a second claim from here
         // would be refused, and whichever of us lost would sit in a reconnect
         // loop delivering nothing. Suppressing the *notification* was never
@@ -1189,7 +1189,7 @@ async function handleFrame(frame: SseFrame): Promise<void> {
     default:
       if (SUPPRESS_NOTIFICATIONS) {
         // Consumed, not surfaced: the cursor still advances, so resuming after
-        // a drop stays correct even though switchdash is doing the telling.
+        // a drop stays correct even though Switch Console is doing the telling.
         return;
       }
       await handleEvent(frame.data as unknown as AgentEvent);
@@ -1256,7 +1256,7 @@ function setConnectedRoom(target: string | null) {
     if (SUPPRESS_NOTIFICATIONS) {
       // Managed session on an older supervisor that did not hand us an id: it
       // runs its own connection for this room and owns the slot, so ours must
-      // not compete for a room it is not serving. Kept for switchdash releases
+      // not compete for a room it is not serving. Kept for Switch Console releases
       // in the wild; the shared-connection path above replaces it.
       return;
     }

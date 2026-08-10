@@ -14,7 +14,7 @@ export interface RelayedHookEvent extends RawHookRequest {
 
 /**
  * In-memory ring buffer of the raw hook events the sidecar has handled, exposed
- * over the hook server's `/events` long-poll so switchdash can replay remote
+ * over the hook server's `/events` long-poll so Switch Console can replay remote
  * sessions' room/status/session events through its own hook path while the UI
  * is attached.
  *
@@ -109,7 +109,7 @@ export interface HookServerLogger {
 
 export type HookHandler = (raw: RawHookRequest) => Promise<void>;
 
-/** One VM-side session switchdash can reconcile into its UI. */
+/** One VM-side session Switch Console can reconcile into its UI. */
 export interface SidecarSessionInfo {
   sessionId: string;
   /** The Switch room the agent is attending, or null for a session that has
@@ -136,7 +136,7 @@ export type SidecarDisconnectHandler = (sessionId: string, terminated: boolean) 
  * A session's room is claimed on the connection whose id it is handed as
  * `SWITCH_CONNECTION_ID`, and only the process reading that connection sees the
  * room's events. The sidecar mints one itself for every session its own watcher
- * starts; this is the same hand-off for a session switchdash starts over SSH,
+ * starts; this is the same hand-off for a session Switch Console starts over SSH,
  * which would otherwise own a connection nobody on the VM reads.
  */
 export type SidecarConnectionHandler = (sessionId: string, providerId: string) => string;
@@ -155,13 +155,13 @@ export class HookServer {
   /**
    * Start the hook server. When `eventLog` is provided (the remote sidecar
    * case), the server additionally exposes a token-gated `GET /events`
-   * long-poll so switchdash can replay the events the sidecar handled. When
+   * long-poll so Switch Console can replay the events the sidecar handled. When
    * `sessionsProvider` is provided it also exposes a token-gated `GET /sessions`
-   * snapshot so switchdash can reconcile VM-spawned sessions into its UI. When
+   * snapshot so Switch Console can reconcile VM-spawned sessions into its UI. When
    * `disconnectHandler` is provided it exposes a token-gated `POST /disconnect`
-   * so switchdash can drop a session's room connection when it deletes it. When
+   * so Switch Console can drop a session's room connection when it deletes it. When
    * `connectionHandler` is provided it exposes a token-gated `POST /connection`
-   * so switchdash can open a room connection here for a session it is about to
+   * so Switch Console can open a room connection here for a session it is about to
    * start over SSH.
    */
   async start(

@@ -17,10 +17,10 @@ import { artifactVersion, contractRange } from '@switchdash/shared';
  * `MAJOR.MINOR.PATCH+<shorthash>` — semver build metadata.
  *
  * Derived from `artifacts.yaml`, which is the only place it is written. Nothing
- * else declares the sidecar's version: it is deployed by switchdash rather than
+ * else declares the sidecar's version: it is deployed by Switch Console rather than
  * published, so it has no packaging file of its own.
  *
- * **The major must stay at 1 through this transition.** switchdash installs
+ * **The major must stay at 1 through this transition.** Switch Console installs
  * already in the field judge compatibility on the major and parse only `x.y`,
  * so `1.7` → `1.7.0` reads as the same version to them and nothing is replaced.
  * Going to `2.0.0` would make every existing install see this sidecar as
@@ -38,13 +38,13 @@ export const SIDECAR_VERSION = artifactVersion('sidecar');
 /** The artifact name the sidecar declares itself as. */
 export const SIDECAR_ARTIFACT = 'sidecar';
 
-/** The artifact name switchdash declares itself as, on the same contract. */
+/** The artifact name Switch Console declares itself as, on the same contract. */
 export const SIDECAR_CLIENT_ARTIFACT = 'switchdash';
 
 /** What a sidecar of this build speaks. Written into its ready file. */
 export const SIDECAR_CONTROL = contractRange('sidecar-control', SIDECAR_ARTIFACT);
 
-/** What this switchdash speaks to a sidecar. */
+/** What this Switch Console speaks to a sidecar. */
 export const SIDECAR_CLIENT_CONTROL = contractRange('sidecar-control', SIDECAR_CLIENT_ARTIFACT);
 
 /**

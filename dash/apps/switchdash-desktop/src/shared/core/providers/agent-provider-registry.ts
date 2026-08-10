@@ -73,7 +73,7 @@ export type AgentProviderDefinition = {
    * CLI flag to assign a unique session ID per chat instance.
    * Used to isolate session state when multiple chats of the same provider
    * run in the same worktree. The flag receives a deterministic UUID
-   * derived from the Switchdash session ID.
+   * derived from the Switch Console session ID.
    * e.g. '--session-id' for Claude Code.
    */
   sessionIdFlag?: string;
@@ -113,7 +113,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     versionArgs: ['--version'],
     cli: 'codex',
     // Hook trust is a default arg, not an auto-approve one: Codex skips any hook
-    // it has no persisted trust entry for, and switchdash's status signals and
+    // it has no persisted trust entry for, and Switch Console's status signals and
     // rollout-id capture are hooks. Kept in sync with the plugin by the parity
     // test in src/main/core/providers/provider-argv-parity.test.ts.
     defaultArgs: ['--dangerously-bypass-hook-trust'],
@@ -648,7 +648,7 @@ export const AGENT_PROVIDERS: AgentProviderDefinition[] = [
     autoApproveFlag: '--yolo',
     initialPromptFlag: '',
     // Bare `letta` auto-resumes the cwd's last session; `--new` is
-    // required to start a fresh one when switchdash spins up a new chat.
+    // required to start a fresh one when Switch Console spins up a new chat.
     newSessionFlag: '--new',
     useKeystrokeInjection: true,
     icon: 'letta.svg',

@@ -141,7 +141,7 @@ export async function onboardAgent(params: OnboardAgentParams): Promise<OnboardA
   });
 
   // Mirror the agent's credentials into its provider-neutral per-agent file
-  // (`.switch/agents/<name>.json`), the authoritative identity switchdash injects
+  // (`.switch/agents/<name>.json`), the authoritative identity Switch Console injects
   // at launch so agents sharing a location don't collide on the single
   // `.claude/settings.local.json` identity (CHOO-1440). Keyed by `name` — the one
   // key-space every reader uses. Local agents only — a remote agent's dir lives on

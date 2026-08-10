@@ -138,7 +138,7 @@ export class SshClientProxy {
    * rather than a dead one. Returns true when forwarding was just switched off
    * and the caller should retry its channel open once.
    *
-   * The capability is optional — switchdash needs none of it, and it is only
+   * The capability is optional — Switch Console needs none of it, and it is only
    * requested because the user's ssh config asks for it — so a host that
    * declines it (`AllowAgentForwarding no`) must not lose every remote command.
    * The loss is real for anything on the host relying on the forwarded agent

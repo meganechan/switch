@@ -21,7 +21,7 @@ export class Ssh2PtySession implements Pty {
    * Input deferred while the ssh2 channel's send buffer is full. Without this,
    * `write()` ignored `channel.write()`'s return value and kept blasting the
    * channel — a tmux mouse drag floods SGR reports faster than the remote can
-   * drain, freezing the panel and the remote tmux server. See switchdash issue #1994.
+   * drain, freezing the panel and the remote tmux server. See Switch Console issue #1994.
    */
   private readonly pendingWrites: string[] = [];
   private draining = false;

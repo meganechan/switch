@@ -12,7 +12,7 @@ const SWITCH_AUTH_COOKIE = 'switch_auth';
  * `switch_auth` cookie, so we open an Electron window and inject the stored
  * cookie into its isolated session before loading — the reverse of what OIDC
  * login does when it reads the cookie back out. For the managed local server we
- * mint a session first (switchdash holds its admin creds) so the page is always
+ * mint a session first (Switch Console holds its admin creds) so the page is always
  * authenticated; other servers open with whatever session is stored, falling
  * back to the gateway's own sign-in page if none.
  *

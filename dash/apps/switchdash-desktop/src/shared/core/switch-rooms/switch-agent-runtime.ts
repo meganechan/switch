@@ -3,7 +3,7 @@
  * over local stdio (transport to switch-core is HTTP+SSE, held inside the
  * runtime). Both connector plugins register it from a bundled `.mcp.json`: the
  * Claude Code one expands `${VAR}`, the Codex one forwards the same names via
- * `env_vars`. switchdash routes the values into the session's environment.
+ * `env_vars`. Switch Console routes the values into the session's environment.
  *
  * Lives in `shared` so both halves of the remote path can reach it: the main
  * process bakes the launch recipe, and the on-VM sidecar (bundled free of
@@ -70,7 +70,7 @@ export const SWITCH_RUNTIME_ENV_VARS: readonly string[] = [
 
 /**
  * The stdio command that runs the pinned runtime is no longer built here: both
- * connector plugins declare it in their own bundled `.mcp.json`. What switchdash
+ * connector plugins declare it in their own bundled `.mcp.json`. What Switch Console
  * still owns is putting the values behind {@link SWITCH_RUNTIME_ENV_VARS} into
  * the session's environment — a host does not hand an MCP server a copy of its
  * own environment, so Codex forwards only the names its config lists and Claude

@@ -11,7 +11,7 @@ import { log } from '@main/lib/logger';
  * Wiping a managed stack destroys the server-side identity behind each of its
  * agents: the token in the agent's on-disk Switch settings authenticates
  * nothing, and its API endpoint is a port that will never be listened on again.
- * An agent left in that state is not merely idle — switchdash restores its
+ * An agent left in that state is not merely idle — Switch Console restores its
  * room-connected sessions on every launch, and each one polls a dead endpoint
  * for as long as the app runs.
  *

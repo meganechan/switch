@@ -38,7 +38,7 @@ function sameEndpoint(a: string, b: string): boolean {
 }
 
 /**
- * Adopt agents already configured in a working directory into this switchdash,
+ * Adopt agents already configured in a working directory into this Switch Console,
  * under the Switch identity they already have (CHOO-1937).
  *
  * This is the second half of shared-host onboarding: another install (or another

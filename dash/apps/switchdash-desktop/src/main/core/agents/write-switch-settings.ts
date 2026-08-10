@@ -282,7 +282,7 @@ export async function writeSwitchSettings(params: {
 /**
  * Write an agent's Switch credentials to its provider-neutral per-agent file
  * `.switch/agents/<slug>.json` (CHOO-1440), alongside the connector-owned
- * `.claude/settings.local.json`. switchdash injects this file's env at launch, so
+ * `.claude/settings.local.json`. Switch Console injects this file's env at launch, so
  * it is the authoritative per-agent identity — letting multiple agents share a
  * location without colliding on the single `settings.local.json` identity.
  *
@@ -299,7 +299,7 @@ export async function writeAgentNeutralSettings(
 /**
  * Write an agent's provider-neutral per-agent Switch credentials over a
  * {@link PluginFs} (local disk or a remote repo dir via SFTP), keyed by `slug`
- * (the agent name) — the authoritative identity switchdash injects at launch
+ * (the agent name) — the authoritative identity Switch Console injects at launch
  * (`agentSettingsPath`). This is the single per-agent credential writer for every
  * provider and every transport; providers with repo-agent definitions (Claude)
  * layer their definition on top.

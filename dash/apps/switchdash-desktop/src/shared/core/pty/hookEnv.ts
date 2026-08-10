@@ -13,10 +13,10 @@ export interface AgentHookEnv {
 }
 
 /**
- * Environment that points an agent CLI's lifecycle hooks at a switchdash hook
+ * Environment that points an agent CLI's lifecycle hooks at a Switch Console hook
  * server (the local one for local sessions, the on-VM sidecar for remote ones)
  * and stands the in-session Switch connector's own poll loop down so it does
- * not race switchdash's poller on the bridge's destructive event queue.
+ * not race Switch Console's poller on the bridge's destructive event queue.
  *
  * Lives here rather than beside the PTY env allowlist so the remote sidecar —
  * which must bundle free of Electron and the database — shares this wiring

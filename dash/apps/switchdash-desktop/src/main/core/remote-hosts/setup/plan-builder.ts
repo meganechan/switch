@@ -26,7 +26,7 @@ import {
 
 export { agentPluginStepId };
 
-/** A dependency switchdash knows how to check on the host. */
+/** A dependency Switch Console knows how to check on the host. */
 export type PlannableDependency = {
   id: string;
   name: string;

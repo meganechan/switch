@@ -42,7 +42,7 @@ import type { Agent } from '@shared/core/agents/agents';
 import type { RemoteAgentRoom } from '@shared/core/switch-servers/switch-servers';
 import { buildConnectPrompt } from './build-connect-prompt';
 
-// In switchdash a "session" is a *session*: a `claude` process spawned in the agent's
+// In Switch Console a "session" is a *session*: a `claude` process spawned in the agent's
 // own directory. The directory is fixed (the agent), the provider is fixed (claude),
 // and there is no git worktree — sessions run in the agent's location root. So the
 // spawn dialog only asks for an optional name, an optional initial prompt, and an
@@ -118,7 +118,7 @@ export const CreateSessionModal = observer(function CreateSessionModal({
    * should join it — the inverse of the agent-first flow, for starting a session
    * from a room in the sidebar. */
   roomId?: string;
-  // Accepted for source compatibility with switchdash callers; ignored in switchdash v0.
+  // Accepted for source compatibility with Switch Console callers; ignored in Switch Console v0.
   strategy?: string;
   initialPR?: unknown;
 }) {
@@ -145,7 +145,7 @@ export const CreateSessionModal = observer(function CreateSessionModal({
   const effectiveAgent =
     pickedAgent ?? presetAgent ?? (roomMembers.agents.length === 1 ? roomMembers.agents[0] : null);
   const selectedLocationId = roomFirst ? effectiveAgent?.locationId : defaultLocationId;
-  // Every switchdash agent is its own Switch identity, so a session is always
+  // Every Switch Console agent is its own Switch identity, so a session is always
   // owned by a named agent row (CHOO-1440) — the picked agent's name plays the
   // same part here as the `agentName` an agent row passes in.
   const effectiveAgentName = roomFirst ? effectiveAgent?.name : agentName;

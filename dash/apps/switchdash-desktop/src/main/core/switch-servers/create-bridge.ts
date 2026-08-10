@@ -14,7 +14,7 @@ import type {
  *
  * Nothing here logs `params.connectionConfig`, and nothing returns it. The
  * credentials exist in this process only for the duration of the call —
- * switchdash never persists them; the server is where they live.
+ * Switch Console never persists them; the server is where they live.
  */
 export async function createBridgeOnServer(
   server: SwitchServer,

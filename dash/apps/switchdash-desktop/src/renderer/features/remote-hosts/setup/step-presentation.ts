@@ -49,7 +49,7 @@ export function canSkip(step: HostSetupStep): boolean {
 }
 
 /**
- * Whether switchdash can attempt an install for this step.
+ * Whether Switch Console can attempt an install for this step.
  *
  * The GitHub login is excluded because it is an interactive device flow, not an
  * install. Whether an install command actually exists for this host's platform

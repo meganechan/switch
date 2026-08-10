@@ -426,7 +426,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
    *
    * The session's room is claimed on the connection whose id it carries, and
    * only whoever reads that connection sees the room's events. On a remote host
-   * that reader is the sidecar — switchdash's own poller stands down for remote
+   * that reader is the sidecar — Switch Console's own poller stands down for remote
    * sessions and the in-session runtime's poll is disabled — so a session left
    * to mint its own connection is addressable by nobody and never learns its
    * room. Opened before the launch because the server refuses a call naming a
@@ -490,7 +490,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
 
   /**
    * Join the shared relay that mirrors the sidecar's hook events back into
-   * switchdash, so the UI reflects this remote session's room and status.
+   * Switch Console, so the UI reflects this remote session's room and status.
    * Replays through the same hook path as local sessions, but with
    * `startLocalPoller: false` — the sidecar already polls and injects on the VM.
    *
@@ -717,7 +717,7 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
       };
 
       // The on-VM sidecar is what keeps a remote agent connected to Switch while
-      // switchdash is closed; it injects room messages into the agent's tmux pane.
+      // Switch Console is closed; it injects room messages into the agent's tmux pane.
       // It therefore requires tmux, must be up before the agent so the agent's
       // hook env can point at it, and shares the tmux session as its inject target.
       //

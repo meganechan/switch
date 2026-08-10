@@ -5,14 +5,14 @@ import type { RemoteBridge, SwitchServer } from '@shared/core/switch-servers/swi
 
 /**
  * Resolve the link that opens each bridge's workspace, preferring one
- * switchdash can reach over one the server merely knows about.
+ * Switch Console can reach over one the server merely knows about.
  *
  * The gateway builds `home_url` from the bridge's connection config, which is
  * right for Slack, Discord and Teams — public platforms whose URLs are the
  * same everywhere. It is *wrong* for a managed stack's bundled Mattermost: the
  * configured `url` is the in-compose `http://mattermost:8065`, unreachable from
  * the user's machine, and `public_url` is unset because the deployment does not
- * know which port switchdash published it on. switchdash does know, so it
+ * know which port Switch Console published it on. Switch Console does know, so it
  * substitutes its own origin.
  *
  * That substitution is also why the action works before the gateway gains the

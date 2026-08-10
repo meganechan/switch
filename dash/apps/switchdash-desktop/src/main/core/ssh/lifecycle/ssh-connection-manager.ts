@@ -45,7 +45,7 @@ export type SshConnectionManagerEvent =
 /**
  * Resolves a fresh ssh2 ConnectConfig (and proxy transport) for a connection.
  * Called on every (re)connect because proxy socks are single-use — a stored
- * config can't be replayed after a transport teardown. In switchdash this wraps
+ * config can't be replayed after a transport teardown. In Switch Console this wraps
  * the remote agent's `sshHost` alias through `resolveSshConnectConfig`.
  */
 export type SshConnectResolver = () => Promise<SshConnectResult>;

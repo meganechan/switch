@@ -34,7 +34,7 @@ export const RELEASE_REPO_NAME = 'switch';
 // pulls this version's images and bundles this version's standalone compose
 // artifact. Bump it in lockstep with the bundled compose
 // (src/main/core/managed-switch-server/resources/standalone-docker-compose.pinned.yml)
-// so a switchdash release pins a known-good switch-core stack.
+// so a Switch Console release pins a known-good switch-core stack.
 //
 // Declared in artifacts.yaml under `switchdash.pins.switch-core`, and CHECKED
 // against it by `just artifacts` (CHOO-1865). A literal rather than an import

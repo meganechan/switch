@@ -61,7 +61,7 @@ export class LocationProvider implements IDisposable {
     const settings = await this.settings.get();
     // Detach (don't terminate) when work should outlive the app: tmux sessions,
     // and remote locations whose on-VM sidecar must keep listening to Switch
-    // while switchdash is closed (CHOO-1059). Terminate only cleans up the
+    // while Switch Console is closed (CHOO-1059). Terminate only cleans up the
     // local pane.
     const mode = settings.tmux || this.transport.kind === 'ssh' ? 'detach' : 'terminate';
     await sessionRuntimeManager.teardownAllForLocation(this.location.id, mode);

@@ -24,14 +24,14 @@ import {
 } from '../../../../sidecar/sidecar-version';
 
 /**
- * Deploys and launches the switchdash remote runtime sidecar on the agent's VM
+ * Deploys and launches the Switch Console remote runtime sidecar on the agent's VM
  * (CHOO-1059 → CHOO-1085), then waits for it to report a ready endpoint.
  *
  * The sidecar is agent-scoped: one per remote agent, serving every session on
- * the VM (the one switchdash starts over SSH and any it auto-starts) plus the
- * notification watcher. It must outlive the switchdash UI — that is the whole
+ * the VM (the one Switch Console starts over SSH and any it auto-starts) plus the
+ * notification watcher. It must outlive the Switch Console UI — that is the whole
  * point — so it runs inside its own detached tmux session rather than on the
- * launching SSH channel (which dies when switchdash disconnects). It writes
+ * launching SSH channel (which dies when Switch Console disconnects). It writes
  * `{event:"ready",port,token,hash,epoch,pid}` to its ready file atomically once
  * bound; the launcher polls that file until a line from the incarnation it just
  * started appears, then returns the endpoint so the caller can point its remote
@@ -284,7 +284,7 @@ export class RemoteSidecarLauncher {
   }
 
   /**
-   * Reconcile-or-launch. The sidecar is designed to outlive the switchdash UI,
+   * Reconcile-or-launch. The sidecar is designed to outlive the Switch Console UI,
    * so on relaunch a still-running sidecar (its tmux session alive and its ready
    * file intact) is reattached to rather than redeployed — preserving its poll
    * queue and connection. Only when none is running (or it's stale) do we deploy
@@ -603,7 +603,7 @@ export class RemoteSidecarLauncher {
    * reserved for the cases that need it:
    *  - incompatible protocol → must replace; we cannot talk to it at all.
    *  - same build → reattach; there is nothing to gain.
-   *  - newer version → reattach; a newer switchdash deployed it, and replacing
+   *  - newer version → reattach; a newer Switch Console deployed it, and replacing
    *    it would be a downgrade.
    *  - different build, no live sessions → upgrade, since nothing is disturbed.
    *  - different build, live sessions → reattach and record that an upgrade is
@@ -625,7 +625,7 @@ export class RemoteSidecarLauncher {
     if (ready.hash === localHash) return this.toEndpoint(ready);
 
     // A hash difference alone does not say which build is newer. On a host two
-    // switchdash installs share, replacing on difference alone means each sees
+    // Switch Console installs share, replacing on difference alone means each sees
     // the other's sidecar as an upgrade and they trade it back and forth
     // indefinitely. Ordering by version breaks the symmetry: only the newer
     // client replaces, and the older one settles for what is already there

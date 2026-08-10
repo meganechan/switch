@@ -1,5 +1,5 @@
 // Auth assembly: password, key, and agent selection with IdentitiesOnly
-// filtering. Ported from switchdash and trimmed for switchdash (CHOO-1059): inputs
+// filtering. Ported from Switch Console and trimmed for Switch Console (CHOO-1059): inputs
 // are always transient, so password/passphrase come inline from the connect
 // config rather than a credential-service lookup keyed by a persisted row id.
 import ssh2, {

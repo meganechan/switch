@@ -23,7 +23,7 @@ import { switchRoomService, type SessionRoomContext } from './switch-room-servic
 
 /**
  * Polls the Switch agent bridge for room events on behalf of each live session
- * switchdash manages, and injects addressed messages / task events into the
+ * Switch Console manages, and injects addressed messages / task events into the
  * session's PTY as keystrokes. This is the switchdash-side counterpart to the
  * in-session connector channel; only one of the two polls a given session's
  * room at a time (see the cede mechanism — managed sessions disable the
@@ -106,10 +106,10 @@ class SwitchNotificationPoller {
   /**
    * Point a session at a room the hook told us about.
    *
-   * This is the **fallback** path. When switchdash launched the session it
+   * This is the **fallback** path. When Switch Console launched the session it
    * handed over a connection id, the session's `connect_to_room` claimed the
    * room on it, and the server has already told us — so by the time this runs
-   * there is nothing to do. It still matters for a session switchdash only
+   * there is nothing to do. It still matters for a session Switch Console only
    * adopted, which has its own connection and never saw our id.
    *
    * Idempotent for the same room, so the common no-op stays a no-op.
@@ -218,10 +218,10 @@ class SwitchNotificationPoller {
     noteAgentName(creds.agentId, slug);
 
     const ptySessionId = makeAgentPtySessionId(location.id, ctx.sessionId);
-    // Derived, not random: a tmux-backed session survives switchdash quitting,
+    // Derived, not random: a tmux-backed session survives Switch Console quitting,
     // and reattaching to a live pane cannot revise the environment it was
     // launched with — the `-e` flags only apply to a pane being created. So a
-    // restarted switchdash has to arrive at the id that pane already holds.
+    // restarted Switch Console has to arrive at the id that pane already holds.
     const connectionId = sessionConnectionId(ctx.sessionId);
     // Consumed, not just read: it belongs to this session's launch, and a
     // later session must not rewind to a message this one already handled.

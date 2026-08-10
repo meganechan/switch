@@ -1,9 +1,9 @@
-// Builds the ssh2 ConnectConfig for a remote agent. Ported from switchdash and
-// trimmed for switchdash (CHOO-1059): connections are never persisted as rows,
+// Builds the ssh2 ConnectConfig for a remote agent. Ported from Switch Console and
+// trimmed for Switch Console (CHOO-1059): connections are never persisted as rows,
 // so this only handles the transient path, and a remote agent always carries an
 // `~/.ssh/config` Host alias — the canonical OpenSSH resolution via `ssh -G` is
 // the source of truth. The manual-agent (no-alias hostname lookup) and
-// credential-service password paths from switchdash are dropped.
+// credential-service password paths from Switch Console are dropped.
 import { readFile } from 'node:fs/promises';
 import ssh2, { type BaseAgent, type ConnectConfig } from 'ssh2';
 import type { SshConfig } from '@shared/core/ssh/ssh';

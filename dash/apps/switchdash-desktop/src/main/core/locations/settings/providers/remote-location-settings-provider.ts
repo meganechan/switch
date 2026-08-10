@@ -10,7 +10,7 @@ import {
 /**
  * DB-backed location settings for a remote (SSH) agent. Its working directory
  * lives on the host, so there is no local path to read/validate; the config
- * reader is backed by the SSH filesystem. switchdash runs every session in the
+ * reader is backed by the SSH filesystem. Switch Console runs every session in the
  * remote working dir (no worktrees), so worktree-directory handling is a no-op.
  */
 export class RemoteLocationSettingsProvider extends DbLocationSettingsProvider {

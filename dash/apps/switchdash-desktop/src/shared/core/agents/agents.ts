@@ -22,7 +22,7 @@ export type Agent = {
   apiEndpoint: string | null;
   serverId: string | null;
   status: string | null;
-  /** When true, switchdash launches this agent's CLI with its auto-approve /
+  /** When true, Switch Console launches this agent's CLI with its auto-approve /
    * "bypass permissions" flag. Defaults false for local agents and true for
    * remote agents (seeded at onboarding); editable per agent. */
   autoApprove: boolean;

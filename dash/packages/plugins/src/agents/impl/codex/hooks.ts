@@ -17,18 +17,18 @@ export const CODEX_HOOKS_PATH = '.codex/hooks.json';
 export const CODEX_CONFIG_PATH = '.codex/config.toml';
 
 /**
- * Lets Codex run the hooks switchdash installed without a persisted trust entry.
+ * Lets Codex run the hooks Switch Console installed without a persisted trust entry.
  *
  * Codex keys hook trust per entry in `~/.codex/config.toml`
  * (`[hooks.state."<hooks.json>:<event>:<group>:<index>"] trusted_hash`) and
  * skips any hook it has no entry for. Verified against 0.146.0: in `codex exec`
  * that skip is silent — no dump, no mention of the hook in the transcript — and
  * in the TUI it is a blocking startup review pane that a detached session has
- * nobody to answer. Either way switchdash's own hooks would not run, taking the
+ * nobody to answer. Either way Switch Console's own hooks would not run, taking the
  * session's status signals and its rollout-id capture with them, and rewriting a
  * hook command invalidates the entry a user had already granted.
  *
- * switchdash writes those hooks itself, which is the case the flag is documented
+ * Switch Console writes those hooks itself, which is the case the flag is documented
  * for ("automation that already vets hook sources"). It is per-invocation and
  * covers every enabled hook, so a hook the user added to `~/.codex/hooks.json`
  * also runs unreviewed in switchdash-launched sessions. Writing per-entry trust
@@ -161,7 +161,7 @@ export function buildCodexHookConfig() {
   // carries `tool_name` / `tool_input`, the same shape Claude sends.
   //
   // No PostToolUse room-tracking matcher: since the agent-bridge push transport
-  // (CHOO-1857), a session's room is driven by the connection switchdash opens
+  // (CHOO-1857), a session's room is driven by the connection Switch Console opens
   // and hands it as SWITCH_CONNECTION_ID, so `connect_to_room` claims the room
   // on that connection and the server reports it back. These two are unscoped
   // — every tool, no matcher.

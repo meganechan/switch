@@ -41,7 +41,7 @@ describe('codex registry metadata matches the argv the plugin builds', () => {
 
   it('leaves the sandbox to the user config on both sides of the mirror', () => {
     // Auto-approve means unattended approvals, not unattended filesystem and
-    // network access. Codex runs hooks outside the sandbox, so switchdash's
+    // network access. Codex runs hooks outside the sandbox, so Switch Console's
     // loopback hook curls do not need one relaxed on their behalf.
     const def = getProvider('codex')!;
 
@@ -52,7 +52,7 @@ describe('codex registry metadata matches the argv the plugin builds', () => {
   it('emits defaultArgs on a session that does not auto-approve', () => {
     // Hook trust belongs in defaultArgs, not autoApproveFlag: Codex silently
     // skips hooks it has no trust entry for, so gating it on auto-approve
-    // leaves a default session running none of switchdash's hooks.
+    // leaves a default session running none of Switch Console's hooks.
     const def = getProvider('codex')!;
     const args = buildCodexArgs(false);
 

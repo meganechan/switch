@@ -44,7 +44,7 @@ function initialStatus(sshHost: string): RemoteServerStatus {
  * `hosts` because it owns the persistent port-forward that makes the stack
  * reachable from the desktop; it is disposed only on stop/reset/quit. The
  * containers themselves run detached, so a remote stack (and its remote-host
- * agents) stays up while switchdash is closed — only the desktop-side forward
+ * agents) stays up while Switch Console is closed — only the desktop-side forward
  * goes away.
  */
 class RemoteServerService {

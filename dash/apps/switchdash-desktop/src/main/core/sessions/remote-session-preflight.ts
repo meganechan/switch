@@ -4,7 +4,7 @@ import type { CredentialsLogger } from '@main/core/switch-rooms/switch-credentia
 import { parseSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
 
 /**
- * Verifies an agent's remote host is ready to run a session before switchdash
+ * Verifies an agent's remote host is ready to run a session before Switch Console
  * provisions one (CHOO-1059). Fails loud — a missing dependency, absent creds,
  * or an unreachable Switch endpoint each surface a clear, actionable error
  * rather than a half-started remote session that silently never connects.
@@ -97,7 +97,7 @@ async function assertHostReady(
     const cause = error instanceof Error ? error.cause : undefined;
     // A channel-open REFUSAL (the server answered "no") usually means session
     // exhaustion; do not blame sshd MaxSessions for every transport failure —
-    // a wedged shared connection produces the same symptom and switchdash now
+    // a wedged shared connection produces the same symptom and Switch Console now
     // rebuilds it automatically.
     if (isSshChannelOpenFailure(error) || isSshChannelOpenFailure(cause)) {
       log.warn('preflightRemoteSession: SSH channel open refused on host-ready probe', {

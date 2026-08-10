@@ -1,5 +1,5 @@
 /**
- * Build a Mattermost theme from switchdash's own design tokens, so the embedded
+ * Build a Mattermost theme from Switch Console's own design tokens, so the embedded
  * room view matches the app instead of sitting in it as a bright rectangle.
  *
  * Mattermost accepts a fully custom theme as a per-user preference, which is
@@ -25,7 +25,7 @@ function gammaEncode(c: number): number {
  * both use the same white point).
  *
  * Each row sums to 1, so achromatic colours are unchanged — which is why
- * switchdash's greys convert to the same hex either way, and only the accent
+ * Switch Console's greys convert to the same hex either way, and only the accent
  * colours actually move.
  */
 const P3_TO_SRGB = [
@@ -95,7 +95,7 @@ export function cssColorToHex(value: string): string | null {
 }
 
 /**
- * switchdash tokens the theme is built from, already resolved to hex. Kept as
+ * Switch Console tokens the theme is built from, already resolved to hex. Kept as
  * an explicit shape so the renderer's collection and this mapping cannot drift
  * apart silently.
  */
@@ -116,7 +116,7 @@ export type ThemeTokens = {
 };
 
 /**
- * Map switchdash tokens onto Mattermost's theme keys.
+ * Map Switch Console tokens onto Mattermost's theme keys.
  *
  * Sidebar keys are still set even though the sidebars are hidden: Mattermost
  * reuses those colours in menus and popovers that remain visible.

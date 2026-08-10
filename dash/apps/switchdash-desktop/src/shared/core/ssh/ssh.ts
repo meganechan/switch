@@ -1,12 +1,12 @@
 /**
- * SSH connection types for switchdash remote agents (CHOO-1059). Ported from
- * switchdash and trimmed: switchdash resolves a connection from the agent's
+ * SSH connection types for Switch Console remote agents (CHOO-1059). Ported from
+ * Switch Console and trimmed: Switch Console resolves a connection from the agent's
  * `~/.ssh/config` Host alias rather than storing connections in a table, and
- * uses typed RPC instead of switchdash's ssh: IPC channels.
+ * uses typed RPC instead of Switch Console's ssh: IPC channels.
  */
 
 /**
- * The resolved inputs for opening an SSH connection. In switchdash this is
+ * The resolved inputs for opening an SSH connection. In Switch Console this is
  * derived from a remote agent's `sshHost` alias (resolved via `ssh -G`), not
  * persisted as a row. `name` is a human label for error messages.
  */

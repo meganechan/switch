@@ -13,7 +13,7 @@ import { SWITCH_AGENTS_DIR_RELATIVE } from './switch-settings-paths';
  * the provider-neutral `.switch/agents/<name>.json` credentials every provider
  * writes.
  *
- * The local database only knows the agents *this* switchdash manages, which is
+ * The local database only knows the agents *this* Switch Console manages, which is
  * not the same set as the agents that legitimately run in a shared directory
  * (CHOO-1937). Reaping against the local set alone would kill the sidecar of an
  * agent another install onboarded here — a process this install has never heard
@@ -43,7 +43,7 @@ async function hostConfiguredSlugs(host: SidecarHost, repoDir: string): Promise<
  * their own sidecar (CHOO-1440).
  *
  * Drawn from the local database *and* the host's own credentials directory, so
- * the set covers agents this switchdash does not manage. `agent` is always
+ * the set covers agents this Switch Console does not manage. `agent` is always
  * included, even if both lookups somehow miss its row — reaping must never be
  * able to kill the sidecar of the very agent it was invoked for.
  */

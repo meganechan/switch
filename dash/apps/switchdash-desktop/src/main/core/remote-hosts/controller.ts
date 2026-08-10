@@ -51,7 +51,7 @@ export type RemoteDependencyView = {
   path: string | null;
   error?: string;
   docUrl?: string;
-  /** True when switchdash has an install command for this host's platform. */
+  /** True when Switch Console has an install command for this host's platform. */
   canInstall: boolean;
   /**
    * GitHub CLI auth status. Present only on the `gh` dependency once its binary

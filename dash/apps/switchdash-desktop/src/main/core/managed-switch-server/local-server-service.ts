@@ -27,7 +27,7 @@ import { resetStack, startStack, stopStack } from './pipeline';
  * `localServerStatusChannel`.
  *
  * Deliberately does NOT stop the containers on app quit — the local stack keeps
- * running so its rooms stay live while switchdash is closed, matching the remote
+ * running so its rooms stay live while Switch Console is closed, matching the remote
  * sidecar model. `dispose()` only aborts an in-flight health wait.
  */
 class LocalServerService {

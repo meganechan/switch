@@ -74,9 +74,9 @@ class AgentHookService implements IInitializable, IDisposable, Hookable<AgentHoo
 
   /**
    * Process one raw hook callback. Local sessions (`startLocalPoller: true`)
-   * start switchdash's own room poller on a `connect_to_room`. Remote sessions
+   * start Switch Console's own room poller on a `connect_to_room`. Remote sessions
    * relayed from the on-VM sidecar (`startLocalPoller: false`) skip it — the
-   * sidecar owns polling and tmux injection on the VM; switchdash only records
+   * sidecar owns polling and tmux injection on the VM; Switch Console only records
    * the room and status for display so it must not start a competing poller.
    */
   async handleRawHook(raw: RawHookRequest, opts: { startLocalPoller: boolean }): Promise<void> {

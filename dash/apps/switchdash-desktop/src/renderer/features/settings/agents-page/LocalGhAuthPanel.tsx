@@ -16,7 +16,7 @@ type Props = {
  * terminal INLINE on the agents settings page.
  *
  * The local counterpart of the remote-hosts GhAuthPanel, and inline for the
- * same reason: switchdash's terminal input path is disabled whenever a
+ * same reason: Switch Console's terminal input path is disabled whenever a
  * `[role="dialog"]` is present, so a terminal in a modal can never receive
  * keystrokes.
  */

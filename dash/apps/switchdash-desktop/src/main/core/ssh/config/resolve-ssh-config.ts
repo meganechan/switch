@@ -1,5 +1,5 @@
 // Canonical OpenSSH resolution via `ssh -G`. Source of truth at connect time.
-// Ported from switchdash for switchdash remote-SSH agents (CHOO-1059).
+// Ported from Switch Console for Switch Console remote-SSH agents (CHOO-1059).
 import { execFile } from 'node:child_process';
 
 export interface SshConfigRunnerResult {

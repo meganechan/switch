@@ -633,13 +633,13 @@ class AgentRuntimeState(Base):
         Text, ForeignKey("rooms.id", ondelete="CASCADE"), nullable=False
     )
     state: Mapped[str] = mapped_column(Text, nullable=False)
-    # The switchdash://session deeplink the reporting client (switchdash) last
+    # The switchdash://session deeplink the reporting client (Switch Console) last
     # sent for this (agent, room), so `!status` can surface an on-demand link to
     # the session. Null for agents whose connector doesn't report one.
     deeplink_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Which session-control commands (reset/compact/interrupt) the live session
     # behind this (agent, room) can execute, as reported by its controller
-    # (switchdash) — e.g. {"reset": true, "compact": true, "interrupt": true}.
+    # (Switch Console) — e.g. {"reset": true, "compact": true, "interrupt": true}.
     # Null when no controller reports capabilities (e.g. a standalone `claude`
     # session), which resolves session_dependent commands to "unsupported".
     control_capabilities: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

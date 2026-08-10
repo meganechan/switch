@@ -45,12 +45,12 @@ export type StartStackOptions = {
 /**
  * Refuse to point an existing stack at an OLDER switch-core than it already
  * runs. switch-core migrates its database forward at startup and Alembic has no
- * downgrade path, so rolling switchdash back would hand an old core a schema it
+ * downgrade path, so rolling Switch Console back would hand an old core a schema it
  * cannot read — silent, and only discovered once the data is already stuck.
  *
  * Runs before anything is written: the `.env` still names the version the stack
  * was last started with, so a refused start leaves the host exactly as it was
- * and re-installing the newer switchdash is enough to recover.
+ * and re-installing the newer Switch Console is enough to recover.
  *
  * This blocks the PROVABLE downgrade only. Two cases pass through, and both are
  * now said out loud rather than passing in silence (CHOO-1865):
@@ -154,7 +154,7 @@ export async function startStack(opts: StartStackOptions): Promise<StartLocalSer
   const server = await ensureManagedServer({ name: serverName, gatewayUrl, apiUrl }, ref);
   await setActiveServerId(server.id);
 
-  // switchdash generated the admin password, so sign in on the user's behalf
+  // Switch Console generated the admin password, so sign in on the user's behalf
   // rather than showing a login wall for a secret they never saw. A failure here
   // does not fail the start — the stack is healthy; the server view falls back
   // to its sign-in panel.

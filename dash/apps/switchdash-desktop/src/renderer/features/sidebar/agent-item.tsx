@@ -39,7 +39,7 @@ import { SidebarItemMiniButton, SidebarMenuAction, SidebarMenuRow } from './side
 import { agentExpandKey, depthIndent } from './sidebar-store';
 
 /**
- * A single agent in the flat sidebar list. switchdash has no main/subagent
+ * A single agent in the flat sidebar list. Switch Console has no main/subagent
  * distinction — every agent is a first-class row, launched as its own provider
  * definition with its own Switch identity (CHOO-1440). The row opens the agent's
  * page, starts sessions as that agent, and its sessions nest underneath.

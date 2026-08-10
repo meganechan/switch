@@ -33,7 +33,7 @@ export type LocalGhAuthStatus = {
    *
    * Worth its own field rather than folding into the others: it is the one
    * state that re-authenticating does not fix, so the UI has to say something
-   * different. `gh` prefers `GH_TOKEN`/`GITHUB_TOKEN`, and switchdash inherits
+   * different. `gh` prefers `GH_TOKEN`/`GITHUB_TOKEN`, and Switch Console inherits
    * whatever the user's shell exported.
    */
   envShadowed: boolean;

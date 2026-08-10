@@ -1,5 +1,5 @@
 /**
- * Shared types for local-server mode: switchdash runs a full Switch stack on the
+ * Shared types for local-server mode: Switch Console runs a full Switch stack on the
  * user's machine via `docker compose`, using the standalone compose artifact
  * bundled into the app (pinned to COMPATIBLE_SWITCH_VERSION). The main process
  * owns the container lifecycle; the renderer drives it through these types and
@@ -17,7 +17,7 @@ export type DockerAvailability =
 
 /**
  * How the switch-core version a stack is actually deployed at relates to the
- * version this build of switchdash pins.
+ * version this build of Switch Console pins.
  *
  * - `upgrade` — the stack is behind; restarting re-pulls and migrates forward.
  * - `downgrade` — the stack is AHEAD. Unsafe: its database has already migrated
@@ -43,7 +43,7 @@ export type SwitchVersionDrift =
   | {
       /** The version the stack is actually deployed at. */
       deployed: string;
-      /** The version this build of switchdash pins. */
+      /** The version this build of Switch Console pins. */
       expected: string;
       direction: 'upgrade' | 'downgrade' | 'unknown';
     }
@@ -62,7 +62,7 @@ export type SwitchVersionDrift =
  * banner) so both say the same thing.
  *
  * Kept to two sentences, but both ways out stay in: a user who is not told
- * that updating switchdash fixes this will reach for Reset and lose their data.
+ * that updating Switch Console fixes this will reach for Reset and lose their data.
  */
 export function switchVersionDowngradeMessage(deployed: string, expected: string): string {
   return (

@@ -121,10 +121,10 @@ async function removeLocalSession(sessionId: string): Promise<void> {
  * the sidecar/watcher session and every agent (Claude Code) session — then bring
  * the agent back up fresh so it can start clean (CHOO-1656).
  *
- * The kill scope is the union of the sessions switchdash has rows for and the
+ * The kill scope is the union of the sessions Switch Console has rows for and the
  * sessions the VM sidecar reports live, so it covers sessions this client never
  * opened while staying scoped to THIS agent's sidecar (host + repo dir) rather
- * than sweeping every switchdash session on a shared host.
+ * than sweeping every Switch Console session on a shared host.
  *
  * Fails loud: a real remote teardown error (a `kill-session` that fails, a
  * broken SSH transport) propagates instead of being swallowed. Remote-only —
@@ -163,7 +163,7 @@ export async function resetRemoteAgent(agentId: string): Promise<void> {
 
   await Promise.all(dbSessionIds.map((id) => removeLocalSession(id)));
 
-  // Bring the agent back up fresh, the same way switchdash does at boot: re-ensure
+  // Bring the agent back up fresh, the same way Switch Console does at boot: re-ensure
   // the sidecar + watcher (when auto_session is on) and restart session discovery.
   await ensureRemoteWatcher(agentId);
   await startRemoteDiscovery(agentId);

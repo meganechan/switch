@@ -8,7 +8,7 @@
  * surfacing them as MCP notifications, or deciding to start a session are all
  * the consumer's business.
  *
- * Imported by switchdash (which delivers into a session's pane) and by this
+ * Imported by Switch Console (which delivers into a session's pane) and by this
  * package's own MCP runtime (which serves them next to the agent). It exists
  * because those two had a copy each and the copies drifted within a day.
  *

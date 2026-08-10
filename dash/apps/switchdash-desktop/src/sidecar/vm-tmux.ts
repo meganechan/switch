@@ -1,7 +1,7 @@
 /**
- * Bundle-safe tmux helpers, replicated from switchdash's Electron-bound
+ * Bundle-safe tmux helpers, replicated from Switch Console's Electron-bound
  * `tmux-session-name.ts` so the sidecar bundle stays free of the main-process
- * logger. A spawned session's tmux name matches what switchdash would compute
+ * logger. A spawned session's tmux name matches what Switch Console would compute
  * for the same session, so a later attach reuses the pane.
  */
 
@@ -10,13 +10,13 @@ export function exactTmuxTarget(sessionName: string): string {
   return `=${sessionName}`;
 }
 
-/** Same scheme as switchdash's `makeTmuxSessionName`. */
+/** Same scheme as Switch Console's `makeTmuxSessionName`. */
 export function makeTmuxSessionName(sessionId: string): string {
   return `switchdash-${Buffer.from(sessionId, 'utf8').toString('base64url')}`;
 }
 
 /**
- * Agent pane name, keyed on the shared session id alone. Mirrors switchdash's
+ * Agent pane name, keyed on the shared session id alone. Mirrors Switch Console's
  * `makeAgentTmuxSessionName` so the sidecar and every attached client converge
  * on ONE pane per session (CHOO-1181). Must not fold in locationId — it is
  * switchdash-instance-local and would diverge per client.

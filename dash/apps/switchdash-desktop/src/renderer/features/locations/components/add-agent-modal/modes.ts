@@ -50,7 +50,7 @@ export type PickModeState = ReturnType<typeof usePickMode>;
  * Form state for creating a brand-new Switch agent in a directory. Collects the
  * Switch agent name and description (advanced definition attributes are gathered
  * separately in the Advanced section), seeding name/description from a
- * server-derived default until the user edits them. switchdash always registers
+ * server-derived default until the user edits them. Switch Console always registers
  * the agent as a managed, session-addressable identity — there is no run-mode or
  * notify-handle choice (CHOO-1440).
  */

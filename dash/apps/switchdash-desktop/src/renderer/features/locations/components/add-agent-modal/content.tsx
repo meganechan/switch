@@ -4,8 +4,8 @@ import { Input } from '@renderer/lib/ui/input';
 import { LocalDirectorySelector } from './local-directory-selector';
 import { type PickModeState } from './modes';
 
-// switchdash adds agents from existing local directories only. The SSH / create-new /
-// clone panels from switchdash are out of scope for v0 and have been removed.
+// Switch Console adds agents from existing local directories only. The SSH / create-new /
+// clone panels from Switch Console are out of scope for v0 and have been removed.
 export function PickExistingPanel({
   state,
   showName = true,

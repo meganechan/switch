@@ -15,7 +15,7 @@ import {
 /**
  * Per-agent Codex configuration for the add-agent modal. Codex has no repo-agent
  * definition surface (so {@link AgentAdvancedConfig} renders nothing for it);
- * instead switchdash folds these values into the agent's Codex profile at launch.
+ * instead Switch Console folds these values into the agent's Codex profile at launch.
  *
  * Effort levels mirror `CODEX_REASONING_EFFORTS` in the codex plugin — kept small
  * and stable there, duplicated here so the renderer needs no plugin import.

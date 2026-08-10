@@ -14,7 +14,7 @@ import type { Agent } from '@shared/core/agents/agents';
 export type AgentEntry = { agent: Agent; location: LocationStore };
 
 /**
- * The flat list of agents in the active-server scope. switchdash shows agents
+ * The flat list of agents in the active-server scope. Switch Console shows agents
  * as a flat list — not grouped by directory (CHOO-1440).
  *
  * Newest first, then overlaid with the user's manual drag order: an agent they

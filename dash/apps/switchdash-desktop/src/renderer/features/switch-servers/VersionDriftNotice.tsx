@@ -8,7 +8,7 @@ import {
 
 /**
  * Surfaces a managed stack whose switch-core version no longer matches the one
- * this build of switchdash pins (CHOO-1736).
+ * this build of Switch Console pins (CHOO-1736).
  *
  * Updating the app moves the pin, but a stack that is already up is never
  * re-provisioned — without this the user silently keeps running the old core.

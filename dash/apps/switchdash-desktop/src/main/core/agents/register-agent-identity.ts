@@ -19,11 +19,11 @@ export type RegisterAgentInput = {
  * map recoverable gateway failures to a typed {@link ProvisionAgentResult}
  * (unauthorized→unauthenticated, 409→name-conflict, 400→invalid-name, else
  * error). Every switchdash-managed agent is its own top-level Switch identity —
- * there is no parent/child linkage on the gateway; a switchdash agent is a flat
+ * there is no parent/child linkage on the gateway; a Switch Console agent is a flat
  * repository-defined agent (CHOO-1440). Shared by the local and remote create
  * flows so the option mapping stays identical.
  *
- * Channels are always enabled: switchdash keeps the agent's session live (and
+ * Channels are always enabled: Switch Console keeps the agent's session live (and
  * auto-spawns one on notify), so it is session-addressable regardless of the
  * underlying model provider — there is no user-facing "how do you run Claude"
  * choice.

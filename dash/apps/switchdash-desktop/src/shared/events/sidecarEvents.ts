@@ -10,7 +10,7 @@ import { defineEvent } from '@shared/lib/ipc/events';
  *   (the sidecar is idle).
  * - `upgrade-pending` — a different build is running but has live sessions, so
  *   the upgrade is deferred until it is idle rather than interrupting work.
- * - `newer-on-host` — a newer switchdash deployed the running sidecar. There is
+ * - `newer-on-host` — a newer Switch Console deployed the running sidecar. There is
  *   nothing to offer: replacing it would be a downgrade, and on a shared host
  *   two installs doing that to each other never converges.
  * - `incompatible` — the host runs a protocol this client cannot speak; it must

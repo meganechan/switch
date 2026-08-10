@@ -16,7 +16,7 @@ import { useTerminalSearch } from '@renderer/lib/pty/use-terminal-search';
 import { SessionAttachmentState } from './session-attachment-state';
 
 /**
- * The entire session view: one `claude` terminal. A switchdash session has
+ * The entire session view: one `claude` terminal. A Switch Console session has
  * exactly one agent, so we mount its PTY directly — no tabs, no panes,
  * no context bar.
  */

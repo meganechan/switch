@@ -20,7 +20,7 @@ const MSG_A2_ID = 'dddd0002-0000-0000-0000-000000000000';
 
 /**
  * Realistic but fully synthetic dataset — no sensitive data.
- * Represents a developer's day-to-day switchdash state: two local locations and
+ * Represents a developer's day-to-day Switch Console state: two local locations and
  * one remote, each with a Switch agent, four sessions across various lifecycle
  * statuses, and a couple of messages.
  */

@@ -12,7 +12,7 @@ import type { getPlugin } from '@main/core/providers/plugin-registry';
  *
  * It does not register the Switch MCP server — the connector plugins ship that
  * in their own bundled `.mcp.json`, so it is present for every session of that
- * host rather than only the ones switchdash launches.
+ * host rather than only the ones Switch Console launches.
  *
  * Pure — no write — so the caller decides where the files land: a direct write
  * for local/SSH sessions, or a baked launch spec the VM sidecar writes for remote

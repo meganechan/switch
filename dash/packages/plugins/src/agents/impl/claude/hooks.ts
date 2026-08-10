@@ -155,7 +155,7 @@ export function buildClaudeHookConfig() {
       { hookKey: 'Notification', command: makeStdinHookCommand('notification') },
       { hookKey: 'Stop', command: makeStdinHookCommand('stop') },
       // Switch room detection: report the room a session connects to so
-      // switchdash can surface membership and drive notification injection.
+      // Switch Console can surface membership and drive notification injection.
       {
         hookKey: 'PostToolUse',
         matcher: 'mcp__.*__connect_to_room',

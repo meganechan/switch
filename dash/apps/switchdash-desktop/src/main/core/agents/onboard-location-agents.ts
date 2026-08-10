@@ -137,12 +137,12 @@ async function resolveIdentity(
 /**
  * Onboard the provider agents defined in a working directory. Every
  * `.claude/agents/<name>.md` definition that can join Switch and isn't already a
- * switchdash agent is brought in as a flat agent row (CHOO-1440):
+ * Switch Console agent is brought in as a flat agent row (CHOO-1440):
  *
  * - A definition that already carries valid Switch credentials (registered, and
  *   its identity still exists on the server) is imported under that identity.
  * - A plain provider subagent (a definition with no Switch setup — e.g. one a
- *   user created directly in Claude Code) is *adopted*: switchdash mints a Switch
+ *   user created directly in Claude Code) is *adopted*: Switch Console mints a Switch
  *   identity for it and writes its per-agent credentials, leaving the existing
  *   definition file untouched.
  *

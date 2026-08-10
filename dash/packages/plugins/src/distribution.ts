@@ -4,7 +4,7 @@
  * when installing the Switch connector plugin.
  *
  * CHOO-1260 config-flip point: the public-repo move repoints this. See
- * RELEASING.md. Keep in sync with the switchdash auto-update target
+ * RELEASING.md. Keep in sync with the Switch Console auto-update target
  * (RELEASE_REPO_* in apps/switchdash-desktop/src/shared/app-identity.ts).
  */
 export const SWITCH_MARKETPLACE_SOURCE = 'sandbox-quantum/switch';

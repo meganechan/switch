@@ -58,7 +58,7 @@ describe('resolveAgentLaunchProfile', () => {
 
   it('registers no MCP server — the connector plugin ships that', () => {
     // The Switch server lives in the plugin's bundled `.mcp.json`, so a session
-    // has it whether or not switchdash launched it. Writing it here as well
+    // has it whether or not Switch Console launched it. Writing it here as well
     // would restrict nothing and duplicate the declaration.
     const profile = resolveAgentLaunchProfile(codexPlugin, {
       slug: 'codex-hoot',

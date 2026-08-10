@@ -61,9 +61,9 @@ import {
   type OnboardableAgent,
 } from './onboard-existing-panel';
 
-// switchdash adds a Switch *agent* by pointing at a local directory that the
+// Switch Console adds a Switch *agent* by pointing at a local directory that the
 // switch-connector `configure` skill has set up (its `.claude/settings.local.json`
-// carries the SWITCH_* env block). The richer switchdash flows — SSH, clone, create
+// carries the SWITCH_* env block). The richer Switch Console flows — SSH, clone, create
 // new GitHub repo — are out of scope for v0, so this modal is local + pick only.
 export type AddLocationModalProps = BaseModalProps<void>;
 
@@ -244,7 +244,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     enabled: discoverDir.trim().length > 0,
   });
 
-  // Definitions that can join Switch and switchdash hasn't already onboarded — the
+  // Definitions that can join Switch and Switch Console hasn't already onboarded — the
   // ones worth offering. Already-onboarded ones (on THIS client) are excluded so
   // the modal never offers to re-add a row it already has; ones registered on the
   // gateway by another client are still offered (imported, not re-minted). CHOO-1440.

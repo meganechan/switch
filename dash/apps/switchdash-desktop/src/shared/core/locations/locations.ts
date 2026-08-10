@@ -4,7 +4,7 @@ import type { SwitchAgentConfig } from '@shared/switch-agents';
  * A Location: where agents' sessions run — a working directory on a host.
  * Local locations live on this machine (`sshHost` null); remote ones on an
  * SSH host identified by its `~/.ssh/config` alias, with auth resolved from
- * the user's SSH config/agent (switchdash stores no credentials). Multiple
+ * the user's SSH config/agent (Switch Console stores no credentials). Multiple
  * agents may share one location.
  */
 export type Location = {
@@ -36,7 +36,7 @@ export type LocationPathInspection = LocationPathStatus & {
   existingLocation?: Location;
   /**
    * The Switch agent configured in this directory, if any (read from the dir's
-   * `.claude/settings.local.json`). switchdash only allows onboarding
+   * `.claude/settings.local.json`). Switch Console only allows onboarding
    * directories that resolve a Switch agent.
    */
   switchAgent?: SwitchAgentConfig | null;

@@ -13,7 +13,7 @@ import { sidecarStatusChannel } from '@shared/events/sidecarEvents';
  * Per-agent remote sidecar status + lifecycle controls.
  *
  * The sidecar is the on-VM process that keeps a remote agent connected to its
- * Switch rooms while switchdash is closed. It is deployed and upgraded silently
+ * Switch rooms while Switch Console is closed. It is deployed and upgraded silently
  * on connect; this section makes that state visible — which build the host runs
  * vs. which this client ships — and lets the operator update, restart, or stop it
  * by hand. Rendered only for remote agents (a local agent has no sidecar).

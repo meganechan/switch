@@ -109,7 +109,7 @@ export function deriveHostStatus(
  * its own CLI as the problem. Only once the host itself is ready does the
  * question become type-specific.
  *
- * A type with no steps in the plan — one whose connector switchdash does not
+ * A type with no steps in the plan — one whose connector Switch Console does not
  * manage — is not held against the host: there is nothing type-specific to
  * satisfy, so the host's verdict stands.
  */

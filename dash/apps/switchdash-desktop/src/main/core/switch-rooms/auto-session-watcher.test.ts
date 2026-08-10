@@ -171,12 +171,12 @@ describe('AutoSessionWatcher.handleNotification', () => {
   });
 
   /**
-   * The restore window: switchdash has a session for this room, but its
+   * The restore window: Switch Console has a session for this room, but its
    * connection has not claimed the room yet — so the server still reports the
    * room as unattended and delivers the event here.
    *
    * The server owns "who is in this room" once it has been told. Before that
-   * there are windows only switchdash can see: a session booting, and one being
+   * there are windows only Switch Console can see: a session booting, and one being
    * restored after a restart. Spawning in either gives the user a second
    * session beside a working one.
    */

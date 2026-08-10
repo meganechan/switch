@@ -65,11 +65,11 @@ type SessionsSnapshot =
 /**
  * Surfaces the sessions a remote agent's on-VM sidecar started on its own (the
  * notification watcher auto-starting a session when the agent is addressed while
- * switchdash was closed) in the switchdash UI.
+ * Switch Console was closed) in the Switch Console UI.
  *
  * The VM is the source of truth: it mints the session id and runs the agent
- * in a tmux pane with no switchdash DB row. This reconciler polls the sidecar's
- * `GET /sessions` snapshot and, for each session id switchdash has never
+ * in a tmux pane with no Switch Console DB row. This reconciler polls the sidecar's
+ * `GET /sessions` snapshot and, for each session id Switch Console has never
  * seen, creates a session row with `id = the VM's session id`. Because the
  * tmux session name is derived deterministically from that id, the normal
  * session-start path then *attaches* to the already-running pane (same as the
@@ -178,7 +178,7 @@ class RemoteSessionReconciler {
   }
 
   /**
-   * Refuse re-adoption of a session id for a short window after switchdash
+   * Refuse re-adoption of a session id for a short window after Switch Console
    * deletes it, closing the race where a reconcile tick re-adopts it from a stale
    * sidecar `/sessions` snapshot before the delete's `/disconnect` lands.
    */
@@ -488,7 +488,7 @@ class RemoteSessionReconciler {
   }
 
   /**
-   * Create a switchdash session row whose id equals the VM's session id, so
+   * Create a Switch Console session row whose id equals the VM's session id, so
    * the session-start path attaches to the running tmux pane rather than spawning
    * a fresh agent. No initial prompt — the agent is already connected to the room
    * and processing the waiting message.

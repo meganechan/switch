@@ -47,7 +47,7 @@ import {
 const runners = new Map<string, HostSetupRunner>();
 
 /**
- * Agent types worth planning for: those whose connector switchdash can drive.
+ * Agent types worth planning for: those whose connector Switch Console can drive.
  *
  * Read from the plugin registry, not from the host. Whether a type is
  * *supported* is a static fact about the plugin — its `switchSetup` dialect and
@@ -241,7 +241,7 @@ export async function checkStep(
   // answers here, given this host's own installed version. No extra SSH.
   const update = agentUpdateService.getUpdateInfo(step.id as DependencyId, result.version ?? null);
 
-  // A newer version existing is not the same as switchdash being able to
+  // A newer version existing is not the same as Switch Console being able to
   // install it. Whether an installation can be driven at all depends on how it
   // got there: `installationCanUpdate` says no for one whose provenance we
   // could not confirm, because the update would run some package manager's

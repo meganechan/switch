@@ -13,7 +13,7 @@ export type DiscoveredLocationAgent = {
   /** Whether the definition can join Switch (its tools allowlist keeps the
    * connector's MCP tools, or it inherits all tools). */
   eligible: boolean;
-  /** Whether switchdash already has an agent row for this definition in this dir. */
+  /** Whether Switch Console already has an agent row for this definition in this dir. */
   alreadyAgent: boolean;
 };
 
@@ -23,7 +23,7 @@ export type DiscoveredLocationAgent = {
  * onboarding a directory's existing agents (CHOO-1440). It surfaces BOTH agents
  * already set up for Switch (carrying credentials) and plain provider subagents a
  * user created directly (no Switch setup yet), so either can be adopted as a
- * Switch agent. `alreadyAgent` marks definitions switchdash already has a row for,
+ * Switch agent. `alreadyAgent` marks definitions Switch Console already has a row for,
  * so the modal never offers to re-add them. Works for local and remote (SSH)
  * directories. Returns an empty list for a provider with no definition concept.
  */

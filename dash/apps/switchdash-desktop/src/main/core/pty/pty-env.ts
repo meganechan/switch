@@ -158,7 +158,7 @@ export interface AgentEnvOptions {
   shellProfile?: ResolvedShellProfile;
 
   /**
-   * Switchdash hook server connection details.  When set, injects
+   * Switch Console hook server connection details.  When set, injects
    * SWITCHDASH_HOOK_PORT, SWITCHDASH_PTY_ID, and SWITCHDASH_HOOK_TOKEN so agent CLIs
    * can call back on lifecycle events.
    */

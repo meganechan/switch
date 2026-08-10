@@ -38,7 +38,7 @@ const ICON = 'h-3.5 w-3.5 shrink-0 text-foreground-warning';
  *
  * Only steps carrying a known newer version qualify. `updateAvailable` is never
  * set off a version we could not read, and it is additionally gated on the
- * update being one switchdash could actually perform, so an icon here always
+ * update being one Switch Console could actually perform, so an icon here always
  * corresponds to a button that works.
  */
 function staleStepsFor(plan: HostSetupPlan | null, agentId: string): HostSetupStep[] {

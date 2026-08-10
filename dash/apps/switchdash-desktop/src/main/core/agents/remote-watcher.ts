@@ -13,18 +13,18 @@ import { remoteSessionReconciler } from './remote-session-reconciler';
 
 /**
  * Deploy + launch (or reattach to) the remote agent's sidecar so it auto-starts
- * sessions when addressed while switchdash is closed. The sidecar always runs
+ * sessions when addressed while Switch Console is closed. The sidecar always runs
  * both jobs — hook server + injection AND the notification watcher — so this is
  * simply "ensure the agent's sidecar is up". No-op unless the agent is remote,
  * linked to a Switch server, and has auto_session enabled; a disabled agent gets
  * its sidecar stopped instead.
  *
  * The VM sidecar's watcher is the sole auto-session watcher for a remote agent;
- * switchdash's in-process `autoSessionWatcher` skips remote agents to avoid a
+ * Switch Console's in-process `autoSessionWatcher` skips remote agents to avoid a
  * double-poll of the notification stream.
  */
 /**
- * At switchdash startup, bring every remote auto_session agent's sidecar back up
+ * At Switch Console startup, bring every remote auto_session agent's sidecar back up
  * (re-ensured after a VM reboot) and start reconciling the sessions its watcher
  * has been auto-starting while the UI was closed. Best-effort per agent — one
  * unreachable VM must not block the others. Mirrors the local
@@ -69,7 +69,7 @@ export async function initializeRemoteWatchers(): Promise<void> {
 
 /**
  * Start session discovery for every remote agent, independent of auto_session.
- * A second switchdash client must surface sessions another client (or the VM
+ * A second Switch Console client must surface sessions another client (or the VM
  * watcher) started, and that discovery is the reconciler polling the sidecar's
  * `/sessions`. auto_session only governs whether the VM auto-STARTS sessions —
  * not whether this client can SEE them — so discovery must not be gated on it.
@@ -131,7 +131,7 @@ export async function ensureRemoteWatcher(agentId: string): Promise<void> {
   });
 
   // Surface the sessions the VM watcher auto-starts (and any already running)
-  // in the switchdash UI. Idempotent; polls periodically while enabled.
+  // in the Switch Console UI. Idempotent; polls periodically while enabled.
   remoteSessionReconciler.start(agentId);
 }
 

@@ -5,7 +5,7 @@ import { Switch } from '@renderer/lib/ui/switch';
 import { log } from '@renderer/utils/logger';
 
 /**
- * Per-agent "bypass permissions" toggle. When on, switchdash launches this
+ * Per-agent "bypass permissions" toggle. When on, Switch Console launches this
  * agent's CLI with its auto-approve flag (e.g. `--dangerously-skip-permissions`)
  * — for every session, including automation-started ones (auto-session,
  * remote reconcile). Defaults off for local agents and on for remote agents

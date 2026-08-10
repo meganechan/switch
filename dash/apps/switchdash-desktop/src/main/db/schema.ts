@@ -7,7 +7,7 @@ import { sessionConfig } from '@shared/core/sessions/session-config';
 import type { TerminalShellId } from '@shared/core/terminals/terminal-settings';
 
 // ---------------------------------------------------------------------------
-// Data model (switchdash rework — diverges from upstream; see
+// Data model (Switch Console rework — diverges from upstream; see
 // agents/architecture/data-model.md for the full map):
 //
 //   locations — a working directory on a host (this machine or an SSH host)
@@ -81,7 +81,7 @@ export const appSettings = sqliteTable(
 );
 
 /**
- * A Switch server: a gateway switchdash can connect to. switchdash is
+ * A Switch server: a gateway Switch Console can connect to. Switch Console is
  * multi-server — many gateways (a local dev one, a deployed pilot one) can be
  * registered, and the UI works against one "active" server at a time (the
  * active id is tracked in `kv` under `activeSwitchServerId`). The session JWT
@@ -104,7 +104,7 @@ export const switchServers = sqliteTable(
      * `switch-gateway.*`).
      */
     apiUrl: text('api_url').notNull(),
-    /** True when switchdash provisions and runs this server itself via
+    /** True when Switch Console provisions and runs this server itself via
      * docker compose. Managed servers get lifecycle controls (start/stop/reset)
      * and are not user-editable connection records. */
     managed: integer('managed', { mode: 'boolean' }).notNull().default(false),
@@ -156,7 +156,7 @@ export const agents = sqliteTable(
     apiEndpoint: text('api_endpoint'),
     serverId: text('server_id').references(() => switchServers.id, { onDelete: 'set null' }),
     status: text('status'),
-    // When set, switchdash launches this agent's CLI with its auto-approve /
+    // When set, Switch Console launches this agent's CLI with its auto-approve /
     // "bypass permissions" flag (e.g. `--dangerously-skip-permissions`).
     // Defaults false for local agents; onboarding seeds it true for remote
     // agents (see onboard-agent). Editable per agent in location settings.
@@ -184,7 +184,7 @@ export const agents = sqliteTable(
  * table.
  */
 /**
- * An onboarded remote SSH host. switchdash stores no credentials — a host is
+ * An onboarded remote SSH host. Switch Console stores no credentials — a host is
  * identified by its `~/.ssh/config` Host alias (`sshHost`), and auth resolves
  * from the user's SSH config/agent exactly as remote agents do (CHOO-1059). This
  * table only tracks *which* aliases the user has onboarded (so they can be listed

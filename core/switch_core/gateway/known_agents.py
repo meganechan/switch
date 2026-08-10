@@ -178,7 +178,7 @@ class ClaudeCodeKnownAgent(KnownAgent):
             event_reporting=["tool_calls"],
             task_protocol=TaskProtocolConfig(can_delegate=True, can_accept=True),
             # Claude Code can reset / compact / interrupt only when a session is
-            # driving it from switchdash (which can inject keystrokes and
+            # driving it from Switch Console (which can inject keystrokes and
             # relaunch it). A standalone `claude` session can't be controlled,
             # so all three resolve per live session via AgentRuntimeState.
             command_capabilities=CommandCapabilities(
@@ -317,7 +317,7 @@ class CodexOptions(KnownAgentOptions):
     unavailable-session message so the operator gets a notification. Bare name,
     no leading `@`. None → post without a mention."""
 
-    # No `channels_enabled`: switchdash sends it for every provider, but Codex
+    # No `channels_enabled`: Switch Console sends it for every provider, but Codex
     # has no connector channel of its own, so nothing here could act on it.
     # `KnownAgentOptions` ignores unknown keys, so the shared registration path
     # still works — and the schema-driven gateway form does not render a control
@@ -344,7 +344,7 @@ class CodexKnownAgent(KnownAgent):
     @classmethod
     def build_profile(cls, options: KnownAgentOptions) -> IntegrationProfile:
         assert isinstance(options, CodexOptions)
-        # switchdash watches + auto-spawns when auto_session; otherwise it keeps a
+        # Switch Console watches + auto-spawns when auto_session; otherwise it keeps a
         # session live and delivers messages by terminal injection, which is the
         # session_addressable model. Codex does not report per-tool events or
         # mediate tool calls (it runs auto-approved), so those lists stay empty —
@@ -360,7 +360,7 @@ class CodexKnownAgent(KnownAgent):
             event_reporting=[],
             task_protocol=TaskProtocolConfig(can_delegate=True, can_accept=True),
             # Same story as Claude Code: Codex is a TUI, so reset / compact /
-            # interrupt only work when switchdash is driving the session and can
+            # interrupt only work when Switch Console is driving the session and can
             # inject keystrokes. A standalone `codex` can't be controlled, so all
             # three resolve per live session via AgentRuntimeState.
             command_capabilities=CommandCapabilities(

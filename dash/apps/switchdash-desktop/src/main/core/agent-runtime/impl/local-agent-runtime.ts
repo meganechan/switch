@@ -223,10 +223,10 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
       const colorEnv = await getTerminalColorEnv();
 
       // Open this session's Switch connection before the session exists, and
-      // hand it the id. Its tool calls then arrive on the connection switchdash
+      // hand it the id. Its tool calls then arrive on the connection Switch Console
       // is reading, so `connect_to_room` claims the room *there* and the server
       // tells us which room the session is in. Before this, the two held
-      // separate connections and switchdash had to infer the room by scraping
+      // separate connections and Switch Console had to infer the room by scraping
       // the agent's tool response through a hook.
       //
       // Order matters: the server refuses a call naming a connection that is

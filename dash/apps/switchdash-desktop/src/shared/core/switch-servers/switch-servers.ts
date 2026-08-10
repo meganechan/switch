@@ -1,11 +1,11 @@
 /**
- * Shared types for the Switch-server integration: the gateways switchdash can
+ * Shared types for the Switch-server integration: the gateways Switch Console can
  * connect to, the auth methods they offer, and the read-only summaries of the
- * remote agents/rooms switchdash queries live from the active server.
+ * remote agents/rooms Switch Console queries live from the active server.
  *
- * The gateway is OIDC-*mediated* (it is the OIDC client; switchdash just rides
+ * The gateway is OIDC-*mediated* (it is the OIDC client; Switch Console just rides
  * the flow and captures the resulting session cookie), and authenticates every
- * management call with the `switch_auth` cookie. switchdash stores that cookie
+ * management call with the `switch_auth` cookie. Switch Console stores that cookie
  * in the encrypted secrets store, never in plain settings.
  */
 
@@ -20,7 +20,7 @@ export type SwitchServer = {
    * `https://switch-api.example.com` — what an agent's `SWITCH_API_ENDPOINT`
    * points at, and what an onboarded agent is matched to its server by. */
   apiUrl: string;
-  /** True when switchdash runs this server itself (docker compose). Managed
+  /** True when Switch Console runs this server itself (docker compose). Managed
    * servers are driven by the lifecycle controls, not the add/edit-server UI. */
   managed: boolean;
   /** Where a managed server runs: `local` (this computer's Docker) or `remote`
@@ -121,13 +121,13 @@ export type SwitchUser = {
    *
    * Null when the server predates version disclosure — which is the honest
    * reading, not a defect. This is the only version signal available for a
-   * server switchdash does not manage: `readDeployedVersion` needs host access
+   * server Switch Console does not manage: `readDeployedVersion` needs host access
    * to read an image tag, so a BYO server used to report nothing at all, ever.
    */
   server: SwitchServerDeclaration | null;
 };
 
-/** Connection status for a server: whether switchdash holds a valid session. */
+/** Connection status for a server: whether Switch Console holds a valid session. */
 export type ServerConnectionStatus = {
   serverId: string;
   connected: boolean;
@@ -200,7 +200,7 @@ export type RemoteRoomGroup = {
 
 /**
  * A collaboration bridge configured on a server (mirrors the gateway
- * `BridgeDetail`). Every room switchdash creates is bridged to one of these, so
+ * `BridgeDetail`). Every room Switch Console creates is bridged to one of these, so
  * the humans it is being created for can actually reach it.
  */
 export type RemoteBridge = {
@@ -245,7 +245,7 @@ export type BundledChatSignIn =
  * One credential field a bridge type needs, projected from the JSON Schema the
  * gateway derives from the adapter's Pydantic config model.
  *
- * The schema is the server's to define, not switchdash's: a Slack bridge needs
+ * The schema is the server's to define, not Switch Console's: a Slack bridge needs
  * different fields from a Discord one, and a switch-core release can add a
  * field without an app release. So the attach form is generated from this
  * rather than hand-written per platform.
@@ -271,11 +271,11 @@ export type RemoteBridgeType = {
 
 /**
  * Parameters for attaching a collaboration bridge to a server from inside
- * switchdash (CHOO-1784).
+ * Switch Console (CHOO-1784).
  *
  * `connectionConfig` carries platform credentials — a Slack bot token, a
  * Discord bot token, a Mattermost admin password. It is main-process-only: it
- * goes straight to the server over HTTPS and is never persisted by switchdash,
+ * goes straight to the server over HTTPS and is never persisted by Switch Console,
  * never logged, and never sent back to the renderer.
  */
 export type CreateBridgeParams = {
@@ -368,7 +368,7 @@ export type ProvisionAgentParams = {
   providerKind: AgentProviderKind;
   /** Bridge handle to @-mention in offline-session notices; omit to skip. */
   notifyUser?: string;
-  /** Register with the `auto_session` connection model: switchdash watches the
+  /** Register with the `auto_session` connection model: Switch Console watches the
    * agent's rooms and auto-spawns a session on notification. Defaults to off. */
   autoSession?: boolean;
 };
@@ -409,7 +409,7 @@ export type ProvisionAgentResult =
   | { kind: 'error'; message: string };
 
 /**
- * Parameters for creating a room on a server from inside switchdash
+ * Parameters for creating a room on a server from inside Switch Console
  * (CHOO-1875) — the minimal set that gets a user to a working room. The wider
  * gateway surface (roles, groups, visibility, references, existing-channel
  * binding) stays in the operator web app.

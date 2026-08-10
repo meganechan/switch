@@ -5,10 +5,10 @@ import { Checkbox } from '@renderer/lib/ui/checkbox';
  *
  * - `import` — a provider definition that already carries Switch credentials;
  *   its identity is reused.
- * - `adopt` — a plain provider definition with no Switch setup; switchdash mints
+ * - `adopt` — a plain provider definition with no Switch setup; Switch Console mints
  *   an identity for it.
  * - `attach` — credentials found in the directory with no definition of ours to
- *   go with them, which is what an agent set up by another switchdash (or for a
+ *   go with them, which is what an agent set up by another Switch Console (or for a
  *   provider with no definition concept, such as Codex) looks like. Its identity
  *   is reused and nothing in the directory is written (CHOO-1937).
  */
@@ -34,10 +34,10 @@ const BADGE: Record<AdoptKind, string> = {
 };
 
 /**
- * Multi-select list of agents found in a directory that aren't yet switchdash
+ * Multi-select list of agents found in a directory that aren't yet Switch Console
  * agents on this client — provider definitions (CHOO-1440) and agents another
  * install already configured here (CHOO-1937), in one list because the user is
- * answering one question: which of these should this switchdash manage.
+ * answering one question: which of these should this Switch Console manage.
  */
 export function OnboardExistingPanel({
   agents,

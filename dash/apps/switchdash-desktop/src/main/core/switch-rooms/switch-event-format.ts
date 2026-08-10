@@ -4,7 +4,7 @@
  * The event *shapes* are protocol, and live in
  * `@sandbox-quantum/switch-agent-runtime`; they are re-exported here so the
  * many call sites that import both from this module keep working. What is
- * genuinely switchdash's is below: turning an event into the line a human (and
+ * genuinely Switch Console's is below: turning an event into the line a human (and
  * an agent reading its own terminal) sees.
  */
 

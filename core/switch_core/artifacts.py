@@ -43,12 +43,12 @@ CONTRACTS: Final[dict[str, dict[str, ContractRange]]] = {
         "switch-core": ContractRange(speaks=1, accepts=1),
         "switchdash": ContractRange(speaks=1, accepts=1),
     },
-    # The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which switchdash's local-server mode drives.
+    # The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which Switch Console's local-server mode drives.
     "stack-compose": {
         "switchdash": ContractRange(speaks=1, accepts=1),
         "compose": ContractRange(speaks=1, accepts=1),
     },
-    # How switchdash controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
+    # How Switch Console controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
     "sidecar-control": {
         "switchdash": ContractRange(speaks=1, accepts=1),
         "sidecar": ContractRange(speaks=1, accepts=1),

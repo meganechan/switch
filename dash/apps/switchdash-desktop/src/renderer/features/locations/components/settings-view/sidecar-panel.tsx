@@ -7,7 +7,7 @@ import { Spinner } from '@renderer/lib/ui/spinner';
 
 /**
  * The "Sidecar" tab for a remote location: the on-host process that keeps this
- * agent connected to Switch while switchdash is closed. Scoped to the same agent
+ * agent connected to Switch while Switch Console is closed. Scoped to the same agent
  * the Settings tab resolves (by definition name, else the first). Only shown for
  * remote locations — `ActiveLocation` gates the tab — so this just resolves the
  * agent and hands off to the section.

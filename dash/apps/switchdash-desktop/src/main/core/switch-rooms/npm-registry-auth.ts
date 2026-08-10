@@ -23,7 +23,7 @@ import { switchToolsUnavailableEvent } from '@shared/events/switchSetupEvents';
 const execFileAsync = promisify(execFile);
 
 /**
- * Registry access for sessions switchdash starts, local and remote.
+ * Registry access for sessions Switch Console starts, local and remote.
  *
  * Both functions here return an empty environment when `gh` has no usable
  * token. The caller should start the session anyway: one with no MCP server is
@@ -107,7 +107,7 @@ function localNpmrcPath(): string {
  * The npmrc is ours, not the user's: `~/.npmrc` is their configuration and
  * editing it to make our plugin work is a reach, while a file in their project
  * shows up in git status. `npm_config_userconfig` makes npm read ours instead,
- * confining the footprint to switchdash's own directory.
+ * confining the footprint to Switch Console's own directory.
  */
 export async function npmRegistryAuthEnv(): Promise<Record<string, string>> {
   const token = await getGithubTokenFromGhCli();

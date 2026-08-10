@@ -28,7 +28,7 @@ import { agentSettingsRelativePath } from './switch-settings-paths';
 export type DeleteAgentOptions = {
   /**
    * Also delete the agent's identity on the Switch server (via the gateway).
-   * When false, the agent is removed from switchdash only; its Switch identity is
+   * When false, the agent is removed from Switch Console only; its Switch identity is
    * left registered on the server.
    */
   deleteInSwitch: boolean;
@@ -37,7 +37,7 @@ export type DeleteAgentOptions = {
 /**
  * Delete this agent's own identity on the Switch server — and ONLY this one.
  *
- * switchdash agents are flat: a directory is a container of independent agents
+ * Switch Console agents are flat: a directory is a container of independent agents
  * with no parent/child hierarchy (CHOO-1440), so deleting one never affects any
  * other agent, even a sibling in the same directory. (Legacy agents may still
  * carry a gateway parent/child link from the old subagent model; we deliberately
@@ -59,14 +59,14 @@ async function deleteAgentInSwitch(agent: Agent): Promise<void> {
 }
 
 /**
- * Reverse the on-disk state switchdash provisioned for this one agent: its
+ * Reverse the on-disk state Switch Console provisioned for this one agent: its
  * provider definition (`.claude/agents/<name>.md`) and its per-agent Switch
  * credentials. Runs against the agent's local dir or its remote SSH host
  * transparently. Only THIS agent's files are removed — sibling agents sharing the
  * directory are untouched (CHOO-1440).
  *
  * Best-effort: a working directory that is gone or a host that is unreachable
- * should not block removing the agent from switchdash, so failures are logged
+ * should not block removing the agent from Switch Console, so failures are logged
  * (visibly) rather than thrown — the credentials being torn down are already dead.
  */
 async function removeProvisionedFiles(agent: Agent, location: Location): Promise<void> {
@@ -145,7 +145,7 @@ async function killRemoteSidecar(agent: Agent): Promise<void> {
  *    caches the agent's Switch credentials in memory, so without an explicit
  *    stop it keeps heartbeating and polling notifications for an agent that
  *    no longer exists.
- * 4. The Switch credentials + definition file switchdash provisioned on disk for
+ * 4. The Switch credentials + definition file Switch Console provisioned on disk for
  *    THIS agent (local or remote), which a bare row delete would leave orphaned.
  *    Sibling agents' files in the same directory are untouched.
  *

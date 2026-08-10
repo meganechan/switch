@@ -79,7 +79,7 @@ export async function getServer(id: string): Promise<SwitchServer | null> {
   return row ? mapRow(row) : null;
 }
 
-/** The single LOCAL managed server switchdash runs on this machine, or null.
+/** The single LOCAL managed server Switch Console runs on this machine, or null.
  * Legacy managed rows with no kind count as local. */
 export async function getManagedServer(): Promise<SwitchServer | null> {
   const [row] = await db
@@ -96,7 +96,7 @@ export async function getManagedServer(): Promise<SwitchServer | null> {
   return row ? mapRow(row) : null;
 }
 
-/** The managed server switchdash runs on a given remote host, or null. */
+/** The managed server Switch Console runs on a given remote host, or null. */
 export async function getRemoteManagedServer(sshHost: string): Promise<SwitchServer | null> {
   const [row] = await db
     .select()
@@ -112,7 +112,7 @@ export async function getRemoteManagedServer(sshHost: string): Promise<SwitchSer
   return row ? mapRow(row) : null;
 }
 
-/** Every server switchdash runs itself (local + all remote hosts). */
+/** Every server Switch Console runs itself (local + all remote hosts). */
 export async function listManagedServers(): Promise<SwitchServer[]> {
   const rows = await db.select().from(switchServers).where(eq(switchServers.managed, true));
   return rows.map(mapRow);

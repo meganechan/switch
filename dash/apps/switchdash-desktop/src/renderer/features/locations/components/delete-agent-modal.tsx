@@ -11,7 +11,7 @@ import {
 } from '@renderer/lib/ui/dialog';
 
 export type DeleteAgentModalArgs = {
-  /** switchdash id of the agent to remove. */
+  /** Switch Console id of the agent to remove. */
   agentId: string;
   /** Display name for the agent (its Switch name, falling back to the location). */
   agentLabel: string;

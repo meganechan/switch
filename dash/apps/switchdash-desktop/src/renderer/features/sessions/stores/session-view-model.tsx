@@ -5,7 +5,7 @@ import { sessionAgentRegistry } from './session-agent-registry';
 import type { SessionStore } from './session-store';
 
 /**
- * A switchdash session is a single `claude` terminal. The switchdash multi-pane
+ * A Switch Console session is a single `claude` terminal. The Switch Console multi-pane
  * workspace (tabs, splits, diff/editor/browser, terminal drawer) has been
  * removed — this view model only keeps the session's agent hydrated while the
  * session is provisioned, which is what connects its PTY. The terminal itself

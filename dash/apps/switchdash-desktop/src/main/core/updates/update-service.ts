@@ -289,7 +289,7 @@ class UpdateService implements IInitializable, IDisposable {
     // A private repo needs electron-updater's authenticated provider
     // (api.github.com); the public releases.atom feed 404s and the auth header
     // alone does not select it. The token goes through setFeedURL rather than
-    // GH_TOKEN: the environment is inherited by every child process switchdash
+    // GH_TOKEN: the environment is inherited by every child process Switch Console
     // spawns — including `gh` itself, which prefers GH_TOKEN over the keyring —
     // so a token left there outlives the login it came from and shadows the
     // next one until the app restarts.

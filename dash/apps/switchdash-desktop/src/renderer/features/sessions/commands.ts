@@ -11,8 +11,8 @@ function sessionDef(id: SessionCommandId): CommandDef {
 }
 
 /**
- * CommandProvider for the session (session) scope. switchdash sessions are a single
- * terminal, so the rich switchdash session commands (tabs, splits, diff, browser, git,
+ * CommandProvider for the session (session) scope. Switch Console sessions are a single
+ * terminal, so the rich Switch Console session commands (tabs, splits, diff, browser, git,
  * sidebar panels, terminal drawer) are gone — only pin and prev/next remain.
  */
 export function createSessionCommandProvider(

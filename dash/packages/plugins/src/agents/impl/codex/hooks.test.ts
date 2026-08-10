@@ -57,7 +57,7 @@ async function runHookCommand(
   }
 }
 
-/** The `command` strings switchdash writes into Codex's `hooks.json`, by event. */
+/** The `command` strings Switch Console writes into Codex's `hooks.json`, by event. */
 async function installedCommands(): Promise<Record<string, string>> {
   const fs = createMemoryFs();
   await buildCodexHookConfig().writeHooks(fs, []);
@@ -226,7 +226,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     // The tool hooks exist for the runtime status line and so cover every tool.
     // Room tracking is not among their jobs: since the agent-bridge push
     // transport (CHOO-1857), a session's room is claimed on the connection
-    // switchdash opens and hands it as SWITCH_CONNECTION_ID, so the server
+    // Switch Console opens and hands it as SWITCH_CONNECTION_ID, so the server
     // reports the room back and the old `connect_to_room` scrape is gone.
     const fs = createMemoryFs();
     await buildCodexHookConfig().writeHooks(fs, []);
@@ -300,7 +300,7 @@ describe('buildCodexHookConfig install/read/delete', () => {
     let config = JSON.parse((await fs.read(CODEX_HOOKS_PATH))!) as {
       hooks: Record<string, unknown[]>;
     };
-    // The user's own Stop hook survives alongside the injected switchdash one.
+    // The user's own Stop hook survives alongside the injected Switch Console one.
     expect(config.hooks.Stop).toHaveLength(2);
 
     await cfg.deleteHooks(fs);

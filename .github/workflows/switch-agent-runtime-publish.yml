@@ -1,7 +1,7 @@
 # Publish the shared agent runtime to GitHub Packages.
 #
 # The package is consumed two ways, and only one of them needs a registry:
-# switchdash builds it from the workspace, so it never waits on a publish. The
+# Switch Console builds it from the workspace, so it never waits on a publish. The
 # Claude Code plugin runs it with `npx`, and that needs a version to exist.
 #
 # Triggered by a tag, so a version can be published from a BRANCH — you should

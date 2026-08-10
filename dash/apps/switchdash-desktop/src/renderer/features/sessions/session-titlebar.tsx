@@ -14,7 +14,7 @@ import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { cn } from '@renderer/utils/utils';
 
-// switchdash titlebar: agent / session breadcrumb plus a pin toggle. The switchdash
+// Switch Console titlebar: agent / session breadcrumb plus a pin toggle. The Switch Console
 // git, issue, diff, preview, terminal-drawer and sidebar chrome is gone.
 export const SessionTitlebar = observer(function SessionTitlebar() {
   const { locationId, sessionId } = useSessionViewContext();

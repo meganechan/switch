@@ -191,7 +191,7 @@ describe('claudeRepoAgentsBehavior.writeDefinition / readDefinition', () => {
     const attrs = await claudeRepoAgentsBehavior.readDefinition(workspaceFs, 'reviewer');
     expect(attrs?.tools).toEqual(['Read']);
 
-    // And it is not written back: only the rule switchdash still authors is.
+    // And it is not written back: only the rule Switch Console still authors is.
     await claudeRepoAgentsBehavior.writeDefinition(workspaceFs, attrs ?? {});
     const raw = (await workspaceFs.read(defRel('reviewer'))) ?? '';
     expect(raw).toContain('tools: Read, mcp__plugin_switch-connector_switch\n');

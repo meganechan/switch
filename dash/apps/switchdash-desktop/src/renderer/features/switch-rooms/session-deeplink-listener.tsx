@@ -33,7 +33,7 @@ function findSessionForRoom(roomId: string): { locationId: string; sessionId: st
  * Resolve a session directly by its (shared) session id, which is the same
  * across every client — unlike the room mapping, which only exists on a client
  * that has an active relay for the session. This is what makes the deeplink open
- * the right session on a different switchdash client that merely adopted it.
+ * the right session on a different Switch Console client that merely adopted it.
  */
 function findSessionById(sessionId: string): { locationId: string; sessionId: string } | null {
   for (const locationId of getLocationManagerStore().locations.keys()) {

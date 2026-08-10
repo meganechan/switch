@@ -125,7 +125,7 @@ type FetchOptions = {
 /**
  * Resolve the `switch_auth` cookie to attach to an authenticated call, renewing
  * proactively when near expiry. When no session is stored, the managed local
- * server mints one silently (switchdash holds its admin creds); any other server
+ * server mints one silently (Switch Console holds its admin creds); any other server
  * has no way to authenticate silently, so this raises `unauthorized`.
  */
 async function resolveAuthCookie(server: SwitchServer): Promise<string> {
@@ -281,7 +281,7 @@ export type RegisterKnownAgentOptions = {
   repo_dir?: string;
   notify_user?: string;
   /** When true, the agent registers with the `auto_session` connection model:
-   * switchdash watches its rooms and auto-spawns a session on notification. */
+   * Switch Console watches its rooms and auto-spawns a session on notification. */
   auto_session?: boolean;
 };
 
@@ -851,7 +851,7 @@ export async function removeRoomAgent(
  * signed-in user. Provisioning stays entirely server-side — this is the same
  * endpoint the operator web app posts to.
  *
- * `bridgeId` is required by switchdash even though the gateway allows an
+ * `bridgeId` is required by Switch Console even though the gateway allows an
  * unbridged room: a room with no messaging app attached is unreachable for the
  * humans it is being created for. `channel_type` is always `channel_public` for
  * now; the gateway demands the field whenever a new channel is provisioned.

@@ -42,7 +42,7 @@ describe('verdictFor', () => {
   });
 
   it('newer-on-host rather than offering a downgrade', () => {
-    // A newer switchdash deployed it. Offering "Update" here is an invitation to
+    // A newer Switch Console deployed it. Offering "Update" here is an invitation to
     // downgrade, and on a shared host both installs would accept it in turn.
     expect(verdict({ hash: 'other', version: '1.8' })).toBe('newer-on-host');
   });

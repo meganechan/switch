@@ -13,7 +13,7 @@ const DIAGNOSTIC_TAIL_LINES = 200;
 /**
  * Include remote sidecar logs in the diagnostic attachment.
  *
- * A remote agent keeps running while switchdash is closed, so its sidecar is
+ * A remote agent keeps running while Switch Console is closed, so its sidecar is
  * where the failures worth reporting tend to happen — and until now that log
  * stayed on the VM, leaving a bug report about a remote agent with no record of
  * the process it was actually about.

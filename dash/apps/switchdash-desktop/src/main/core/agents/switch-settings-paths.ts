@@ -8,7 +8,7 @@ import path from 'node:path';
  *
  * Every *relative* path here is a forward-slash literal, never `path.join`: these
  * are handed to a `PluginFs`, which is either the local disk or a remote POSIX
- * host over SFTP, and `path.join` emits backslashes when switchdash runs on
+ * host over SFTP, and `path.join` emits backslashes when Switch Console runs on
  * Windows. The *absolute* helpers below still use `path.join`, which normalises a
  * forward-slash tail correctly on every platform.
  */
@@ -23,7 +23,7 @@ export const SWITCH_SETTINGS_RELATIVE_PATH = '.claude/settings.local.json';
 /**
  * Directory, relative to an agent's working directory, where the switch-connector
  * `configure` skill writes per-subagent Switch credential files
- * (`<subagent_name>.settings.json`). switchdash discovers a parent agent's
+ * (`<subagent_name>.settings.json`). Switch Console discovers a parent agent's
  * launchable Claude Code subagents by scanning this directory.
  */
 export const SWITCH_SUBAGENTS_DIR_RELATIVE = '.claude/switch-subagents';
@@ -35,7 +35,7 @@ export function subagentSettingsPath(dir: string, agentName: string): string {
 
 /**
  * Provider-neutral directory, relative to a location's working directory, where
- * switchdash writes one Switch credentials file per agent (`<slug>.json`). This
+ * Switch Console writes one Switch credentials file per agent (`<slug>.json`). This
  * replaces the two Claude-specific layouts — the shared `.claude/settings.local.json`
  * for a "main" agent and `.claude/switch-subagents/<name>.settings.json` for a
  * subagent — with a single per-agent format that works for every provider

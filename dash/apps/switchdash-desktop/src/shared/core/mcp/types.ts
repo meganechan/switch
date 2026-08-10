@@ -1,4 +1,4 @@
-/** Canonical MCP server — the normalized shape Switchdash uses internally */
+/** Canonical MCP server — the normalized shape Switch Console uses internally */
 export interface McpServer {
   name: string;
   transport: 'stdio' | 'http';

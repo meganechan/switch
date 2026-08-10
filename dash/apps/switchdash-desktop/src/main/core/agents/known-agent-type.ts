@@ -16,11 +16,11 @@ const KNOWN_AGENT_TYPE_BY_PROVIDER: Partial<Record<AgentProviderId, KnownAgentTy
 const FALLBACK_KNOWN_AGENT_TYPE: KnownAgentType = 'claude-code';
 
 /**
- * Map a switchdash provider to the gateway known-agent type it registers as.
+ * Map a Switch Console provider to the gateway known-agent type it registers as.
  *
  * A provider outside the two server-side types has no faithful representation.
  * It still registers as `claude-code` — the generic switchdash-managed shape —
- * because switchdash drives the session itself and the type mainly determines
+ * because Switch Console drives the session itself and the type mainly determines
  * the connector label and the hand-onboarding command an operator is shown. That
  * mismatch is real (an operator onboarding a Gemini agent by hand is told to run
  * `claude`), so it is warned about rather than passed over silently.

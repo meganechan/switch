@@ -1,5 +1,5 @@
 /**
- * On-VM layout of the switchdash sidecar's files, relative to an agent's remote
+ * On-VM layout of the Switch Console sidecar's files, relative to an agent's remote
  * repo dir. Shared by the launcher (main process) and the sidecar bundle so both
  * agree on where each file lives.
  *

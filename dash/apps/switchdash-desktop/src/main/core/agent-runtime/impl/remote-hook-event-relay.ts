@@ -4,10 +4,10 @@ import { httpGetJsonOverChannel, type SidecarChannelOpener } from './sidecar-htt
 
 /**
  * Drains the remote sidecar's `/events` long-poll and replays each buffered
- * hook event through switchdash's own hook path, so room joins, agent status,
- * and provider-session ids from a remote session reach switchdash while the UI
+ * hook event through Switch Console's own hook path, so room joins, agent status,
+ * and provider-session ids from a remote session reach Switch Console while the UI
  * is attached. The sidecar still handles every event VM-locally for injection;
- * this is a read-only mirror for switchdash's display and persistence.
+ * this is a read-only mirror for Switch Console's display and persistence.
  *
  * Delivery is at-least-once with a cursor: each poll carries the seq of the
  * last event processed and receives everything newer. A gap (the consumer fell
@@ -79,7 +79,7 @@ export class RemoteHookEventRelay {
        * the app quits — taking `/disconnect` down with it.
        */
       resolveEndpoint?: EndpointResolver;
-      /** Replays one relayed event through switchdash's hook path. */
+      /** Replays one relayed event through Switch Console's hook path. */
       sink: (raw: RawHookRequest) => Promise<void>;
       log: RemoteHookEventRelayLogger;
       sleep?: (ms: number) => Promise<void>;

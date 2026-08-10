@@ -24,7 +24,7 @@ type ConnectionState = SessionRoomConnection & {
 };
 
 /**
- * Tracks which Switch room each live switchdash session is connected to.
+ * Tracks which Switch room each live Switch Console session is connected to.
  *
  * Connections are reported by the Claude `connect_to_room` PostToolUse hook
  * (routed through the agent hook server) and are purely runtime state — a
@@ -134,7 +134,7 @@ class SwitchRoomService implements IDisposable {
    * Mirror the room a remote session is attending, as reported by the on-VM
    * sidecar's `/sessions` snapshot. Unlike setSessionRoom (the local
    * connect_to_room hook path) this records the association for DISPLAY only: it
-   * does not persist the connection and does not start switchdash's
+   * does not persist the connection and does not start Switch Console's
    * notification poller — the sidecar owns polling and injection on the VM, and
    * the reconciler re-derives the room from the live snapshot every tick, so
    * there is nothing to restore across restarts. The unchanged-guard keeps the

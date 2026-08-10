@@ -67,7 +67,7 @@ jobs:
             dash:
               - *shared
               - 'dash/**'
-              # switchdash bundles a generated copy of this file, and the job
+              # Switch Console bundles a generated copy of this file, and the job
               # below verifies the copy is current — so a change here has to
               # run the dash job even though it lives outside dash/.
               - 'deploy/local/standalone-docker-compose.yml'

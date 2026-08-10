@@ -38,7 +38,7 @@ export type StandardCommandSpec = {
   resumeFlag?: string;
   /**
    * Flag for passing a session ID, e.g. '--session-id'. On fresh sessions (non-resuming),
-   * the switchdash session UUID is passed. On resume sessions, `resumeFlag` is used instead.
+   * the Switch Console session UUID is passed. On resume sessions, `resumeFlag` is used instead.
    * If both are the same flag (e.g. grok/copilot), set sessionIdOnResumeOnly=true.
    */
   sessionIdFlag?: string;
@@ -79,7 +79,7 @@ export function buildStandardCommand(ctx: CommandContext, spec: StandardCommandS
   // Session / resume logic.
   // For sessionIdOnResumeOnly providers, use only the provider-native session id.
   // If providerSessionId is absent, validSessionId will be undefined → fallback flags apply.
-  // For all other providers, the switchdash session UUID (sessionId) is used.
+  // For all other providers, the Switch Console session UUID (sessionId) is used.
   const rawSessionId = spec.sessionIdOnResumeOnly ? ctx.providerSessionId : ctx.sessionId;
   const hasSessionId = !!rawSessionId;
   const validSessionId =
@@ -98,7 +98,7 @@ export function buildStandardCommand(ctx: CommandContext, spec: StandardCommandS
         // resumeFlag takes the session ID (e.g. '--resume <id>' or '-r <id>')
         args.push(spec.resumeFlag, validSessionId);
       } else if (spec.sessionIdFlag && !spec.sessionIdOnResumeOnly) {
-        // Use switchdash UUID
+        // Use Switch Console UUID
         args.push(spec.resumeFlag, ctx.sessionId!);
       } else if (spec.resumeWithoutSessionFlag) {
         args.push(...splitFlag(spec.resumeWithoutSessionFlag));

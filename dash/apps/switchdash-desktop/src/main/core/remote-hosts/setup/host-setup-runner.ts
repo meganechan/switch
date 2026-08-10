@@ -52,7 +52,7 @@ export type HostSetupRunnerDeps = {
   install: (step: HostSetupStep) => Promise<StepInstallResult>;
   /** Replace an already-installed step with the newest available version. */
   update: (step: HostSetupStep) => Promise<StepInstallResult>;
-  /** Whether this step can be installed by switchdash at all on this host. */
+  /** Whether this step can be installed by Switch Console at all on this host. */
   canInstall: (step: HostSetupStep) => boolean;
   /**
    * Throws when the host is not reachable. Wired to the central reachability

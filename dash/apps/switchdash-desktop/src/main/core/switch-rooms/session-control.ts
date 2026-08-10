@@ -4,7 +4,7 @@
  *
  * Resolved by `providerId`, mirroring `PluginPromptInjector` — the switch-core
  * side declares whether a command is supported at all (per agent-type) and
- * whether it depends on the session; this module is the switchdash half that
+ * whether it depends on the session; this module is the Switch Console half that
  * (a) reports which commands a live session can actually execute, and (b)
  * turns a queued `command` event into concrete keystrokes for the injection
  * sink. A provider with no entry supports none of the commands.

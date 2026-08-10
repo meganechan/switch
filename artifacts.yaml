@@ -73,9 +73,9 @@ artifacts:
     #
     # They coincide today, and must not be wired together: bumping
     # core/pyproject.toml is the first step of cutting a switch-core release, so
-    # a derived pin would immediately point switchdash at images that do not
+    # a derived pin would immediately point Switch Console at images that do not
     # exist on the registry yet and break local-server mode for everyone on
-    # main. This moves only when switchdash is ready to bundle that release —
+    # main. This moves only when Switch Console is ready to bundle that release —
     # in lockstep with the bundled compose.
     pins:
       switch-core: 0.12.3

@@ -80,7 +80,7 @@ export type Installation = {
   pathEntry: string | null;
   /** True when this is the current PATH winner (first `which` result). */
   isActive: boolean;
-  /** Whether switchdash can manage (update/uninstall) this installation. */
+  /** Whether Switch Console can manage (update/uninstall) this installation. */
   manageable: boolean;
   /** How this binary was installed and how confidently we know it. */
   provenance: Provenance;

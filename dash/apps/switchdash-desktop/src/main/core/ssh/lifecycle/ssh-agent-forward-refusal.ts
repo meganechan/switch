@@ -8,7 +8,7 @@ import type { Client } from 'ssh2';
  * channel and errors the exec/shell, so a host refusing an optional extra makes
  * every command on it fail. OpenSSH sends the same request with no reply
  * expected and never notices the refusal, which is why `ssh <host>` works on
- * exactly the hosts switchdash could not reach.
+ * exactly the hosts Switch Console could not reach.
  */
 export function isAgentForwardRefusal(error: unknown): boolean {
   const message =

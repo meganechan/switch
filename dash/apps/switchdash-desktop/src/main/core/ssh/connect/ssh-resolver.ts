@@ -9,7 +9,7 @@ import { resolveSshConnectConfig } from './resolve-ssh-connect-config';
  *
  * host/port/username in the transient config are fallbacks: the real values
  * (and identity/agent) are resolved from the alias via `ssh -G`. Auth goes
- * through the SSH agent — switchdash stores no credentials of its own.
+ * through the SSH agent — Switch Console stores no credentials of its own.
  */
 export function registerSshResolver(connectionId: string, sshHost: string): void {
   sshConnectionManager.register(connectionId, () =>

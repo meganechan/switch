@@ -187,7 +187,7 @@ export function buildNestedJsonHookConfig(configPath: string, hookSpecs: HookSpe
     async writeHooks(fs: PluginFs, _hooks: HookRegistration[]): Promise<string[]> {
       const config = await readJsonConfigForUpdate(fs, configPath);
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
-      // Strip previously-installed switchdash entries once per touched key, THEN
+      // Strip previously-installed Switch Console entries once per touched key, THEN
       // append every spec. Doing the strip inside the append loop would let a
       // second spec sharing a hookKey (e.g. two PostToolUse matchers) filter
       // out the first spec's just-added entry.

@@ -334,7 +334,7 @@ describe('readAllSetupPlans', () => {
  * Reported from a real host: Codex read "Update available", Update failed, and
  * the row went back to "Update available". The version comparison was right —
  * a newer Codex does exist — but the installation lived in a root-owned npm
- * prefix that switchdash cannot write to, so the update could never have run.
+ * prefix that Switch Console cannot write to, so the update could never have run.
  * The agents page gates this through `installationCanUpdate`; this path did not.
  */
 describe('offering a CLI update only when it can be carried out', () => {
@@ -357,7 +357,7 @@ describe('offering a CLI update only when it can be carried out', () => {
   });
 
   it('withholds it when the installation is not manageable', async () => {
-    // Same version difference, but nothing switchdash could do about it.
+    // Same version difference, but nothing Switch Console could do about it.
     const enriched = {
       installations: [installation({ manageable: false, updateAvailable: false })],
     };

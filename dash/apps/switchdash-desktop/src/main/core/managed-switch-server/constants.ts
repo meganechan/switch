@@ -4,7 +4,7 @@ import { USER_DATA_DIR_NAME } from '@shared/app-identity';
  * Fixed coordinates for the managed local stack. These mirror the ports and
  * hosts baked into the bundled standalone compose (resources/…pinned.yml): the
  * compose file is the contract, and these constants are how the rest of
- * switchdash addresses the resulting server.
+ * Switch Console addresses the resulting server.
  */
 
 /**
@@ -43,7 +43,7 @@ export const LOCAL_SERVER_NAME = 'Local Switch server';
 // stack never collides with a dev's existing services. Resolve them via
 // gatewayUrlFor()/apiUrlFor() from the persisted port set.
 
-/** Compose profiles switchdash enables: `collab` (Mattermost bridge + seeder) so
+/** Compose profiles Switch Console enables: `collab` (Mattermost bridge + seeder) so
  * the stack has a working collaboration bridge, and `gateway` so the operator
  * web dashboard is available. */
 export const LOCAL_SERVER_PROFILES = ['collab', 'gateway'] as const;
@@ -52,7 +52,7 @@ export const LOCAL_SERVER_PROFILES = ['collab', 'gateway'] as const;
  * (CHOO-1260); used for the authenticated `docker login` before pulling. */
 export const GHCR_REGISTRY = 'ghcr.io';
 
-/** The gateway admin account the stack seeds (GATEWAY_ADMIN_EMAIL). switchdash
+/** The gateway admin account the stack seeds (GATEWAY_ADMIN_EMAIL). Switch Console
  * generates its password, so it also auto-signs-in with these on start rather
  * than making the user type a secret they never saw. */
 export const LOCAL_SERVER_ADMIN_EMAIL = 'admin@switch.local';

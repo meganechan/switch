@@ -16,7 +16,7 @@ const secrets: LocalServerSecrets = {
   mattermostUserPassword: 'mm-user',
 };
 
-/** The compose file switchdash writes beside the `.env`, and whose `${VAR}`
+/** The compose file Switch Console writes beside the `.env`, and whose `${VAR}`
  *  interpolations the `.env` has to satisfy. */
 const composeYaml = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), 'resources/standalone-docker-compose.pinned.yml'),

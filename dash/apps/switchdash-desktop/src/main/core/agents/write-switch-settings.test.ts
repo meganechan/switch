@@ -308,7 +308,7 @@ describe('removeSwitchSettings', () => {
     const parsed = JSON.parse((result as { content: string }).content) as Record<string, unknown>;
 
     // Both blocks held only our contributions — including the retired
-    // switch-channel rule an older switchdash wrote — so both are dropped.
+    // switch-channel rule an older Switch Console wrote — so both are dropped.
     expect(parsed).toEqual({ hooks: { PostToolUse: [{ command: 'x' }] } });
     expect('env' in parsed).toBe(false);
     expect('permissions' in parsed).toBe(false);

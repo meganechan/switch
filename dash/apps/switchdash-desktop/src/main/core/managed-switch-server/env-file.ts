@@ -61,7 +61,7 @@ export function buildEnvFile(params: LocalServerEnvParams): string {
     // deeplink as dead text, so switch-core rewrites it to point at its own
     // `/deeplink/session`, which 302s back to the deeplink — but only when this
     // is set. It is the API origin, not the operator UI's: the redirect route is
-    // served on the agent-bridge app, and this must match the `server` switchdash
+    // served on the agent-bridge app, and this must match the `server` Switch Console
     // reports in the deeplink it is rewriting.
     `GATEWAY_PUBLIC_URL=${apiUrlFor(ports)}`,
     '',

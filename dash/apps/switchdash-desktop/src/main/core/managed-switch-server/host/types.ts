@@ -37,7 +37,7 @@ export interface ServerHost {
   /** Directory on the host holding the compose file + generated `.env`. */
   readonly workingDir: string;
 
-  /** Local (desktop) directory where switchdash persists this host's own
+  /** Local (desktop) directory where Switch Console persists this host's own
    * metadata — the chosen port set (`ports.json`). Equals {@link workingDir}
    * for the local host; a per-host dir under user-data for a remote host, since
    * its working dir lives on the remote machine. */

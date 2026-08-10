@@ -79,10 +79,10 @@ async function postRoomMessage(
 }
 
 /**
- * The VM-side port of switchdash's `AutoSessionWatcher`: long-polls the Switch
+ * The VM-side port of Switch Console's `AutoSessionWatcher`: long-polls the Switch
  * agent-bridge notification stream and, whenever the agent is addressed in a
  * room where it has no live session, spawns a fresh session (connected to the
- * room and ready to receive the waiting message) — without switchdash running.
+ * room and ready to receive the waiting message) — without Switch Console running.
  *
  * The triggering message is delivered by the spawned session's own per-room
  * poller once it connects; the notification stream is a separate queue, so the
@@ -165,7 +165,7 @@ export class NotificationWatcher {
       scope: 'all',
       filter: 'addressed',
       rooms: [],
-      // Same promise as switchdash's watcher: this process will spawn.
+      // Same promise as Switch Console's watcher: this process will spawn.
       spawnCapable: true,
       onEvent: (event) => {
         if (event.room_id) this.handleNotification(event.room_id, event.sequence);

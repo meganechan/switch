@@ -1,5 +1,5 @@
 /**
- * Migration 0029 — adds the `remote_hosts` table (switchdash remote host
+ * Migration 0029 — adds the `remote_hosts` table (Switch Console remote host
  * connection management). A host is an onboarded `~/.ssh/config` alias; the
  * table stores no credentials. Applies all migrations on a fresh schema and
  * asserts the table exists and round-trips a row.

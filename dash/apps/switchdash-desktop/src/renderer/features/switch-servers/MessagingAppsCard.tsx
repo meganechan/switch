@@ -19,7 +19,7 @@ import { switchServersStore } from './switch-servers-store';
  *
  * Listing is offered on every server type, not just managed ones: a bridge is
  * registered through the server's own admin API, so there is nothing
- * switchdash has to own locally for this to work. Attaching is gated on the
+ * Switch Console has to own locally for this to work. Attaching is gated on the
  * signed-in user being an admin, because the endpoint is.
  */
 export const MessagingAppsCard = observer(function MessagingAppsCard({

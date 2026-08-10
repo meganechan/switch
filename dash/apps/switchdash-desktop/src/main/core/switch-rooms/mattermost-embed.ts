@@ -83,7 +83,7 @@ async function installMattermostSession(origin: string, serverId: string): Promi
 }
 
 /**
- * Apply switchdash's palette to the Mattermost account the embed signs in as.
+ * Apply Switch Console's palette to the Mattermost account the embed signs in as.
  *
  * Mattermost stores this as a per-user preference, so it themes itself rather
  * than us overriding its stylesheet from the guest preload — menus, hovers and

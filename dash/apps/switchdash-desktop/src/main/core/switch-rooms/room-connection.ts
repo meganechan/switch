@@ -152,7 +152,7 @@ export interface RoomConnectionDeps {
    * session exists to handle.
    */
   startCursor?: number;
-  /** The switchdash session id of the session this connection drives, so
+  /** The Switch Console session id of the session this connection drives, so
    * the deeplink can resolve to the exact session on any client (the shared
    * session id is the same across clients; the local room mapping is not). */
   sessionId: string;
@@ -174,13 +174,13 @@ export interface RoomConnectionDeps {
   /**
    * Directory to materialise inbound image attachments into so the agent can
    * Read them. Local files, mirroring the connector channel's media dir; each
-   * environment supplies its own (a switchdash temp dir locally, a VM-local
+   * environment supplies its own (a Switch Console temp dir locally, a VM-local
    * temp dir in the sidecar).
    */
   mediaDir: string;
   /**
    * Called when the server reports which room this connection covers — on
-   * connect, and again whenever it changes. This is how switchdash learns a
+   * connect, and again whenever it changes. This is how Switch Console learns a
    * session's room: from Switch, on the connection the session's own
    * `connect_to_room` call landed on.
    */
@@ -370,7 +370,7 @@ export class RoomConnection {
    *
    * The server is the authority: the session's `connect_to_room` claimed the
    * room on this connection, and this is that fact arriving. Nothing else is
-   * allowed to set the room — inferring it anywhere else is what let switchdash
+   * allowed to set the room — inferring it anywhere else is what let Switch Console
    * and Switch disagree.
    *
    * A `single`-scope connection covers at most one room, so anything else in
@@ -433,7 +433,7 @@ export class RoomConnection {
   /**
    * The `<scheme>://session?…` deeplink for this managed session, sent with the
    * runtime-state report so the bridge can link the working / awaiting-input
-   * message back to switchdash. switchdash owns this link — switch-core relays
+   * message back to switchdash. Switch Console owns this link — switch-core relays
    * it verbatim. Resolution is by room, so `server`/`agent` are advisory.
    */
   private sessionDeeplink(): string {

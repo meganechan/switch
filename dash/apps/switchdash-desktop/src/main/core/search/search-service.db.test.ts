@@ -316,7 +316,7 @@ describe('searchService', () => {
       ]);
     });
 
-    // Locations are not a user-facing entity anywhere in switchdash — the
+    // Locations are not a user-facing entity anywhere in Switch Console — the
     // sidebar lists agents flatly rather than by directory — so offering them
     // as results pointed at a concept the product does not have.
     it('does not index locations', () => {

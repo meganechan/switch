@@ -50,7 +50,7 @@ describe('materializeAgentCommand', () => {
 
   it('launches a provider that takes no session id on a fresh session', () => {
     // Codex mints its own rollout id and only accepts one when resuming, so its
-    // spec carries no session-id token. switchdash correlates the spawn through
+    // spec carries no session-id token. Switch Console correlates the spawn through
     // the pty id in the hook env, not through argv. The Switch MCP server rides a
     // baked profile (launchFiles) and env, not argv, so nothing to substitute.
     const cmd = materializeAgentCommand(

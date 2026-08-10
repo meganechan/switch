@@ -9,7 +9,7 @@ import {
 
 // These relative paths are handed to a `PluginFs` that may be a remote POSIX
 // host over SFTP, so they must never carry a Windows separator. `path.join`
-// would, when switchdash itself runs on Windows.
+// would, when Switch Console itself runs on Windows.
 describe('relative Switch settings paths', () => {
   const relatives = {
     SWITCH_SETTINGS_RELATIVE_PATH,

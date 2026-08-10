@@ -19,7 +19,7 @@ export const sessionLifecycleStatuses = z.enum([
 export type SessionLifecycleStatus = z.infer<typeof sessionLifecycleStatuses>;
 
 /**
- * A session: one instantiation/run of an agent (was switchdash's "conversation").
+ * A session: one instantiation/run of an agent (was Switch Console's "conversation").
  * It belongs to an agent (which carries the location + provider), and is 1:1
  * with the terminal it runs in (`shellId`). `providerId` is denormalised from
  * the owning agent for rendering.

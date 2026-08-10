@@ -19,7 +19,7 @@ export const SettingsPanel = observer(function SettingsPanel() {
   const mounted = asMounted(getLocationStore(locationId));
 
   // Resolve the specific agent the page is scoped to (by its definition name),
-  // so its settings render through the normal per-agent sections. switchdash has
+  // so its settings render through the normal per-agent sections. Switch Console has
   // no main/subagent split — every agent gets the same settings (CHOO-1440).
   const { data: agents } = useQuery({
     queryKey: ['location-agents', locationId],

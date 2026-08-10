@@ -24,7 +24,7 @@ const execFileAsync = promisify(execFile);
  * never heard of it — the failure reads as a plain 404 for a package that does
  * not exist, rather than anything about registries or credentials.
  *
- * This is the VM-side counterpart of switchdash's `npmRegistryAuthEnv`. Same
+ * This is the VM-side counterpart of Switch Console's `npmRegistryAuthEnv`. Same
  * two settings, same env-var indirection so no token is written to disk; the
  * only difference is that the token comes from the VM's own `gh`, which is a
  * core host dependency, rather than the desktop's.

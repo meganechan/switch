@@ -104,7 +104,7 @@ export function SettingsPage({
     label: string;
     isExternal?: boolean;
   }> = [
-    // switchdash v0 hides Account, Integrations, Connections (SSH), and Browser tabs.
+    // Switch Console v0 hides Account, Integrations, Connections (SSH), and Browser tabs.
     { id: 'general', label: 'General' },
     { id: 'clis-models', label: 'Agents' },
     { id: 'interface', label: 'Interface' },

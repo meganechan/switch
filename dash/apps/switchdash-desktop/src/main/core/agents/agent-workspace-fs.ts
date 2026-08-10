@@ -23,7 +23,7 @@ export type WorkspaceFs = {
 /**
  * A {@link PluginFs} that resolves nothing — the user (home) scope of a remote
  * agent, whose VM home dir is not mounted here. Location-scoped agent IO (what
- * switchdash authors) is unaffected.
+ * Switch Console authors) is unaffected.
  */
 const EMPTY_PLUGIN_FS: PluginFs = {
   read: () => Promise.resolve(null),

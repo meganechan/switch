@@ -35,7 +35,7 @@ export interface InProcessSessionSpawnerDeps {
   /**
    * Open a connection for a session about to launch and return its id, so the
    * session's tool calls land on the connection this sidecar is reading. Same
-   * hand-off switchdash does locally; without it the session opens its own and
+   * hand-off Switch Console does locally; without it the session opens its own and
    * the sidecar is back to inferring the room from a hook.
    */
   openConnectionFor?: (
@@ -91,7 +91,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
    * pending/spawned and a fresh room notification can spawn a new one. No-op if
    * we never launched this session.
    *
-   * Called both when switchdash deletes a session and when one connects to a
+   * Called both when Switch Console deletes a session and when one connects to a
    * room. The entry only covers the boot window — between launch and the first
    * `connect_to_room` — and once the runtime knows the session, its room map is
    * the accurate answer. Keeping the entry past that point makes it vouch for
@@ -125,8 +125,8 @@ export class InProcessSessionSpawner implements SessionSpawner {
   }
 
   /**
-   * Sessions this watcher launched, for switchdash to reconcile into its UI.
-   * Includes the room each was started for so switchdash can title/attach it,
+   * Sessions this watcher launched, for Switch Console to reconcile into its UI.
+   * Includes the room each was started for so Switch Console can title/attach it,
    * even in the window before the session calls connect_to_room and the runtime
    * learns of it. Only live panes are reported — a launched-then-dead session
    * (crashed before connecting) is dropped so it doesn't surface as a ghost.

@@ -111,7 +111,7 @@ export function describeInstallFailure(
   // npm's own EACCES report is thorough and completely unactionable from here:
   // a stack trace through arborist, then advice to "try running the command
   // again as root" addressed to a user who is not the one running it. What
-  // matters is which directory, and that switchdash does not silently escalate
+  // matters is which directory, and that Switch Console does not silently escalate
   // to sudo on someone's host.
   const eaccesPath = NPM_GLOBAL_EACCES.exec(output ?? '')?.[1];
   if (eaccesPath) {

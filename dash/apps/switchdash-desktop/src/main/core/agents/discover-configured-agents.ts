@@ -29,7 +29,7 @@ export type DiscoveredConfiguredAgent = {
   /** Best-effort: null when nothing on disk names a provider. */
   providerId: AgentProviderId | null;
   providerSource: ProviderSource;
-  /** Whether this switchdash already has a row for the name at this location. */
+  /** Whether this Switch Console already has a row for the name at this location. */
   alreadyAgent: boolean;
 };
 
@@ -37,7 +37,7 @@ export type DiscoveredConfiguredAgent = {
  * The Switch identity in a credentials file, without its token.
  *
  * `SWITCH_API_TOKEN` is present in the file and is deliberately never read: an
- * attaching switchdash needs no secret, because the launch path reads the token
+ * attaching Switch Console needs no secret, because the launch path reads the token
  * straight from disk at spawn time. Keeping it unread is what makes attaching to
  * another install's agent a non-destructive, credential-free operation.
  */
@@ -128,7 +128,7 @@ async function definitionOwners(workspaceFs: PluginFs): Promise<Map<string, Agen
  * could become an agent — a Claude-only answer today, since Claude is the only
  * provider with a definition concept. This one asks which agents already *are*
  * configured here, whoever set them up and whichever provider runs them, so an
- * agent someone else onboarded on a shared host is visible to every switchdash
+ * agent someone else onboarded on a shared host is visible to every Switch Console
  * that can reach the directory.
  *
  * Deliberately pure disk IO: it does not verify the identities against a Switch

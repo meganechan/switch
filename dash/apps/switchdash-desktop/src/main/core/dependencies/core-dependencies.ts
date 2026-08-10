@@ -26,14 +26,14 @@ function aptInstall(packages: string): string {
 }
 
 /**
- * Core host tools a remote host needs to run switchdash agent sessions: the same
+ * Core host tools a remote host needs to run Switch Console agent sessions: the same
  * binaries the remote-session preflight verifies (tmux, node, git) plus gh, which
  * agents commonly rely on. Unlike agent dependencies (built from the plugin
  * registry), these are static — the plugin system has no notion of host tooling.
  *
  * These are surfaced only on the remote-host management page; the local
  * dependency manager continues to track agent CLIs only. `updates`/`uninstall`
- * are intentionally omitted: switchdash detects and installs these tools but does
+ * are intentionally omitted: Switch Console detects and installs these tools but does
  * not manage their upgrade/removal lifecycle.
  */
 export const CORE_DEPENDENCIES: DependencyDescriptor[] = [

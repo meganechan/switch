@@ -18,7 +18,7 @@ type RunResult = { code: number; stdout: string; stderr: string };
 
 /**
  * Join path segments for the remote host, which is POSIX regardless of what
- * switchdash is running on. `node:path`'s `join` would emit backslashes on a
+ * Switch Console is running on. `node:path`'s `join` would emit backslashes on a
  * Windows desktop and the `cat` would fail on the host.
  */
 function posixJoin(...segments: string[]): string {

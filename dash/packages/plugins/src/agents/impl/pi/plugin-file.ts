@@ -1,4 +1,4 @@
-// Verbatim source of the Pi switchdash extension, embedded as a string constant.
+// Verbatim source of the Pi Switch Console extension, embedded as a string constant.
 export const PI_EXTENSION_CONTENT = `\
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
@@ -25,7 +25,7 @@ async function notifySwitchdash(
       signal: AbortSignal.timeout(2000),
     });
   } catch {
-    // Switchdash may not be running when pi is launched directly; ignore hook failures.
+    // Switch Console may not be running when pi is launched directly; ignore hook failures.
   }
 }
 

@@ -43,7 +43,7 @@ export function resolveDefaultDatabasePath(userDataPath: string): string {
   }
 
   // Migrate forward from the newest pre-rebrand database that exists, so an
-  // install upgrading across the emdash->switchdash rename keeps its data.
+  // install upgrading across the emdash->Switch Console rename keeps its data.
   for (const legacyFilename of LEGACY_DB_FILENAMES) {
     const legacyPath = join(userDataPath, legacyFilename);
     if (fs.existsSync(legacyPath)) {

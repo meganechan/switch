@@ -84,7 +84,7 @@ interface SessionConnection {
  * The remote sidecar's manager: receives every session's agent-CLI hook
  * callbacks over one local HTTP server and drives, per session, a tmux-backed
  * RoomConnection injecting into that session's own pane. Multi-session — the
- * single agent-scoped sidecar serves every session on the VM (the one switchdash
+ * single agent-scoped sidecar serves every session on the VM (the one Switch Console
  * started over SSH, and any the notification watcher auto-starts), each keyed by
  * its session id, so there is exactly one sidecar per agent rather than one
  * per session.
@@ -182,7 +182,7 @@ export class SidecarRuntime {
 
   /**
    * Open a session's connection before it launches, and return the id to hand
-   * it in its environment. Mirrors switchdash's `ensureForSession`.
+   * it in its environment. Mirrors Switch Console's `ensureForSession`.
    *
    * The connection must exist before the session's first `connect_to_room`,
    * which arrives tagged with this id. It also makes the room server-driven
@@ -265,7 +265,7 @@ export class SidecarRuntime {
       control: resolveSessionControl(providerId),
       deeplinkScheme: this.deps.deeplinkScheme,
       // The sidecar has no in-process signal for an attached operator's
-      // keystrokes (those go through switchdash's main process over SSH), so it
+      // keystrokes (those go through Switch Console's main process over SSH), so it
       // can't gate on human typing yet — a known follow-up for the attached case.
       isHumanTyping: () => false,
       mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', sessionId),
@@ -329,7 +329,7 @@ export class SidecarRuntime {
   /**
    * Drop one session's room connection: stop its RoomConnection (which ends the
    * poll + renew heartbeat that keeps the agent marked live) and forget it, so
-   * `/sessions` no longer reports it. Called when switchdash deletes the session.
+   * `/sessions` no longer reports it. Called when Switch Console deletes the session.
    */
   stopSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
@@ -346,11 +346,11 @@ export class SidecarRuntime {
   }
 
   /**
-   * Sessions the runtime has connected to a room, for switchdash to reconcile
+   * Sessions the runtime has connected to a room, for Switch Console to reconcile
    * into its UI. Only panes that are still live are reported so a session whose
    * agent has exited does not surface as a ghost row — and only sessions whose
    * room the server has actually named, since a room-less one has nothing for
-   * switchdash to reconcile against.
+   * Switch Console to reconcile against.
    */
   connectedSessions(): Array<{ sessionId: string; roomId: string | null }> {
     const out: Array<{ sessionId: string; roomId: string | null }> = [];

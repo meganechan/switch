@@ -6,7 +6,7 @@ import { log } from '../lib/logger';
 import { getMainWindow } from './window';
 
 /**
- * Custom URL scheme switchdash registers with the OS. Matches the scheme the
+ * Custom URL scheme Switch Console registers with the OS. Matches the scheme the
  * Switch gateway builds (`switch_core.deeplinks.SWITCHDASH_SCHEME`): a click on
  * an https `/dl/...` link bounces here as `switchdash://session?…` and the OS
  * launches (or focuses) this app with that URL.
@@ -28,7 +28,7 @@ type ParsedDeeplink = {
   server: string;
   agentId: string;
   roomId: string;
-  /** Shared session id; present on links from current switchdash builds and
+  /** Shared session id; present on links from current Switch Console builds and
    * preferred for resolution (works on any client). Empty for older links. */
   sessionId: string;
 };

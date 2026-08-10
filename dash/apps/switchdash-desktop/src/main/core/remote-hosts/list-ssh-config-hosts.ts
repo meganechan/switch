@@ -26,7 +26,7 @@ export function parseSshConfigHosts(content: string): string[] {
 /**
  * Read the user's `~/.ssh/config` and return connectable `Host` aliases. Used to
  * populate the host-onboarding picker; auth still resolves from the SSH
- * config/agent (switchdash stores no credentials).
+ * config/agent (Switch Console stores no credentials).
  */
 export async function listSshConfigHosts(): Promise<string[]> {
   const configPath = path.join(os.homedir(), '.ssh', 'config');

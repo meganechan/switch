@@ -8,7 +8,7 @@ describe('displayP3ToHex', () => {
   });
 
   it('leaves greys untouched, since the conversion rows sum to 1', () => {
-    // switchdash's neutral scale is achromatic, so this is the property that
+    // Switch Console's neutral scale is achromatic, so this is the property that
     // lets the palette survive the gamut change unchanged.
     expect(displayP3ToHex(0.067, 0.067, 0.067)).toBe('#111111');
     expect(displayP3ToHex(0.988, 0.988, 0.988)).toBe('#fcfcfc');

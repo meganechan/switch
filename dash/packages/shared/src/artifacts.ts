@@ -50,12 +50,12 @@ export const CONTRACTS = {
     'switch-core': { speaks: 1, accepts: 1 },
     switchdash: { speaks: 1, accepts: 1 },
   },
-  // The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which switchdash's local-server mode drives.
+  // The interface of the published standalone compose artifact — its service names, profiles, and environment variables — which Switch Console's local-server mode drives.
   'stack-compose': {
     switchdash: { speaks: 1, accepts: 1 },
     compose: { speaks: 1, accepts: 1 },
   },
-  // How switchdash controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
+  // How Switch Console controls a deployed sidecar on a remote host: the ready file it reads, and the control channel it opens.
   'sidecar-control': {
     switchdash: { speaks: 1, accepts: 1 },
     sidecar: { speaks: 1, accepts: 1 },

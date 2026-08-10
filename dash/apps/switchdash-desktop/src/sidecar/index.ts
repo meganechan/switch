@@ -31,16 +31,16 @@ import { SIDECAR_CONTROL, SIDECAR_VERSION } from './sidecar-version';
 import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
 
 /**
- * switchdash remote runtime sidecar (CHOO-1059 → CHOO-1085).
+ * Switch Console remote runtime sidecar (CHOO-1059 → CHOO-1085).
  *
  * One agent-scoped process per remote agent, deployed to the agent's VM and kept
  * alive next to its tmux panes. It is the renderer-independent slice of
- * switchdash's Switch integration and does BOTH jobs in one process:
+ * Switch Console's Switch integration and does BOTH jobs in one process:
  *
  *  - a single agent-hook HTTP server + a multi-session runtime, so every session
- *    on the VM (the one switchdash starts over SSH and any auto-started here)
+ *    on the VM (the one Switch Console starts over SSH and any auto-started here)
  *    stays connected to its Switch room and gets messages injected into its own
- *    tmux pane, even while the switchdash UI is closed; and
+ *    tmux pane, even while the Switch Console UI is closed; and
  *  - the per-agent notification watcher, which auto-starts a fresh session (wired
  *    back to this same hook server) whenever the agent is addressed in a room
  *    with no live session.
@@ -50,9 +50,9 @@ import { exactTmuxTarget, parseAgentTmuxSessionName } from './vm-tmux';
  * passed in `SWITCHDASH_SIDECAR_AGENT_SLUG`), falling back to the legacy shared
  * `.claude/settings.local.json` for un-migrated installs (CHOO-1440); the
  * provider-specific launch recipe for auto-started sessions comes from the launch
- * spec switchdash writes to the VM.
+ * spec Switch Console writes to the VM.
  * On startup it prints one JSON line to stdout — `{event:"ready",port,token}` —
- * so the launcher can point switchdash's remote sessions at this hook server.
+ * so the launcher can point Switch Console's remote sessions at this hook server.
  */
 
 const PANE_POLL_INTERVAL_MS = 2000;
@@ -188,7 +188,7 @@ async function main(): Promise<void> {
     });
   }
 
-  // Every raw hook the agents post is buffered so switchdash can replay it
+  // Every raw hook the agents post is buffered so Switch Console can replay it
   // through its own hook path (room/status/session) while the UI is attached;
   // the sidecar still handles it VM-locally for injection regardless.
   // Declared before the server so the /sessions provider and disconnect handler
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
     {
       eventLog,
       // Snapshot of live VM sessions (connected + just-launched, deduped by
-      // session id) so switchdash can reconcile watcher-spawned sessions
+      // session id) so Switch Console can reconcile watcher-spawned sessions
       // into its UI. Connected sessions win — they carry the room the agent
       // actually attends after connect_to_room.
       sessionsProvider: async () => {
@@ -232,7 +232,7 @@ async function main(): Promise<void> {
         for (const s of runtime.connectedSessions()) byId.set(s.sessionId, s.roomId);
         return [...byId].map(([sessionId, roomId]) => ({ sessionId, roomId }));
       },
-      // switchdash is about to start a session over SSH: open its room
+      // Switch Console is about to start a session over SSH: open its room
       // connection here first and hand back the id, so the session's tool calls
       // land on the connection this sidecar reads and injects from. Without it
       // the session holds a connection nobody on the VM is listening to, and
@@ -240,7 +240,7 @@ async function main(): Promise<void> {
       // connect_to_room claims one and the server reports it back.
       connectionHandler: (sessionId, providerId) =>
         runtime.ensureForSession(sessionId, providerId, null),
-      // switchdash deleted a session: stop its room connection (ends the renew
+      // Switch Console deleted a session: stop its room connection (ends the renew
       // heartbeat keeping the agent live) and forget any watcher-launched entry.
       // A deliberate delete/kill (terminated) is also broadcast to every attached
       // client via a synthetic event on the shared /events log, so they tear down
@@ -297,7 +297,7 @@ async function main(): Promise<void> {
   });
 
   // The sidecar always serves session injection; the notification watcher only
-  // auto-starts sessions when the agent has auto_session enabled. switchdash
+  // auto-starts sessions when the agent has auto_session enabled. Switch Console
   // writes `.switchdash/watch-enabled` (1/0) and we read it live, so toggling
   // auto_session takes effect without restarting the sidecar (and disrupting
   // live sessions' injection).

@@ -16,7 +16,7 @@ type Props = {
  * Interactive `gh auth login` (device flow) for a remote host, rendered as a live
  * terminal INLINE on the remote-hosts page.
  *
- * This must not live inside a modal: switchdash's terminal input path is disabled
+ * This must not live inside a modal: Switch Console's terminal input path is disabled
  * whenever a `[role="dialog"]` is present (usePty guards focus, and xterm's key
  * handler discards every event), so a terminal in a dialog can never receive
  * keystrokes. Rendered inline, it behaves like any other terminal.

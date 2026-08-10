@@ -1,6 +1,6 @@
 name: switchdash release
 
-# Builds the switchdash desktop app and publishes it to a GitHub Release on this
+# Builds the Switch Console desktop app and publishes it to a GitHub Release on this
 # (private) repo, so anyone with repo-read access can install it without building
 # from source. Release assets inherit the repo's read access — no separate ACL.
 #
@@ -68,7 +68,7 @@ jobs:
           version="${GITHUB_REF_NAME#switchdash-v}"
           notes="switchdash desktop app $version — macOS arm64 and Linux x64.
 
-          **macOS (arm64):** download the .dmg, open it, drag Switchdash to Applications. Signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass.
+          **macOS (arm64):** download the .dmg, open it, drag Switch Console to Applications. Signed and notarized with SandboxAQ's Developer ID — it opens without a Gatekeeper bypass.
 
           **Linux (x64):** download the .AppImage (\`chmod +x\` then run), the .deb (\`sudo apt install ./<file>.deb\`) or the .rpm (\`sudo dnf install ./<file>.rpm\`). Linux builds are unsigned.
 

@@ -1,5 +1,5 @@
-// ForwardAgent socket resolution and compatibility checks. Ported from switchdash
-// for switchdash remote-SSH agents (CHOO-1059).
+// ForwardAgent socket resolution and compatibility checks. Ported from Switch Console
+// for Switch Console remote-SSH agents (CHOO-1059).
 import type { ConnectConfig } from 'ssh2';
 import {
   resolveAgentSocketFromResolved,

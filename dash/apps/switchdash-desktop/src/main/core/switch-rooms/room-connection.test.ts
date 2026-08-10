@@ -984,7 +984,7 @@ describe('RoomConnection', () => {
 /**
  * The room comes from the server, on this connection's own stream.
  *
- * switchdash used to learn it by reading the agent's `connect_to_room` tool
+ * Switch Console used to learn it by reading the agent's `connect_to_room` tool
  * response through a hook — inference about another process, from a payload
  * shape nobody had agreed to keep stable. It broke the moment that shape
  * changed, and the failure was silent: no room in the sidebar, and no

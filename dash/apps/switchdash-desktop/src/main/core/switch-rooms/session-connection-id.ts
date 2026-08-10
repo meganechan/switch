@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
  * The Switch connection id a session's tool calls are expected to arrive on,
  * derived from the session id.
  *
- * A supervisor (switchdash or the on-host sidecar) opens the connection before
+ * A supervisor (Switch Console or the on-host sidecar) opens the connection before
  * the session launches and hands the id over in `SWITCH_CONNECTION_ID`. The
  * agent reads that variable once, at startup, and stamps it on every tool call
  * for the rest of its life. A random id therefore only survives as long as the
@@ -23,7 +23,7 @@ import { createHash } from 'node:crypto';
  * across every agent — which is what the UUIDv5 hash buys over anything shorter
  * or more readable.
  *
- * Only one supervisor derives an id for any given session: switchdash's poller
+ * Only one supervisor derives an id for any given session: Switch Console's poller
  * declines remote sessions, which are the sidecar's. Two supervisors deriving
  * for the same session would fight over one connection.
  */

@@ -136,13 +136,13 @@ export async function refreshSession(
 }
 
 /**
- * Silent re-login for the managed local server. switchdash generated that
+ * Silent re-login for the managed local server. Switch Console generated that
  * server's admin password, so when its session is missing or expired we can
  * sign in again with no user interaction — the local server is meant to be
  * always signed in. Persists the fresh cookie (via `passwordLogin`) and returns
  * it for immediate reuse, or `null` when re-login failed (the caller then falls
  * back to the normal sign-in path). No-op for non-managed servers, whose
- * credentials switchdash does not hold.
+ * credentials Switch Console does not hold.
  */
 export async function reauthenticateManagedServer(server: SwitchServer): Promise<string | null> {
   if (!server.managed) return null;

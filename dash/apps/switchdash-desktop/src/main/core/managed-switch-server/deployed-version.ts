@@ -11,7 +11,7 @@ import type { ServerHost } from './host/types';
 /**
  * What switch-core version a managed stack is actually deployed at.
  *
- * The `COMPATIBLE_SWITCH_VERSION` pin only says what THIS build of switchdash
+ * The `COMPATIBLE_SWITCH_VERSION` pin only says what THIS build of Switch Console
  * wants; it is written into the `.env` at every start. Answering
  * "did the app's pin move underneath a stack that is already up?" needs the
  * other side of the comparison, read back off the host.

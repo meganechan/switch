@@ -29,7 +29,7 @@ describe('withResolvedHomeUrls', () => {
 
   it("uses switchdash's own origin for a managed stack's Mattermost", async () => {
     // The gateway reports the in-compose address, which resolves to nothing on
-    // the user's machine. switchdash published the port, so it knows better.
+    // the user's machine. Switch Console published the port, so it knows better.
     const [resolved] = await withResolvedHomeUrls(MANAGED, [
       bridge({ homeUrl: 'mattermost://mattermost:8065/switch' }),
     ]);

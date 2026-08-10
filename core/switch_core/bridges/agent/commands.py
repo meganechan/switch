@@ -310,7 +310,7 @@ async def _dispatch_control_command(
         args = role or ""
 
     # Mirror the runtime "working" surface: link back to the session in
-    # switchdash when we know its deeplink.
+    # Switch Console when we know its deeplink.
     body = f"{ack} ([Open in Switch Console]({deeplink}))" if deeplink else ack
     await _reply(client, room, event, body)
     client._event_buffer.enqueue(

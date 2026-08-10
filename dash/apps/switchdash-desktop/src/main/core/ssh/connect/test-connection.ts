@@ -1,5 +1,5 @@
 // Ad-hoc SSH reachability probe used by the remote-agent preflight. Ported from
-// switchdash for switchdash (CHOO-1059).
+// Switch Console for Switch Console (CHOO-1059).
 import ssh2, { type Client, type ConnectConfig } from 'ssh2';
 import type { ConnectionTestResult, SshConfig } from '@shared/core/ssh/ssh';
 import type { SshConnectResult, TransientConnectInput } from './resolve-ssh-connect-config';

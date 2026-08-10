@@ -121,7 +121,7 @@ describe('SidecarRuntime (multi-session)', () => {
     expect(created[0].deps.roomId).toBe('room-1');
   });
 
-  // What `/connection` answers switchdash with. The returned id has to be the
+  // What `/connection` answers Switch Console with. The returned id has to be the
   // one the connection was actually opened under, or the session is launched
   // naming a connection the server has never heard of and every tool call fails.
   it('returns the id of the connection it opened, for a session with no room yet', () => {

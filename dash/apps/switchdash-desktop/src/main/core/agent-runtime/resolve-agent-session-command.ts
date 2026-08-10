@@ -1,6 +1,6 @@
 import type { Session } from '@shared/core/sessions/sessions';
 
-/** Droid `--resume` needs the provider-native session UUID, not the Switchdash session id. */
+/** Droid `--resume` needs the provider-native session UUID, not the Switch Console session id. */
 export function resolveAgentSessionCommandArgs(
   session: Session,
   isResuming: boolean,

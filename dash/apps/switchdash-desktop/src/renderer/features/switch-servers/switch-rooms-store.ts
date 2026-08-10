@@ -36,7 +36,7 @@ export class SwitchRoomsStore {
   private readonly channelUrlByRoom = new Map<string, string>();
   /** Server id → the active rooms on that server owned by the signed-in user.
    * The sidebar lists these even when no session is connected to them, so a
-   * room you create in switchdash is visible the moment it exists rather than
+   * room you create in Switch Console is visible the moment it exists rather than
    * only once an agent joins it. */
   private readonly ownedRoomsByServer = new Map<string, RemoteRoomSummary[]>();
   /** Server id → every active room on it. Listed in full for a server this

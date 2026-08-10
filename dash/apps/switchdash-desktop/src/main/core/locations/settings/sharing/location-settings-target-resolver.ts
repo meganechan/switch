@@ -48,7 +48,7 @@ export async function resolveAllLocationSettingsTargets(
     path: location.dir,
     fs: location.fs,
   };
-  // Every switchdash session runs in the location root, so there are no
+  // Every Switch Console session runs in the location root, so there are no
   // session-scoped settings targets distinct from the location target.
   return [locationTarget];
 }

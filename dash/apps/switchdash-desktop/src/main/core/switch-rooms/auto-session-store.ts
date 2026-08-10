@@ -48,7 +48,7 @@ export async function setAutoSessionAgent(agentId: string, enabled: boolean): Pr
 
 /**
  * Local mirror of which subagents have `auto_session` enabled. A subagent has no
- * switchdash agent row of its own, so it is keyed by its parent's local agent id
+ * Switch Console agent row of its own, so it is keyed by its parent's local agent id
  * plus its bare name. Stored as a JSON array of `{ parentAgentId, name }`.
  */
 const SUBAGENT_KEY = 'auto_session_subagents';

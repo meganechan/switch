@@ -159,7 +159,7 @@ export const switchServersController = createRPCController({
 
   /**
    * Open a gateway web page (operator dashboard). For the managed local server —
-   * whose session switchdash owns — this opens an in-app window with the
+   * whose session Switch Console owns — this opens an in-app window with the
    * `switch_auth` cookie injected, so the dashboard loads already signed in.
    * Remote servers open in the OS browser as before: we can't inject our
    * httponly cookie into the system browser, so an authenticated in-app window
@@ -229,7 +229,7 @@ export const switchServersController = createRPCController({
    * Attach a collaboration bridge to the chosen server (CHOO-1784).
    *
    * `params.connectionConfig` carries platform credentials. They cross the IPC
-   * boundary once, on the way out, and are never written to switchdash's disk
+   * boundary once, on the way out, and are never written to Switch Console's disk
    * or returned to the renderer — the server stores them. Keep it that way: do
    * not log `params` here.
    */

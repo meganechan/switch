@@ -184,7 +184,7 @@ class AutoSessionWatcher {
     if (this.watchers.has(localAgentId)) return;
 
     // Remote agents are watched by their on-VM notification-watcher daemon, so
-    // it keeps auto-starting sessions while switchdash is closed. Watching them
+    // it keeps auto-starting sessions while Switch Console is closed. Watching them
     // here too would double-poll the agent's notification stream, so skip.
     const agent = await getAgentById(localAgentId);
     if (agent && (await getRemoteAgentLocation(agent))) {
@@ -325,7 +325,7 @@ class AutoSessionWatcher {
    * `all` scope means the server delivers every room the agent belongs to
    * *except* those a session's connection has claimed. That is the split-brain
    * fix: "a session is already attending this room" stops being a fact
-   * switchdash keeps its own copy of and starts being one the server enforces —
+   * Switch Console keeps its own copy of and starts being one the server enforces —
    * we simply never hear about a covered room.
    */
   private startStream(watcher: AgentWatcher): void {
@@ -382,7 +382,7 @@ class AutoSessionWatcher {
    * There is no longer a "does a session already cover this room?" check here.
    * The server answers that by never delivering the event: a session's
    * connection claims the room and this `all`-scope connection goes dark on it.
-   * Keeping a local copy of that fact is what let switchdash and Switch
+   * Keeping a local copy of that fact is what let Switch Console and Switch
    * disagree — a stale map meaning either a duplicate session or none at all.
    *
    * The in-flight guard is a different thing and stays: it covers the window

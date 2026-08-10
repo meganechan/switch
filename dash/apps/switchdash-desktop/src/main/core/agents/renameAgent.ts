@@ -54,7 +54,7 @@ async function moveSidecarToNewName(previous: Agent, renamed: Agent): Promise<vo
 /**
  * Move the agent's on-disk state to its new name.
  *
- * Everything switchdash writes per agent is keyed by the agent's `name` — the
+ * Everything Switch Console writes per agent is keyed by the agent's `name` — the
  * Switch credentials at `.switch/agents/<name>.json` and, for a provider with
  * repo-agent definitions, the definition the CLI is launched against
  * (`--agent <name>`). A rename that only updates the row leaves both behind

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 export const CURRENT_DB_FILENAME = 'switchdash.db';
 
-// Legacy database filenames from before the switchdash rebrand, newest first.
+// Legacy database filenames from before the Switch Console rebrand, newest first.
 // On first launch, if CURRENT_DB_FILENAME is absent, the newest existing legacy
 // file is copied forward so upgrading installs keep their data. These names are
 // the one place the pre-rebrand `emdash` identity is intentionally retained —

@@ -1,7 +1,7 @@
 /**
  * A config file the sidecar must write on the VM before spawning, path relative
  * to the agent's home directory. Baked into the spec because the watcher is
- * provider-agnostic — it cannot build provider config itself, so switchdash
+ * provider-agnostic — it cannot build provider config itself, so Switch Console
  * precomputes it. Used for Codex's per-agent profile registering the Switch MCP
  * runtime (`~/.codex/<slug>.config.toml`).
  */
@@ -16,12 +16,12 @@ export interface AgentLaunchFile {
  * A serialised recipe for launching a fresh agent CLI session on the VM.
  *
  * The notification watcher runs headless on the VM with no access to
- * switchdash's plugin registry, so it cannot build a provider's launch command
- * itself. Instead switchdash precomputes the command once (via the provider
+ * Switch Console's plugin registry, so it cannot build a provider's launch command
+ * itself. Instead Switch Console precomputes the command once (via the provider
  * plugin's `buildCommand`) with placeholder tokens standing in for the two
  * per-spawn values — the session id and the initial prompt — and writes
  * this spec to the VM. The watcher then substitutes those tokens per spawn, so
- * all provider knowledge stays in switchdash and the watcher is provider
+ * all provider knowledge stays in Switch Console and the watcher is provider
  * agnostic.
  */
 export interface AgentLaunchSpec {
@@ -46,10 +46,10 @@ export interface AgentLaunchSpec {
   deeplinkScheme: string;
 }
 
-/** Argv token switchdash emits in place of the fresh session's session id. */
+/** Argv token Switch Console emits in place of the fresh session's session id. */
 export const SESSION_ID_PLACEHOLDER = '__SWITCHDASH_SESSION_ID__';
 
-/** Argv token switchdash emits in place of the fresh session's initial prompt. */
+/** Argv token Switch Console emits in place of the fresh session's initial prompt. */
 export const INITIAL_PROMPT_PLACEHOLDER = '__SWITCHDASH_INITIAL_PROMPT__';
 
 /** Shared prefix of every launch-spec placeholder, used to catch leftovers. */
@@ -72,7 +72,7 @@ export interface MaterializedAgentCommand {
  *
  * The session id token is substituted when present and is not required. Not
  * every provider takes a session id on a fresh session — Codex mints its own
- * rollout id and only accepts one when resuming — and switchdash does not depend
+ * rollout id and only accepts one when resuming — and Switch Console does not depend
  * on the argv value either way: it correlates the spawn through the pty id in the
  * hook env, and learns the provider's own id from the SessionStart hook. The
  * Switch MCP server no longer rides argv; the runtime reads its endpoint and
