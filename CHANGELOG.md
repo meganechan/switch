@@ -324,6 +324,38 @@ version of their own to them without also giving them a release of their own.
   merely needing sign-in. A server whose data is unavailable shows a red dot
   rather than amber, for both causes: neither is a transitional state
   (CHOO-2042).
+- A directory that already holds agents for one Switch server can now onboard its
+  agents to another. "Already onboarded" was judged per directory rather than per
+  server, so every candidate was filtered out as a duplicate and the modal offered
+  an empty list — of agents that existed, on a server that did not have them
+  (CHOO-2044).
+- The sidebar no longer draws a directory's agents under a server they do not
+  belong to. A directory resolved to a single server — whichever of its agents was
+  returned first — and then every agent in it was rendered under that one, so
+  onboarding a single agent to a second server appeared to drag the rest across
+  with it. Nothing had been onboarded; each agent is now drawn under its own
+  server, and a shared directory shows under all of them (CHOO-2044).
+- Onboarding an agent whose credentials belong to **another** Switch server no
+  longer overwrites those credentials. The import path looked the existing
+  identity up on the target server, did not find it, and fell back to minting a
+  fresh one — writing it back over the same `.switch/agents/<name>.json` and
+  silently breaking the agent the other server was still running. It now refuses
+  and names the server the identity belongs to. Such agents are listed in the
+  Add Agent modal but not selectable, with the reason shown; a plain definition
+  carrying no Switch identity is still adopted as before (CHOO-2044).
+- The Add Agent modal no longer offers a permanently disabled button over a list
+  it will not submit. A directory carrying another server's leftover
+  `.claude/settings.local.json` took the detected-agent branch, verified that
+  foreign agent against the current server, failed, and disabled the only button
+  on screen — with the onboardable agents listed above it. The onboard action now
+  takes precedence, and a detected agent belonging to another server says so
+  (CHOO-2044).
+- The Add Agent modal no longer shows the create form, or the existing-agents
+  list, before an agent type is picked. Both depend on the type — it decides
+  which agents can be brought in and how a new one runs — so the form asked for a
+  name, a description and a config, then ended at a button that could not be
+  pressed. Everything below the directory now waits for the type, and the modal
+  asks for it instead (CHOO-2044).
 
 ### [0.19.3] - 2026-08-09
 
