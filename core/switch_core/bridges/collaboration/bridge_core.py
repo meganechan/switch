@@ -195,6 +195,10 @@ class BridgeCore:
                 for user in users
             }
 
+        self._adapter.prime_mention_targets(
+            {user.external_username: user.external_user_id for user in users}
+        )
+
         for user in users:
             self._user_puppets[user.external_user_id] = user.client_id
 
@@ -950,6 +954,7 @@ class BridgeCore:
 
             self._user_puppets[external_user_id] = client.client_id
             self._puppet_matrix_ids.add(client.matrix_user_id)
+            self._adapter.prime_mention_targets({external_username: external_user_id})
 
             logger.info(
                 "Created puppet %s for external user %s on bridge %s",

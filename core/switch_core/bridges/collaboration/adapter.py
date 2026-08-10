@@ -454,6 +454,17 @@ class CollaborationAdapter(ABC):
     @abstractmethod
     def translate_inbound(self, raw_message: str) -> str: ...
 
+    def prime_mention_targets(self, targets: dict[str, str]) -> None:
+        """Supply known ``username -> external user id`` pairs for this bridge.
+
+        Called on startup with every external user on the bridge, and again as
+        new ones are provisioned. Platforms that address people by an opaque id
+        (Slack's ``<@U…>``) need the mapping to render an outbound ``@name`` as
+        a real mention; without it the name goes out as plain text and the
+        person is never notified. Default is a no-op, since platforms that
+        mention by handle (Mattermost) need no mapping at all."""
+        return None
+
     async def ensure_channel_subscriptions(
         self, channels: list[tuple[str, str]]
     ) -> None:
