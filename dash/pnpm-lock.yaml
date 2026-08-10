@@ -22,13 +22,13 @@ importers:
       '@sandbox-quantum/switch-agent-runtime':
         specifier: workspace:*
         version: link:../../packages/switch-agent-runtime
-      '@switchdash/core':
+      '@switch-console/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@switchdash/plugins':
+      '@switch-console/plugins':
         specifier: workspace:*
         version: link:../../packages/plugins
-      '@switchdash/shared':
+      '@switch-console/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@typescript/native-preview':
@@ -302,7 +302,7 @@ importers:
       '@parcel/watcher':
         specifier: ^2.5.6
         version: 2.5.6
-      '@switchdash/shared':
+      '@switch-console/shared':
         specifier: workspace:*
         version: link:../shared
       semver:
@@ -333,7 +333,7 @@ importers:
 
   packages/plugins:
     dependencies:
-      '@switchdash/core':
+      '@switch-console/core':
         specifier: workspace:*
         version: link:../core
       smol-toml:

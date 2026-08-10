@@ -1,4 +1,4 @@
-import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
+import type { RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { getAgentLocation } from './agent-location';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';

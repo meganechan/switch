@@ -1,4 +1,4 @@
-import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
+import type { RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import type { CreateAgentParams, RenameAgentParams } from '@shared/core/agents/agents';
 import type { OnboardAgentParams } from '@shared/core/agents/onboarding';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';

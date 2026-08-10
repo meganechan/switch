@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import type { HookEvent, PluginFs } from '@switchdash/core/agents/plugins';
+import type { HookEvent, PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CODEX_CONFIG_PATH, CODEX_HOOKS_PATH, buildCodexHookConfig } from './hooks';
 import { plugin } from './index';
@@ -15,7 +15,7 @@ const execFileAsync = promisify(execFile);
  * feeding it an event payload on stdin the way Codex does, and report the URL
  * and request body it would have posted.
  *
- * A copy of the harness in `@switchdash/core`'s `helpers/hooks.test.ts`; this
+ * A copy of the harness in `@switch-console/core`'s `helpers/hooks.test.ts`; this
  * package resolves that one through `dist` subpath exports, which do not carry
  * test files.
  */

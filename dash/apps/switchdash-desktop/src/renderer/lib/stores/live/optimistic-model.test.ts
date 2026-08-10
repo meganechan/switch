@@ -1,4 +1,4 @@
-import { ok } from '@switchdash/shared';
+import { ok } from '@switch-console/shared';
 import { describe, expect, it, vi } from 'vitest';
 import { ModelMirror } from './model-mirror';
 import { OptimisticModel } from './optimistic-model';

@@ -21,7 +21,7 @@ still says `switchdash`:
 - the user-data directory (`USER_DATA_DIR_NAME`) and the SQLite file `switchdash.db`
 - the macOS app id (`com.switchdash.*`) and release artifact names (`ARTIFACT_PREFIX`)
 - the `switchdash://` deeplink scheme
-- packages (`@switchdash/*`) and the app directory (`apps/switchdash-desktop/`)
+- packages (`@switch-console/*`) and the app directory (`apps/switchdash-desktop/`)
 - the per-project config file (`.switchdash.json`) and per-repo state dir (`.switchdash/`)
 - `SWITCHDASH_*` environment variables and the agent-hook HTTP protocol
   (`X-Switchdash-*` headers)
@@ -45,7 +45,7 @@ pre-rebrand name is retained).
 ## Repository Structure
 
 This is a pnpm workspace monorepo. The Electron app lives in `apps/switchdash-desktop/`
-(package `@switchdash/switchdash-desktop`). Unless prefixed otherwise, `src/...`, `drizzle/`,
+(package `@switch-console/desktop`). Unless prefixed otherwise, `src/...`, `drizzle/`,
 `scripts/`, `build/`, and config-file paths in this document and in `agents/` docs are
 relative to `apps/switchdash-desktop/`.
 
@@ -57,7 +57,7 @@ Repo root:
 - `packages/` - Shared workspace packages.
   - `packages/core/` - Transport-agnostic core runtime primitives.
   - `packages/shared/` - Shared workspace primitives, including the `Result<T, E>` type
-    (`@switchdash/shared`).
+    (`@switch-console/shared`).
   - `packages/plugins/` - Plugin interfaces and helpers, and the agent provider plugins
     under `src/agents/impl/<id>/`.
   - `packages/switch-agent-runtime/` - The published agent runtime; sessions run a pinned
@@ -260,7 +260,7 @@ switch rooms, switch servers, switch setup, terminal shell, terminals, updates, 
 view state. `agents` and `providers` are different things — see
 `agents/architecture/main-process.md`. Stateful main-process concerns use singleton
 services; expected failures should use the `Result<T, E>` pattern from the
-`@switchdash/shared` workspace package.
+`@switch-console/shared` workspace package.
 
 ### Logging
 

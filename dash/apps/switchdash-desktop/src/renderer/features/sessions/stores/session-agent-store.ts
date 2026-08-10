@@ -1,4 +1,4 @@
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import { action, computed, makeObservable, observable, reaction, runInAction } from 'mobx';
 import { getLocationManagerStore } from '@renderer/features/locations/stores/location-selectors';
 import { makeFileLinkHandlers } from '@renderer/features/sessions/stores/file-link-handlers';

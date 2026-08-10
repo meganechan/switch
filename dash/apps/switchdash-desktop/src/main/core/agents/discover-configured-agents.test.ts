@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**

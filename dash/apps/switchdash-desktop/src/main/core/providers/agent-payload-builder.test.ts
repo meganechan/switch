@@ -1,8 +1,8 @@
-import type { CLIAgentPluginProvider } from '@switchdash/core/agents/plugins';
-import type { DependencyState } from '@switchdash/core/deps/runtime';
+import type { CLIAgentPluginProvider } from '@switch-console/core/agents/plugins';
+import type { DependencyState } from '@switch-console/core/deps/runtime';
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('@switchdash/plugins/agents', () => ({
+vi.mock('@switch-console/plugins/agents', () => ({
   pluginRegistry: {
     get: vi.fn(),
     getAll: vi.fn().mockReturnValue([]),

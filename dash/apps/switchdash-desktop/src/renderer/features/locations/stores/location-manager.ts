@@ -1,4 +1,4 @@
-import { err, ok } from '@switchdash/shared';
+import { err, ok } from '@switch-console/shared';
 import { makeObservable, observable, runInAction } from 'mobx';
 import { events, rpc } from '@renderer/lib/ipc';
 import { appState } from '@renderer/lib/stores/app-state';

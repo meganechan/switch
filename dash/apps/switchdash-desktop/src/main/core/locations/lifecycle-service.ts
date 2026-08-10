@@ -1,4 +1,4 @@
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import { makePtySessionId } from '@shared/core/pty/ptySessionId';
 import { createLifecycleScriptTerminalId } from '@shared/core/terminals/terminals';
 import type { Pty, PtyExitInfo } from '../pty/pty';

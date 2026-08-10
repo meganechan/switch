@@ -1,4 +1,4 @@
-import { HostDependencyManager, type DependencyId } from '@switchdash/core/deps/runtime';
+import { HostDependencyManager, type DependencyId } from '@switch-console/core/deps/runtime';
 import { clearResolvedPathCache } from '@main/core/agent-runtime/impl/resolve-agent-executable';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { appSettingsService } from '@main/core/settings/settings-service';

@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bindMirror } from './bind-mirror';
 import { ModelMirror } from './model-mirror';

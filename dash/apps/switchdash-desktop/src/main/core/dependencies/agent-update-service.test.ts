@@ -1,6 +1,6 @@
-import type { DependencyStatusUpdatedEvent, DependencyId } from '@switchdash/core/deps/runtime';
-import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
-import { Emitter } from '@switchdash/shared';
+import type { DependencyStatusUpdatedEvent, DependencyId } from '@switch-console/core/deps/runtime';
+import type { HostDependencyManager } from '@switch-console/core/deps/runtime';
+import { Emitter } from '@switch-console/shared';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // Mock the registry

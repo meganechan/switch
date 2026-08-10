@@ -1,10 +1,10 @@
-import type { InstallMethod } from '@switchdash/core/deps';
+import type { InstallMethod } from '@switch-console/core/deps';
 import type {
   DependencyId,
   DependencyProbeOptions,
   HostDependencySelection,
   InstallOverride,
-} from '@switchdash/core/deps/runtime';
+} from '@switch-console/core/deps/runtime';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { createRPCController } from '@shared/lib/ipc/rpc';

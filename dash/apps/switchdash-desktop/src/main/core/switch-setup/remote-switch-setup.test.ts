@@ -18,7 +18,7 @@ vi.mock('@main/core/ssh/connect/connect-agent-ssh', () => ({
   ensureSshConnected: mocks.ensureSshConnected,
 }));
 
-vi.mock('@switchdash/core/deps/runtime', () => ({
+vi.mock('@switch-console/core/deps/runtime', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
 

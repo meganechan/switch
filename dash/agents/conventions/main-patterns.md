@@ -82,13 +82,13 @@ check whether the remote path needs one too — and see the sidecar section of `
 because a remote session is served by `src/sidecar/`, which is a second implementation that
 will not follow your change automatically.
 
-## Result Type (`@switchdash/shared`)
+## Result Type (`@switch-console/shared`)
 
 Explicit error handling via discriminated union. The type lives in the shared workspace
 package (`packages/shared/src/result.ts`), not in `src/main/lib/`:
 
 ```ts
-import { ok, err, type Result } from '@switchdash/shared';
+import { ok, err, type Result } from '@switch-console/shared';
 
 async function doSomething(): Promise<Result<Data, SomeError>> {
   if (problem) return err({ type: 'not_found' as const });

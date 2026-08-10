@@ -1,4 +1,4 @@
-import { err, ok } from '@switchdash/shared';
+import { err, ok } from '@switch-console/shared';
 import { resolveLocationRuntime } from '@main/core/locations/utils';
 import { events } from '@main/lib/events';
 import { fsWatchEventChannel } from '@shared/core/fs/fsEvents';

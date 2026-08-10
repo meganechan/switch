@@ -1,7 +1,7 @@
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
 
 // ---------------------------------------------------------------------------
-// Install methods — mirrors INSTALL_METHODS in @switchdash/core/deps/capability.ts
+// Install methods — mirrors INSTALL_METHODS in @switch-console/core/deps/capability.ts
 // ---------------------------------------------------------------------------
 
 export type InstallMethod =
@@ -28,13 +28,13 @@ export type InstallOption = {
 };
 
 // ---------------------------------------------------------------------------
-// Installation state — mirrors @switchdash/core/deps/runtime types.ts
+// Installation state — mirrors @switch-console/core/deps/runtime types.ts
 // ---------------------------------------------------------------------------
 
 export type DependencyStatus = 'available' | 'missing' | 'error';
 
 /**
- * Installation provenance — mirrors Provenance in @switchdash/core/deps/runtime types.ts.
+ * Installation provenance — mirrors Provenance in @switch-console/core/deps/runtime types.ts.
  */
 export type Provenance = {
   kind: InstallMethod | 'manual' | 'version-manager' | 'unknown';
@@ -92,7 +92,7 @@ export type Installation = {
 
 /**
  * Resolves the active Installation from a list given a SelectedSource.
- * Mirrors resolveActiveInstallation from @switchdash/core/deps/runtime.
+ * Mirrors resolveActiveInstallation from @switch-console/core/deps/runtime.
  */
 export function resolveActiveInstallation(
   installations: Installation[],
@@ -112,7 +112,7 @@ export function resolveActiveInstallation(
 export type HostDependencySelection = InstallOverride | null;
 
 // ---------------------------------------------------------------------------
-// Error DTOs — mirrors Dependency*Error types in @switchdash/core/deps/runtime
+// Error DTOs — mirrors Dependency*Error types in @switch-console/core/deps/runtime
 // ---------------------------------------------------------------------------
 
 type InstallCommandError =
@@ -173,7 +173,7 @@ export type AgentCapabilities = {
 };
 
 // ---------------------------------------------------------------------------
-// Icon asset DTO — mirrors AgentIconAsset from @switchdash/core/agents/plugins
+// Icon asset DTO — mirrors AgentIconAsset from @switch-console/core/agents/plugins
 // ---------------------------------------------------------------------------
 
 export type AgentIconVariant = {

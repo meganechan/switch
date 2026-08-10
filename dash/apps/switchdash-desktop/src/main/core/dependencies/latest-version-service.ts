@@ -1,5 +1,5 @@
-import type { ReleaseSource } from '@switchdash/core/deps';
-import type { Logger } from '@switchdash/core/lib';
+import type { ReleaseSource } from '@switch-console/core/deps';
+import type { Logger } from '@switch-console/core/lib';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours

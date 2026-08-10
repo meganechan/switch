@@ -1,4 +1,4 @@
-import { ok, type Result } from '@switchdash/shared';
+import { ok, type Result } from '@switch-console/shared';
 import { eq, sql } from 'drizzle-orm';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import { locationManager } from '@main/core/locations/location-manager';

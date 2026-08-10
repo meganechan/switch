@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import type { OnboardAgentError } from '@shared/core/agents/onboarding';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 

@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import z from 'zod';
 import type {
   InstallMethod,

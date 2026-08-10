@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { createPluginFs } from '@main/core/providers/plugin-fs';

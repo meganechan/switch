@@ -1,5 +1,5 @@
-import type { InstallMethod } from '@switchdash/core/deps';
-import type { DependencyId, HostDependencySelection } from '@switchdash/core/deps/runtime';
+import type { InstallMethod } from '@switch-console/core/deps';
+import type { DependencyId, HostDependencySelection } from '@switch-console/core/deps/runtime';
 import type { ProviderCustomConfig } from '@shared/core/app-settings';
 import type { IHostDependencyStore } from '../dependencies/host-dependency-store';
 

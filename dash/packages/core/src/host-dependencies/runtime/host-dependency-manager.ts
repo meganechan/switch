@@ -1,4 +1,4 @@
-import { Emitter, err, ok, type Result } from '@switchdash/shared';
+import { Emitter, err, ok, type Result } from '@switch-console/shared';
 import type { IExecutionContext } from '../../exec/execution-context';
 import { isTransportFailure } from '../../exec/transport-error';
 import { consoleLogger, type Logger } from '../../lib/logger';

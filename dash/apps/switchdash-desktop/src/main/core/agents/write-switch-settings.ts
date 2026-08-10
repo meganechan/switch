@@ -3,8 +3,8 @@ import path from 'node:path';
 import {
   RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES,
   SWITCH_CONNECTOR_TOOL_RULES,
-} from '@switchdash/core/agents/plugins';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+} from '@switch-console/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import {
   agentSettingsRelativePath,

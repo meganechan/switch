@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
 import { removeSwitchSettings } from './write-switch-settings';

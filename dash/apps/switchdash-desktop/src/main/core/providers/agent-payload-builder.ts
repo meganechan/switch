@@ -1,18 +1,18 @@
-import type { CLIAgentPluginProvider } from '@switchdash/core/agents/plugins';
-import type { Platform } from '@switchdash/core/deps';
+import type { CLIAgentPluginProvider } from '@switch-console/core/agents/plugins';
+import type { Platform } from '@switch-console/core/deps';
 import {
   deriveHostDependencyStatus,
   resolveActiveInstallation,
   resolveInstallOptions,
   sourceKey,
   toPlatform,
-} from '@switchdash/core/deps/runtime';
+} from '@switch-console/core/deps/runtime';
 import type {
   DependencyId,
   DependencyState,
   HostDependency,
   HostDependencyManager,
-} from '@switchdash/core/deps/runtime';
+} from '@switch-console/core/deps/runtime';
 import type {
   AgentInstallationStatus,
   AgentMetadata,

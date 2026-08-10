@@ -1,4 +1,4 @@
-import type { IDisposable, Result } from '@switchdash/shared';
+import type { IDisposable, Result } from '@switch-console/shared';
 import { computed, makeObservable, observable, reaction, runInAction } from 'mobx';
 import type { ModelMirror } from './model-mirror';
 

@@ -1,4 +1,4 @@
-import type { RepoAgentField } from '@switchdash/core/agents/plugins';
+import type { RepoAgentField } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 

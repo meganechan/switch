@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import { appSettingsService } from '@main/core/settings/settings-service';
 import type { UpdateLocationSettingsError } from '@shared/core/locations/locations';
 import {

@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { createRemoteHomePluginFs } from '@main/core/agent-runtime/impl/remote-home-plugin-fs';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import { getPlugin } from '@main/core/providers/plugin-registry';

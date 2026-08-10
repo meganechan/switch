@@ -1,4 +1,4 @@
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
 import type { SessionRoomConnection } from '@shared/core/switch-rooms/switch-rooms';

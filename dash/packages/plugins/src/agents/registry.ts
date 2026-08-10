@@ -1,5 +1,8 @@
 // The single plugin registry
-import { type CLIAgentPluginProvider, createPluginRegistry } from '@switchdash/core/agents/plugins';
+import {
+  type CLIAgentPluginProvider,
+  createPluginRegistry,
+} from '@switch-console/core/agents/plugins';
 import { provider as amp } from './impl/amp';
 import { provider as antigravity } from './impl/antigravity';
 import { provider as auggie } from './impl/auggie';

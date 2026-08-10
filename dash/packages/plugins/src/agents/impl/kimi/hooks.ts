@@ -1,10 +1,10 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import type { HookRegistration } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import type { HookRegistration } from '@switch-console/core/agents/plugins';
 import {
   SWITCHDASH_MARKER,
   filterUserHooks,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { parse as parseTOML, stringify as stringifyTOML } from 'smol-toml';
 
 export const KIMI_CONFIG_PATH = '.kimi-code/config.toml';

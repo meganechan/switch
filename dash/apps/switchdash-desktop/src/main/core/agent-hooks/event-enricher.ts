@@ -1,5 +1,5 @@
-import type { CanonicalHookEvent } from '@switchdash/core/agents/plugins';
-import { defaultHookEventParser } from '@switchdash/core/agents/plugins/helpers';
+import type { CanonicalHookEvent } from '@switch-console/core/agents/plugins';
+import { defaultHookEventParser } from '@switch-console/core/agents/plugins/helpers';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import type { AgentEvent } from '@shared/core/providers/agentEvents';
 import type { RawHookRequest } from './hook-server';
@@ -41,7 +41,7 @@ export interface HookEventLogger {
 
 /**
  * Event type emitted by the `connect_to_room` PostToolUse hook that
- * `buildClaudeHookConfig` in `@switchdash/plugins` registers, scoped to the
+ * `buildClaudeHookConfig` in `@switch-console/plugins` registers, scoped to the
  * Switch MCP tool by an `mcp__.*__connect_to_room` matcher.
  *
  * Claude only. A session Switch Console launched learns its room from the server

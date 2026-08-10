@@ -1,11 +1,11 @@
-import type { InstallMethod } from '@switchdash/core/deps';
+import type { InstallMethod } from '@switch-console/core/deps';
 import type {
   DependencyCategory,
   DependencyInstallResult,
   DependencyStatus,
   DependencyUninstallResult,
   DependencyUpdateResult,
-} from '@switchdash/core/deps/runtime';
+} from '@switch-console/core/deps/runtime';
 import { detectSwitchAgentRemote } from '@main/core/agents/detect-remote';
 import {
   evictRemoteDependencyManager,

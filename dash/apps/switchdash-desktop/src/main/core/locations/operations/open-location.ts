@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { locationManager } from '@main/core/locations/location-manager';
 import type { OpenLocationError } from '@shared/core/locations/locations';
 import { checkIsValidDirectory } from '../path-utils';

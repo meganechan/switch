@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import type { ContractRange } from '@switchdash/shared';
+import type { ContractRange } from '@switch-console/shared';
 import { exactTmuxTarget } from '@main/core/pty/tmux-session-name';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';

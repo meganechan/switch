@@ -1,4 +1,4 @@
-import { type Result, err, ok } from '@switchdash/shared';
+import { type Result, err, ok } from '@switch-console/shared';
 import { eq, sql } from 'drizzle-orm';
 import {
   agentSidecarTmuxName,

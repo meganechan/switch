@@ -1,4 +1,4 @@
-import type { IDisposable, IInitializable } from '@switchdash/shared';
+import type { IDisposable, IInitializable } from '@switch-console/shared';
 import _electronUpdater, {
   type ProgressInfo,
   type UpdateInfo,

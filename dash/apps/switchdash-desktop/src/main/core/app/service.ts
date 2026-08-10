@@ -2,7 +2,7 @@ import { exec } from 'node:child_process';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
-import type { IDisposable, IInitializable } from '@switchdash/shared';
+import type { IDisposable, IInitializable } from '@switch-console/shared';
 import { app, clipboard, dialog, shell } from 'electron';
 import { getMainWindow } from '@main/app/window';
 import { events } from '@main/lib/events';

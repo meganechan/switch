@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import { events, rpc } from '@renderer/lib/ipc';
 import { Resource } from '@renderer/lib/stores/resource';
 import { fsWatchEventChannel } from '@shared/core/fs/fsEvents';

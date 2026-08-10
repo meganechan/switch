@@ -1,5 +1,5 @@
 import { dirname } from 'node:path/posix';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { assertRemoved } from '@main/core/fs/assert-removed';
 import {
   FileSystemError,

@@ -1,4 +1,4 @@
-import type { SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
+import type { SwitchLaunchSpecialization } from '@switch-console/core/agents/plugins';
 import z from 'zod';
 import { defineVersionedSchema } from '@shared/lib/versioned-schema/versioned-schema';
 

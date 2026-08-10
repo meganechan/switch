@@ -1,5 +1,5 @@
-import type { DependencyId, HostDependencySelection } from '@switchdash/core/deps/runtime';
-import { normalizeSelection } from '@switchdash/core/deps/runtime';
+import type { DependencyId, HostDependencySelection } from '@switch-console/core/deps/runtime';
+import { normalizeSelection } from '@switch-console/core/deps/runtime';
 import { KV } from '@main/db/kv';
 
 const LOCAL_HOST_ID = 'local';

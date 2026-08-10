@@ -9,7 +9,7 @@ import {
   RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES,
   SWITCH_AGENT_SETTINGS_DIR,
   SWITCH_CONNECTOR_TOOL_RULES,
-} from '@switchdash/core/agents/plugins';
+} from '@switch-console/core/agents/plugins';
 
 /**
  * Claude Code subagents. Definitions live in `.claude/agents/<name>.md`; once

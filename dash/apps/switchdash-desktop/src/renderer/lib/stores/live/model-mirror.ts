@@ -1,4 +1,4 @@
-import type { LiveValue } from '@switchdash/core/lib';
+import type { LiveValue } from '@switch-console/core/lib';
 import { makeObservable, observable, runInAction } from 'mobx';
 
 type Waiter = {

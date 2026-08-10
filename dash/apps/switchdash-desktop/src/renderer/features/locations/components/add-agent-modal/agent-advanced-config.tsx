@@ -1,4 +1,4 @@
-import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
+import type { RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import { useQuery } from '@tanstack/react-query';
 import { ChevronRight } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';

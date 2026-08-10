@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 
 /**
  * Create a CLIAgentPluginFs scoped to a given root directory.

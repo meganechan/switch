@@ -7,7 +7,7 @@
  * per-host lifecycle (build, resume, run, skip, discard).
  */
 
-import type { DependencyId, HostDependencyManager } from '@switchdash/core/deps/runtime';
+import type { DependencyId, HostDependencyManager } from '@switch-console/core/deps/runtime';
 import { agentUpdateService } from '@main/core/dependencies/agent-update-service';
 import { CORE_DEPENDENCIES } from '@main/core/dependencies/core-dependencies';
 import { installOutput } from '@main/core/dependencies/install-output';

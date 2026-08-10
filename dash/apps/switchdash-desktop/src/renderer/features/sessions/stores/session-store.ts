@@ -1,4 +1,4 @@
-import { err, type Result } from '@switchdash/shared';
+import { err, type Result } from '@switch-console/shared';
 import { makeAutoObservable, observable, runInAction } from 'mobx';
 import { rpc } from '@renderer/lib/ipc';
 import { log } from '@renderer/utils/logger';

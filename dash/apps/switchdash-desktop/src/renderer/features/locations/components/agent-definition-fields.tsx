@@ -2,7 +2,7 @@ import type {
   RepoAgentAttributes,
   RepoAgentAttributeValue,
   RepoAgentField,
-} from '@switchdash/core/agents/plugins';
+} from '@switch-console/core/agents/plugins';
 import { Input } from '@renderer/lib/ui/input';
 import {
   Select,

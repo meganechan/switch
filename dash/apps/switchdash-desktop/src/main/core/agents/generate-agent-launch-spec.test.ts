@@ -1,4 +1,4 @@
-import { pluginRegistry } from '@switchdash/plugins/agents';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { parse as parseTOML } from 'smol-toml';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -35,7 +35,7 @@ vi.mock('@main/core/settings/provider-settings-service', () => ({
 }));
 vi.mock('@main/core/dependencies/host-dependency-store', () => ({ hostDependencyStore: {} }));
 
-import { buildStandardCommand } from '@switchdash/core/agents/plugins/helpers';
+import { buildStandardCommand } from '@switch-console/core/agents/plugins/helpers';
 import {
   INITIAL_PROMPT_PLACEHOLDER,
   materializeAgentCommand,

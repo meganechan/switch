@@ -8,7 +8,7 @@
  * dependency sweep.
  */
 
-import { isTransportFailure } from '@switchdash/core/exec';
+import { isTransportFailure } from '@switch-console/core/exec';
 import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';

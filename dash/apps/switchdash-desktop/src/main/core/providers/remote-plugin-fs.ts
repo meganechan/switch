@@ -1,5 +1,5 @@
 import { posix as pathPosix } from 'node:path';
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { assertRemoved } from '@main/core/fs/assert-removed';
 import type { SshFileSystem } from '@main/core/fs/impl/ssh-fs';
 import { FileSystemError, FileSystemErrorCodes } from '@main/core/fs/types';

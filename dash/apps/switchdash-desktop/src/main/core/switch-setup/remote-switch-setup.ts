@@ -1,4 +1,4 @@
-import { resolveCommandPath } from '@switchdash/core/deps/runtime';
+import { resolveCommandPath } from '@switch-console/core/deps/runtime';
 import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';

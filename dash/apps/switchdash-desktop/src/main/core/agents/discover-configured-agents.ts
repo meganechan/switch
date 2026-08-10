@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { getLocationByHostDir } from '@main/core/locations/store';
 import { listPlugins } from '@main/core/providers/plugin-registry';
 import { log } from '@main/lib/logger';

@@ -1,4 +1,4 @@
-import { artifactVersion, contractRange } from '@switchdash/shared';
+import { artifactVersion, contractRange } from '@switch-console/shared';
 
 /**
  * The sidecar's release version, `MAJOR.MINOR.PATCH`.

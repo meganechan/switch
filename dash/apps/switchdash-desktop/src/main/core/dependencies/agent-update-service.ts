@@ -7,8 +7,8 @@ import {
   type HostDependency,
   type Installation,
   type HostDependencyManager,
-} from '@switchdash/core/deps/runtime';
-import type { Logger } from '@switchdash/core/lib';
+} from '@switch-console/core/deps/runtime';
+import type { Logger } from '@switch-console/core/lib';
 import { events } from '@main/lib/events';
 import { isNewerVersion } from '@main/lib/semver';
 import { agentInstallationStatusUpdatedChannel } from '@shared/events/appEvents';

@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import * as toml from 'smol-toml';
 import z from 'zod';
 import type { FileSystemProvider } from '@main/core/fs/types';

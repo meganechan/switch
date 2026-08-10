@@ -1,5 +1,5 @@
-import type { Platform } from '@switchdash/core/deps';
-import { HostDependencyManager } from '@switchdash/core/deps/runtime';
+import type { Platform } from '@switch-console/core/deps';
+import { HostDependencyManager } from '@switch-console/core/deps/runtime';
 import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';

@@ -1,4 +1,4 @@
-import { pluginRegistry } from '@switchdash/plugins/agents';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AGENT_FRESH_RECOVERY_GRACE_MS } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { getAgentById } from '@main/core/agents/getAgentById';

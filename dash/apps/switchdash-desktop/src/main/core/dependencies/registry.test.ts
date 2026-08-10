@@ -1,4 +1,4 @@
-import { pluginRegistry } from '@switchdash/plugins/agents';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { describe, expect, it } from 'vitest';
 import { buildDescriptorFromProvider, DEPENDENCIES } from './registry';
 

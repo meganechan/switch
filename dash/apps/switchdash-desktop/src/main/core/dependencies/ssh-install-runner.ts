@@ -1,5 +1,5 @@
-import type { InstallCommandError } from '@switchdash/core/deps/runtime';
-import { err, ok, type Result } from '@switchdash/shared';
+import type { InstallCommandError } from '@switch-console/core/deps/runtime';
+import { err, ok, type Result } from '@switch-console/shared';
 import { openSsh2Pty } from '@main/core/pty/ssh2-pty';
 import { buildRemoteShellCommand } from '@main/core/ssh/lifecycle/remote-shell-profile';
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';

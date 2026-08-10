@@ -1,10 +1,10 @@
-import type { CLIAgentPluginProvider } from '@switchdash/core/agents/plugins';
+import type { CLIAgentPluginProvider } from '@switch-console/core/agents/plugins';
 import type {
   DependencyDescriptor,
   DependencyStatus,
   ProbeResult,
-} from '@switchdash/core/deps/runtime';
-import { pluginRegistry } from '@switchdash/plugins/agents';
+} from '@switch-console/core/deps/runtime';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 
 /**
  * Agents that output their version on stderr, time out during probing, or return

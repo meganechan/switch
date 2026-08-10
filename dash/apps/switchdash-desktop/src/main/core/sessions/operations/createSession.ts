@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { eq, sql } from 'drizzle-orm';
 import { isAttachableRuntime } from '@main/core/agent-runtime/attachment/types';
 import { getAgentById } from '@main/core/agents/getAgentById';

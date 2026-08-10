@@ -1,5 +1,5 @@
-import { isDeepEqual } from '@switchdash/shared';
-import type { IInitializable } from '@switchdash/shared';
+import { isDeepEqual } from '@switch-console/shared';
+import type { IInitializable } from '@switch-console/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { appSettings } from '@main/db/schema';

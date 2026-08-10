@@ -14,7 +14,7 @@ import { InProcessSessionSpawner, type InProcessSessionSpawnerDeps } from './ses
 const pluginOverride = vi.hoisted(() => ({ current: null as unknown }));
 
 vi.mock('@main/core/providers/plugin-registry', async () => {
-  const { pluginRegistry } = await import('@switchdash/plugins/agents');
+  const { pluginRegistry } = await import('@switch-console/plugins/agents');
   return { getPlugin: (id: string) => pluginOverride.current ?? pluginRegistry.get(id) };
 });
 

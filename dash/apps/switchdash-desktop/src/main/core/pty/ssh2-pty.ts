@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import type { ClientChannel } from 'ssh2';
 import type { SshClientProxy } from '@main/core/ssh/lifecycle/ssh-client-proxy';
 import { log } from '@main/lib/logger';

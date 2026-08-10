@@ -1,5 +1,5 @@
 import { posix as pathPosix } from 'node:path';
-import { ok, type Result } from '@switchdash/shared';
+import { ok, type Result } from '@switch-console/shared';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import type { UpdateLocationSettingsError } from '@shared/core/locations/locations';
 import {

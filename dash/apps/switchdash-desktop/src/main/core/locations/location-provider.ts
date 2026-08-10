@@ -1,4 +1,4 @@
-import type { IDisposable } from '@switchdash/shared';
+import type { IDisposable } from '@switch-console/shared';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import type { Location } from '@shared/core/locations/locations';

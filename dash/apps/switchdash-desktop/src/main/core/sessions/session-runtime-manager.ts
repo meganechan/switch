@@ -1,4 +1,4 @@
-import { ok, type Result } from '@switchdash/shared';
+import { ok, type Result } from '@switch-console/shared';
 import { remoteAttachmentPool } from '@main/core/agent-runtime/attachment/production-remote-attachment-pool';
 import { isAttachableRuntime } from '@main/core/agent-runtime/attachment/types';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';

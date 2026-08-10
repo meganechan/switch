@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
-import { err, ok } from '@switchdash/shared';
+import { err, ok } from '@switch-console/shared';
 import { locationRuntimeRegistry } from '@main/core/locations/location-runtime-registry';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { log } from '@main/lib/logger';

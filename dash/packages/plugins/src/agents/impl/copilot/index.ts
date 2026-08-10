@@ -1,9 +1,9 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   copilotMcpAdapter,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { buildCopilotHookConfig } from './hooks';
 import { icon } from './icon';
 

@@ -2,7 +2,7 @@ import type {
   PluginFs,
   SwitchLaunchProfile,
   SwitchLaunchSpecialization,
-} from '@switchdash/core/agents/plugins';
+} from '@switch-console/core/agents/plugins';
 import type { getPlugin } from '@main/core/providers/plugin-registry';
 
 /**

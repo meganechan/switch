@@ -1,5 +1,5 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import type { CanonicalHookEvent, HookRegistration } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import type { CanonicalHookEvent, HookRegistration } from '@switch-console/core/agents/plugins';
 import {
   baseName,
   buildNestedJsonHookConfig,
@@ -10,7 +10,7 @@ import {
   makeStdinHookCommand,
   toolInputOf,
   toolNameOf,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import * as toml from 'smol-toml';
 
 export const CODEX_HOOKS_PATH = '.codex/hooks.json';

@@ -1,4 +1,4 @@
-import type { PluginFs, SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
+import type { PluginFs, SwitchLaunchSpecialization } from '@switch-console/core/agents/plugins';
 import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
 import { agentHookService } from '@main/core/agent-hooks/agent-hook-service';
 import { resolveAgentLaunchProfile } from '@main/core/agent-runtime/agent-launch-profile';

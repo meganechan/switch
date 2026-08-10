@@ -1,8 +1,8 @@
 import type {
   CLIAgentPluginMetadata,
   CLIAgentPluginProvider,
-} from '@switchdash/core/agents/plugins';
-import { pluginRegistry } from '@switchdash/plugins/agents';
+} from '@switch-console/core/agents/plugins';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { AGENT_PROVIDER_IDS } from '@shared/core/providers/agent-provider-registry';
 
 // Assert plugin ids match the canonical AGENT_PROVIDER_IDS list at startup.

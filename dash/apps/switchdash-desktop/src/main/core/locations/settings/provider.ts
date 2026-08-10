@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import type {
   LocationSettings,
   LocationSettingsPatch,

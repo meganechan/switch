@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import {
   fetchAppSettingsMeta,
   getAllAppSettingsFromCache,

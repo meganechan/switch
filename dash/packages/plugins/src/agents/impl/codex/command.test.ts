@@ -1,4 +1,4 @@
-import type { CommandContext } from '@switchdash/core/agents/plugins';
+import type { CommandContext } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { provider } from './index';
 

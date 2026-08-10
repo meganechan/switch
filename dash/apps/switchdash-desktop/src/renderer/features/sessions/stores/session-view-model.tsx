@@ -1,4 +1,4 @@
-import type { ILifecycle } from '@switchdash/shared';
+import type { ILifecycle } from '@switch-console/shared';
 import { makeAutoObservable } from 'mobx';
 import type { Session } from '@shared/core/sessions/sessions';
 import { sessionAgentRegistry } from './session-agent-registry';

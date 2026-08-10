@@ -1,4 +1,4 @@
-import type { IInitializable } from '@switchdash/shared';
+import type { IInitializable } from '@switch-console/shared';
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { KV } from '@main/db/kv';

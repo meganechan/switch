@@ -62,7 +62,7 @@ vi.mock('@main/core/dependencies/install-output', () => ({
   installOutput: { subscribe: vi.fn(() => () => {}) },
 }));
 
-import type { HostDependencyManager } from '@switchdash/core/deps/runtime';
+import type { HostDependencyManager } from '@switch-console/core/deps/runtime';
 import type { HostSetupPlan, HostSetupStep } from '@shared/core/remote-hosts/setup';
 import { checkStep, readAllSetupPlans } from './host-setup-service';
 import { listSetupPlans, saveSetupPlan } from './setup-plan-store';

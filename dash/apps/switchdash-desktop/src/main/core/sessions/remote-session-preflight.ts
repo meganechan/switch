@@ -1,4 +1,4 @@
-import { isTransportFailure } from '@switchdash/core/exec';
+import { isTransportFailure } from '@switch-console/core/exec';
 import { isSshChannelOpenFailure } from '@main/core/ssh/lifecycle/ssh-channel-open-failure';
 import type { CredentialsLogger } from '@main/core/switch-rooms/switch-credentials';
 import { parseSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';

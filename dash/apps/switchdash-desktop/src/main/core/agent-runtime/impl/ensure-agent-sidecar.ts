@@ -1,4 +1,4 @@
-import type { SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
+import type { SwitchLaunchSpecialization } from '@switch-console/core/agents/plugins';
 import { generateAgentLaunchSpec } from '@main/core/agents/generate-agent-launch-spec';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { log } from '@main/lib/logger';

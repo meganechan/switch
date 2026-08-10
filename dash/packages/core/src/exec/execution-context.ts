@@ -1,4 +1,4 @@
-// Shared execution context contract used by @switchdash/core/deps/runtime.
+// Shared execution context contract used by @switch-console/core/deps/runtime.
 // Intentionally duplicated in apps/switchdash-desktop/src/main/core/execution-context/types.ts
 // for incremental migration. The two shapes must stay structurally compatible.
 export type { ExecResult } from './types';

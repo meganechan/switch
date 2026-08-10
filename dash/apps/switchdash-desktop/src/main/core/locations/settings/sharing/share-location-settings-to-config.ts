@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { log } from '@main/lib/logger';
 import type { WriteLocationConfigRequest } from '@shared/core/location-settings/location-settings';
 import type { UpdateLocationSettingsError } from '@shared/core/locations/locations';

@@ -1,5 +1,5 @@
-import { err, ok, type Result } from '@switchdash/shared';
-import type { IInitializable } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
+import type { IInitializable } from '@switch-console/shared';
 import { events } from '@main/lib/events';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { log } from '@main/lib/logger';

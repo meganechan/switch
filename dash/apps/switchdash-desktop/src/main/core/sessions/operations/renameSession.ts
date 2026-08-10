@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { eq, sql } from 'drizzle-orm';
 import { mapSessionRowToSession } from '@main/core/sessions/utils/utils';
 import { db } from '@main/db/client';

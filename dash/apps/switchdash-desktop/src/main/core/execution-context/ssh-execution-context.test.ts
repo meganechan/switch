@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { isTransportFailure } from '@switchdash/core/exec';
+import { isTransportFailure } from '@switch-console/core/exec';
 import { describe, expect, it, vi } from 'vitest';
 import type { RemoteShellProfile } from '@main/core/ssh/lifecycle/remote-shell-profile';
 import { SshChannelTimeoutError } from '@main/core/ssh/lifecycle/ssh-channel-open-failure';

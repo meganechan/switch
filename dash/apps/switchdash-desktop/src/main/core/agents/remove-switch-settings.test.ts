@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { removeSwitchCredentials } from './remove-switch-settings';
 import { mergeSwitchSettings } from './write-switch-settings';

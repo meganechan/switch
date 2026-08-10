@@ -1,4 +1,4 @@
-import { Emitter } from '@switchdash/shared';
+import { Emitter } from '@switch-console/shared';
 
 /** A chunk of output from an install command, as the host produces it. */
 export type InstallOutputChunk = { sshHost: string; chunk: string };

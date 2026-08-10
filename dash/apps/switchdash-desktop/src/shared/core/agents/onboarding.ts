@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 

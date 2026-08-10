@@ -17,7 +17,7 @@ vi.mock('@main/core/execution-context/local-execution-context', () => ({
   },
 }));
 
-vi.mock('@switchdash/core/deps/runtime', () => ({
+vi.mock('@switch-console/core/deps/runtime', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
 

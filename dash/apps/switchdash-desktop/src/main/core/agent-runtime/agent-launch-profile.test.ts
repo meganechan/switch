@@ -1,5 +1,5 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
-import { pluginRegistry } from '@switchdash/plugins/agents';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { describe, expect, it } from 'vitest';
 import type { getPlugin } from '@main/core/providers/plugin-registry';
 import { prepareAgentLaunchProfile, resolveAgentLaunchProfile } from './agent-launch-profile';

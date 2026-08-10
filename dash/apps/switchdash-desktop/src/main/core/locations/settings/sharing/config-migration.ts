@@ -1,4 +1,4 @@
-import { err, type Result } from '@switchdash/shared';
+import { err, type Result } from '@switch-console/shared';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import { log } from '@main/lib/logger';
 import type {

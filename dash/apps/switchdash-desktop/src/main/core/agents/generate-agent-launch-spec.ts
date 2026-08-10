@@ -1,4 +1,4 @@
-import type { SwitchLaunchSpecialization } from '@switchdash/core/agents/plugins';
+import type { SwitchLaunchSpecialization } from '@switch-console/core/agents/plugins';
 import { resolveAgentLaunchProfile } from '@main/core/agent-runtime/agent-launch-profile';
 import { resolveAgentExecutable } from '@main/core/agent-runtime/impl/resolve-agent-executable';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';

@@ -1,4 +1,4 @@
-import type { DependencyDescriptor } from '@switchdash/core/deps/runtime';
+import type { DependencyDescriptor } from '@switch-console/core/deps/runtime';
 
 /**
  * `apt-get -y` is not enough to make an install unattended.

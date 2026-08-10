@@ -1,4 +1,4 @@
-import type { HostDependencySelection } from '@switchdash/core/deps/runtime';
+import type { HostDependencySelection } from '@switch-console/core/deps/runtime';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { IHostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 
@@ -6,7 +6,7 @@ const resolveCommandPathMock = vi.hoisted(() =>
   vi.fn<() => Promise<string | null>>().mockResolvedValue(null)
 );
 
-vi.mock('@switchdash/core/deps/runtime', () => ({
+vi.mock('@switch-console/core/deps/runtime', () => ({
   resolveCommandPath: resolveCommandPathMock,
 }));
 

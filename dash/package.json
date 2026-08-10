@@ -1,16 +1,16 @@
 {
-  "name": "switchdash-monorepo",
+  "name": "switch-console-monorepo",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm -r --filter './packages/**' run build && pnpm --filter @switchdash/switchdash-desktop run build:sidecar && pnpm -r --parallel --filter './packages/**' --filter @switchdash/switchdash-desktop run dev",
+    "dev": "pnpm -r --filter './packages/**' run build && pnpm --filter @switch-console/desktop run build:sidecar && pnpm -r --parallel --filter './packages/**' --filter @switch-console/desktop run dev",
     "build": "pnpm -r run build",
     "test": "pnpm -r run test",
     "lint": "pnpm -r run lint",
     "format": "pnpm -r run format",
     "format:check": "pnpm -r run format:check",
     "typecheck": "pnpm -r run typecheck",
-    "deeplink:reset": "pnpm --filter @switchdash/switchdash-desktop run deeplink:reset"
+    "deeplink:reset": "pnpm --filter @switch-console/desktop run deeplink:reset"
   },
   "engines": {
     "node": ">=24.0.0",

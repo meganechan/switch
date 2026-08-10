@@ -1,10 +1,10 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   codexMcpAdapter,
   homebrewOption,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { SWITCH_MARKETPLACE_SOURCE } from '../../../distribution';
 import { buildCodexHookConfig, CODEX_HOOK_TRUST_FLAG } from './hooks';
 import { icon } from './icon';

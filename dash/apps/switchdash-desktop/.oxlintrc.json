@@ -81,8 +81,8 @@
           {
             "patterns": [
               {
-                "group": ["@switchdash/core/deps", "@switchdash/core/deps/*"],
-                "message": "Import dependency types from @shared/core/agents/agent-payload instead of @switchdash/core/deps*."
+                "group": ["@switch-console/core/deps", "@switch-console/core/deps/*"],
+                "message": "Import dependency types from @shared/core/agents/agent-payload instead of @switch-console/core/deps*."
               }
             ]
           }

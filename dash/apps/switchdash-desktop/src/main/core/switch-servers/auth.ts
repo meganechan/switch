@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import { BrowserWindow, session as electronSession } from 'electron';
 import { LOCAL_SERVER_ADMIN_EMAIL } from '@main/core/managed-switch-server/constants';
 import { managedServerSecretsKey } from '@main/core/managed-switch-server/host/host-for-server';

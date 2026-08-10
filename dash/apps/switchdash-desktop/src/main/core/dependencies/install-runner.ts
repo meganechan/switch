@@ -1,6 +1,6 @@
 import os from 'node:os';
-import type { InstallCommandError } from '@switchdash/core/deps/runtime';
-import { err, ok, type Result } from '@switchdash/shared';
+import type { InstallCommandError } from '@switch-console/core/deps/runtime';
+import { err, ok, type Result } from '@switch-console/shared';
 import { spawnLocalPty } from '@main/core/pty/local-pty';
 import type { Pty } from '@main/core/pty/pty';
 import { logLocalPtySpawnWarnings, resolveLocalPtySpawn } from '@main/core/pty/pty-spawn-platform';

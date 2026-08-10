@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { err, ok } from '@switchdash/shared';
-import type { Result } from '@switchdash/shared';
+import { err, ok } from '@switch-console/shared';
+import type { Result } from '@switch-console/shared';
 import { locationManager } from '@main/core/locations/location-manager';
 import { checkIsValidDirectory } from '@main/core/locations/path-utils';
 import { ensureLocation } from '@main/core/locations/store';

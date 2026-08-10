@@ -1,4 +1,4 @@
-import type { ILifecycle } from '@switchdash/shared';
+import type { ILifecycle } from '@switch-console/shared';
 import { LifecycleScriptsStore } from './lifecycle-scripts';
 
 export class SessionRuntimeStore implements ILifecycle {

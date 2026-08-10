@@ -1,4 +1,4 @@
-import type { Result } from '@switchdash/shared';
+import type { Result } from '@switch-console/shared';
 import { suggestAgentDefaults } from '@main/core/agents/agent-defaults';
 import { resolveWorkspaceFsFor } from '@main/core/agents/agent-workspace-fs';
 import { knownAgentTypeForProvider } from '@main/core/agents/known-agent-type';

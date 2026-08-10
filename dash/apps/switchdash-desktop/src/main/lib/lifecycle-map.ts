@@ -1,4 +1,4 @@
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 
 export type LifecycleStatus<E> =
   | { status: 'ready' | 'bootstrapping' | 'not-started' }

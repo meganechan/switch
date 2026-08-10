@@ -1,5 +1,5 @@
 {
-  "name": "@switchdash/plugins",
+  "name": "@switch-console/plugins",
   "version": "1.0.0",
   "description": "Plugin interfaces and helpers for agent providers",
   "keywords": [],
@@ -27,7 +27,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@switchdash/core": "workspace:*",
+    "@switch-console/core": "workspace:*",
     "smol-toml": "^1.6.0",
     "zod": "^4.4.3"
   },

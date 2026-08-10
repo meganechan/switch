@@ -1,4 +1,4 @@
-import { TransportError } from '@switchdash/core/exec';
+import { TransportError } from '@switch-console/core/exec';
 import {
   buildRemoteShellCommand,
   FALLBACK_REMOTE_SHELL_PROFILE,

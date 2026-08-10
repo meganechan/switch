@@ -52,9 +52,9 @@ Two names in this list are easy to misread, because one of them changed meaning:
 - `src/sidecar/` — The headless remote sidecar. Not part of `src/main/`, but it re-implements
   much of what the main process does for a session; see the sidecar section of `AGENTS.md`.
 
-The `Result<T, E>` type is **not** in `src/main/lib/`. It lives in the `@switchdash/shared`
+The `Result<T, E>` type is **not** in `src/main/lib/`. It lives in the `@switch-console/shared`
 workspace package (`packages/shared/src/result.ts`) and is imported as
-`import { ok, err, type Result } from '@switchdash/shared'`.
+`import { ok, err, type Result } from '@switch-console/shared'`.
 
 ## IPC / RPC Structure
 

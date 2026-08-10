@@ -1,4 +1,4 @@
-import type { CanonicalHookEvent, NotificationType } from '@switchdash/core/agents/plugins';
+import type { CanonicalHookEvent, NotificationType } from '@switch-console/core/agents/plugins';
 import {
   baseName,
   buildNestedJsonHookConfig,
@@ -9,7 +9,7 @@ import {
   toolInputOf,
   toolLabel,
   toolNameOf,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const CLAUDE_SETTINGS_PATH = '.claude/settings.local.json';
 

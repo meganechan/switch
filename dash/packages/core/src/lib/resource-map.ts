@@ -1,4 +1,4 @@
-import type { IDisposable, Lease } from '@switchdash/shared';
+import type { IDisposable, Lease } from '@switch-console/shared';
 
 export type ResourceMapOptions<T> = {
   /** Tears down a provisioned value after its last lease is released. */

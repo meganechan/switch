@@ -1,4 +1,4 @@
-import type { RepoAgentField } from '@switchdash/core/agents/plugins';
+import type { RepoAgentField } from '@switch-console/core/agents/plugins';
 import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { Field, FieldDescription, FieldLabel } from '@renderer/lib/ui/field';

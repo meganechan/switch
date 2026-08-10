@@ -1,5 +1,5 @@
-import { err, ok, type Result } from '@switchdash/shared';
-import type { IDisposable } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
+import type { IDisposable } from '@switch-console/shared';
 import { HookCore, type Hookable } from '@main/lib/hookable';
 import { LifecycleMap } from '@main/lib/lifecycle-map';
 import { log } from '@main/lib/logger';

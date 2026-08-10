@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { resolveCommandPath } from '@switchdash/core/deps/runtime';
+import { resolveCommandPath } from '@switch-console/core/deps/runtime';
 import { LocalExecutionContext } from '@main/core/execution-context/local-execution-context';
 import { log } from '@main/lib/logger';
 import { isNewerVersion } from '@main/lib/semver';

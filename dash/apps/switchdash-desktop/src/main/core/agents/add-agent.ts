@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
+import type { RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import { locationManager } from '@main/core/locations/location-manager';
 import { checkIsValidDirectory } from '@main/core/locations/path-utils';
 import { ensureLocation, getLocationByHostDir } from '@main/core/locations/store';

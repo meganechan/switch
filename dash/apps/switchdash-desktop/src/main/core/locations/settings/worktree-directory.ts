@@ -1,5 +1,5 @@
 import type path from 'node:path';
-import { err, ok, type Result } from '@switchdash/shared';
+import { err, ok, type Result } from '@switch-console/shared';
 import type { FileSystemProvider } from '@main/core/fs/types';
 import type { UpdateLocationSettingsError } from '@shared/core/locations/locations';
 

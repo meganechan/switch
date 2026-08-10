@@ -1,4 +1,4 @@
-import type { SwitchSetupCliDialect } from '@switchdash/core/agents/plugins';
+import type { SwitchSetupCliDialect } from '@switch-console/core/agents/plugins';
 
 /**
  * One installed plugin, normalised across CLI dialects.

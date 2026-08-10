@@ -1,4 +1,4 @@
-import type { IDisposable, IInitializable } from '@switchdash/shared';
+import type { IDisposable, IInitializable } from '@switch-console/shared';
 import { eq } from 'drizzle-orm';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { saveProviderSessionId } from '@main/core/sessions/operations/save-provider-session-id';

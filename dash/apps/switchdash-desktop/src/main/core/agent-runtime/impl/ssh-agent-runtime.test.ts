@@ -1,4 +1,4 @@
-import { pluginRegistry } from '@switchdash/plugins/agents';
+import { pluginRegistry } from '@switch-console/plugins/agents';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileSystemError, FileSystemErrorCodes } from '@main/core/fs/types';
 import type { Pty, PtyExitInfo } from '@main/core/pty/pty';

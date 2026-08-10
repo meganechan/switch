@@ -1,5 +1,5 @@
-import type { LiveValue } from '@switchdash/core/lib';
-import type { Result, Unsubscribe } from '@switchdash/shared';
+import type { LiveValue } from '@switch-console/core/lib';
+import type { Result, Unsubscribe } from '@switch-console/shared';
 import { makeObservable, observable, runInAction } from 'mobx';
 import type { ModelMirror } from './model-mirror';
 

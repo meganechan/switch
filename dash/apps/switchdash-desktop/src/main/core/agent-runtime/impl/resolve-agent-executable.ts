@@ -1,5 +1,5 @@
-import type { DependencyId } from '@switchdash/core/deps/runtime';
-import { resolveCommandPath } from '@switchdash/core/deps/runtime';
+import type { DependencyId } from '@switch-console/core/deps/runtime';
+import { resolveCommandPath } from '@switch-console/core/deps/runtime';
 import type { IHostDependencyStore } from '@main/core/dependencies/host-dependency-store';
 import type { IExecutionContext } from '@main/core/execution-context/types';
 import { log } from '@main/lib/logger';
