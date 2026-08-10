@@ -135,6 +135,60 @@ describe('listed rooms', () => {
     expect(store.unreadableServerNames).toEqual(['Alpha']);
   });
 
+  it('asks only the active server for its rooms', async () => {
+    serversStore.servers = [
+      { id: 'srv-a', name: 'Alpha' },
+      { id: 'srv-b', name: 'Beta' },
+    ];
+    serversStore.activeServerId = 'srv-b';
+    listRemoteRooms.mockImplementation(async () => []);
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomNames();
+
+    expect(listRemoteRooms).toHaveBeenCalledExactlyOnceWith('srv-b');
+  });
+
+  it('does not report another server’s failure against the one you are viewing', async () => {
+    // Each server is its own world. A server you are not looking at being down
+    // says nothing about the one you are, and warning about it trains you to
+    // ignore the warning.
+    serversStore.servers = [
+      { id: 'srv-a', name: 'Alpha' },
+      { id: 'srv-b', name: 'Beta' },
+    ];
+    listRemoteRooms.mockImplementation(async (serverId: string) => {
+      if (serverId === 'srv-a') throw new Error('unreachable');
+      return [room('srv-b-room', 'user-of-srv-b')];
+    });
+    const store = new SwitchRoomsStore();
+
+    // Search loads every server, so Alpha's failure is on the record...
+    await store.loadRoomsOnAllServers();
+    expect(store.unreadableServerNames).toEqual(['Alpha']);
+
+    // ...but it must not surface while Beta is the server on screen.
+    serversStore.activeServerId = 'srv-b';
+    expect(store.roomStateIncomplete).toBe(false);
+    expect(store.unreadableServerNames).toEqual([]);
+  });
+
+  it('does not report a disconnected server you are not viewing', async () => {
+    serversStore.servers = [
+      { id: 'srv-a', name: 'Alpha' },
+      { id: 'srv-b', name: 'Beta' },
+    ];
+    serversStore.activeServerId = 'srv-b';
+    serversStore.isConnected = (serverId: string) => serverId !== 'srv-a';
+    listRemoteRooms.mockImplementation(async () => []);
+
+    const store = new SwitchRoomsStore();
+    await store.loadRoomsOnAllServers();
+
+    expect(store.unreadableServerNames).toEqual([]);
+    serversStore.isConnected = () => true;
+  });
+
   it('counts a server it never asked as unknown, not as having no rooms', async () => {
     serversStore.servers = [
       { id: 'srv-a', name: 'Alpha' },

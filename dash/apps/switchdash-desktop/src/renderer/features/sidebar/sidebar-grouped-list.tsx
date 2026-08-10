@@ -62,17 +62,21 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     const onFocus = () => void loadSidebarState(true);
     window.addEventListener('focus', onFocus);
 
-    // A server that was not connected when the rooms were loaded contributed
-    // none, and signing in does not re-run the load by itself — so the rooms of
-    // a server you just signed into would be missing until the next focus.
-    const stopWatchingConnections = reaction(
-      () =>
-        switchServersStore.servers
+    // Two things make the loaded state wrong without any mutation here:
+    // signing in to a server (its rooms were skipped while disconnected, and
+    // nothing re-ran the load), and switching which server is active — only the
+    // server on screen is loaded, so the one you switch to may never have been.
+    const stopWatchingServers = reaction(
+      () => ({
+        active: switchServersStore.activeServerId,
+        connected: switchServersStore.servers
           .filter((s) => switchServersStore.isConnected(s.id))
           .map((s) => s.id)
           .sort()
           .join(','),
-      () => void loadSidebarState(true)
+      }),
+      () => void loadSidebarState(true),
+      { equals: (a, b) => a.active === b.active && a.connected === b.connected }
     );
 
     // Nothing pushes room state to the app: a membership changed from Slack,
@@ -86,7 +90,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
 
     return () => {
       window.removeEventListener('focus', onFocus);
-      stopWatchingConnections();
+      stopWatchingServers();
       clearInterval(reconcile);
     };
   }, []);

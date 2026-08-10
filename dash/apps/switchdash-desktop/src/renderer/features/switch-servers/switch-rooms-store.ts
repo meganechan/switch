@@ -195,7 +195,21 @@ export class SwitchRoomsStore {
   }
 
   /**
-   * Refresh the room catalogue from every connected server's room list.
+   * The servers whose state is on screen: the active one, or all of them when
+   * none is active (the same scope rule the room and location lists follow).
+   *
+   * Each server is its own world — its own rooms, its own agents, its own
+   * connection. Reading or reporting on one you are not looking at is both
+   * wasted work and, worse, someone else's problem presented as yours.
+   */
+  private get serverIdsInScope(): string[] {
+    const activeServerId = switchServersStore.activeServerId;
+    if (activeServerId) return [activeServerId];
+    return switchServersStore.servers.map((s) => s.id);
+  }
+
+  /**
+   * Refresh the room catalogue for the servers on screen.
    *
    * A server that cannot be read keeps its last-known rooms rather than losing
    * them, but the failure is recorded in {@link roomListErrors} instead of being
@@ -203,16 +217,32 @@ export class SwitchRoomsStore {
    * worse than showing nothing.
    */
   async loadRoomNames(): Promise<void> {
-    const connected = switchServersStore.servers.filter((s) =>
-      switchServersStore.isConnected(s.id)
-    );
+    await this.loadRoomsFrom(this.serverIdsInScope);
+  }
+
+  /**
+   * Refresh the room catalogue for **every** server.
+   *
+   * Only for cross-server search, which is deliberately not scoped — you search
+   * because you do not know where a thing is. Everything else loads the servers
+   * it is actually showing.
+   */
+  async loadRoomsOnAllServers(): Promise<void> {
+    await this.loadRoomsFrom(switchServersStore.servers.map((s) => s.id));
+  }
+
+  private async loadRoomsFrom(serverIds: string[]): Promise<void> {
+    const servers = switchServersStore.servers.filter((s) => serverIds.includes(s.id));
+    const connected = servers.filter((s) => switchServersStore.isConnected(s.id));
     runInAction(() => {
       // Not being connected is not a failure — there is simply nothing to ask
       // right now — but the rooms on that server are equally unknown, and the
       // sidebar has to be able to say so.
-      this.unreachableServerIds = switchServersStore.servers
-        .filter((s) => !switchServersStore.isConnected(s.id))
-        .map((s) => s.id);
+      const asked = new Set(serverIds);
+      this.unreachableServerIds = [
+        ...this.unreachableServerIds.filter((id) => !asked.has(id)),
+        ...servers.filter((s) => !switchServersStore.isConnected(s.id)).map((s) => s.id),
+      ];
     });
     await Promise.all(
       connected.map(async (server) => {
@@ -259,12 +289,21 @@ export class SwitchRoomsStore {
    * this is what stops it from passing them off as current.
    */
   get roomStateIncomplete(): boolean {
-    return this.roomListErrors.size > 0 || this.unreachableServerIds.length > 0;
+    return this.unreadableServerNames.length > 0;
   }
 
-  /** Names of the servers behind {@link roomStateIncomplete}, for disclosure. */
+  /**
+   * Names of the servers behind {@link roomStateIncomplete}, for disclosure.
+   *
+   * Scoped to the servers on screen. A server you are not looking at being
+   * unreachable says nothing about what you are looking at, and reporting it
+   * teaches you to ignore the warning.
+   */
   get unreadableServerNames(): string[] {
-    const ids = [...new Set([...this.roomListErrors.keys(), ...this.unreachableServerIds])];
+    const inScope = new Set(this.serverIdsInScope);
+    const ids = [...new Set([...this.roomListErrors.keys(), ...this.unreachableServerIds])].filter(
+      (id) => inScope.has(id)
+    );
     return ids
       .map((id) => switchServersStore.servers.find((s) => s.id === id)?.name ?? id)
       .sort((a, b) => a.localeCompare(b));
