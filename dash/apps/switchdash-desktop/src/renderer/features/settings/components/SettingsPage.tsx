@@ -7,6 +7,7 @@ import HiddenToolsSettingsCard from './HiddenToolsSettingsCard';
 import InterfaceSettingsCard from './InterfaceSettingsCard';
 import KeyboardSettingsCard from './KeyboardSettingsCard';
 import NotificationSettingsCard from './NotificationSettingsCard';
+import RemoteAttachmentSettingsCard from './RemoteAttachmentSettingsCard';
 import ResourceMonitorSettingsCard from './ResourceMonitorSettingsCard';
 import {
   AutoGenerateSessionNamesRow,
@@ -66,6 +67,7 @@ function InterfaceSettingsPage() {
       <TerminalSettingsCard />
       <SidebarMetadataSettingsCard />
       <ResourceMonitorSettingsCard />
+      <RemoteAttachmentSettingsCard />
       <InterfaceSettingsCard />
       <div className="flex flex-col gap-3">
         <h3 className="text-sm font-normal text-foreground">Keyboard shortcuts</h3>

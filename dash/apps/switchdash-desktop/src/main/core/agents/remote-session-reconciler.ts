@@ -503,6 +503,11 @@ class RemoteSessionReconciler {
       agentId: agent.id,
       title: roomId ? `Switch room ${roomId}` : 'Remote session',
       autoApprove: agent.autoApprove,
+      // The VM is already running this session; adoption only needs the row and
+      // the sidecar relay that reports on it. A terminal is opened when the user
+      // opens the session — a first sync against a busy host would otherwise
+      // spawn one PTY per adopted session in a single pass.
+      attach: false,
     });
     if (!result.success) {
       if (result.error.type === 'already-exists') {
