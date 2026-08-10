@@ -2,7 +2,7 @@ import { observer } from 'mobx-react-lite';
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
-import { agentExpandKey, SidebarAgentItem } from './agent-item';
+import { SidebarAgentItem } from './agent-item';
 import { SidebarSessionItem } from './session-item';
 import { AGENTS_CONTAINER, makeDndId, SortableBranch, SortableList } from './sidebar-dnd';
 import {
@@ -14,7 +14,7 @@ import {
   RoomRow,
   roomLabel,
 } from './sidebar-room-grouping';
-import { agentRoomGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
+import { agentExpandKey, agentRoomGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
 import { agentSessions, scopedAgents } from './sidebar-tree-data';
 
 /**

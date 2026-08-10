@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import type { CSSProperties, ReactNode } from 'react';
+import { setSidebarRowDragging } from './sidebar-drag-state';
 
 /**
  * Drag-to-reorder plumbing for the sidebar's two top-level lists: the agents in
@@ -133,14 +134,24 @@ export function SortableList({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   function onDragEnd(event: DragEndEvent) {
+    setSidebarRowDragging(false);
     const { active, over } = event;
     if (!over) return;
     const reordered = reorderOnDrop(itemIds, String(active.id), String(over.id));
     if (reordered) onReorder(reordered);
   }
 
+  // The drag is announced to the rest of the sidebar because dnd-kit measures
+  // every droppable when it starts: anything that scrolls the list before the
+  // drop desyncs those rects and the row lands in the wrong slot.
   return (
-    <DndContext sensors={sensors} collisionDetection={sameContainerCollision} onDragEnd={onDragEnd}>
+    <DndContext
+      sensors={sensors}
+      collisionDetection={sameContainerCollision}
+      onDragStart={() => setSidebarRowDragging(true)}
+      onDragCancel={() => setSidebarRowDragging(false)}
+      onDragEnd={onDragEnd}
+    >
       <SortableContext
         items={itemIds.map((itemId) => makeDndId(containerId, itemId))}
         strategy={verticalListSortingStrategy}
