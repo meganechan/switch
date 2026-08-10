@@ -323,7 +323,7 @@ function StatusDot({ connected }: { connected: boolean }) {
   return (
     <span
       aria-hidden
-      className={`inline-block size-2 rounded-full ${connected ? 'bg-green-500' : 'bg-amber-500'}`}
+      className={`inline-block size-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}
     />
   );
 }

@@ -318,6 +318,12 @@ version of their own to them without also giving them a release of their own.
   it would never receive. There is nothing to sign into while the gateway is
   down, so the sign-in form no longer appears at all. The underlying error goes
   to the console (CHOO-2042).
+- The sidebar no longer offers "Sign in" on a server it cannot reach, which was
+  an action that could not work. Unreachable is now modelled apart from
+  signed-out, so the rooms list also stops reporting an unreachable server as
+  merely needing sign-in. A server whose data is unavailable shows a red dot
+  rather than amber, for both causes: neither is a transitional state
+  (CHOO-2042).
 
 ### [0.19.3] - 2026-08-09
 
