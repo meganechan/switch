@@ -20,7 +20,7 @@ async function eventually<T>(
 
 describe('FsService', () => {
   it('reads, stats, checks, and removes real files', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-fs-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-fs-'));
     const nested = path.join(root, 'nested');
     const file = path.join(nested, 'note.txt');
     await mkdir(nested);
@@ -57,7 +57,7 @@ describe('FsService', () => {
 
 describe('FileWatchService', () => {
   it('emits real file events through ref-counted leases', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-watch-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-watch-'));
     const watch = new FileWatchService();
     const firstEvents: RawFileEvent[] = [];
     const secondEvents: RawFileEvent[] = [];
@@ -102,7 +102,7 @@ describe('FileWatchService', () => {
   });
 
   it('keeps the shared subscription alive across concurrent release/re-watch', async () => {
-    const root = await mkdtemp(path.join(tmpdir(), 'switchdash-shared-watch-relock-'));
+    const root = await mkdtemp(path.join(tmpdir(), 'switch-console-shared-watch-relock-'));
     const watch = new FileWatchService();
     const events: RawFileEvent[] = [];
 
@@ -126,7 +126,7 @@ describe('FileWatchService', () => {
   });
 
   it('surfaces watcher subscription failures through ready()', async () => {
-    const root = path.join(tmpdir(), `switchdash-shared-watch-missing-${Date.now()}`);
+    const root = path.join(tmpdir(), `switch-console-shared-watch-missing-${Date.now()}`);
     const watch = new FileWatchService();
 
     try {

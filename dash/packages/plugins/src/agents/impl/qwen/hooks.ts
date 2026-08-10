@@ -1,9 +1,9 @@
-import type { CanonicalHookEvent } from '@switchdash/core/agents/plugins';
+import type { CanonicalHookEvent } from '@switch-console/core/agents/plugins';
 import {
   buildNestedJsonHookConfig,
   defaultHookEventParser,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const QWEN_HOOKS_PATH = '.qwen/settings.json';
 

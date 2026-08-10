@@ -1,6 +1,6 @@
 # MCP
 
-Switchdash no longer ships a dedicated MCP management service or UI. MCP server
+Switch Console no longer ships a dedicated MCP management service or UI. MCP server
 configuration is now passed through to agents as part of the agent payload, using a
 small set of shared types and a static catalog.
 

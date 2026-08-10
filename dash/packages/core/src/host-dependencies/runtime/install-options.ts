@@ -1,7 +1,7 @@
 import type { InstallOption, Platform } from '../capability';
 import type { DependencyDescriptor } from './types';
 
-/** Map Node.js `process.platform` to the switchdash `Platform` type. */
+/** Map Node.js `process.platform` to the Switch Console `Platform` type. */
 export function toPlatform(p: NodeJS.Platform): Platform {
   if (p === 'darwin') return 'macos';
   if (p === 'win32') return 'windows';

@@ -1,6 +1,6 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
-import type { AgentCommand, CommandContext } from '@switchdash/core/agents/plugins';
-import { buildStandardCommand } from '@switchdash/core/agents/plugins/helpers';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
+import type { AgentCommand, CommandContext } from '@switch-console/core/agents/plugins';
+import { buildStandardCommand } from '@switch-console/core/agents/plugins/helpers';
 import { addKimiHooksToConfigText, buildKimiHookConfig } from './hooks';
 
 function injectKimiHooksIntoInlineConfig(args: string[]): string[] {

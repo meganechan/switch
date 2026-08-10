@@ -1,4 +1,4 @@
-// Verbatim source of the Amp switchdash hook plugin, embedded as a string constant.
+// Verbatim source of the Amp Switch Console hook plugin, embedded as a string constant.
 // This file is intentionally kept as plain TypeScript so it can be inlined at runtime
 // without a bundler asset pipeline.
 export const AMP_PLUGIN_CONTENT = `\
@@ -23,7 +23,7 @@ async function notifySwitchdash(eventType: 'start' | 'stop', body: Record<string
       body: JSON.stringify(body),
     });
   } catch {
-    // Switchdash may not be running when Amp is launched directly; ignore hook failures.
+    // Switch Console may not be running when Amp is launched directly; ignore hook failures.
   }
 }
 

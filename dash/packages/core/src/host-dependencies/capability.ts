@@ -50,7 +50,7 @@ export const updateStrategySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('package-manager') }),
   /** Run the dependency's own update subcommand, e.g. `claude update`. */
   z.object({ kind: z.literal('cli'), args: z.array(z.string()) }),
-  /** Dependency manages its own updates; switchdash reports the version diff but takes no action. */
+  /** Dependency manages its own updates; Switch Console reports the version diff but takes no action. */
   z.object({ kind: z.literal('auto') }),
   z.object({ kind: z.literal('none') }),
 ]);
@@ -71,7 +71,7 @@ export const uninstallStrategySchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('package-manager') }),
   /** Run the dependency's own uninstall subcommand, e.g. `claude uninstall`. */
   z.object({ kind: z.literal('cli'), args: z.array(z.string()) }),
-  /** Uninstall not supported via switchdash; hide the option in the UI. */
+  /** Uninstall not supported via Switch Console; hide the option in the UI. */
   z.object({ kind: z.literal('none') }),
 ]);
 export type UninstallStrategy = z.output<typeof uninstallStrategySchema>;

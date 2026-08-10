@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_SETTINGS_PATH, buildClaudeHookConfig } from './hooks';
 

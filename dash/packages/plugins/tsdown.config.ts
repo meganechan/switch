@@ -7,7 +7,7 @@ export default defineConfig({
   format: ['esm'],
   dts: true,
   deps: {
-    neverBundle: ['zod', 'smol-toml', '@switchdash/core'],
+    neverBundle: ['zod', 'smol-toml', '@switch-console/core'],
   },
   sourcemap: true,
   clean: true,

@@ -1,4 +1,4 @@
-// Verbatim source of the Kilo switchdash notifications plugin, embedded as a string constant.
+// Verbatim source of the Kilo Switch Console notifications plugin, embedded as a string constant.
 export const KILOCODE_PLUGIN_CONTENT = `\
 /* global fetch, process */
 

@@ -1,4 +1,4 @@
-import { Emitter, isDeepEqual, type IDisposable, type Unsubscribe } from '@switchdash/shared';
+import { Emitter, isDeepEqual, type IDisposable, type Unsubscribe } from '@switch-console/shared';
 
 export type LiveValue<T> = {
   value: T;

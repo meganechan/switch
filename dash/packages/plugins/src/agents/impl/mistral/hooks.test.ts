@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { MISTRAL_CONFIG_PATH, MISTRAL_HOOKS_PATH, buildMistralHookConfig } from './hooks';
 

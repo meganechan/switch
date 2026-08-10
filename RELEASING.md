@@ -3,7 +3,7 @@
 This describes how to cut a release of the **Switch core stack** — the
 `switch-core`, `gateway`, and `setup` container images, the Helm chart, and the
 standalone Docker Compose file. The Switch Console desktop app releases separately
-(see `.github/workflows/switchdash-release.yml` and `dash/docs/INSTALL.md`).
+(see `.github/workflows/switch-console-release.yml` and `dash/docs/INSTALL.md`).
 
 ## Versioning
 
@@ -35,7 +35,7 @@ Do not give any of them a version of their own without also giving it a release
 of its own — a version nobody publishes independently is a number that drifts
 from reality, which is exactly what `Chart.yaml` did while it claimed `0.2.1`.
 
-The separately-versioned artifacts are switch-core, switchdash, the
+The separately-versioned artifacts are switch-core, switch-console, the
 agent-runtime package, the sidecar, and the two connector plugins.
 
 ### A known gap: the Helm chart has no contract
@@ -63,7 +63,7 @@ peer still on it, and it can never be raised past what is running in the field.
 1. **Bump the version** in `core/pyproject.toml` (`[project].version`).
 2. **Update `CHANGELOG.md`**: under the `## switch-core` section, move the
    `### [Unreleased]` items under a new `### [X.Y.Z]` heading and note the date.
-   (The desktop app has its own `## switchdash` section, versioned separately.)
+   (The desktop app has its own `## switch-console` section, versioned separately.)
 3. **Commit** the bump + changelog on a release branch and merge to `main`.
 4. **Tag and push**: the tag MUST be `switch-v<version>` and match
    `core/pyproject.toml` (the workflow verifies this and fails on mismatch):
@@ -85,11 +85,11 @@ build without creating a release.
 
 ## Switch Console desktop app release (separate)
 
-The desktop app (`dash/`) releases on its own tag, `switchdash-v<version>`, via
-`.github/workflows/switchdash-release.yml`. The tag MUST match
-`dash/apps/switchdash-desktop/package.json` `version` (the workflow verifies
+The desktop app (`dash/`) releases on its own tag, `switch-console-v<version>`, via
+`.github/workflows/switch-console-release.yml`. The tag MUST match
+`dash/apps/switch-console-desktop/package.json` `version` (the workflow verifies
 this and fails on mismatch). Procedure: bump `package.json`, cut the
-`## switchdash` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
+`## switch-console` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
 publishes a **GitHub Release** (macOS arm64 signed + notarized; Linux x64
 AppImage/deb/rpm, unsigned).
 
@@ -101,7 +101,7 @@ the Linux build runs immediately, but the **signed + notarized macOS
 run**. The release is therefore **incomplete until approved**.
 
 **Mandatory step — ping the approver on tag push.** The moment a
-`switchdash-v*` tag is pushed, the releaser MUST send `louis.amaudruz` a
+`switch-console-v*` tag is pushed, the releaser MUST send `louis.amaudruz` a
 targeted message with the Actions run URL, stating the run is paused awaiting
 his approval in the `release` environment, and asking him to approve. Do not
 wait silently — the macOS build cannot proceed until he approves. Only after
@@ -174,5 +174,5 @@ change. The full list:
   `dash/packages/plugins/src/distribution.ts` (used by the Claude
   connector plugin descriptor).
 - **Switch Console auto-update target** — `RELEASE_REPO_OWNER` / `RELEASE_REPO_NAME`
-  in `dash/apps/switchdash-desktop/src/shared/app-identity.ts` (mirrored
+  in `dash/apps/switch-console-desktop/src/shared/app-identity.ts` (mirrored
   in `app-identity.canary.ts`), consumed by both electron-builder configs.

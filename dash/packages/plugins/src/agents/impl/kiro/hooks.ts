@@ -1,7 +1,7 @@
 import {
   buildMinimalJsonHookConfig,
   makeStdinHookCommand,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const KIRO_HOOKS_PATH = '.kiro/agents/switchdash.json';
 

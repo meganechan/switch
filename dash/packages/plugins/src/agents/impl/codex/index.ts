@@ -1,10 +1,10 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   codexMcpAdapter,
   homebrewOption,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { SWITCH_MARKETPLACE_SOURCE } from '../../../distribution';
 import { buildCodexHookConfig, CODEX_HOOK_TRUST_FLAG } from './hooks';
 import { icon } from './icon';
@@ -88,7 +88,7 @@ export const provider = registerPluginBehavior(plugin, {
         // Approvals only — the sandbox is left to the user's config. "Bypass
         // permissions" promises unattended approval, not unattended filesystem
         // and network access, and Codex runs hooks outside the sandbox, so
-        // switchdash's loopback curls reach the hook server under
+        // Switch Console's loopback curls reach the hook server under
         // workspace-write just as they do under danger-full-access.
         autoApproveFlag: '-c approval_policy="never"',
         initialPromptFlag: '',
@@ -105,7 +105,7 @@ export const provider = registerPluginBehavior(plugin, {
     // The profile carries per-agent model / effort / instructions in CODEX_HOME,
     // loaded with `--profile <slug>`. It registers no MCP server: the connector
     // plugin's own .mcp.json does that, for every Codex session rather than only
-    // switchdash's.
+    // Switch Console's.
     launchProfile: codexLaunchProfile,
     launchProfilePaths: codexProfilePaths,
   },

@@ -281,14 +281,14 @@ def read_declared_version(relative_path: str) -> str:
 # which is all that is needed to stop them drifting.
 LITERAL_CHECKS: list[tuple[str, str, str]] = [
     (
-        "dash/apps/switchdash-desktop/src/shared/app-identity.ts",
+        "dash/apps/switch-console-desktop/src/shared/app-identity.ts",
         "COMPATIBLE_SWITCH_VERSION",
-        "switchdash.pins.switch-core",
+        "switch-console.pins.switch-core",
     ),
     (
-        "dash/apps/switchdash-desktop/src/shared/app-identity.canary.ts",
+        "dash/apps/switch-console-desktop/src/shared/app-identity.canary.ts",
         "COMPATIBLE_SWITCH_VERSION",
-        "switchdash.pins.switch-core",
+        "switch-console.pins.switch-core",
     ),
 ]
 
@@ -459,7 +459,7 @@ def render_typescript(registry: Registry) -> str:
 TARGETS = [
     # switch-core: the agent bridge, the gateway API, and the schema check.
     Target(REPO_ROOT / "core" / "switch_core" / "artifacts.py", render_python),
-    # switchdash: the desktop app and the sidecar it bundles and deploys.
+    # Switch Console: the desktop app and the sidecar it bundles and deploys.
     Target(
         REPO_ROOT / "dash" / "packages" / "shared" / "src" / "artifacts.ts",
         render_typescript,

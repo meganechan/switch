@@ -9,7 +9,7 @@ import {
   RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES,
   SWITCH_AGENT_SETTINGS_DIR,
   SWITCH_CONNECTOR_TOOL_RULES,
-} from '@switchdash/core/agents/plugins';
+} from '@switch-console/core/agents/plugins';
 
 /**
  * Claude Code subagents. Definitions live in `.claude/agents/<name>.md`; once
@@ -22,7 +22,7 @@ import {
 /**
  * Forward-slash literals, never `path.join`: these are relative paths handed to
  * a `PluginFs`, which is either the local disk or a remote POSIX host over SFTP,
- * and `path.join` emits backslashes when switchdash runs on Windows. Same rule
+ * and `path.join` emits backslashes when Switch Console runs on Windows. Same rule
  * as `switch-settings-paths.ts`.
  */
 export const CLAUDE_SUBAGENTS = {
@@ -39,7 +39,7 @@ const SWITCH_ENV_KEYS = ['SWITCH_API_ENDPOINT', 'SWITCH_API_TOKEN', 'SWITCH_AGEN
 const SWITCH_MCP_TOOL_PREFIX = 'mcp__plugin_switch-connector_switch';
 
 /** Rules to strip on read-back, so the form shows only the user's own tools.
- * Wider than what is written, so a definition authored by an older switchdash
+ * Wider than what is written, so a definition authored by an older Switch Console
  * does not surface a retired rule as if the user had chosen it. */
 const SWITCH_RULES: readonly string[] = RECOGNISED_SWITCH_CONNECTOR_TOOL_RULES;
 
@@ -451,7 +451,7 @@ export const claudeRepoAgentsBehavior: IRepoAgentsBehavior = {
   launchArgs(workingDir, agentName): string[] {
     // `path.posix`: workingDir is the agent's dir on whatever host it runs on,
     // which for a remote agent is a POSIX path on the VM. Plain `path.join` on a
-    // Windows switchdash would emit backslash separators into a flag that a
+    // Windows Switch Console would emit backslash separators into a flag that a
     // Linux shell then has to parse.
     return [
       '--agent',

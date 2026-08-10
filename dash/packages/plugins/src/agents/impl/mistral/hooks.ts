@@ -1,11 +1,11 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import {
   buildFlatTomlHookConfig,
   makeNotificationHookCommand,
   makeStdinHookCommand,
   readTomlConfig,
   writeTomlConfig,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 
 export const MISTRAL_HOOKS_PATH = '.vibe/hooks.toml';
 export const MISTRAL_CONFIG_PATH = '.vibe/config.toml';

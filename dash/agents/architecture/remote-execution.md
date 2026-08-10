@@ -1,8 +1,8 @@
 # Remote Execution: Hosts, Reachability, and the Sidecar
 
-All paths are relative to `apps/switchdash-desktop/` unless noted.
+All paths are relative to `apps/switch-console-desktop/` unless noted.
 
-**Switchdash is not local-only.** An agent runs either on the local machine or on an SSH
+**Switch Console is not local-only.** An agent runs either on the local machine or on an SSH
 host. That choice reaches almost every layer — execution context, agent runtime,
 dependency detection, PTY — so a change that only handles the local case is a change that
 silently does less on a remote host. This page is the map of the remote half.
@@ -18,7 +18,7 @@ silently does less on a remote host. This page is the map of the remote half.
 | How a session is launched | `src/main/core/agent-runtime/impl/` — `local-agent-runtime.ts` / `ssh-agent-runtime.ts` |
 | Remote dependency detection and install | `dependencies/remote-dependency-manager.ts`, `dependencies/ssh-install-runner.ts` |
 | The on-host sidecar | `src/sidecar/` (implementation), `src/main/core/sidecar/` (desktop-side diagnostics) |
-| A switchdash-managed Switch server | `src/main/core/managed-switch-server/` |
+| A Switch Console-managed Switch server | `src/main/core/managed-switch-server/` |
 | Renderer surfaces | `src/renderer/features/remote-hosts/` |
 
 ## Reachability is a state machine, not a boolean (CHOO-1682)
@@ -85,8 +85,8 @@ Two properties worth preserving:
 
 ## The sidecar
 
-A remote agent runs inside tmux next to a switchdash-deployed **sidecar**, so it keeps
-working and listening to its Switch rooms while switchdash is closed (CHOO-1059).
+A remote agent runs inside tmux next to a Switch Console-deployed **sidecar**, so it keeps
+working and listening to its Switch rooms while Switch Console is closed (CHOO-1059).
 
 `src/sidecar/` is a second, headless implementation of what the desktop does for a
 session — it starts sessions, keeps them connected to their room, and injects messages into

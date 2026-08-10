@@ -1,9 +1,9 @@
-import { definePlugin, registerPluginBehavior } from '@switchdash/core/agents/plugins';
+import { definePlugin, registerPluginBehavior } from '@switch-console/core/agents/plugins';
 import {
   buildStandardCommand,
   createFileDropPlugin,
   npmDependency,
-} from '@switchdash/core/agents/plugins/helpers';
+} from '@switch-console/core/agents/plugins/helpers';
 import { PI_EXTENSION_CONTENT } from './plugin-file';
 
 const PI_EXTENSION_PATH = '.pi/extensions/switchdash-hook.ts';

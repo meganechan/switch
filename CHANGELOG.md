@@ -18,14 +18,14 @@ leaves its contracts alone.
 - **switch-core** — the backend service (`core/`). Released by tagging
   `switch-v<version>`; the version lives in `core/pyproject.toml`. See
   [RELEASING.md](RELEASING.md).
-- **switchdash** — the desktop app (`dash/`). Released by tagging
-  `switchdash-v<version>`; the version lives in
-  `dash/apps/switchdash-desktop/package.json`.
+- **switch-console** — the desktop app (`dash/`). Released by tagging
+  `switch-console-v<version>`; the version lives in
+  `dash/apps/switch-console-desktop/package.json`.
 - **agent-runtime** — the Switch protocol client and MCP runtime
   (`dash/packages/switch-agent-runtime/`), published to a package registry.
-- **sidecar** — the remote runtime switchdash deploys to an agent host
-  (`dash/apps/switchdash-desktop/src/sidecar/`). Versioned in
-  `sidecar-version.ts` and deployed by switchdash, not published separately.
+- **sidecar** — the remote runtime Switch Console deploys to an agent host
+  (`dash/apps/switch-console-desktop/src/sidecar/`). Versioned in
+  `sidecar-version.ts` and deployed by Switch Console, not published separately.
 - **switch-connector** / **switch-connector-codex** — the two connector plugins
   (`connectors/`), versioned in their respective plugin manifests.
 
@@ -292,7 +292,7 @@ version of their own to them without also giving them a release of their own.
 
 ---
 
-## switchdash
+## switch-console
 
 ### [Unreleased]
 
@@ -493,7 +493,7 @@ version of their own to them without also giving them a release of their own.
   so nothing could ever produce an activity update (CHOO-1935).
 - In-app release links resolve again: the sidebar update indicator and the
   Settings Update card pointed at `.../releases/tag/v<version>`, which is not a
-  real tag (the app is tagged `switchdash-v<version>`), so the user hit a 404;
+  real tag (the app is tagged `switch-console-v<version>`), so the user hit a 404;
   the release-notes fetch had the same broken tag and now also authenticates
   with the gh CLI token so it can read the private release feed instead of
   silently returning nothing (#134).
@@ -833,7 +833,7 @@ migrations 0031–0036, including a locations backfill).
   the existing file fails (local, remote-SSH, and plugin-fs providers).
 
 Desktop-app releases predating this changelog live in the git log and in the
-per-release notes on their GitHub Releases (`switchdash-v*` tags).
+per-release notes on their GitHub Releases (`switch-console-v*` tags).
 
 ---
 

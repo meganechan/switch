@@ -1,4 +1,4 @@
-import type { CommandContext } from '@switchdash/core/agents/plugins';
+import type { CommandContext } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { provider } from './index';
 
@@ -10,12 +10,12 @@ const base: CommandContext = {
   cli: 'codex',
   autoApprove: false,
   isResuming: false,
-  sessionId: 'switchdash-session',
+  sessionId: 'switch-console-session',
   model: '',
 };
 
 // Emitted for every session: Codex runs no hook it has no persisted trust
-// entry for, and switchdash's hooks are how it reads the session's status and
+// entry for, and Switch Console's hooks are how it reads the session's status and
 // captures the rollout id.
 const TRUST_FLAG = '--dangerously-bypass-hook-trust';
 
@@ -27,14 +27,14 @@ describe('codex buildCommand', () => {
     const cmd = build({ ...base, autoApprove: true, initialPrompt: 'Fix the bug' });
 
     expect(cmd.command).toBe('codex');
-    // sessionIdOnResumeOnly → the switchdash UUID is never injected on a fresh run.
+    // sessionIdOnResumeOnly → the Switch Console UUID is never injected on a fresh run.
     // Full structural check: auto-approve flags in order, prompt last.
     expect(cmd.args).toEqual([TRUST_FLAG, ...AUTO_FLAGS, 'Fix the bug']);
   });
 
   it('omits auto-approve args when autoApprove is false, but keeps hook trust', () => {
     // Hook trust is orthogonal to approvals: gate it on auto-approve and a
-    // default agent runs none of switchdash's hooks, taking the session's status
+    // default agent runs none of Switch Console's hooks, taking the session's status
     // signals and its rollout-id capture with them.
     const cmd = build({ ...base, initialPrompt: 'hello' });
     expect(cmd.args).not.toContain('approval_policy="never"');
@@ -44,7 +44,7 @@ describe('codex buildCommand', () => {
   it('never overrides the sandbox, whatever the approval setting', () => {
     // Codex runs hooks outside the sandbox — verified against 0.146.0, a
     // SessionStart hook curling 127.0.0.1 succeeds under workspace-write — so
-    // switchdash's loopback hooks are no reason to hand a session full disk and
+    // Switch Console's loopback hooks are no reason to hand a session full disk and
     // network access it was never asked to have.
     for (const autoApprove of [true, false]) {
       const cmd = build({ ...base, autoApprove, initialPrompt: 'hello' });

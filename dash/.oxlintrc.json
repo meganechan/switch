@@ -70,14 +70,14 @@
         "src/preload/**/*.{ts,tsx}"
       ],
       "rules": {
-        "switchdash/no-tooling-imports": "error"
+        "switch-console/no-tooling-imports": "error"
       }
     },
     {
       "files": ["**/*.test.{ts,tsx}"],
       "rules": {
         "typescript/no-explicit-any": "off",
-        "switchdash/no-tooling-imports": "off"
+        "switch-console/no-tooling-imports": "off"
       }
     }
   ]

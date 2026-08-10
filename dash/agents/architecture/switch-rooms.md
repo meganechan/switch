@@ -1,8 +1,8 @@
 # Switch Rooms and Sessions
 
-All paths are relative to `apps/switchdash-desktop/`.
+All paths are relative to `apps/switch-console-desktop/`.
 
-Switchdash exists to manage Switch agents, and a Switch agent's work happens in **rooms**.
+Switch Console exists to manage Switch agents, and a Switch agent's work happens in **rooms**.
 A session can be *attending* a room: it receives the room's events and can post back into
 it. This page covers that binding, how a session is started in response to room activity,
 and how a room's conversation is shown in the app.
@@ -25,7 +25,7 @@ The binding is a `session_room_connections` row keyed by `session_id` with
 `ON DELETE CASCADE`, so it cannot outlive the session (or the agent above it).
 
 This is worth knowing because of what it replaced: the binding used to be a JSON blob in
-`app_settings`, which referenced nothing and therefore survived both. Switchdash would
+`app_settings`, which referenced nothing and therefore survived both. Switch Console would
 restore sessions on every launch for agents whose Switch server had been destroyed. If you
 are tempted to persist session-adjacent state somewhere convenient, that is the bug to
 remember.
@@ -34,7 +34,7 @@ remember.
 
 `auto-session-watcher.ts` watches for room activity addressed to an agent that has no live
 session, and starts one. This is why an agent can be addressed from Slack or Mattermost and
-simply respond, without anyone opening switchdash first.
+simply respond, without anyone opening Switch Console first.
 
 **The sidecar has its own implementation of this watcher**
 (`src/sidecar/notification-watcher.ts`). They are two implementations of one behaviour, and
@@ -43,7 +43,7 @@ neither follows the other — see the sidecar table in `AGENTS.md`.
 ## Prompt injection
 
 Some providers cannot be handed a new prompt through an API once their TUI is running, so
-switchdash types it in. `InjectionSink` abstracts the transport:
+Switch Console types it in. `InjectionSink` abstracts the transport:
 
 - **Local** — write straight to the agent's PTY via node-pty.
 - **Remote** — the sidecar performs `tmux send-keys` into the agent's tmux pane.
@@ -53,7 +53,7 @@ live yet); callers defer and retry rather than dropping the injection.
 
 ## The inline bridge pane (CHOO-1674)
 
-A room's conversation can be rendered **inside** switchdash in a `<webview>`, rather than
+A room's conversation can be rendered **inside** Switch Console in a `<webview>`, rather than
 sending the user out to a browser. `src/shared/core/switch-rooms/room-embed.ts` resolves
 one of two answers:
 

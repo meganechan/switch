@@ -1,4 +1,4 @@
-import type { PluginFs } from '@switchdash/core/agents/plugins';
+import type { PluginFs } from '@switch-console/core/agents/plugins';
 import { describe, expect, it } from 'vitest';
 import { CLAUDE_SUBAGENTS, claudeRepoAgentsBehavior } from './subagents';
 
@@ -175,7 +175,7 @@ describe('claudeRepoAgentsBehavior.writeDefinition / readDefinition', () => {
     expect(attrs?.tools).toEqual(['Read', 'Grep']);
   });
 
-  it('strips the retired switch-channel rule an older switchdash wrote', async () => {
+  it('strips the retired switch-channel rule an older Switch Console wrote', async () => {
     const workspaceFs = fakeFs({
       [defRel('reviewer')]: [
         '---',
@@ -191,7 +191,7 @@ describe('claudeRepoAgentsBehavior.writeDefinition / readDefinition', () => {
     const attrs = await claudeRepoAgentsBehavior.readDefinition(workspaceFs, 'reviewer');
     expect(attrs?.tools).toEqual(['Read']);
 
-    // And it is not written back: only the rule switchdash still authors is.
+    // And it is not written back: only the rule Switch Console still authors is.
     await claudeRepoAgentsBehavior.writeDefinition(workspaceFs, attrs ?? {});
     const raw = (await workspaceFs.read(defRel('reviewer'))) ?? '';
     expect(raw).toContain('tools: Read, mcp__plugin_switch-connector_switch\n');
