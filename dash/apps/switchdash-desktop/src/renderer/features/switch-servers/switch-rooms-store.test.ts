@@ -157,6 +157,87 @@ describe('agent memberships', () => {
     expect(listAgentRooms).toHaveBeenCalledTimes(2);
   });
 
+  it('inverts memberships into the room-keyed view the sidebar draws', async () => {
+    listAgentRooms.mockImplementation(async ({ agentId }: { agentId: string }) => [
+      { roomId: 'shared', roomName: 'r', archived: false, status: 'live', roomRole: null },
+      {
+        roomId: `only-${agentId}`,
+        roomName: 'r',
+        archived: false,
+        status: 'live',
+        roomRole: null,
+      },
+    ]);
+    const store = new SwitchRoomsStore();
+
+    await store.ensureMembershipsFor([
+      { serverId: 'srv-a', switchAgentId: 'agent-1' },
+      { serverId: 'srv-a', switchAgentId: 'agent-2' },
+    ]);
+
+    expect(store.localMemberIds('shared').sort()).toEqual(['agent-1', 'agent-2']);
+    expect(store.localMemberIds('only-agent-1')).toEqual(['agent-1']);
+  });
+
+  it('leaves an archived membership out of the room’s member list', async () => {
+    listAgentRooms.mockImplementation(async () => [
+      { roomId: 'gone', roomName: 'r', archived: true, status: 'live', roomRole: null },
+    ]);
+    const store = new SwitchRoomsStore();
+
+    await store.ensureMembershipsFor([{ serverId: 'srv-a', switchAgentId: 'agent-1' }]);
+
+    expect(store.localMemberIds('gone')).toEqual([]);
+  });
+
+  it('discloses members the server counts that this install cannot draw', async () => {
+    serversStore.servers = [{ id: 'srv-a', managed: true }];
+    serversStore.activeServerId = 'srv-a';
+    listRemoteRooms.mockImplementation(async () => [
+      room('shared', 'user-of-srv-a', { agentCount: 3 }),
+    ]);
+    listAgentRooms.mockImplementation(async () => [
+      { roomId: 'shared', roomName: 'r', archived: false, status: 'live', roomRole: null },
+    ]);
+    const store = new SwitchRoomsStore();
+
+    await store.loadRoomNames();
+    await store.ensureMembershipsFor([{ serverId: 'srv-a', switchAgentId: 'agent-1' }]);
+
+    // One member is drawable here; the other two exist but belong elsewhere.
+    expect(store.localMemberIds('shared')).toEqual(['agent-1']);
+    expect(store.undrawableMemberCount('shared')).toBe(1 + 1);
+  });
+
+  it('reports the undrawable count as unknown until the room list has loaded', () => {
+    const store = new SwitchRoomsStore();
+
+    expect(store.undrawableMemberCount('never-loaded')).toBeNull();
+  });
+
+  it('re-reads every tracked agent on refresh, not just the ones already cached', async () => {
+    // An agent created after the sidebar mounted has no cache entry, so a
+    // refresh keyed on the cache would never fetch it.
+    listAgentRooms.mockImplementation(async ({ agentId }: { agentId: string }) => {
+      if (agentId === 'agent-late') throw new Error('not yet');
+      return [{ roomId: 'room-a', roomName: 'r', archived: false, status: 'live', roomRole: null }];
+    });
+    listRemoteRooms.mockImplementation(async () => []);
+    const store = new SwitchRoomsStore();
+    await store.ensureMembershipsFor([
+      { serverId: 'srv-a', switchAgentId: 'agent-1' },
+      { serverId: 'srv-a', switchAgentId: 'agent-late' },
+    ]);
+    expect(store.roomsFor('srv-a', 'agent-late')).toBeUndefined();
+
+    listAgentRooms.mockImplementation(async () => [
+      { roomId: 'room-b', roomName: 'r', archived: false, status: 'live', roomRole: null },
+    ]);
+    await store.refreshRoomState();
+
+    expect(store.roomsFor('srv-a', 'agent-late')?.[0].roomId).toBe('room-b');
+  });
+
   it('lets one agent’s failed lookup stand without losing the others', async () => {
     listAgentRooms.mockImplementation(async ({ agentId }: { agentId: string }) => {
       if (agentId === 'agent-1') throw new Error('nope');

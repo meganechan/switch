@@ -45,6 +45,11 @@ export class SwitchRoomsStore {
   readonly loading = new Set<string>();
   /** Last error per key, if the most recent fetch failed. */
   readonly errors = new Map<string, string>();
+  /** The agents whose membership this store is responsible for keeping current.
+   * Recorded on {@link ensureMembershipsFor} so a refresh re-reads the current
+   * set rather than only the keys that happen to be cached — an agent created
+   * after the sidebar mounted is otherwise never fetched. */
+  private trackedIdentities: { serverId: string; switchAgentId: string }[] = [];
 
   constructor() {
     makeAutoObservable(this);
@@ -230,6 +235,68 @@ export class SwitchRoomsStore {
   }
 
   /**
+   * Room id → the Switch agent ids of this install's agents that belong to it.
+   *
+   * The gateway answers membership per agent, so the room-keyed view has to be
+   * derived. Deriving it **here, once** rather than in each tree at render time
+   * is what makes a room's member list and its member count the same read: any
+   * view that wants either reads this, so the two cannot disagree.
+   *
+   * Scope is deliberate. This install can only act on its own agents, so those
+   * are the only members the sidebar draws (see {@link undrawableMemberCount}
+   * for how the rest are disclosed).
+   */
+  get localMemberIdsByRoom(): Map<string, string[]> {
+    const byRoom = new Map<string, string[]>();
+    for (const [cacheKey, memberships] of this.roomsByAgent) {
+      const switchAgentId = cacheKey.slice(cacheKey.indexOf(':') + 1);
+      for (const membership of memberships) {
+        if (membership.archived) continue;
+        const members = byRoom.get(membership.roomId);
+        if (members) members.push(switchAgentId);
+        else byRoom.set(membership.roomId, [switchAgentId]);
+      }
+    }
+    return byRoom;
+  }
+
+  /** The Switch agent ids of this install's agents in a room. */
+  localMemberIds(roomId: string): string[] {
+    return this.localMemberIdsByRoom.get(roomId) ?? [];
+  }
+
+  /**
+   * Members the server counts for a room that this install cannot draw — agents
+   * registered elsewhere, plus any whose membership failed to load. Null when
+   * the room's server list has not loaded, so the difference is unknown rather
+   * than zero.
+   *
+   * This is never rendered as the member count. The count is the length of what
+   * is drawn; this only discloses the gap, so a member that exists but cannot be
+   * shown is not mistaken for a member that is not there.
+   */
+  undrawableMemberCount(roomId: string): number | null {
+    const total = this.roomSummaryById(roomId)?.agentCount ?? null;
+    if (total === null) return null;
+    return Math.max(0, total - this.localMemberIds(roomId).length);
+  }
+
+  /**
+   * Re-read every fact the sidebar's room state is built from: the room lists
+   * and the membership of every tracked agent.
+   *
+   * The single door for "something changed, the view must catch up". Mutations
+   * call this instead of picking their own subset of refreshes, which is how a
+   * write ends up landing in one cache and missing another.
+   */
+  async refreshRoomState(): Promise<void> {
+    await Promise.all([
+      this.loadRoomNames(),
+      this.ensureMembershipsFor(this.trackedIdentities, { force: true }),
+    ]);
+  }
+
+  /**
    * Load membership for several agents at once. The room-grouped sidebar lists
    * an agent under every room it belongs to, not only the rooms it happens to
    * have a session in, so it needs the whole set up front rather than one
@@ -239,6 +306,9 @@ export class SwitchRoomsStore {
     agents: { serverId: string; switchAgentId: string }[],
     options: { force?: boolean } = {}
   ): Promise<void> {
+    runInAction(() => {
+      this.trackedIdentities = agents;
+    });
     await Promise.all(
       agents.map((a) => this.fetchAgentRooms(a.serverId, a.switchAgentId, options))
     );
@@ -285,17 +355,6 @@ export class SwitchRoomsStore {
         this.loading.delete(k);
       });
     }
-  }
-
-  /** Re-fetch every cached entry (e.g. on window focus). */
-  async refreshAll(): Promise<void> {
-    const keys = Array.from(this.roomsByAgent.keys());
-    await Promise.all(
-      keys.map((k) => {
-        const [serverId, switchAgentId] = k.split(':');
-        return this.fetchAgentRooms(serverId, switchAgentId, { force: true });
-      })
-    );
   }
 }
 

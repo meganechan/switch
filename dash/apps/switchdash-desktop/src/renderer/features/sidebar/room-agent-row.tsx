@@ -85,7 +85,7 @@ export const RoomAgentRow = observer(function RoomAgentRow({
     void toastPromise(
       rpc.switchServers
         .removeRoomAgent({ serverId, roomId, agentId: agent.switchAgentId })
-        .then(() => switchRoomsStore.refreshAll()),
+        .then(() => switchRoomsStore.refreshRoomState()),
       {
         loading: `Removing ${label} from ${roomLabel}…`,
         success: `${label} was removed from ${roomLabel}`,

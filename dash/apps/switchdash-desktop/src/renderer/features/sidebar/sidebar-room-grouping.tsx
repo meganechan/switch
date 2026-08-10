@@ -104,9 +104,15 @@ export function RoomRow({
   isActive = false,
   depth = 0,
   bridgeType = null,
+  undrawableCount = null,
 }: {
   label: string;
   count: number;
+  /** Members the server counts that this install cannot draw — agents
+   * registered on another switchdash, plus any whose membership failed to load.
+   * Disclosed next to the count so a member that exists but cannot be shown is
+   * not read as a member that is not there. Null when unknown. */
+  undrawableCount?: number | null;
   expanded: boolean;
   onToggle: () => void;
   onOpenGateway: () => void;
@@ -219,6 +225,19 @@ export function RoomRow({
         <TooltipContent>Open in gateway</TooltipContent>
       </Tooltip>
       <span className="shrink-0 text-xs text-foreground-tertiary-passive">{count}</span>
+      {undrawableCount !== null && undrawableCount > 0 && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className="shrink-0 text-xs text-foreground-muted">+{undrawableCount}</span>
+            }
+          />
+          <TooltipContent>
+            {undrawableCount} more {undrawableCount === 1 ? 'member is' : 'members are'} in this
+            room but not on this switchdash, so they cannot be shown here
+          </TooltipContent>
+        </Tooltip>
+      )}
     </SidebarMenuRow>
   );
 }

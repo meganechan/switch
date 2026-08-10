@@ -39,8 +39,7 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     void loadRooms(false);
     void switchServersStore.init().then(() => switchRoomsStore.loadRoomNames());
     const onFocus = () => {
-      void loadRooms(true);
-      void switchRoomsStore.loadRoomNames();
+      void loadRooms(true).then(() => switchRoomsStore.loadRoomNames());
     };
     window.addEventListener('focus', onFocus);
     return () => window.removeEventListener('focus', onFocus);

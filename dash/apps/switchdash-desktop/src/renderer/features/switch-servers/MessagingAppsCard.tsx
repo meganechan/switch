@@ -61,7 +61,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
                   // Refresh the bridge list everywhere it is consumed — this
                   // card and the room-creation picker share the query key.
                   void queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] });
-                  void switchRoomsStore.refreshAll();
+                  void switchRoomsStore.refreshRoomState();
                 },
               })
             }
