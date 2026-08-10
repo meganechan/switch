@@ -278,7 +278,11 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const foreignCredentialReason = (endpoint: string | null): string | null => {
     if (endpoint === null || !targetServer) return null;
     if (sameApiEndpoint(endpoint, targetServer.apiUrl)) return null;
-    return `Already registered with another Switch server (${endpoint}), so it cannot be imported into ${targetServer.name}. Create a new agent instead.`;
+    // Name the server when this switchdash has it registered. The raw endpoint is
+    // an implementation detail to the person reading the row, and for a server
+    // they have registered it is one they already know by name.
+    const owner = switchServersStore.servers.find((s) => sameApiEndpoint(s.apiUrl, endpoint));
+    return `Already registered with ${owner ? owner.name : 'another Switch server'}, so it cannot be imported into ${targetServer.name}. Create a new agent instead.`;
   };
 
   const onboardableAgents: OnboardableAgent[] = [

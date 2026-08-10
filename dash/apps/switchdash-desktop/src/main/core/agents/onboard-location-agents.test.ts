@@ -75,6 +75,11 @@ vi.mock('@main/core/switch-servers/servers-store', () => ({
     name: 'Server B',
     apiUrl: 'https://b.example.com',
   })),
+  findServerByEndpoint: vi.fn(async (endpoint: string) =>
+    endpoint === 'https://a.example.com'
+      ? { id: 'srv-a', name: 'Server A', apiUrl: 'https://a.example.com' }
+      : null
+  ),
 }));
 vi.mock('./createAgent', () => ({ createAgent: h.createAgent }));
 vi.mock('./register-agent-identity', () => ({ registerAgentIdentity: h.registerAgentIdentity }));
@@ -134,7 +139,7 @@ describe('onboardLocationAgents identity resolution', () => {
     expect(h.createAgent).not.toHaveBeenCalled();
   });
 
-  it('names the other server so the refusal can be acted on', async () => {
+  it('names the owning server, not its URL, when switchdash has it registered', async () => {
     h.state.definitions = [definition('test-1', true)];
     h.state.local = [
       { name: 'test-1', switchAgentId: 'sw-on-a', apiEndpoint: 'https://a.example.com' },
@@ -146,8 +151,24 @@ describe('onboardLocationAgents identity resolution', () => {
     if (result.success) return;
     expect(result.error).toMatchObject({ type: 'error' });
     const message = 'message' in result.error ? result.error.message : '';
-    expect(message).toContain('https://a.example.com');
+    expect(message).toContain('Server A');
     expect(message).toContain('Server B');
+    expect(message).not.toContain('https://a.example.com');
+  });
+
+  it('says "another Switch server" rather than a URL for a server it does not know', async () => {
+    h.state.definitions = [definition('test-1', true)];
+    h.state.local = [
+      { name: 'test-1', switchAgentId: 'sw-elsewhere', apiEndpoint: 'https://unknown.example.com' },
+    ];
+
+    const result = await onboard(['test-1']);
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const message = 'message' in result.error ? result.error.message : '';
+    expect(message).toContain('another Switch server');
+    expect(message).not.toContain('https://unknown.example.com');
   });
 
   it('imports an identity the target server does have', async () => {

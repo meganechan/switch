@@ -10,14 +10,34 @@
  */
 
 /**
- * Whether two Switch API endpoints name the same server, ignoring a trailing
- * slash — which is not a difference. This is how an agent's on-disk
- * `SWITCH_API_ENDPOINT` is matched to a registered server, so the main process and
- * the renderer must agree on it: the renderer decides which discovered agents are
- * importable, and the main process enforces it.
+ * Origin (protocol + host + port, lowercased) of a URL, or null if unparseable.
+ * Agents are matched to servers by origin rather than full URL: an agent's
+ * `SWITCH_API_ENDPOINT` and a server's API URL share a host but may differ in
+ * path, so comparing origins is the robust match.
+ */
+export function urlOrigin(url: string): string | null {
+  try {
+    return new URL(url.trim()).origin.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Whether two Switch API endpoints name the same server. This is how an agent's
+ * on-disk `SWITCH_API_ENDPOINT` is matched to a registered server, so the main
+ * process and the renderer must agree on it: the renderer decides which discovered
+ * agents are offered as importable, and the main process enforces it.
+ *
+ * Origins are compared when both parse — path and trailing slash are not
+ * differences. Unparseable input falls back to a trimmed string comparison rather
+ * than reporting a match it cannot vouch for.
  */
 export function sameApiEndpoint(a: string, b: string): boolean {
-  return a.replace(/\/+$/, '') === b.replace(/\/+$/, '');
+  const originA = urlOrigin(a);
+  const originB = urlOrigin(b);
+  if (originA && originB) return originA === originB;
+  return a.trim().replace(/\/+$/, '') === b.trim().replace(/\/+$/, '');
 }
 
 /** A registered Switch server. Non-secret connection metadata only. */

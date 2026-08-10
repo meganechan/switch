@@ -7,7 +7,7 @@ import { checkIsValidDirectory } from '@main/core/locations/path-utils';
 import { ensureLocation } from '@main/core/locations/store';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { agentExistsOnServer, GatewayError } from '@main/core/switch-servers/gateway-client';
-import { getServer } from '@main/core/switch-servers/servers-store';
+import { findServerByEndpoint, getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
 import type { OnboardAgentError } from '@shared/core/agents/onboarding';
@@ -111,11 +111,12 @@ async function resolveIdentity(
       }
       throw cause;
     }
+    const owner = await findServerByEndpoint(creds.apiEndpoint);
     return {
       ok: false,
       error: {
         type: 'error',
-        message: `"${name}" is already registered with another Switch server (${creds.apiEndpoint}) and cannot be imported into ${ctx.server.name}. Onboard it from that server, or create a new agent here under a different name.`,
+        message: `"${name}" is already registered with ${owner ? owner.name : 'another Switch server'} and cannot be imported into ${ctx.server.name}. Onboard it from that server, or create a new agent here under a different name.`,
       },
     };
   }
