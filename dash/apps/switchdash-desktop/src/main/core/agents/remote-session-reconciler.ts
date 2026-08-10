@@ -5,7 +5,6 @@ import type { SidecarEndpoint } from '@main/core/agent-runtime/impl/remote-sidec
 import { httpGetJsonOverChannel } from '@main/core/agent-runtime/impl/sidecar-http';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import type { HostReachabilityChange } from '@main/core/remote-hosts/host-reachability-service';
-import { HostUnreachableError } from '@main/core/remote-hosts/host-reachability-service';
 import { hostReachabilityService } from '@main/core/remote-hosts/production-host-reachability';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
@@ -15,8 +14,10 @@ import { db } from '@main/db/client';
 import { sessions } from '@main/db/schema';
 import { events } from '@main/lib/events';
 import { log } from '@main/lib/logger';
+import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import { makePtyId } from '@shared/core/pty/ptyId';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import { sessionDeletedChannel } from '@shared/core/sessions/sessionEvents';
 import { getRemoteAgentLocation } from './agent-location';
 import { connectRemoteAgent } from './connect-remote-agent';
@@ -333,10 +334,17 @@ class RemoteSessionReconciler {
       // this is what recovers a session's room after a restart/wake (the row is
       // re-adopted but the room association is otherwise dropped) and reflects a
       // later reconnect/room switch, for both freshly-adopted and already-known
-      // sessions. Only sets a room the sidecar actually reports; clearing is left
-      // to the prune/terminate path so a transient null poll cannot flicker the
-      // badge off a still-live session.
+      // sessions.
+      //
+      // A null room is reported, not ignored. The snapshot is only trusted at
+      // all once `snapshot.ok` has passed, and for a session the sidecar owns
+      // "no room" is a fact it holds rather than a gap in the poll: the session
+      // has not connected yet, or it was evicted from the room it had. Dropping
+      // it left an evicted session sitting under a room it no longer attends,
+      // beside the session that took it — two sessions in one room, which is
+      // the illusion CHOO-1419 is about.
       if (vm.roomId) this.mirrorSessionRoom(agent, vm.sessionId, vm.roomId);
+      else switchRoomService.clearSession(vm.sessionId);
     }
 
     await this.pruneVanished(agentId, vmIds);
@@ -427,6 +435,7 @@ class RemoteSessionReconciler {
       autoApprove: agent.autoApprove,
       credsSlug: agent.name ?? agent.id,
       agentName: agent.name ?? null,
+      specialization: toSwitchSpecialization(agent.providerConfig),
       ctx: conn.ctx,
       connectionId: conn.connectionId,
       host: conn.host,

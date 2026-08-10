@@ -2,18 +2,22 @@ import { randomUUID } from 'node:crypto';
 import type { RepoAgentAttributes } from '@switchdash/core/agents/plugins';
 import { locationManager } from '@main/core/locations/location-manager';
 import { checkIsValidDirectory } from '@main/core/locations/path-utils';
-import { ensureLocation } from '@main/core/locations/store';
+import { ensureLocation, getLocationByHostDir } from '@main/core/locations/store';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
+import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { basenameFromAnyPath } from '@shared/path-name';
 import { agentEvents } from './agent-events';
+import { agentNameTaken } from './agent-name-taken';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { createAgent } from './createAgent';
+import { knownAgentTypeForProvider } from './known-agent-type';
 import { registerAgentIdentity } from './register-agent-identity';
 import { reconcileAgentAutoSessionFromGateway } from './setAgentAutoSession';
+import { writeNeutralAgentSettingsFs } from './write-switch-settings';
 
 export type AddAgentParams = {
   id?: string;
@@ -36,6 +40,10 @@ export type AddAgentParams = {
    * keyed by the provider's attribute fields. `name`/`description` are set from
    * the params above. */
   definitionAttributes: RepoAgentAttributes;
+  /** Per-agent provider config folded into the agent's launch (Codex model /
+   * effort / instructions). Distinct from `definitionAttributes`, which is the
+   * repo-agent definition surface Codex does not use. */
+  providerConfig?: AgentProviderConfig | null;
 };
 
 export type AddAgentResult =
@@ -66,28 +74,42 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
   const server = await getServer(params.serverId);
   if (!server) return { kind: 'error', message: `No Switch server with id ${params.serverId}` };
 
+  // Before minting an identity: the gateway's uniqueness check is scoped to the
+  // Switch server, so it cannot see a name already taken in this directory. Two
+  // same-named agents here would share one `.switch/agents/<name>.json`.
+  const existingLocation = await getLocationByHostDir(params.sshHost, params.dir);
+  if (existingLocation && (await agentNameTaken(existingLocation.id, params.name, null))) {
+    return { kind: 'name-conflict' };
+  }
+
   const registered = await registerAgentIdentity(server, {
     name: params.name,
     description: params.description,
     repoDir: params.dir,
     autoSession: params.autoSession,
+    agentType: knownAgentTypeForProvider(params.providerId),
   });
   if (registered.kind !== 'created') return registered;
 
   const behavior = getPlugin(params.providerId).behavior.repoAgents;
   const workspace = await resolveWorkspaceFsFor(params.sshHost, params.dir);
   try {
+    // Writing the per-agent Switch credentials is unconditional core behavior for
+    // every provider, keyed by the agent's `name` — the single key-space every
+    // reader (launch path, auto-session watcher, notification poller) uses
+    // (CHOO-1440). Providers with repo-agent definitions (Claude) layer their
+    // on-disk definition on top; that's the only provider-specific extra.
+    await writeNeutralAgentSettingsFs(workspace.fs, {
+      slug: params.name,
+      apiEndpoint: server.apiUrl,
+      apiToken: registered.apiKey,
+      agentId: registered.id,
+    });
     if (behavior) {
       await behavior.writeDefinition(workspace.fs, {
         ...params.definitionAttributes,
         name: params.name,
         description: params.description,
-      });
-      await behavior.writeCredentials(workspace.fs, {
-        agentName: params.name,
-        apiEndpoint: server.apiUrl,
-        apiToken: registered.apiKey,
-        agentId: registered.id,
       });
     }
   } finally {
@@ -109,6 +131,7 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
     apiEndpoint: server.apiUrl,
     serverId: params.serverId,
     autoApprove: params.autoApprove,
+    providerConfig: params.providerConfig ?? null,
   });
 
   // Seed the local auto_session mirror + watcher from the gateway profile so an

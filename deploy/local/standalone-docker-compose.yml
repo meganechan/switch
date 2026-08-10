@@ -19,13 +19,29 @@
 # and pins versions without edits:
 #   SWITCH_REGISTRY         (default ghcr.io)
 #   SWITCH_IMAGE_NAMESPACE  (default sandbox-quantum)
-#   SWITCH_VERSION          (default latest)
+#   SWITCH_VERSION          (REQUIRED — no default, on purpose)
+#
+# SWITCH_VERSION has no fallback. It used to default to `latest`, so a missing
+# or misspelt env var silently floated the whole stack to whatever had most
+# recently been published — a different switch-core on every `up`, with nothing
+# to say so. Compose now refuses to start rather than pick a version nobody
+# asked for (CHOO-1865). `.env.example` sets it, and switchdash writes it.
+
+# What this compose artifact speaks on the `stack-compose` contract, which is
+# what switchdash's local-server mode pins against (CHOO-1865). The version this
+# file is published under says which release it is; this says what it speaks.
+# Compose ignores `x-` keys.
+x-switch-contract:
+  name: stack-compose
+  artifact: compose
+  speaks: 1
+  accepts: 1
 
 services:
   postgres:
     image: postgres:16-alpine
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${POSTGRES_HOST_PORT:-5432}:5432"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${POSTGRES_HOST_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
@@ -89,7 +105,7 @@ services:
     platform: linux/amd64
     profiles: ["collab"]
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${MATTERMOST_HOST_PORT:-8065}:8065"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${MATTERMOST_HOST_PORT:-8065}:8065"
     volumes:
       - mmdata:/mattermost/data
     environment:
@@ -122,9 +138,9 @@ services:
         condition: service_completed_successfully
 
   switch:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/switch-core:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/switch-core:${SWITCH_VERSION:?required - set it in .env, there is no default}
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${API_HOST_PORT:-8000}:8000"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${API_HOST_PORT:-8000}:8000"
     environment:
       DB_HOST: postgres
       DB_PORT: "5432"
@@ -149,15 +165,15 @@ services:
         condition: service_started
 
   gateway:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/gateway:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/gateway:${SWITCH_VERSION:?required - set it in .env, there is no default}
     profiles: ["gateway"]
     ports:
-      - "${SWITCH_BIND_ADDR:-0.0.0.0}:${GATEWAY_HOST_PORT:-3000}:3000"
+      - "${SWITCH_BIND_ADDR:-127.0.0.1}:${GATEWAY_HOST_PORT:-3000}:3000"
     depends_on:
       - switch
 
   setup:
-    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/setup:${SWITCH_VERSION:-latest}
+    image: ${SWITCH_REGISTRY:-ghcr.io}/${SWITCH_IMAGE_NAMESPACE:-sandbox-quantum}/setup:${SWITCH_VERSION:?required - set it in .env, there is no default}
     profiles: ["collab"]
     restart: on-failure
     environment:
@@ -169,6 +185,8 @@ services:
       MATTERMOST_TEAM_NAME: ${MATTERMOST_TEAM_NAME}
       MATTERMOST_USER: ${MATTERMOST_USER}
       MATTERMOST_USER_PASSWORD: ${MATTERMOST_USER_PASSWORD}
+      GATEWAY_ADMIN_EMAIL: ${GATEWAY_ADMIN_EMAIL}
+      GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD}
     depends_on:
       - mattermost
       - switch

@@ -11,6 +11,7 @@ import {
   type RoomConnectionLogger,
   type SwitchCredentials,
 } from '@main/core/switch-rooms/room-connection';
+import { sessionConnectionId } from '@main/core/switch-rooms/session-connection-id';
 import { resolveSessionControl } from '@main/core/switch-rooms/session-control';
 import { type TmuxRun, TmuxInjectionSink } from '@main/core/switch-rooms/tmux-injection-sink';
 import { parsePtyId } from '@shared/core/pty/ptyId';
@@ -24,6 +25,9 @@ export interface ManagedConnection {
     status: Parameters<RoomConnection['onAgentStatusChange']>[0],
     notificationType?: Parameters<RoomConnection['onAgentStatusChange']>[1]
   ): void;
+  reportActivity(detail: string): void;
+  /** The connection id this session's tool calls are expected to arrive on. */
+  readonly connection: string;
 }
 
 export type RoomConnectionFactory = (deps: RoomConnectionDeps) => ManagedConnection;
@@ -54,12 +58,25 @@ export interface SessionRegistry {
     providerId: string;
     tmuxTarget: string;
   }): void;
+  /** Drop the session's room while keeping the session. Distinct from `record`
+   * with a null room, which means "no room information" and preserves what is
+   * already known. */
+  clearRoom(sessionId: string): void;
   forget(sessionId: string): void;
 }
 
 interface SessionConnection {
   connection: ManagedConnection;
-  roomId: string;
+  /** Null while the session holds no room — the server has not named one yet,
+   * or it named one and then took it away. `connectRoom` branches on this. */
+  roomId: string | null;
+  /** True once the server has taken this session's room away, as opposed to
+   * never having named one. The two are both `roomId: null` but must be
+   * reported differently: a session that lost its room has to be published as
+   * roomless so clients stop showing it under a room it no longer attends,
+   * whereas one that has yet to be told its room must not overwrite the room
+   * the durable registry restored for it. */
+  lostRoom: boolean;
   tmuxTarget: string;
 }
 
@@ -82,7 +99,7 @@ export class SidecarRuntime {
   /** Notified when a session connects to a room, so the notification watcher can
    * hand its per-room in-flight guard off to the live-room check (mirrors the
    * local AutoSessionWatcher's room-connection subscription). */
-  private roomConnectedListener: ((roomId: string) => void) | null = null;
+  private roomConnectedListener: ((roomId: string, sessionId: string) => void) | null = null;
 
   constructor(private readonly deps: SidecarRuntimeDeps) {
     this.resolveContext = async (ptyId) => {
@@ -96,8 +113,17 @@ export class SidecarRuntime {
     };
   }
 
-  /** Register the room-connected listener (the notification watcher's guard hand-off). */
-  onRoomConnected(listener: (roomId: string) => void): void {
+  /**
+   * Register the room-connected listener (the notification watcher's guard
+   * hand-off).
+   *
+   * Carries the session id as well as the room because the spawn guards are
+   * keyed differently: the watcher's in-flight guard by room, the spawner's
+   * launched-session entry by session. Both end at the moment a session
+   * connects, and after that the runtime's own room map is the only thing that
+   * should decide whether a room is covered.
+   */
+  onRoomConnected(listener: (roomId: string, sessionId: string) => void): void {
     this.roomConnectedListener = listener;
   }
 
@@ -120,7 +146,7 @@ export class SidecarRuntime {
 
     let parsed: ParsedHookEvent;
     try {
-      parsed = await parseHookEvent(raw, this.resolveContext);
+      parsed = await parseHookEvent(raw, this.resolveContext, this.deps.log);
     } catch (error) {
       this.deps.log.warn('SidecarRuntime: failed to parse hook event', {
         type: raw.type,
@@ -154,6 +180,32 @@ export class SidecarRuntime {
     // has no database to update.
   }
 
+  /**
+   * Open a session's connection before it launches, and return the id to hand
+   * it in its environment. Mirrors switchdash's `ensureForSession`.
+   *
+   * The connection must exist before the session's first `connect_to_room`,
+   * which arrives tagged with this id. It also makes the room server-driven
+   * here too: the claim lands on this connection and comes back as
+   * `subscription_changed`, so the sidecar stops depending on parsing the hook.
+   *
+   * `roomId` is the room the session is being launched for, when it is being
+   * launched for one — an auto-started session always is. Declaring it opens
+   * the connection already claiming that room, so the session belongs to it
+   * from the start instead of from whenever the agent calls connect_to_room.
+   * Null for a session opened without a room in mind.
+   */
+  ensureForSession(
+    sessionId: string,
+    providerId: string,
+    roomId: string | null,
+    startCursor?: number
+  ): string {
+    const existing = this.sessions.get(sessionId);
+    if (existing) return existing.connection.connection;
+    return this.openConnection(sessionId, providerId, roomId, null, startCursor);
+  }
+
   private connectRoom(
     sessionId: string,
     providerId: string,
@@ -165,7 +217,17 @@ export class SidecarRuntime {
     // in-flight queue and renew loop are preserved — but still hand off the
     // watcher's spawn guard (idempotent), since a session is attending the room.
     if (existing && existing.roomId === roomId) {
-      this.roomConnectedListener?.(roomId);
+      this.roomConnectedListener?.(roomId, sessionId);
+      return;
+    }
+    if (existing && existing.roomId === null) {
+      // We opened this connection at launch and the server has not named a
+      // room yet. The claim is in flight; trust it rather than rebuilding.
+      this.deps.log.debug('SidecarRuntime: hook named a room before the server did', {
+        sessionId,
+        roomId,
+      });
+      this.roomConnectedListener?.(roomId, sessionId);
       return;
     }
     // A session re-targeting to a new room supersedes ITS OWN prior room only —
@@ -173,11 +235,28 @@ export class SidecarRuntime {
     // connect_to_room re-targeting independently).
     if (existing) existing.connection.stop();
 
+    this.openConnection(sessionId, providerId, roomId, roomName);
+    this.roomConnectedListener?.(roomId, sessionId);
+  }
+
+  private openConnection(
+    sessionId: string,
+    providerId: string,
+    roomId: string | null,
+    roomName: string | null,
+    startCursor?: number
+  ): string {
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
+    // Derived, not random: the session's pane outlives this process and keeps
+    // stamping the id it was launched with, so a restarted sidecar has to
+    // recompute that id rather than mint one the agent will never hear about.
+    const connectionId = sessionConnectionId(sessionId);
     const connection = this.deps.createConnection({
       creds: this.deps.creds,
       roomId,
       roomName,
+      connectionId,
+      startCursor,
       sessionId,
       sink: new TmuxInjectionSink(tmuxTarget, this.deps.tmuxRun, () =>
         this.deps.isPaneLive(tmuxTarget)
@@ -190,13 +269,43 @@ export class SidecarRuntime {
       // can't gate on human typing yet — a known follow-up for the attached case.
       isHumanTyping: () => false,
       mediaDir: path.join(os.tmpdir(), 'switchdash-switch-media', sessionId),
+      // The server naming this connection's room is what records it here, so a
+      // session that moves rooms is followed without re-reading a hook.
+      onRoomChanged: (room) => {
+        const entry = this.sessions.get(sessionId);
+        if (entry) {
+          entry.roomId = room;
+          if (!room) entry.lostRoom = true;
+        }
+        if (room) {
+          this.deps.registry.record({ sessionId, roomId: room, providerId, tmuxTarget });
+          this.roomConnectedListener?.(room, sessionId);
+          return;
+        }
+        // Losing the room has to reach the durable registry too. It is what
+        // `/sessions` reports for a pane with no live connection and what a
+        // restart restores from, so leaving the old room there would put the
+        // session back under a room it no longer attends — and reconnect it,
+        // taking the room off whoever holds it now.
+        this.deps.registry.clearRoom(sessionId);
+      },
       log: this.deps.log,
     });
-    this.sessions.set(sessionId, { connection, roomId, tmuxTarget });
-    this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
-    this.deps.log.debug('SidecarRuntime: room connected', { sessionId, roomId, roomName });
+    this.sessions.set(sessionId, { connection, roomId, lostRoom: false, tmuxTarget });
+    if (roomId) this.deps.registry.record({ sessionId, roomId, providerId, tmuxTarget });
+    // The other end of the watcher's hand-off. If a spawned session comes up
+    // without the message that triggered it, this says whether a cursor was
+    // handed over and honoured, or whether it opened at head and read past it.
+    this.deps.log.info('SidecarRuntime: connection opened', {
+      event: 'switch_session_connection_open',
+      sessionId,
+      roomId,
+      roomName,
+      connectionId,
+      startFrom: startCursor ?? 'head',
+    });
     connection.start();
-    this.roomConnectedListener?.(roomId);
+    return connectionId;
   }
 
   /**
@@ -239,14 +348,16 @@ export class SidecarRuntime {
   /**
    * Sessions the runtime has connected to a room, for switchdash to reconcile
    * into its UI. Only panes that are still live are reported so a session whose
-   * agent has exited does not surface as a ghost row.
+   * agent has exited does not surface as a ghost row — and only sessions whose
+   * room the server has actually named, since a room-less one has nothing for
+   * switchdash to reconcile against.
    */
-  connectedSessions(): Array<{ sessionId: string; roomId: string }> {
-    const out: Array<{ sessionId: string; roomId: string }> = [];
+  connectedSessions(): Array<{ sessionId: string; roomId: string | null }> {
+    const out: Array<{ sessionId: string; roomId: string | null }> = [];
     for (const [sessionId, session] of this.sessions) {
-      if (this.deps.isPaneLive(session.tmuxTarget)) {
-        out.push({ sessionId, roomId: session.roomId });
-      }
+      if (!this.deps.isPaneLive(session.tmuxTarget)) continue;
+      if (session.roomId === null && !session.lostRoom) continue;
+      out.push({ sessionId, roomId: session.roomId });
     }
     return out;
   }

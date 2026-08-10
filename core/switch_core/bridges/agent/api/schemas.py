@@ -107,6 +107,28 @@ class ConnectionRenewRequest(BaseModel):
     room_id: str
 
 
+class ConnectionSubscribeRequest(BaseModel):
+    """Claim (or release) a room on an open connection (CHOO-1857)."""
+
+    connection_id: str
+    room_id: str
+    # Evict whichever connection currently holds the room. Off by default: the
+    # usual cause of a collision is a stale process, and rejecting surfaces it.
+    takeover: bool = False
+
+
+class ConnectionBeatRequest(BaseModel):
+    """The single client tick that keeps a connection alive (CHOO-1857).
+
+    Replaces /connection/renew, /watch/heartbeat and /leases/renew: it proves
+    the client is alive *and* consuming, and reports how far it has read so the
+    event buffer knows what has been seen.
+    """
+
+    connection_id: str
+    cursor: int = 0
+
+
 class StatusRequest(BaseModel):
     room_id: str
     presence: Literal["online", "offline"] | None = None
@@ -123,6 +145,12 @@ class RuntimeStateRequest(BaseModel):
     # turn, when it was in a thread, so the bridge surfaces the state in that
     # thread. Omit / null when the agent was addressed at the conversation root.
     thread_id: str | None = None
+    # Message id of the latest message the connector has actually delivered to
+    # the agent's session. The bridge repositions the runtime indicator when
+    # this changes, so it only ever moves on evidence the agent has the
+    # message — not merely because one arrived. Report the same value on a
+    # periodic refresh; only a genuine change moves the indicator.
+    anchor_event_id: str | None = None
     # A `switchdash://session?…` deeplink switchdash builds so the bridged
     # working / awaiting-input message can link back to its session. Relayed
     # verbatim to the channel; null for connectors that don't manage a UI.

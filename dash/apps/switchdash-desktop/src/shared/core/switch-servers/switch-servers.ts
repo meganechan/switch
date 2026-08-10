@@ -101,12 +101,30 @@ export type SwitchAuthConfig = {
   oidcProviderLabel: string | null;
 };
 
+/** What a switch-core says about itself to an authenticated client (CHOO-1865).
+ *
+ * `version` is null when the server cannot read its own version. Null means
+ * unknown and must be rendered as such, never as current. */
+export type SwitchServerDeclaration = {
+  version: string | null;
+  contracts: Record<string, { speaks: number; accepts: number }>;
+};
+
 /** The authenticated user, as returned by `GET /gateway/auth/me`. */
 export type SwitchUser = {
   id: string;
   name: string;
   email: string;
   role: string;
+  /**
+   * What the server declared on this session response.
+   *
+   * Null when the server predates version disclosure — which is the honest
+   * reading, not a defect. This is the only version signal available for a
+   * server switchdash does not manage: `readDeployedVersion` needs host access
+   * to read an image tag, so a BYO server used to report nothing at all, ever.
+   */
+  server: SwitchServerDeclaration | null;
 };
 
 /** Connection status for a server: whether switchdash holds a valid session. */
@@ -149,6 +167,11 @@ export type RemoteRoomSummary = {
    * desktop client (slack://…, mattermost://…), or null when not bridged / the
    * bridge is down / the platform has no scheme. Built server-side. */
   externalChannelUrl: string | null;
+  /** Switch user who owns the room — whoever created it. Null for rooms created
+   * before ownership was tracked, or auto-created by an inbound bridge channel.
+   * Rooms the signed-in user owns stay listed in the sidebar even with no live
+   * session, so a room you just made never vanishes on you. */
+  ownerId: string | null;
   archived: boolean;
   createdAt: string;
 };
@@ -174,6 +197,111 @@ export type RemoteRoomGroup = {
   id: string;
   name: string;
 };
+
+/**
+ * A collaboration bridge configured on a server (mirrors the gateway
+ * `BridgeDetail`). Every room switchdash creates is bridged to one of these, so
+ * the humans it is being created for can actually reach it.
+ */
+export type RemoteBridge = {
+  id: string;
+  /** Platform key (`slack`, `mattermost`, …) — drives the bridge icon. */
+  type: string;
+  displayName: string;
+  /** Only `active` bridges can back a new room. */
+  status: string;
+  /** The bridge used when a room is created without naming one. */
+  isDefault: boolean;
+  /**
+   * Link that opens this bridge's workspace in its messaging app, from the
+   * gateway's live adapter. Null when the bridge is not running, the platform
+   * offers no such link, or the server predates the field — so treat its
+   * absence as "no action to offer", not as an error.
+   */
+  homeUrl: string | null;
+};
+
+/**
+ * How to sign in to a managed deployment's bundled Mattermost directly — in a
+ * browser or the desktop Mattermost client, on the machine running it
+ * (CHOO-1787). The stack publishes onto loopback, so nothing off that machine
+ * can reach the URL.
+ *
+ * `unavailable` carries the reason in words a user can act on, and is the only
+ * alternative to real values: the credentials are per-deployment and generated,
+ * so a plausible-looking default would be worse than saying nothing.
+ */
+export type BundledChatSignIn =
+  | {
+      kind: 'available';
+      /** Origin to paste into the Mattermost client's "server URL" field. */
+      url: string;
+      username: string;
+      password: string;
+    }
+  | { kind: 'unavailable'; reason: string };
+
+/**
+ * One credential field a bridge type needs, projected from the JSON Schema the
+ * gateway derives from the adapter's Pydantic config model.
+ *
+ * The schema is the server's to define, not switchdash's: a Slack bridge needs
+ * different fields from a Discord one, and a switch-core release can add a
+ * field without an app release. So the attach form is generated from this
+ * rather than hand-written per platform.
+ */
+export type BridgeConfigField = {
+  key: string;
+  label: string;
+  description: string | null;
+  required: boolean;
+  /** Render masked and keep out of logs. Set from the schema's
+   * `format: "password"` hint, falling back to a name heuristic. */
+  secret: boolean;
+};
+
+/** A bridge type registered on a server, with the fields needed to attach one
+ * (mirrors the gateway `BridgeTypeInfo`, with its raw JSON Schema flattened
+ * into an ordered field list). */
+export type RemoteBridgeType = {
+  /** Platform key (`slack`, `mattermost`, …). */
+  key: string;
+  fields: BridgeConfigField[];
+};
+
+/**
+ * Parameters for attaching a collaboration bridge to a server from inside
+ * switchdash (CHOO-1784).
+ *
+ * `connectionConfig` carries platform credentials — a Slack bot token, a
+ * Discord bot token, a Mattermost admin password. It is main-process-only: it
+ * goes straight to the server over HTTPS and is never persisted by switchdash,
+ * never logged, and never sent back to the renderer.
+ */
+export type CreateBridgeParams = {
+  serverId: string;
+  bridgeType: string;
+  displayName: string;
+  connectionConfig: Record<string, string>;
+  /** Make this the bridge new rooms land on when none is named. */
+  setAsDefault: boolean;
+};
+
+/**
+ * Outcome of attaching a bridge. As with room creation, recoverable gateway
+ * failures become variants the modal can say out loud rather than a raw throw.
+ *
+ * `forbidden` is its own case because it is not a fault the user can fix by
+ * editing the form: registering a bridge is admin-only, so a non-admin needs
+ * telling that rather than a validation error.
+ */
+export type CreateBridgeResult =
+  | { kind: 'created'; bridge: RemoteBridge }
+  | { kind: 'unauthenticated' }
+  | { kind: 'forbidden' }
+  /** The server rejected the credentials or the config shape (400/422). */
+  | { kind: 'invalid'; message: string }
+  | { kind: 'error'; message: string };
 
 /** A bridged (external) human identity on a server. The `users` dimension of an
  * addressing policy keys off these ids. */
@@ -278,6 +406,43 @@ export type ProvisionAgentResult =
   | { kind: 'unauthenticated' }
   | { kind: 'name-conflict' }
   | { kind: 'invalid-name'; message: string }
+  | { kind: 'error'; message: string };
+
+/**
+ * Parameters for creating a room on a server from inside switchdash
+ * (CHOO-1875) — the minimal set that gets a user to a working room. The wider
+ * gateway surface (roles, groups, visibility, references, existing-channel
+ * binding) stays in the operator web app.
+ *
+ * A bridge is mandatory: a room nobody can reach from a messaging app is not a
+ * useful room, so there is no internal-only path here.
+ */
+export type CreateRoomParams = {
+  serverId: string;
+  name: string;
+  description: string;
+  /** Room-specific system prompt shown to agents on connect. Optional. */
+  instructions?: string;
+  bridgeId: string;
+  /** Switch agent ids to add as members. May be empty — a bridged room is
+   * valid with no agents, and members can be invited later. */
+  agentIds: string[];
+};
+
+/**
+ * Outcome of creating a room. `created` carries the new room; every other
+ * variant maps a recoverable gateway failure onto something the modal can say
+ * out loud, rather than a raw throw or a silent no-op.
+ *
+ * `bridge-unavailable` is its own case because it is the one failure a user can
+ * act on directly (start the bridge, or pick another) — the gateway reports an
+ * unknown bridge id and a stopped bridge identically, as a 400.
+ */
+export type CreateRoomResult =
+  | { kind: 'created'; room: RemoteRoomSummary }
+  | { kind: 'unauthenticated' }
+  | { kind: 'bridge-unavailable'; message: string }
+  | { kind: 'invalid'; message: string }
   | { kind: 'error'; message: string };
 
 /**

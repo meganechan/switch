@@ -1,5 +1,6 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import type { ContractRange } from '@switchdash/shared';
 import { exactTmuxTarget } from '@main/core/pty/tmux-session-name';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import type { AgentLaunchSpec } from '../../../../sidecar/agent-launch-spec';
@@ -15,8 +16,10 @@ import {
   sidecarWatchEnabledRelPath,
 } from '../../../../sidecar/sidecar-paths';
 import {
+  compareSidecarVersions,
   MIN_SUPPORTED_SIDECAR_MAJOR,
   SIDECAR_CLIENT_MAJOR,
+  SIDECAR_VERSION,
   sidecarMajor,
 } from '../../../../sidecar/sidecar-version';
 
@@ -82,9 +85,14 @@ interface ReadyLine {
   /** Monotonic per-start counter from the sidecar's durable state. Absent from
    * a pre-CHOO-1425 sidecar. */
   epoch: number | null;
-  /** Human-readable `x.y` version; the major governs compatibility. Absent from
-   * a sidecar predating versioning, which is treated as major 0. */
+  /** Release version, `MAJOR.MINOR.PATCH`. Says which release is running and
+   * nothing about compatibility — that is `contract`. Absent from a sidecar
+   * predating versioning, which is treated as major 0. */
   version: string | null;
+  /** What the running sidecar says it speaks on `sidecar-control` (CHOO-1865).
+   * Null for a sidecar deployed before it declared anything, which means
+   * *unknown* — never agreement. Recorded, not yet acted on. */
+  contract: ContractRange | null;
   /** OS process id of the running sidecar, for display. Absent from an older one. */
   pid: number | null;
 }
@@ -100,8 +108,11 @@ export interface SidecarRunStatus {
   compatible: boolean;
   /** Build fingerprint the running sidecar reports for itself. */
   hash: string | null;
-  /** Human-readable `x.y` version the running sidecar reports. */
+  /** Release version the running sidecar reports, `MAJOR.MINOR.PATCH`. */
   version: string | null;
+  /** The `sidecar-control` range it declared, or null for unknown (CHOO-1865).
+   * Null must render as unknown, never as compatible. */
+  contract: ContractRange | null;
   epoch: number | null;
   pid: number | null;
   /** Sessions the running sidecar currently owns, from its durable state. */
@@ -156,9 +167,35 @@ function parseReady(raw: string): ReadyLine | null {
     const version =
       'version' in parsed && typeof parsed.version === 'string' ? parsed.version : null;
     const pid = 'pid' in parsed && typeof parsed.pid === 'number' ? parsed.pid : null;
-    return { port: parsed.port, token: parsed.token, hash, epoch, version, pid };
+    return {
+      port: parsed.port,
+      token: parsed.token,
+      hash,
+      epoch,
+      version,
+      contract: parseContract(parsed),
+      pid,
+    };
   }
   return null;
+}
+
+/**
+ * The `sidecar-control` range a sidecar declared, or null for unknown.
+ *
+ * A partial or malformed declaration reads as unknown rather than as the half
+ * that parsed: half a range is not a range, and guessing the other half would
+ * invent a number nobody declared.
+ */
+function parseContract(parsed: object): ContractRange | null {
+  if (!('contract' in parsed)) return null;
+  const contract = parsed.contract;
+  if (typeof contract !== 'object' || contract === null) return null;
+  if (!('speaks' in contract) || !('accepts' in contract)) return null;
+  const { speaks, accepts } = contract as { speaks: unknown; accepts: unknown };
+  if (typeof speaks !== 'number' || typeof accepts !== 'number') return null;
+  if (!Number.isInteger(speaks) || !Number.isInteger(accepts)) return null;
+  return { speaks, accepts };
 }
 
 const defaultSleep = (ms: number): Promise<void> =>
@@ -366,14 +403,33 @@ export class RemoteSidecarLauncher {
    * to load is observably half-written. A concurrent start would fail on a
    * SyntaxError. Renaming is atomic, so a reader sees the old bundle or the new
    * one.
+   *
+   * The temp name must be unique across *machines*, not just within one: the
+   * deploy lock is per-agent while the bundle is shared per directory, so two
+   * clients deploying for different agents in one directory hold different locks
+   * and upload concurrently. A pid alone collides across hosts, and two streams
+   * into one temp file rename a torn bundle into place (CHOO-1937).
    */
   private async uploadBundle(): Promise<void> {
-    const tmpRel = `${SIDECAR_BUNDLE_REL_PATH}.${process.pid}.tmp`;
-    await this.host.putFile(this.bundlePath, tmpRel);
-    await this.host.exec('sh', [
-      '-c',
-      `mv ${quoteShellArg(tmpRel)} ${quoteShellArg(SIDECAR_BUNDLE_REL_PATH)}`,
-    ]);
+    const tmpRel = `${SIDECAR_BUNDLE_REL_PATH}.${randomUUID()}.tmp`;
+    try {
+      await this.host.putFile(this.bundlePath, tmpRel);
+      await this.host.exec('sh', [
+        '-c',
+        `mv ${quoteShellArg(tmpRel)} ${quoteShellArg(SIDECAR_BUNDLE_REL_PATH)}`,
+      ]);
+    } catch (error) {
+      // A unique name is never reused, so a failed attempt can no longer be
+      // cleaned up by the next one overwriting it. Remove it here instead of
+      // accumulating fragments in a directory other clients deploy into too.
+      await this.host.exec('sh', ['-c', `rm -f ${quoteShellArg(tmpRel)}`]).catch((cause: unknown) =>
+        this.log.debug('RemoteSidecarLauncher: could not remove a failed bundle upload', {
+          tmpRel,
+          error: String(cause),
+        })
+      );
+      throw error;
+    }
   }
 
   /** Epoch of the sidecar currently running, or null if none/unreadable. */
@@ -502,6 +558,7 @@ export class RemoteSidecarLauncher {
         compatible: false,
         hash: null,
         version: null,
+        contract: null,
         epoch: null,
         pid: null,
         liveSessions: 0,
@@ -512,6 +569,7 @@ export class RemoteSidecarLauncher {
       compatible: this.isCompatible(ready),
       hash: ready.hash,
       version: ready.version,
+      contract: ready.contract,
       epoch: ready.epoch,
       pid: ready.pid,
       liveSessions: await this.runningSessionCount(),
@@ -545,6 +603,8 @@ export class RemoteSidecarLauncher {
    * reserved for the cases that need it:
    *  - incompatible protocol → must replace; we cannot talk to it at all.
    *  - same build → reattach; there is nothing to gain.
+   *  - newer version → reattach; a newer switchdash deployed it, and replacing
+   *    it would be a downgrade.
    *  - different build, no live sessions → upgrade, since nothing is disturbed.
    *  - different build, live sessions → reattach and record that an upgrade is
    *    pending, rather than interrupting work in flight for a build difference.
@@ -563,6 +623,21 @@ export class RemoteSidecarLauncher {
       return null;
     }
     if (ready.hash === localHash) return this.toEndpoint(ready);
+
+    // A hash difference alone does not say which build is newer. On a host two
+    // switchdash installs share, replacing on difference alone means each sees
+    // the other's sidecar as an upgrade and they trade it back and forth
+    // indefinitely. Ordering by version breaks the symmetry: only the newer
+    // client replaces, and the older one settles for what is already there
+    // (CHOO-1937).
+    if (compareSidecarVersions(ready.version, SIDECAR_VERSION) > 0) {
+      this.log.debug('RemoteSidecarLauncher: host runs a newer sidecar — leaving it in place', {
+        sidecarTmuxName: this.sidecarTmuxName,
+        runningVersion: ready.version,
+        clientVersion: SIDECAR_VERSION,
+      });
+      return this.toEndpoint(ready);
+    }
 
     const liveSessions = await this.runningSessionCount();
     if (liveSessions > 0) {

@@ -1,10 +1,16 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { createPluginFs } from '@main/core/providers/plugin-fs';
+import { getPlugin } from '@main/core/providers/plugin-registry';
 import { quoteShellArg } from '@main/utils/shellEscape';
 import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
-import { makePtyId } from '@shared/core/pty/ptyId';
+import { asPtyProviderId, makePtyId } from '@shared/core/pty/ptyId';
 import { type AgentLaunchSpec, materializeAgentCommand } from './agent-launch-spec';
+import { atomicWriteFile } from './atomic-file';
 import type { SessionSpawner, WatcherLogger } from './notification-watcher';
 import { makeAgentTmuxSessionName } from './vm-tmux';
 
@@ -26,6 +32,18 @@ export interface InProcessSessionSpawnerDeps {
   endpointFile: string;
   /** The multi-session runtime — a room it already serves needs no new session. */
   runtime: RoomLivenessSource;
+  /**
+   * Open a connection for a session about to launch and return its id, so the
+   * session's tool calls land on the connection this sidecar is reading. Same
+   * hand-off switchdash does locally; without it the session opens its own and
+   * the sidecar is back to inferring the room from a hook.
+   */
+  openConnectionFor?: (
+    sessionId: string,
+    providerId: string,
+    roomId: string,
+    startCursor?: number
+  ) => string | null;
   /** The agent's Switch identity as `SWITCH_*` env, injected into every
    * auto-started session so it authenticates as this agent — a `--settings` env
    * block is not reliably propagated to the spawned MCP server (CHOO-1440). */
@@ -69,9 +87,16 @@ export class InProcessSessionSpawner implements SessionSpawner {
   }
 
   /**
-   * Forget a launched session by its session id (switchdash deleted it), so
-   * it is no longer reported as pending/spawned and a fresh room notification can
-   * spawn a new one. No-op if we never launched this session.
+   * Forget a launched session by its session id, so it is no longer reported as
+   * pending/spawned and a fresh room notification can spawn a new one. No-op if
+   * we never launched this session.
+   *
+   * Called both when switchdash deletes a session and when one connects to a
+   * room. The entry only covers the boot window — between launch and the first
+   * `connect_to_room` — and once the runtime knows the session, its room map is
+   * the accurate answer. Keeping the entry past that point makes it vouch for
+   * the room the session was *started for* rather than the one it is in, so a
+   * session that moves rooms leaves its old room permanently unspawnable.
    */
   drop(sessionId: string): void {
     for (const [roomId, session] of this.launched) {
@@ -127,20 +152,31 @@ export class InProcessSessionSpawner implements SessionSpawner {
     return false;
   }
 
-  async launch(roomId: string): Promise<void> {
+  async launch(roomId: string, startCursor?: number): Promise<void> {
     const { hookPort, hookToken, endpointFile, log } = this.deps;
     const spec = this.spec;
     const sessionId = randomUUID();
     const tmuxTarget = makeAgentTmuxSessionName(sessionId);
 
+    // Open the session's connection before launching it: its first
+    // connect_to_room arrives tagged with this id, and the server refuses a
+    // call naming a connection that is not open. The room goes with it — this
+    // session is being launched to answer a message in that room, so there is
+    // nothing to wait to be told.
+    const connectionId =
+      this.deps.openConnectionFor?.(sessionId, spec.providerId, roomId, startCursor) ?? null;
+
     const hookEnv = {
       ...this.deps.switchEnv,
       ...buildAgentHookEnv({
         port: hookPort,
-        ptyId: makePtyId(spec.providerId, sessionId),
+        // The spec is JSON off the host's disk, so its provider id is only a
+        // string until something checks it.
+        ptyId: makePtyId(asPtyProviderId(spec.providerId), sessionId),
         token: hookToken,
         endpointFile,
       }),
+      ...(connectionId ? { SWITCH_CONNECTION_ID: connectionId } : {}),
     };
     const command = materializeAgentCommand(spec, {
       sessionId,
@@ -148,12 +184,63 @@ export class InProcessSessionSpawner implements SessionSpawner {
       extraEnv: hookEnv,
     });
 
+    await this.writeLaunchFiles();
+    await this.installHooks();
     await this.startDetachedTmux(tmuxTarget, spec.cwd, command.env, command.command, command.args);
     this.launched.set(roomId, { sessionId, tmuxTarget });
     log.info('InProcessSessionSpawner: launched session for room', {
       roomId,
       sessionId,
       tmuxTarget,
+    });
+  }
+
+  /**
+   * Write the spec's baked config files (e.g. Codex's Switch profile) under the
+   * VM home before spawning. Static across spawns and safe to rewrite, so this
+   * runs every launch rather than tracking whether it already ran.
+   */
+  private async writeLaunchFiles(): Promise<void> {
+    for (const file of this.spec.launchFiles ?? []) {
+      const absPath = join(homedir(), file.homeRelativePath);
+      await mkdir(dirname(absPath), { recursive: true });
+      await atomicWriteFile(absPath, file.content);
+    }
+  }
+
+  /**
+   * Install the provider's agent hooks on this VM before spawning, mirroring
+   * what the desktop does for a session it starts itself. The pane is launched
+   * with `SWITCHDASH_HOOK_*` pointing at this sidecar, but nothing posts to it
+   * unless the provider's own config registers the hook commands — and without
+   * them the session never reports that it has stopped, so the room it was
+   * spawned to answer shows it working forever. Idempotent, so it runs per
+   * launch rather than being tracked. Throws: the watcher retries a failed
+   * launch and reports it in the room, which beats a session that comes up deaf.
+   */
+  private async installHooks(): Promise<void> {
+    const providerId = this.spec.providerId;
+    const plugin = getPlugin(providerId);
+    const hooks = plugin.capabilities.hooks;
+    if (hooks.kind === 'none') return;
+    if (hooks.kind !== 'config' || !plugin.behavior.hooks) {
+      this.deps.log.error('InProcessSessionSpawner: provider hooks cannot be installed here', {
+        providerId,
+        kind: hooks.kind,
+      });
+      return;
+    }
+    if (hooks.scope !== 'global' && hooks.scope !== 'workspace') {
+      throw new Error(
+        `InProcessSessionSpawner: no hook root for scope '${String(hooks.scope)}' — the session ` +
+          'would run with no hooks and never report that it has stopped'
+      );
+    }
+    const root = hooks.scope === 'global' ? homedir() : this.spec.cwd;
+    await plugin.behavior.hooks.writeHooks(createPluginFs(root), []);
+    this.deps.log.info('InProcessSessionSpawner: installed agent hooks', {
+      providerId,
+      scope: hooks.scope,
     });
   }
 

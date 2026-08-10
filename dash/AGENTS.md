@@ -1,14 +1,14 @@
 # Project Overview
 
 Switchdash is a cross-platform, local-first Electron app for orchestrating multiple AI
-coding agents in parallel. Each agent runs in its own session at the project root (there
-are no Git worktrees). An agent runs either locally or — when configured remote — on an
+coding agents in parallel. Each agent runs in its own session in its location's directory
+(there are no Git worktrees). An agent runs either locally or — when configured remote — on an
 SSH host, where it runs inside tmux next to a switchdash-deployed sidecar so it keeps
 working and listening to its Switch rooms while switchdash is closed (CHOO-1059). It
 combines provider-agnostic CLI agent execution, session management,
 terminal sessions, MCP and skills, and packaging for desktop releases.
 
-Switchdash is an open-source fork; upstream attribution is recorded in `NOTICE`. The
+Switchdash is a fork; upstream attribution is recorded in `NOTICE`. The
 product is fully rebranded to switchdash: packages (`@switchdash/*`), the app directory
 (`apps/switchdash-desktop/`), the user-data directory, the per-project config file
 (`.switchdash.json`), the macOS app id (`com.switchdash.*`), release artifact names
@@ -34,10 +34,14 @@ Repo root:
 - `.claude/` - Local Claude agent settings for this checkout.
 - `agents/` - Agent-facing architecture, workflow, convention, integration, and risk docs.
 - `apps/switchdash-desktop/` - The Electron desktop app (everything below).
-- `packages/` - Shared workspace packages: core runtime, shared primitives, and plugins.
+- `packages/` - Shared workspace packages.
   - `packages/core/` - Transport-agnostic core runtime primitives.
-  - `packages/shared/` - Shared workspace primitives.
-  - `packages/plugins/` - Plugin interfaces and helpers.
+  - `packages/shared/` - Shared workspace primitives, including the `Result<T, E>` type
+    (`@switchdash/shared`).
+  - `packages/plugins/` - Plugin interfaces and helpers, and the agent provider plugins
+    under `src/agents/impl/<id>/`.
+  - `packages/switch-agent-runtime/` - The published agent runtime; sessions run a pinned
+    version of it (see "Versioned Artifacts").
 - Root config files - `pnpm-workspace.yaml`, root `package.json` with aggregate scripts,
   `.nvmrc`, `.oxfmtrc.json`, `.oxlintrc.json`.
 
@@ -45,7 +49,9 @@ Inside `apps/switchdash-desktop/`:
 
 - `build/` - Electron packaging assets; avoid edits unless working on packaging or signing.
 - `drizzle/` - Generated Drizzle SQL migrations and metadata.
-- `scripts/` - Release, verification, and build support scripts.
+- `scripts/` - Build and verification support scripts (sidecar bundle, postinstall,
+  deeplink reset, compose sync). Releasing is a GitHub Actions workflow at the repo
+  root, not a script here.
 - `src/main/` - Electron main process, RPC controllers, services, database, PTY.
 - `src/preload/` - Typed Electron preload bridge exposed to the renderer.
 - `src/renderer/` - React app organized around `app/`, `features/`, `lib/`, and tests.
@@ -183,7 +189,7 @@ pnpm run reset
   imported operation or service functions.
 - Renderer RPC calls go through `rpc` from `src/renderer/lib/ipc.ts`.
 - Feature UI lives under `src/renderer/features/<feature>/`; shared renderer
-  primitives, stores, hooks, modal infrastructure, PTY, Monaco, and UI live under
+  primitives, stores, hooks, modal infrastructure, PTY, hotkeys, and UI live under
   `src/renderer/lib/`.
 - New modals must be registered in `src/renderer/app/modal-registry.ts`.
 - New views must be registered in `src/renderer/app/view-registry.ts`.
@@ -225,12 +231,16 @@ views, modals, command providers, project state, terminals, and session workflow
 Shared IPC primitives, provider metadata, events, MCP types, skills types, and
 domain types live under `src/shared/`.
 
-agent runtime, dependencies, execution context, fs, locations (an agent's working
-dir on a host — formerly the project/workspace split), prompt library, PTY,
-resource monitor, search, secrets, sessions, settings, switch agents, terminal
-shell, terminals, updates, and view state. Stateful main-process concerns use
-singleton services; expected failures should use the `Result<T, E>` pattern from
-`src/main/lib/result.ts`.
+Main-process work is split into domain modules under `src/main/core/`: agent hooks,
+agent runtime, agents (Switch agents), app, dependencies, execution context, fs,
+locations (an agent's working dir on a host — formerly the project/workspace split),
+managed Switch server, prompt library, providers (the CLI-provider registry), PTY,
+remote hosts, resource monitor, search, secrets, sessions, settings, sidecar, SSH,
+switch rooms, switch servers, switch setup, terminal shell, terminals, updates, and
+view state. `agents` and `providers` are different things — see
+`agents/architecture/main-process.md`. Stateful main-process concerns use singleton
+services; expected failures should use the `Result<T, E>` pattern from the
+`@switchdash/shared` workspace package.
 
 ### Logging
 
@@ -304,7 +314,7 @@ pnpm run lint
 
 ## Security & Compliance
 
-- The project is licensed under Apache-2.0; see `LICENSE.md`.
+- The project is licensed under Apache-2.0; see `LICENSE` at the repo root.
 - Do not commit secrets, tokens, private keys, app databases, logs, build artifacts,
   or generated dependency folders.
 - Application secrets are stored through encrypted app secret services and Electron
@@ -327,6 +337,82 @@ pnpm run lint
 - Treat shell escaping and PTY spawning as security-sensitive.
 - Do not bypass path-safety, shell escaping, or validation helpers.
 - Use `pnpm-lock.yaml` for dependency integrity and review dependency changes.
+
+## The Sidecar Mirrors switchdash — Check Both
+
+`src/sidecar/` is a second, headless implementation of what the desktop app does
+for a session: it starts sessions, keeps them connected to their room, and
+injects messages into their pane. It runs on the agent's VM with no Electron, no
+database and no renderer.
+
+**So whenever you add or change logic in the desktop app, ask whether the sidecar
+needs the same thing — and answer it in the same change.** Not "later": the
+sidecar has no UI, so when it lacks something the symptom is a remote session
+that quietly does less than a local one, and nobody notices until someone is
+debugging a VM.
+
+The pairs that must stay in step:
+
+| Desktop | Sidecar | Shared by |
+|---|---|---|
+| `agent-runtime/impl/local-agent-runtime.ts` (spawn env) | `sidecar/session-spawner.ts` + `sidecar/index.ts` | nothing — **the usual place to forget** |
+| `agent-hooks/hook-config-service.ts` + `ssh-agent-runtime.installRemoteHooks` | `sidecar/session-spawner.installHooks` | nothing — same failure mode: one side quietly installs fewer hooks |
+| `switch-rooms/auto-session-watcher.ts` | `sidecar/notification-watcher.ts` | nothing — two implementations of one watcher |
+| `switch-rooms/room-connection.ts` | — | shared: the sidecar constructs the same class |
+| protocol client (stream, heartbeat, cursor) | — | shared: `@sandbox-quantum/switch-agent-runtime` |
+
+Where a row says *shared*, a change lands in both for free — prefer putting
+logic there. Where it says *nothing*, you are editing one of two copies and the
+other will not follow you.
+
+Things that reach a session through its **environment** are the sharpest edge,
+because both sides build that separately. If you add a variable in
+`local-agent-runtime`, it almost certainly belongs in the sidecar's `switchEnv`
+too.
+
+## Versioned Artifacts — Bump Them
+
+Four things here ship independently of the app and carry their own version.
+**If you make a non-trivial change to one, bump its version in the same commit.**
+Not at release time, not "later" — in the commit that changes it, or it will be
+forgotten and someone will debug a build they think is newer than it is.
+
+| Artifact | Version lives in | Bump when |
+|---|---|---|
+| Remote sidecar | `src/sidecar/sidecar-version.ts` | any behaviour change; **major only** on a client↔sidecar wire break (ready line, endpoint shapes, shared on-disk layout) |
+| Claude Code plugin | `connectors/claude-code-plugin/.claude-plugin/plugin.json` | any change to the plugin — installs will not pick it up otherwise |
+| Codex plugin | `connectors/codex-plugin/.codex-plugin/plugin.json` | any change to the plugin (it ships only the skill) — installs will not pick it up otherwise |
+| Agent runtime package | `packages/switch-agent-runtime/package.json` | any change; it is published, and two pins name the version sessions actually run — the Claude connector `.mcp.json`, and `SWITCH_AGENT_RUNTIME_VERSION` in `src/shared/core/switch-rooms/switch-agent-runtime.ts` (which the Codex profile uses) |
+
+"Non-trivial" means anything a user could observe: behaviour, protocol, wiring,
+dependencies. A comment or a rename that changes nothing does not need one.
+
+**The runtime's version and its two pins move at different times, in this
+order.** Bump `package.json` with the change; the pins must keep naming a
+version that is *published*, so they stay behind until the tag exists
+(`git tag switch-agent-runtime-v<version> && git push origin <tag>`), and only
+then move to it. Pinning ahead points every session at something the registry
+does not have. `switch-agent-runtime.test.ts` enforces exactly this: the two
+pins must agree with each other, and neither may run ahead of `package.json`.
+The cost of the lag is real and worth stating in the PR — a change to `bin.ts`
+reaches no session until the tag is pushed and the pins follow.
+
+Two traps worth knowing rather than rediscovering:
+
+- **A sidecar major replaces every sidecar on sight, live sessions included.**
+  It is judged on the contract *switchdash* speaks to, not on how much changed
+  inside. Changing how the sidecar talks to Switch is not a major.
+- **A *new* sidecar endpoint is a minor, not a major.** A major only achieves
+  anything if `MIN_SUPPORTED_SIDECAR_MAJOR` moves with it, and that kills every
+  older sidecar on sight — including one an older switchdash on the same host
+  then kills right back, each replacing the other forever. The client owns the
+  detection instead: call the endpoint, and when an older sidecar 404s it, fail
+  the operation with a message naming the upgrade rather than continuing
+  without whatever the endpoint was for.
+- **Redeploy is decided by the bundle's content hash, not by the version.** So a
+  forgotten bump does not strand a VM on old code — but it does make the version
+  a lie, which is worse in its own way, because it is the number people reason
+  from when something misbehaves.
 
 ## Agent Guardrails
 
@@ -370,8 +456,13 @@ pnpm run test
 
 ## Extensibility Hooks
 
-- Agent providers are defined in `src/shared/core/agents/agent-provider-registry.ts`.
-- Provider detection lives in `src/main/core/dependencies/dependency-manager.ts`.
+- Agent providers are defined in `packages/plugins/src/agents/impl/<id>/index.ts`.
+  `src/shared/core/providers/agent-provider-registry.ts` holds the id list, per-provider
+  display metadata, and a mirror of each provider's argv shape. The mirror is
+  descriptive: nothing reads it at spawn time, so change the plugin first and update the
+  mirror to match. `provider-argv-parity.test.ts` pins Codex's.
+- Provider detection lives in `src/main/core/dependencies/` (`dependency-managers.ts`,
+  `registry.ts`), with remote detection in `remote-dependency-manager.ts`.
 - Provider PTY behavior and env passthrough live under `src/main/core/pty/`.
 - Provider event hooks and plugins live under `src/main/core/agent-hooks/`.
 - Modal definitions are centralized in `src/renderer/app/modal-registry.ts`.
@@ -385,8 +476,33 @@ pnpm run test
   `.switchdash.json`.
 - Optional environment variables:
   `SWITCHDASH_DB_FILE`, `SWITCHDASH_DISABLE_NATIVE_DB`,
-  `SWITCHDASH_DISABLE_PTY`, `SWITCHDASH_REGISTER_DEEPLINK`, `CODEX_SANDBOX_MODE`,
-  and `CODEX_APPROVAL_POLICY`.
+  `SWITCHDASH_DISABLE_PTY`, `SWITCHDASH_REGISTER_DEEPLINK`, and
+  `SWITCHDASH_FAKE_UPDATE`.
+- An auto-approving Codex session launches with `-c approval_policy="never"` and
+  nothing else. The sandbox is deliberately **not** overridden: "Bypass
+  permissions" promises unattended approvals, not unattended filesystem and
+  network access, so the user's own `sandbox_mode` from `~/.codex/config.toml`
+  stands. Measured against codex-cli 0.146.0, Codex runs hooks **outside** the
+  sandbox, so switchdash's `curl http://127.0.0.1:$SWITCHDASH_HOOK_PORT/hook`
+  hooks return 200 under `workspace-write` — the loopback block applies to
+  model-generated commands only. See
+  `packages/plugins/src/agents/impl/codex/index.ts`.
+- Every switchdash-launched Codex session — not only auto-approving ones — carries
+  `--dangerously-bypass-hook-trust`. Codex skips any hook it has no persisted
+  `trusted_hash` for, which would take switchdash's own hooks with it; the flag is
+  per-invocation and also un-gates hooks the user added to `~/.codex/hooks.json`
+  themselves. Rationale and the rejected alternative are on `CODEX_HOOK_TRUST_FLAG` in
+  `packages/plugins/src/agents/impl/codex/hooks.ts`.
+- App updates in dev: the update service is inert outside packaged builds, so the
+  "update available" UI cannot be exercised by `pnpm run dev` alone. Set
+  `SWITCHDASH_FAKE_UPDATE` to replay the lifecycle against a simulated release —
+  `available`, `download-error`, `check-error`, `auth-required`, or `up-to-date`.
+  An unrecognised value fails at startup rather than silently doing nothing.
+  `SWITCHDASH_FAKE_UPDATE_VERSION` overrides the offered version (default: the
+  current minor, bumped) and `SWITCHDASH_FAKE_UPDATE_MS` the simulated download
+  duration. Nothing is downloaded or installed, and the harness cannot activate in
+  a packaged build. Example:
+  `SWITCHDASH_FAKE_UPDATE=available pnpm run dev`.
 - Deeplinks in dev: `pnpm run dev` does **not** claim the `switchdash://` OS URL
   scheme by default — doing so hijacks the handler from the installed app and the
   registration outlives the dev process (on macOS it sticks in Launch Services),
@@ -397,7 +513,7 @@ pnpm run test
 - Path aliases are defined in `tsconfig.json` and mirrored in `electron.vite.config.ts`:
   `@/*`, `@renderer/*`, `@main/*`, `@shared/*`, and `@root/*`.
 - Versioned JSON column schemas are defined in `src/shared/` using
-  `defineVersionedSchema()` from `src/shared/lib/versioned-schema.ts` and wired to
+  `defineVersionedSchema()` from `src/shared/lib/versioned-schema/versioned-schema.ts` and wired to
   Drizzle via `versionedJsonColumn()` from `src/main/db/versioned-column.ts`.
   See `agents/conventions/versioned-schemas.md` for the full guide.
 
@@ -409,6 +525,8 @@ pnpm run test
 - [Main process architecture](agents/architecture/main-process.md)
 - [Renderer architecture](agents/architecture/renderer.md)
 - [Shared modules](agents/architecture/shared.md)
+- [Remote execution: hosts, reachability, sidecar](agents/architecture/remote-execution.md)
+- [Switch rooms and sessions](agents/architecture/switch-rooms.md)
 - [Data model (switchdash vs. its upstream origin)](agents/architecture/data-model.md)
 - [Testing workflow](agents/workflows/testing.md)
 - [Provider integration](agents/integrations/providers.md)
@@ -422,5 +540,5 @@ pnpm run test
 - [Database risk notes](agents/risky-areas/database.md)
 - [PTY risk notes](agents/risky-areas/pty.md)
 - [Updater risk notes](agents/risky-areas/updater.md)
-- [Contributing guide](CONTRIBUTING.md)
+- [Contributing guide](../CONTRIBUTING.md) (repo root)
 - [Project README](README.md)

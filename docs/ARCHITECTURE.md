@@ -33,14 +33,13 @@ rooms, and to bridge them out to external platforms.
 
 The backend is a single FastAPI service, assembled in
 [`core/switch_core/main.py`](../core/switch_core/main.py). The Agent Bridge app is
-the root ASGI app; the MCP server, health check, collaboration bridge, and
-gateway are mounted onto it:
+the root ASGI app; the MCP server, health check, and gateway are mounted onto it:
 
 - `POST/GET /agents/...` — Agent Bridge HTTP API
 - `/mcp` — MCP server (agent tool surface)
 - `/health` — health check
-- `/collab` — collaboration bridge admin API (bridge CRUD/onboarding)
-- `/gateway` — gateway management API (backs the operator dashboard)
+- `/gateway` — gateway management API (backs the operator dashboard); includes
+  the admin-gated collaboration-bridge admin API (`/gateway/collaborations`)
 
 ```mermaid
 flowchart LR
@@ -67,8 +66,8 @@ flowchart LR
   DB[("PostgreSQL")]
   OPS[Operator dashboard SPA]
 
-  A1 <-->|MCP / long-poll| AB
-  A2 <-->|HTTP / long-poll| AB
+  A1 <-->|MCP + SSE stream| AB
+  A2 <-->|HTTP + SSE stream| AB
   SL <-->|WebSocket| CB
   MM <-->|WebSocket| CB
   DC <-->|WebSocket| CB
@@ -95,7 +94,7 @@ flowchart LR
 
 ### The desktop app (switchdash)
 
-`dash/` is a local-first Electron desktop app (an open-source fork; see
+`dash/` is a local-first Electron desktop app (a fork; see
 `dash/NOTICE`) for managing the local coding-agent sessions that participate in
 Switch — which rooms an agent belongs to, its config, and session scheduling
 (e.g. auto-starting a session when a Slack user addresses an agent that has no
@@ -149,8 +148,14 @@ The relational schema is defined in
    `BearerAuthMiddleware` ([`bridges/agent/auth.py`](../core/switch_core/bridges/agent/auth.py))
    SHA-256-hashes the token, looks it up in `ApiKeyStore`, and resolves the
    `Agent` onto the request scope.
-3. Over MCP, the agent calls `connect_to_room`, which binds its MCP session to a
-   room. Events are then delivered by **long-polling** (see 4.3).
+3. The agent opens its event stream (`GET /agents/{id}/events` with
+   `Accept: text/event-stream`), which creates its **connection** — the unit
+   that owns scope, cursor, liveness and room slots. It then calls
+   `connect_to_room`, which **claims the room on that connection**; events for
+   the room are pushed down the same stream (see 4.3). A supervisor that
+   spawned the session may open the stream on its behalf and hand the id over
+   as `SWITCH_CONNECTION_ID`, so the session claims its room on the
+   supervisor's connection rather than opening a second one.
 
 ### 4.2 Inbound message: external platform → agent
 
@@ -171,11 +176,11 @@ sequenceDiagram
   PU->>MX: Matrix m.room.message
   MX-->>AC: sync event
   AC->>AC: is this addressed to my agent?
-  AC-->>AG: enqueue AgentEvent (delivered on long-poll)
+  AC-->>AG: append AgentEvent (pushed down the agent's SSE stream)
 ```
 
-Inbound messages do **not** arrive through the `/collab` HTTP app (that app only
-does bridge CRUD). Each adapter owns its transport:
+Inbound messages do **not** arrive through the `/gateway/collaborations` admin
+API (that only does bridge CRUD). Each adapter owns its transport:
 Slack (Socket Mode WebSocket), Mattermost (WebSocket), and Discord (Gateway
 WebSocket) hold **authenticated outbound connections**; Teams is the exception —
 it self-hosts an HTTP listener (default port 3978) for Bot Framework activities
@@ -203,13 +208,29 @@ agent's name/icon, preserving threads and attachments.
 
 ### 4.3 Event delivery & mediation
 
-- **Delivery is long-poll, not push.** `ProtocolService`
+- **Delivery is a push stream over SSE.** `ProtocolService`
   ([`bridges/agent/protocol/service.py`](../core/switch_core/bridges/agent/protocol/service.py))
-  enqueues outbound events onto an in-memory per-agent, per-room `EventQueue`
-  ([`protocol/event_queue.py`](../core/switch_core/bridges/agent/protocol/event_queue.py)),
-  plus a separate **notification** stream restricted to addressed messages, task
-  events, and opted-in room-joins. Agents drain these via
-  `GET /agents/{id}/events` / `.../notifications` (returning `204` on timeout).
+  appends outbound events to a per-agent sequenced `EventBuffer`
+  ([`protocol/event_buffer.py`](../core/switch_core/bridges/agent/protocol/event_buffer.py)),
+  which is read, never drained — so several readers can consume the same events
+  and a reader that drops off resumes from its cursor. An agent opens
+  `GET /agents/{id}/events` with `Accept: text/event-stream`; the stream
+  ([`protocol/stream.py`](../core/switch_core/bridges/agent/protocol/stream.py))
+  catches up from the cursor and then delivers live, tagging each event with its
+  sequence number so a reconnect resumes via `Last-Event-ID`. The stream is the
+  agent's **connection**
+  ([`protocol/connections.py`](../core/switch_core/bridges/agent/protocol/connections.py)),
+  which owns its scope (`single` / `all`), its event filter (`all` /
+  `addressed`), its heartbeat, and its room slots — at most one connection per
+  agent may act in a given room. `docs/api/AGENT_PROTOCOL.md` is the
+  authoritative spec.
+- **The long poll survives as a compatibility path.** `GET /agents/{id}/events`
+  without the SSE `Accept` header, `GET /agents/{id}/rooms/{room_id}/events`,
+  and `GET /agents/{id}/notifications` (addressed messages, task events,
+  opted-in room-joins) all return `204` on timeout and are served **from the
+  same buffer** — each is a filtered view with a server-held cursor, so no path
+  can diverge from another or destroy what another has yet to read. They are
+  scheduled for removal once the remaining clients are on the stream.
 - **Mediation is synchronous.** The bridge exposes
   `POST /agents/.../mediation/{pre-tool-call,pre-llm-request,post-tool-result,post-llm-response}`.
   `RequestTracker`
@@ -250,15 +271,17 @@ Everything ingress-facing, and where to find it:
 | Entry point | Path / transport | Auth | Code |
 |-------------|------------------|------|------|
 | Agent Bridge API | `/agents/*` (HTTP) | Bearer (agent API key / registration token) | `bridges/agent/api/`, `auth.py` |
+| Agent event stream | `/agents/{id}/events` (SSE) | Bearer | `bridges/agent/protocol/stream.py`, `protocol/connections.py` |
 | MCP server | `/mcp` (HTTP, FastMCP) | Bearer | `bridges/agent/mcp/server.py` |
 | Health | `/health` | public | `main.py` |
-| Collaboration admin | `/collab/bridges` | (bridge CRUD) | `bridges/collaboration/api.py` |
+| Collaboration admin | `/gateway/collaborations` | cookie JWT + admin | `gateway/collaborations.py` |
 | Gateway API | `/gateway/*` | cookie JWT (`switch_auth`) | `gateway/app.py`, `gateway/auth.py` |
 | Platform ingress | adapter transports (Slack/MM/Discord WebSocket; Teams HTTP :3978) | platform token / Teams JWT+HMAC | `bridges/collaboration/*/adapter.py` |
 
 Auth-bypass path prefixes for the Bearer middleware are enumerated in
 `bridges/agent/auth.py` (`PUBLIC_PATH_PREFIXES`): `/health`, `/.well-known`,
-`/collab`, `/gateway` (the gateway uses its own cookie-based auth).
+`/oauth`, `/gateway` (the gateway uses its own cookie-based auth), and
+`/deeplink`.
 
 ---
 

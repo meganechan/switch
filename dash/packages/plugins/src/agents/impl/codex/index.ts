@@ -5,8 +5,10 @@ import {
   homebrewOption,
   npmDependency,
 } from '@switchdash/core/agents/plugins/helpers';
-import { buildCodexHookConfig } from './hooks';
+import { SWITCH_MARKETPLACE_SOURCE } from '../../../distribution';
+import { buildCodexHookConfig, CODEX_HOOK_TRUST_FLAG } from './hooks';
 import { icon } from './icon';
+import { codexLaunchProfile, codexProfilePaths } from './profile';
 
 export const plugin = definePlugin(
   {
@@ -26,7 +28,7 @@ export const plugin = definePlugin(
     hooks: {
       kind: 'config',
       scope: 'global',
-      supportedEvents: ['notification', 'stop', 'session'],
+      supportedEvents: ['notification', 'stop', 'session', 'tool-use', 'tool-done'],
     },
     hostDependency: npmDependency({
       id: 'codex',
@@ -64,7 +66,15 @@ export const plugin = definePlugin(
       kind: 'resumable',
     },
     repoAgents: { kind: 'none' },
-    switchSetup: { kind: 'none' },
+    switchSetup: {
+      kind: 'cli',
+      pluginName: 'switch-connector-codex',
+      marketplaceName: 'switch-plugins',
+      marketplaceSource: SWITCH_MARKETPLACE_SOURCE,
+      // Codex has no install-scope flag; the value is unused for this dialect.
+      scope: 'user',
+      dialect: 'codex',
+    },
   },
   { icon }
 );
@@ -73,8 +83,14 @@ export const provider = registerPluginBehavior(plugin, {
   prompt: {
     buildCommand: (ctx) =>
       buildStandardCommand(ctx, {
-        autoApproveFlag:
-          '-c approval_policy="never" -c sandbox_mode="danger-full-access" --dangerously-bypass-hook-trust',
+        // Every session, not just auto-approving ones. See the flag's docblock.
+        defaultArgs: [CODEX_HOOK_TRUST_FLAG],
+        // Approvals only — the sandbox is left to the user's config. "Bypass
+        // permissions" promises unattended approval, not unattended filesystem
+        // and network access, and Codex runs hooks outside the sandbox, so
+        // switchdash's loopback curls reach the hook server under
+        // workspace-write just as they do under danger-full-access.
+        autoApproveFlag: '-c approval_policy="never"',
         initialPromptFlag: '',
         resumeFlag: 'resume',
         sessionIdFlag: ' ',
@@ -84,5 +100,13 @@ export const provider = registerPluginBehavior(plugin, {
       }),
   },
   hooks: buildCodexHookConfig(),
-  mcp: codexMcpAdapter(),
+  mcp: {
+    ...codexMcpAdapter(),
+    // The profile carries per-agent model / effort / instructions in CODEX_HOME,
+    // loaded with `--profile <slug>`. It registers no MCP server: the connector
+    // plugin's own .mcp.json does that, for every Codex session rather than only
+    // switchdash's.
+    launchProfile: codexLaunchProfile,
+    launchProfilePaths: codexProfilePaths,
+  },
 });

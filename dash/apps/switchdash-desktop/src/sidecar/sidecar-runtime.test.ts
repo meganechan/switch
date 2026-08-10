@@ -16,10 +16,16 @@ vi.mock('@main/core/providers/plugin-registry', () => ({
   getPlugin: () => ({ behavior: { hooks: undefined }, capabilities: { prompt: { kind: 'argv' } } }),
 }));
 
-const silentLog = { debug: vi.fn(), warn: vi.fn(), error: vi.fn() };
+const silentLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
 function fakeConnection(): ManagedConnection {
-  return { start: vi.fn(), stop: vi.fn(), onAgentStatusChange: vi.fn() };
+  return {
+    start: vi.fn(),
+    stop: vi.fn(),
+    onAgentStatusChange: vi.fn(),
+    reportActivity: vi.fn(),
+    connection: 'conn-1',
+  };
 }
 
 function switchRoomHook(roomId: string, ptyId: string): RawHookRequest {
@@ -45,6 +51,10 @@ function fakeRegistry(): SessionRegistry & { entries: () => SidecarSessionEntry[
       const prev = sessions.get(entry.sessionId);
       sessions.set(entry.sessionId, { ...entry, roomId: entry.roomId ?? prev?.roomId ?? null });
     },
+    clearRoom: (id) => {
+      const prev = sessions.get(id);
+      if (prev) sessions.set(id, { ...prev, roomId: null });
+    },
     forget: (id) => void sessions.delete(id),
     entries: () => [...sessions.values()],
   };
@@ -60,7 +70,6 @@ function makeRuntime() {
   const registry = fakeRegistry();
   const runtime = new SidecarRuntime({
     creds: { agentId: 'agent-1', apiEndpoint: 'https://switch.test', token: 'tok' },
-    locationId: 'proj-1',
     deeplinkScheme: 'switchdash',
     tmuxRun: vi.fn(),
     isPaneLive: () => true,
@@ -87,6 +96,75 @@ describe('SidecarRuntime (multi-session)', () => {
     expect(created[0].deps.roomId).toBe('room-1');
     expect(created[0].deps.sessionId).toBe('session-a');
     expect(created[0].conn.start).toHaveBeenCalledTimes(1);
+  });
+
+  // The receiving half of the watcher's hand-off. The watcher already consumed
+  // the event that made it spawn, so the session's own connection has to rewind
+  // to it — opened at head, the session misses the message it exists to answer.
+  it('opens a spawned session at the cursor the watcher handed over', () => {
+    const { runtime, created } = makeRuntime();
+
+    runtime.ensureForSession('session-a', 'codex', 'room-1', 41);
+
+    expect(created).toHaveLength(1);
+    expect(created[0].deps.startCursor).toBe(41);
+  });
+
+  // A session is auto-started to answer a message in a room, so it opens
+  // already claiming it. Waiting for the agent's own connect_to_room left it
+  // room-less — sitting outside the room it was started for.
+  it('opens a spawned session already claiming the room it was launched for', () => {
+    const { runtime, created } = makeRuntime();
+
+    runtime.ensureForSession('session-a', 'codex', 'room-1', 41);
+
+    expect(created[0].deps.roomId).toBe('room-1');
+  });
+
+  // What `/connection` answers switchdash with. The returned id has to be the
+  // one the connection was actually opened under, or the session is launched
+  // naming a connection the server has never heard of and every tool call fails.
+  it('returns the id of the connection it opened, for a session with no room yet', () => {
+    const { runtime, created } = makeRuntime();
+
+    const connectionId = runtime.ensureForSession('session-a', 'codex', null);
+
+    expect(created).toHaveLength(1);
+    expect(created[0].deps.connectionId).toBe(connectionId);
+    expect(created[0].deps.roomId).toBeNull();
+    expect(created[0].conn.start).toHaveBeenCalledTimes(1);
+  });
+
+  // CHOO-1931. The pane outlives the sidecar and keeps stamping the id it was
+  // launched with, so a restarted sidecar has to arrive at that same id — a
+  // fresh random one is swept by the server and every tool call from that
+  // session 409s for the rest of its life.
+  it('gives a session the same connection id after a restart', () => {
+    const first = makeRuntime();
+    const before = first.runtime.ensureForSession('session-a', 'codex', 'room-1');
+
+    // A restart is a brand-new runtime holding none of the previous state.
+    const second = makeRuntime();
+    const after = second.runtime.ensureForSession('session-a', 'codex', 'room-1');
+
+    expect(after).toBe(before);
+    expect(second.created[0].deps.connectionId).toBe(before);
+  });
+
+  it('gives concurrent sessions distinct connection ids', () => {
+    const { runtime } = makeRuntime();
+
+    expect(runtime.ensureForSession('session-a', 'codex', 'room-1')).not.toBe(
+      runtime.ensureForSession('session-b', 'codex', 'room-2')
+    );
+  });
+
+  it('opens a session at head when no cursor was handed over', () => {
+    const { runtime, created } = makeRuntime();
+
+    runtime.ensureForSession('session-a', 'codex', 'room-1');
+
+    expect(created[0].deps.startCursor).toBeUndefined();
   });
 
   it('records every hooked session (hasSeen) so /sessions can scope tmux to this agent', async () => {
@@ -155,6 +233,44 @@ describe('SidecarRuntime (multi-session)', () => {
     ]);
   });
 
+  it('reports a session evicted from its room as roomless (CHOO-1419)', async () => {
+    // The eviction reaches the sidecar as the server reporting an empty room
+    // list on the session's connection. Keeping the old room here is what left
+    // an evicted session displayed under a room it no longer attends.
+    const { runtime, created, registry } = makeRuntime();
+    await runtime.handleHook(switchRoomHook('room-1', PTY_A));
+
+    created[0].deps.onRoomChanged?.(null);
+
+    expect(runtime.connectedSessions()).toEqual([{ sessionId: 'session-a', roomId: null }]);
+    expect(runtime.roomIdForSession('session-a')).toBeNull();
+    expect(registry.entries()).toEqual([
+      expect.objectContaining({ sessionId: 'session-a', roomId: null }),
+    ]);
+  });
+
+  it('omits a session whose room the server has not named yet', async () => {
+    // Same `roomId: null` as an eviction, and it must NOT be reported: the
+    // supervisor opens the connection before the agent connects to anything, so
+    // publishing this one as roomless would overwrite the room the durable
+    // registry restored for a pane that outlived a supervisor restart.
+    const { runtime } = makeRuntime();
+
+    await runtime.ensureForSession('session-a', 'claude-code', null);
+
+    expect(runtime.connectedSessions()).toEqual([]);
+  });
+
+  it('stops reporting an evicted room as live, so the watcher may spawn again', async () => {
+    const { runtime, created } = makeRuntime();
+    await runtime.handleHook(switchRoomHook('room-1', PTY_A));
+    expect(runtime.hasLiveRoom('room-1')).toBe(true);
+
+    created[0].deps.onRoomChanged?.(null);
+
+    expect(runtime.hasLiveRoom('room-1')).toBe(false);
+  });
+
   it('omits a connected session whose pane has died from connectedSessions()', async () => {
     const created: Array<{ deps: RoomConnectionDeps; conn: ManagedConnection }> = [];
     const factory: RoomConnectionFactory = (deps) => {
@@ -165,7 +281,6 @@ describe('SidecarRuntime (multi-session)', () => {
     let paneLive = true;
     const runtime = new SidecarRuntime({
       creds: { agentId: 'agent-1', apiEndpoint: 'https://switch.test', token: 'tok' },
-      locationId: 'proj-1',
       deeplinkScheme: 'switchdash',
       tmuxRun: vi.fn(),
       isPaneLive: () => paneLive,
@@ -198,6 +313,23 @@ describe('SidecarRuntime (multi-session)', () => {
     await runtime.handleHook(switchRoomHook('room-1', PTY_A));
 
     expect(connected).toEqual(['room-1', 'room-1']);
+  });
+
+  // The spawner's launched entry is keyed by session, not room, so the listener
+  // has to carry the session id — without it the entry cannot be dropped, and it
+  // keeps vouching for the room the session was started for after it has moved.
+  it('tells the listener which session connected, on first connect and on a move', async () => {
+    const { runtime } = makeRuntime();
+    const connected: Array<[string, string]> = [];
+    runtime.onRoomConnected((roomId, sessionId) => connected.push([roomId, sessionId]));
+
+    await runtime.handleHook(switchRoomHook('room-1', PTY_A));
+    await runtime.handleHook(switchRoomHook('room-2', PTY_A));
+
+    expect(connected).toEqual([
+      ['room-1', 'session-a'],
+      ['room-2', 'session-a'],
+    ]);
   });
 
   it('roomIdForSession returns the attended room, or null when unknown', async () => {

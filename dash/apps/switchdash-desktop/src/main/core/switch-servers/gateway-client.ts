@@ -1,13 +1,24 @@
+import type { KnownAgentType } from '@main/core/agents/known-agent-type';
+import {
+  managedServerHostBlocked,
+  managedServerStoppedPhase,
+} from '@main/core/managed-switch-server/managed-server-status';
+import { ManagedServerStoppedError } from '@shared/core/managed-switch-server/managed-switch-server';
+import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
+  BridgeConfigField,
   RemoteAgentRoom,
   RemoteAgentSummary,
+  RemoteBridge,
+  RemoteBridgeType,
   RemoteExternalUser,
   RemoteRoomGroup,
   RemoteRoomRole,
   RemoteRoomSummary,
   SwitchAuthConfig,
   SwitchServer,
+  SwitchServerDeclaration,
   SwitchUser,
 } from '@shared/core/switch-servers/switch-servers';
 import { reauthenticateManagedServer, refreshSession } from './auth';
@@ -75,10 +86,31 @@ export class GatewayError extends Error {
   constructor(
     readonly kind: GatewayErrorKind,
     message: string,
-    readonly status?: number
+    readonly status?: number,
+    /** The gateway's own explanation, unwrapped from the FastAPI `{"detail":…}`
+     * envelope. Present only when the body carried one. Prefer this over
+     * `message` when showing a failure to the user: `message` is prefixed with
+     * the raw status line, which reads as noise in a form. */
+    readonly detail?: string
   ) {
     super(message);
     this.name = 'GatewayError';
+  }
+}
+
+/**
+ * Unwrap FastAPI's `{"detail": "…"}` error envelope. Returns undefined for any
+ * other body shape (an HTML error page, a 422 validation array, empty), leaving
+ * the caller with the full status-prefixed message rather than a misleading
+ * fragment.
+ */
+function parseErrorDetail(body: string): string | undefined {
+  if (!body) return undefined;
+  try {
+    const parsed = JSON.parse(body) as { detail?: unknown };
+    return typeof parsed.detail === 'string' ? parsed.detail : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -113,6 +145,22 @@ async function gatewayFetch(
   path: string,
   options: FetchOptions
 ): Promise<Response> {
+  // A remote-managed server's gateway is only reachable through the SSH forward.
+  // Once the host is known unreachable the forward is dead, so a fetch can only
+  // hang for its timeout and then report `Could not reach http://localhost:<port>`
+  // — a local address that was never the problem. Fail with the modeled host
+  // state instead, at the one point every gateway call passes through.
+  const blocked = managedServerHostBlocked(server);
+  if (blocked) throw new HostUnreachableError(blocked);
+
+  // Same argument one level down: a managed stack that is stopped has no
+  // gateway listening, so every call to it can only time out and report a port
+  // that was never the problem — and the session renewal on the way there
+  // warns about the same absence a second time. Report the lifecycle state the
+  // user is already looking at instead.
+  const stopped = managedServerStoppedPhase(server);
+  if (stopped) throw new ManagedServerStoppedError(server, stopped);
+
   const sendOnce = async (cookie: string | null): Promise<Response> => {
     const headers: Record<string, string> = { Accept: 'application/json' };
     if (options.body !== undefined) {
@@ -156,11 +204,12 @@ async function gatewayFetch(
     throw new GatewayError('unauthorized', 'Switch session expired — please sign in again.', 401);
   }
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
+    const body = await response.text().catch(() => '');
     throw new GatewayError(
       'http',
-      `Switch gateway returned ${response.status}${detail ? `: ${detail}` : ''}`,
-      response.status
+      `Switch gateway returned ${response.status}${body ? `: ${body}` : ''}`,
+      response.status,
+      parseErrorDetail(body)
     );
   }
   return response;
@@ -180,10 +229,42 @@ export async function fetchAuthConfig(server: SwitchServer): Promise<SwitchAuthC
   };
 }
 
-type UserResponseJson = { id: string; name: string; email: string; role: string };
+type ServerDeclarationJson = {
+  version: string | null;
+  contracts: Record<string, { speaks: number; accepts: number }>;
+};
+
+type UserResponseJson = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  server?: ServerDeclarationJson | null;
+};
+
+/**
+ * A server declaration, or null when this server did not make one.
+ *
+ * Validated rather than trusted: a malformed block reads as *unknown* instead
+ * of a half-populated declaration, because a version we invented is worse than
+ * one we admit we do not have (CHOO-1865).
+ */
+function mapServerDeclaration(raw: unknown): SwitchServerDeclaration | null {
+  if (raw === null || typeof raw !== 'object') return null;
+  const candidate = raw as Partial<ServerDeclarationJson>;
+  if (typeof candidate.contracts !== 'object' || candidate.contracts === null) return null;
+  const version = typeof candidate.version === 'string' ? candidate.version : null;
+  return { version, contracts: candidate.contracts };
+}
 
 function mapUser(json: UserResponseJson): SwitchUser {
-  return { id: json.id, name: json.name, email: json.email, role: json.role };
+  return {
+    id: json.id,
+    name: json.name,
+    email: json.email,
+    role: json.role,
+    server: mapServerDeclaration(json.server ?? null),
+  };
 }
 
 export async function fetchMe(server: SwitchServer): Promise<SwitchUser> {
@@ -192,7 +273,9 @@ export async function fetchMe(server: SwitchServer): Promise<SwitchUser> {
 }
 
 /** Options for `registerKnownAgent`, matching the gateway's
- * `RegisterKnownAgentRequest.options` for the `claude-code` known-agent type. */
+ * `RegisterKnownAgentRequest.options`. The gateway validates these against the
+ * options schema of the `agent_type` being registered and ignores keys that type
+ * does not declare (Codex has no channel, so it drops `channels_enabled`). */
 export type RegisterKnownAgentOptions = {
   channels_enabled: boolean;
   repo_dir?: string;
@@ -211,20 +294,28 @@ export type RegisteredAgent = {
 };
 
 /**
- * Register a new Claude Code agent on `server`, owned by the signed-in user
- * (session-authed `POST /gateway/agents/register`). Returns the new agent id
+ * Register a new known agent of `agentType` on `server`, owned by the signed-in
+ * user (session-authed `POST /gateway/agents/register`). Returns the new agent id
  * and its API key. A 409 (name already taken) and 400 (invalid name) surface
  * as `GatewayError` with the matching `status` so the caller can react.
  */
 export async function registerKnownAgent(
   server: SwitchServer,
-  params: { name: string; description: string; options: RegisterKnownAgentOptions }
+  params: {
+    name: string;
+    description: string;
+    options: RegisterKnownAgentOptions;
+    /** Gateway known-agent type. Required — derive it from the provider via
+     * `knownAgentTypeForProvider` rather than letting a call site fall back to
+     * Claude Code's shape by omission (CHOO-1436). */
+    agentType: KnownAgentType;
+  }
 ): Promise<RegisteredAgent> {
   const res = await gatewayFetch(server, '/agents/register', {
     authenticated: true,
     method: 'POST',
     body: {
-      agent_type: 'claude-code',
+      agent_type: params.agentType,
       name: params.name,
       description: params.description,
       options: params.options,
@@ -437,18 +528,145 @@ export async function fetchRoomGroups(server: SwitchServer): Promise<RemoteRoomG
 }
 
 /**
+ * List the collaboration bridges configured on a server (`GET /collaborations`).
+ * Returns every bridge regardless of status — callers that need a usable one
+ * (room creation) filter on `status === 'active'` themselves, so they can tell
+ * "no bridges at all" apart from "the bridge is down".
+ */
+export async function fetchBridges(server: SwitchServer): Promise<RemoteBridge[]> {
+  const res = await gatewayFetch(server, '/collaborations', { authenticated: true });
+  const json = (await res.json()) as Array<{
+    bridge_id: string;
+    bridge_type: string;
+    display_name: string;
+    status: string;
+    is_default?: boolean;
+    home_url?: string | null;
+  }>;
+  return json.map((b) => ({
+    id: b.bridge_id,
+    type: b.bridge_type,
+    displayName: b.display_name,
+    status: b.status,
+    isDefault: b.is_default ?? false,
+    homeUrl: b.home_url ?? null,
+  }));
+}
+
+/** Field names that hold a credential and must be masked on input. Mirrors the
+ * operator dashboard's `isSecretField`, widened to catch `*_private_key` (the
+ * Teams bridge's Graph encryption key), which its bare `api_key` alternation
+ * misses. */
+const SECRET_FIELD_RE = /token|password|secret|api[_-]?key|private[_-]?key|credential/i;
+
+/** JSON Schema as Pydantic's `model_json_schema()` emits it for a bridge config. */
+type BridgeConfigSchema = {
+  properties?: Record<string, { title?: string; description?: string; format?: string }>;
+  required?: string[];
+};
+
+function humanizeFieldKey(key: string): string {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function toConfigFields(schema: BridgeConfigSchema): BridgeConfigField[] {
+  const required = new Set(schema.required ?? []);
+  // Object key order follows the Pydantic model's field order, which puts the
+  // required credentials before the optional tuning knobs — worth preserving,
+  // so the form reads the way the platform's setup docs do.
+  return Object.entries(schema.properties ?? {}).map(([key, prop]) => ({
+    key,
+    label: prop.title ?? humanizeFieldKey(key),
+    description: prop.description ?? null,
+    required: required.has(key),
+    secret: prop.format === 'password' || SECRET_FIELD_RE.test(key),
+  }));
+}
+
+/**
+ * The bridge types a server can register, with the credential fields each needs
+ * (`GET /collaborations/types`).
+ *
+ * The field list is the server's to define — switch-core derives it from the
+ * adapter's own config model — so the attach form is generated from this rather
+ * than hard-coded per platform. A server running a newer switch-core that adds
+ * a bridge type, or a field to an existing one, works without an app release.
+ *
+ * Every schema-visible field is a string today (the sole int, the Teams listen
+ * port, is `SkipJsonSchema`), so values are collected as strings and the server
+ * coerces.
+ */
+export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBridgeType[]> {
+  const res = await gatewayFetch(server, '/collaborations/types', { authenticated: true });
+  const json = (await res.json()) as Array<{
+    key: string;
+    config_schema: BridgeConfigSchema;
+  }>;
+  return json.map((t) => ({ key: t.key, fields: toConfigFields(t.config_schema ?? {}) }));
+}
+
+/**
+ * Register a collaboration bridge on `server` (admin-only
+ * `POST /collaborations`), optionally making it the default for new rooms.
+ *
+ * The server validates the credentials against the adapter's config model,
+ * mints the bridge's Matrix client, persists it and **starts the adapter
+ * immediately** — there is no stack restart and no config file to write, so
+ * live sessions and connected agents are unaffected.
+ *
+ * `connectionConfig` holds platform credentials. Do not log it, do not return
+ * it to the renderer, and do not fold it into an error message: `GatewayError`
+ * quotes the *response* body only, never the request.
+ */
+export async function createBridge(
+  server: SwitchServer,
+  params: {
+    bridgeType: string;
+    displayName: string;
+    connectionConfig: Record<string, string>;
+    setAsDefault: boolean;
+  }
+): Promise<RemoteBridge> {
+  const res = await gatewayFetch(server, '/collaborations', {
+    authenticated: true,
+    method: 'POST',
+    body: {
+      bridge_type: params.bridgeType,
+      display_name: params.displayName,
+      connection_config: params.connectionConfig,
+      set_as_default: params.setAsDefault,
+    },
+  });
+  const b = (await res.json()) as {
+    bridge_id: string;
+    bridge_type: string;
+    display_name: string;
+    status: string;
+    is_default?: boolean;
+    home_url?: string | null;
+  };
+  return {
+    id: b.bridge_id,
+    type: b.bridge_type,
+    displayName: b.display_name,
+    status: b.status,
+    isDefault: b.is_default ?? false,
+    homeUrl: b.home_url ?? null,
+  };
+}
+
+/**
  * Union of external (bridged human) users across every bridge on the server
  * (`GET /collaborations`, then each bridge's `/users`). The addressing policy's
  * `users` dimension keys off these ExternalUser ids.
  */
 export async function fetchAllExternalUsers(server: SwitchServer): Promise<RemoteExternalUser[]> {
-  const bridgesRes = await gatewayFetch(server, '/collaborations', { authenticated: true });
-  const bridges = (await bridgesRes.json()) as Array<{ bridge_id: string }>;
+  const bridges = await fetchBridges(server);
   const byId = new Map<string, RemoteExternalUser>();
   for (const bridge of bridges) {
     const res = await gatewayFetch(
       server,
-      `/collaborations/${encodeURIComponent(bridge.bridge_id)}/users`,
+      `/collaborations/${encodeURIComponent(bridge.id)}/users`,
       { authenticated: true }
     );
     const users = (await res.json()) as Array<{ id: string; external_username: string }>;
@@ -542,21 +760,24 @@ export async function fetchRoomRoles(
   }));
 }
 
-export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummary[]> {
-  const res = await gatewayFetch(server, '/rooms', { authenticated: true });
-  const json = (await res.json()) as Array<{
-    id: string;
-    name: string;
-    description: string;
-    channel_type: string | null;
-    agent_count: number;
-    bridge_display_name: string | null;
-    bridge_type?: string | null;
-    external_channel_url?: string | null;
-    archived: boolean;
-    created_at: string;
-  }>;
-  return json.map((r) => ({
+/** The gateway `RoomSummary` wire shape. `RoomDetail` (returned by create) is a
+ * superset, so the same mapper serves both. */
+type RoomSummaryJson = {
+  id: string;
+  name: string;
+  description: string;
+  channel_type: string | null;
+  agent_count: number;
+  bridge_display_name: string | null;
+  bridge_type?: string | null;
+  external_channel_url?: string | null;
+  owner_id?: string | null;
+  archived: boolean;
+  created_at: string;
+};
+
+function mapRoomSummary(r: RoomSummaryJson): RemoteRoomSummary {
+  return {
     id: r.id,
     name: r.name,
     description: r.description,
@@ -565,7 +786,100 @@ export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummar
     bridgeDisplayName: r.bridge_display_name,
     bridgeType: r.bridge_type ?? null,
     externalChannelUrl: r.external_channel_url ?? null,
+    ownerId: r.owner_id ?? null,
     archived: r.archived,
     createdAt: r.created_at,
-  }));
+  };
+}
+
+export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummary[]> {
+  const res = await gatewayFetch(server, '/rooms', { authenticated: true });
+  const json = (await res.json()) as RoomSummaryJson[];
+  return json.map(mapRoomSummary);
+}
+
+/**
+ * Switch agent ids that are members of a room (`GET /rooms/{id}`). One call for
+ * the whole room, rather than asking every candidate agent what it belongs to.
+ * Connecting to a room is only meaningful for an agent already in it, so this is
+ * what scopes the agent picker when starting a session from a room.
+ */
+export async function fetchRoomAgentIds(server: SwitchServer, roomId: string): Promise<string[]> {
+  const res = await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}`, {
+    authenticated: true,
+  });
+  const json = (await res.json()) as { agent_ids?: string[] };
+  return json.agent_ids ?? [];
+}
+
+/**
+ * Add agents to an existing room (`POST /rooms/{id}/agents`). Requires write
+ * access to the room. Agents already in the room are ignored server-side, so
+ * this is safe to call with a set that overlaps the current membership.
+ */
+export async function addRoomAgents(
+  server: SwitchServer,
+  roomId: string,
+  agentIds: string[]
+): Promise<void> {
+  await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}/agents`, {
+    authenticated: true,
+    method: 'POST',
+    body: { agent_ids: agentIds },
+  });
+}
+
+/**
+ * Remove one agent from a room (`DELETE /rooms/{id}/agents/{agentId}`). Requires
+ * write access. This is membership only — the agent itself, its credentials and
+ * its sessions are untouched; it simply stops being in this room.
+ */
+export async function removeRoomAgent(
+  server: SwitchServer,
+  roomId: string,
+  agentId: string
+): Promise<void> {
+  await gatewayFetch(
+    server,
+    `/rooms/${encodeURIComponent(roomId)}/agents/${encodeURIComponent(agentId)}`,
+    { authenticated: true, method: 'DELETE' }
+  );
+}
+
+/**
+ * Create a room on `server` (session-authed `POST /gateway/rooms`), owned by the
+ * signed-in user. Provisioning stays entirely server-side — this is the same
+ * endpoint the operator web app posts to.
+ *
+ * `bridgeId` is required by switchdash even though the gateway allows an
+ * unbridged room: a room with no messaging app attached is unreachable for the
+ * humans it is being created for. `channel_type` is always `channel_public` for
+ * now; the gateway demands the field whenever a new channel is provisioned.
+ *
+ * Failures throw `GatewayError` — see `createRoomOnServer` for the mapping onto
+ * a user-facing result.
+ */
+export async function createRoom(
+  server: SwitchServer,
+  params: {
+    name: string;
+    description: string;
+    instructions?: string;
+    bridgeId: string;
+    agentIds: string[];
+  }
+): Promise<RemoteRoomSummary> {
+  const res = await gatewayFetch(server, '/rooms', {
+    authenticated: true,
+    method: 'POST',
+    body: {
+      name: params.name,
+      description: params.description,
+      instructions: params.instructions?.trim() ? params.instructions : null,
+      bridge_id: params.bridgeId,
+      channel_type: 'channel_public',
+      agent_ids: params.agentIds,
+    },
+  });
+  return mapRoomSummary((await res.json()) as RoomSummaryJson);
 }

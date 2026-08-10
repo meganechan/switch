@@ -1,15 +1,20 @@
 import { getLocationById } from '@main/core/locations/store';
 import { getPlugin } from '@main/core/providers/plugin-registry';
-import { parseSwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
+import {
+  parseSwitchAgentCredentials,
+  type SwitchAgentCredentials,
+} from '@main/core/switch-rooms/switch-credentials';
 import { log } from '@main/lib/logger';
 import type { Agent } from '@shared/core/agents/agents';
 import {
-  isAgentStorageMigrationComplete,
+  AGENT_STORAGE_MIGRATION_GENERATION,
+  completedAgentStorageMigrationGeneration,
   markAgentStorageMigrationComplete,
 } from './agent-storage-migration-marker';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { getAgents } from './getAgents';
 import { agentSettingsRelativePath, SWITCH_SETTINGS_RELATIVE_PATH } from './switch-settings-paths';
+import { writeNeutralAgentSettingsFs } from './write-switch-settings';
 
 /**
  * Migrate existing switchdash-managed agents to the current storage/definition
@@ -29,16 +34,15 @@ export async function migrateAgentStorage(): Promise<void> {
   // Once a full pass has migrated every agent, never re-run: the steady-state
   // migration re-opens each agent's workspace filesystem (an SSH/SFTP round trip
   // per remote agent) on every boot for no benefit.
-  if (await isAgentStorageMigrationComplete()) return;
+  const completed = await completedAgentStorageMigrationGeneration();
+  if (completed >= AGENT_STORAGE_MIGRATION_GENERATION) return;
 
   const agents = await getAgents();
   let migrated = 0;
   let allComplete = true;
   for (const agent of agents) {
     try {
-      const result = await migrateOne(agent);
-      if (result.changed) migrated += 1;
-      if (!result.complete) allComplete = false;
+      if (await migrateOne(agent, completed)) migrated += 1;
     } catch (error) {
       allComplete = false;
       log.warn('migrateAgentStorage: failed to migrate agent', {
@@ -56,20 +60,29 @@ export async function migrateAgentStorage(): Promise<void> {
   if (allComplete) await markAgentStorageMigrationComplete();
 }
 
-interface MigrateResult {
-  /** Whether this pass wrote anything for the agent. */
-  changed: boolean;
-  /** Whether the agent is now fully in the new layout (nothing left to retry). */
-  complete: boolean;
-}
-
-/** Migrate one agent (local or remote). */
-async function migrateOne(agent: Agent): Promise<MigrateResult> {
+/**
+ * Migrate one agent (local or remote). Returns whether anything was written.
+ *
+ * `completedGeneration` is the generation this install already finished, so a
+ * re-run can skip agents the new generation cannot change — the check happens
+ * before the workspace filesystem is opened, which for a remote agent is an SSH
+ * connect and an SFTP channel.
+ */
+async function migrateOne(agent: Agent, completedGeneration: number): Promise<boolean> {
+  // A provider may have no repo-agent behavior (e.g. Codex): it has no on-disk
+  // definition and no `readLaunchEnv` hook, but its provider-neutral credentials
+  // still need collapsing onto the one name-keyed key-space. So the credential
+  // migration runs for every provider; its Claude-specific sources, and the
+  // definition step (2), are behavior-gated.
   const behavior = getPlugin(agent.providerId).behavior.repoAgents;
-  if (!behavior) return { changed: false, complete: true };
+
+  // Generation 2 only broadened step 1 to providers WITHOUT a behavior; for one
+  // that has it, every step is what generation 1 already ran. Skipping here is
+  // what keeps the generation bump from re-opening a workspace per Claude agent.
+  if (completedGeneration >= 1 && behavior) return false;
 
   const location = await getLocationById(agent.locationId);
-  if (!location) return { changed: false, complete: true };
+  if (!location) return false;
 
   const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
   try {
@@ -82,31 +95,44 @@ async function migrateOne(agent: Agent): Promise<MigrateResult> {
     let changed = false;
 
     // 1. Credentials: if the name-keyed neutral file is absent, adopt whatever
-    //    complete credentials already exist on disk, in priority order:
+    //    complete credentials already exist on disk *for this agent*, in priority
+    //    order:
     //      a. a stale ID-keyed neutral file `.switch/agents/<agentId>.json` — an
-    //         earlier layout keyed the neutral file by agent id, not name;
+    //         earlier layout keyed the neutral file by agent id, not name (this
+    //         includes Codex agents added on the pre-rework id-keyed scheme);
     //      b. the legacy per-agent file (via readLaunchEnv: name-keyed neutral
     //         then `.claude/switch-subagents/<name>.settings.json`);
     //      c. the shared `.claude/settings.local.json` (legacy "main" agent).
+    //    (b) and (c) are Claude-only sources, hence behavior-gated: the shared
+    //    settings file is written solely by `provisionAgent`/`provisionRemoteAgent`,
+    //    always as the Claude "main" agent, so for any other provider it holds a
+    //    *different* agent's identity and token.
     //    The token is minted once and lives only on disk, so this is the only way
     //    to recover it — nothing can reconstruct it from the gateway.
     const idKeyedRelPath = agentSettingsRelativePath(agent.id);
     const namedRelPath = agentSettingsRelativePath(name);
     const neutral = name === agent.id ? null : await workspace.fs.read(namedRelPath);
     if (neutral === null) {
-      const creds =
-        parseSwitchAgentCredentials((await workspace.fs.read(idKeyedRelPath)) ?? '', log) ??
-        toCreds(await behavior.readLaunchEnv(workspace.fs, name)) ??
-        parseSwitchAgentCredentials(
-          (await workspace.fs.read(SWITCH_SETTINGS_RELATIVE_PATH)) ?? '',
-          log
-        );
-      if (creds) {
-        await behavior.writeCredentials(workspace.fs, {
+      const recovered =
+        parseSwitchAgentCredentials(await workspace.fs.read(idKeyedRelPath), log) ??
+        (behavior ? toCreds(await behavior.readLaunchEnv(workspace.fs, name)) : null) ??
+        (behavior
+          ? parseSwitchAgentCredentials(await workspace.fs.read(SWITCH_SETTINGS_RELATIVE_PATH), log)
+          : null);
+      if (recovered && !belongsToAgent(agent, recovered)) {
+        log.warn('migrateAgentStorage: recovered credentials name a different Switch agent', {
+          agentId: agent.id,
           agentName: name,
-          apiEndpoint: creds.apiEndpoint,
-          apiToken: creds.token,
-          agentId: creds.agentId,
+          providerId: agent.providerId,
+          expectedSwitchAgentId: agent.switchAgentId,
+          foundSwitchAgentId: recovered.agentId,
+        });
+      } else if (recovered) {
+        await writeNeutralAgentSettingsFs(workspace.fs, {
+          slug: name,
+          apiEndpoint: recovered.apiEndpoint,
+          apiToken: recovered.token,
+          agentId: recovered.agentId,
         });
         changed = true;
       }
@@ -123,22 +149,32 @@ async function migrateOne(agent: Agent): Promise<MigrateResult> {
     }
 
     // 2. Definition: ensure the provider has an on-disk definition for this agent
-    //    so it runs as a named repository-defined agent.
-    if ((await behavior.readDefinition(workspace.fs, name)) === null) {
+    //    so it runs as a named repository-defined agent. Behavior providers only —
+    //    a provider without definitions (Codex) has nothing to write here.
+    if (behavior && (await behavior.readDefinition(workspace.fs, name)) === null) {
       await behavior.writeDefinition(workspace.fs, { name, description });
       changed = true;
     }
 
-    return { changed, complete: true };
+    return changed;
   } finally {
     workspace.close();
   }
 }
 
+/**
+ * Whether recovered credentials are this agent's own. The row's `switchAgentId`
+ * is the authority on which Switch identity the agent has, so a file naming a
+ * different one belongs to a different agent — adopting it would launch this
+ * agent under that agent's identity and token, which looks like it worked. A row
+ * with no recorded identity has nothing to contradict.
+ */
+function belongsToAgent(agent: Agent, creds: SwitchAgentCredentials): boolean {
+  return agent.switchAgentId === null || agent.switchAgentId === creds.agentId;
+}
+
 /** Build credentials from a launch-env map, or null when any value is missing. */
-function toCreds(
-  env: Record<string, string>
-): { apiEndpoint: string; token: string; agentId: string } | null {
+function toCreds(env: Record<string, string>): SwitchAgentCredentials | null {
   const apiEndpoint = env.SWITCH_API_ENDPOINT;
   const token = env.SWITCH_API_TOKEN;
   const agentId = env.SWITCH_AGENT_ID;
