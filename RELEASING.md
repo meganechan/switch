@@ -87,7 +87,7 @@ build without creating a release.
 
 The desktop app (`dash/`) releases on its own tag, `switchdash-v<version>`, via
 `.github/workflows/switchdash-release.yml`. The tag MUST match
-`dash/apps/switchdash-desktop/package.json` `version` (the workflow verifies
+`dash/apps/switch-console-desktop/package.json` `version` (the workflow verifies
 this and fails on mismatch). Procedure: bump `package.json`, cut the
 `## switchdash` `CHANGELOG.md` section, merge to `main`, tag, push. The workflow
 publishes a **GitHub Release** (macOS arm64 signed + notarized; Linux x64
@@ -174,5 +174,5 @@ change. The full list:
   `dash/packages/plugins/src/distribution.ts` (used by the Claude
   connector plugin descriptor).
 - **Switch Console auto-update target** — `RELEASE_REPO_OWNER` / `RELEASE_REPO_NAME`
-  in `dash/apps/switchdash-desktop/src/shared/app-identity.ts` (mirrored
+  in `dash/apps/switch-console-desktop/src/shared/app-identity.ts` (mirrored
   in `app-identity.canary.ts`), consumed by both electron-builder configs.

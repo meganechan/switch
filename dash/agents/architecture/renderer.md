@@ -1,6 +1,6 @@
 # Renderer
 
-All paths are relative to `apps/switchdash-desktop/`.
+All paths are relative to `apps/switch-console-desktop/`.
 
 ## Main Entry Points
 

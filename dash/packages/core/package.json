@@ -46,7 +46,7 @@
     "dev": "tsdown --watch",
     "build": "tsdown",
     "test": "vitest run",
-    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switchdash-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/core\"'",
+    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switch-console-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/core\"'",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "typecheck": "tsgo --noEmit -p tsconfig.json"

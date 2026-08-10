@@ -11,7 +11,7 @@ directory, each tied to one provider, each with its own runs. This page is the s
 of record for how the switchdash model diverges from that upstream model and how the
 abstractions map across.
 
-The schema is defined in `apps/switchdash-desktop/src/main/db/schema.ts`.
+The schema is defined in `apps/switch-console-desktop/src/main/db/schema.ts`.
 
 ## Abstraction map
 

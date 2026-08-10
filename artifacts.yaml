@@ -67,7 +67,7 @@ artifacts:
   switchdash:
     description: The desktop app.
     version: 0.19.3
-    declared_in: dash/apps/switchdash-desktop/package.json
+    declared_in: dash/apps/switch-console-desktop/package.json
     # Which switch-core release this app build bundles and pulls for
     # local-server mode. DELIBERATELY NOT switch-core's version above.
     #
@@ -87,7 +87,7 @@ artifacts:
 
   sidecar:
     description: >-
-      The remote runtime switchdash deploys to an agent host. Deployed rather
+      The remote runtime Switch Console deploys to an agent host. Deployed rather
       than published, so nothing else declares its version — this file is its
       only source and the constant is generated from it.
     version: 1.8.0
@@ -120,7 +120,7 @@ artifacts:
   compose:
     description: >-
       The standalone compose file, published as an OCI artifact. Unlike the
-      chart this one has a real peer — switchdash's local-server mode drives it
+      chart this one has a real peer — Switch Console's local-server mode drives it
       — so it does carry a contract, below.
     version_from: switch-core
     published_as: standalone-compose
@@ -158,7 +158,7 @@ contracts:
   stack-compose:
     description: >-
       The interface of the published standalone compose artifact — its service
-      names, profiles, and environment variables — which switchdash's
+      names, profiles, and environment variables — which Switch Console's
       local-server mode drives.
     artifacts:
       switchdash: { speaks: 1, accepts: 1 }
@@ -166,7 +166,7 @@ contracts:
 
   sidecar-control:
     description: >-
-      How switchdash controls a deployed sidecar on a remote host: the ready
+      How Switch Console controls a deployed sidecar on a remote host: the ready
       file it reads, and the control channel it opens.
     artifacts:
       switchdash: { speaks: 1, accepts: 1 }

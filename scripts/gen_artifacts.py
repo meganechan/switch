@@ -281,12 +281,12 @@ def read_declared_version(relative_path: str) -> str:
 # which is all that is needed to stop them drifting.
 LITERAL_CHECKS: list[tuple[str, str, str]] = [
     (
-        "dash/apps/switchdash-desktop/src/shared/app-identity.ts",
+        "dash/apps/switch-console-desktop/src/shared/app-identity.ts",
         "COMPATIBLE_SWITCH_VERSION",
         "switchdash.pins.switch-core",
     ),
     (
-        "dash/apps/switchdash-desktop/src/shared/app-identity.canary.ts",
+        "dash/apps/switch-console-desktop/src/shared/app-identity.canary.ts",
         "COMPATIBLE_SWITCH_VERSION",
         "switchdash.pins.switch-core",
     ),

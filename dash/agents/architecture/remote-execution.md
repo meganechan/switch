@@ -1,6 +1,6 @@
 # Remote Execution: Hosts, Reachability, and the Sidecar
 
-All paths are relative to `apps/switchdash-desktop/` unless noted.
+All paths are relative to `apps/switch-console-desktop/` unless noted.
 
 **Switchdash is not local-only.** An agent runs either on the local machine or on an SSH
 host. That choice reaches almost every layer — execution context, agent runtime,

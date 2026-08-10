@@ -5,6 +5,6 @@
  *
  * CHOO-1260 config-flip point: the public-repo move repoints this. See
  * RELEASING.md. Keep in sync with the Switch Console auto-update target
- * (RELEASE_REPO_* in apps/switchdash-desktop/src/shared/app-identity.ts).
+ * (RELEASE_REPO_* in apps/switch-console-desktop/src/shared/app-identity.ts).
  */
 export const SWITCH_MARKETPLACE_SOURCE = 'sandbox-quantum/switch';

@@ -20,11 +20,11 @@ leaves its contracts alone.
   [RELEASING.md](RELEASING.md).
 - **switchdash** — the desktop app (`dash/`). Released by tagging
   `switchdash-v<version>`; the version lives in
-  `dash/apps/switchdash-desktop/package.json`.
+  `dash/apps/switch-console-desktop/package.json`.
 - **agent-runtime** — the Switch protocol client and MCP runtime
   (`dash/packages/switch-agent-runtime/`), published to a package registry.
 - **sidecar** — the remote runtime switchdash deploys to an agent host
-  (`dash/apps/switchdash-desktop/src/sidecar/`). Versioned in
+  (`dash/apps/switch-console-desktop/src/sidecar/`). Versioned in
   `sidecar-version.ts` and deployed by switchdash, not published separately.
 - **switch-connector** / **switch-connector-codex** — the two connector plugins
   (`connectors/`), versioned in their respective plugin manifests.

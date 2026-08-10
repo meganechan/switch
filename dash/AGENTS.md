@@ -21,7 +21,7 @@ still says `switchdash`:
 - the user-data directory (`USER_DATA_DIR_NAME`) and the SQLite file `switchdash.db`
 - the macOS app id (`com.switchdash.*`) and release artifact names (`ARTIFACT_PREFIX`)
 - the `switchdash://` deeplink scheme
-- packages (`@switch-console/*`) and the app directory (`apps/switchdash-desktop/`)
+- packages (`@switch-console/*`) and the app directory (`apps/switch-console-desktop/`)
 - the per-project config file (`.switchdash.json`) and per-repo state dir (`.switchdash/`)
 - `SWITCHDASH_*` environment variables and the agent-hook HTTP protocol
   (`X-Switchdash-*` headers)
@@ -44,16 +44,16 @@ pre-rebrand name is retained).
 
 ## Repository Structure
 
-This is a pnpm workspace monorepo. The Electron app lives in `apps/switchdash-desktop/`
+This is a pnpm workspace monorepo. The Electron app lives in `apps/switch-console-desktop/`
 (package `@switch-console/desktop`). Unless prefixed otherwise, `src/...`, `drizzle/`,
 `scripts/`, `build/`, and config-file paths in this document and in `agents/` docs are
-relative to `apps/switchdash-desktop/`.
+relative to `apps/switch-console-desktop/`.
 
 Repo root:
 
 - `.claude/` - Local Claude agent settings for this checkout.
 - `agents/` - Agent-facing architecture, workflow, convention, integration, and risk docs.
-- `apps/switchdash-desktop/` - The Electron desktop app (everything below).
+- `apps/switch-console-desktop/` - The Electron desktop app (everything below).
 - `packages/` - Shared workspace packages.
   - `packages/core/` - Transport-agnostic core runtime primitives.
   - `packages/shared/` - Shared workspace primitives, including the `Result<T, E>` type
@@ -65,7 +65,7 @@ Repo root:
 - Root config files - `pnpm-workspace.yaml`, root `package.json` with aggregate scripts,
   `.nvmrc`, `.oxfmtrc.json`, `.oxlintrc.json`.
 
-Inside `apps/switchdash-desktop/`:
+Inside `apps/switch-console-desktop/`:
 
 - `build/` - Electron packaging assets; avoid edits unless working on packaging or signing.
 - `drizzle/` - Generated Drizzle SQL migrations and metadata.
@@ -84,7 +84,7 @@ Inside `apps/switchdash-desktop/`:
 
 The repo root has aggregate scripts (`dev`, `build`, `test`, `lint`, `format`,
 `format:check`, `typecheck`) that fan out through the pnpm workspace. App-specific
-commands run from `apps/switchdash-desktop/`.
+commands run from `apps/switch-console-desktop/`.
 
 Install dependencies (repo root):
 
@@ -99,10 +99,10 @@ once, then runs package watch builds and the Electron app in parallel:
 pnpm run dev
 ```
 
-Start only the Electron app from `apps/switchdash-desktop/`:
+Start only the Electron app from `apps/switch-console-desktop/`:
 
 ```bash
-cd apps/switchdash-desktop
+cd apps/switch-console-desktop
 pnpm run dev
 pnpm run d
 ```
@@ -128,14 +128,14 @@ dev setup:
 SWITCHDASH_DB_FILE=/tmp/switchdash-scratch.db pnpm run dev
 ```
 
-From `apps/switchdash-desktop/`, this starts only the Electron app:
+From `apps/switch-console-desktop/`, this starts only the Electron app:
 
 ```bash
-cd apps/switchdash-desktop
+cd apps/switch-console-desktop
 SWITCHDASH_DB_FILE=/tmp/switchdash-scratch.db pnpm run dev
 ```
 
-Reset the dev databases from `apps/switchdash-desktop/`:
+Reset the dev databases from `apps/switch-console-desktop/`:
 
 ```bash
 pnpm run db:reset
@@ -198,7 +198,7 @@ pnpm run reset
   trailing commas where valid in ES5, and sorted imports.
 - Lint with `oxlint`; config is `.oxlintrc.json` with correctness errors,
   TypeScript, React hooks, and local repo rules enabled.
-- TypeScript strict mode is enabled in `apps/switchdash-desktop/tsconfig.json`, the single
+- TypeScript strict mode is enabled in `apps/switch-console-desktop/tsconfig.json`, the single
   tsconfig for all app targets.
 - Avoid `any`; if a registry or boundary needs it, keep the escape local and documented.
 - Use top-level `import` statements; do not use `require()`.

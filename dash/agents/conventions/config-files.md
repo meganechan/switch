@@ -9,7 +9,7 @@ Repo root:
 - `.nvmrc`
 - `.oxfmtrc.json`, `.oxlintrc.json`
 
-In `apps/switchdash-desktop/`:
+In `apps/switch-console-desktop/`:
 
 - `package.json` (app scripts and version)
 - `electron.vite.config.ts`

@@ -1,6 +1,6 @@
 # Switch Rooms and Sessions
 
-All paths are relative to `apps/switchdash-desktop/`.
+All paths are relative to `apps/switch-console-desktop/`.
 
 Switchdash exists to manage Switch agents, and a Switch agent's work happens in **rooms**.
 A session can be *attending* a room: it receives the room's events and can post back into

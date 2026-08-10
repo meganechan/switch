@@ -85,8 +85,8 @@ jobs:
               - 'core/pyproject.toml'
               - 'dash/packages/shared/src/artifacts.ts'
               - 'dash/packages/switch-agent-runtime/src/artifacts.ts'
-              - 'dash/apps/switchdash-desktop/package.json'
-              - 'dash/apps/switchdash-desktop/src/shared/app-identity*.ts'
+              - 'dash/apps/switch-console-desktop/package.json'
+              - 'dash/apps/switch-console-desktop/src/shared/app-identity*.ts'
               - 'dash/packages/switch-agent-runtime/package.json'
               - 'connectors/**/plugin.json'
 
@@ -161,7 +161,7 @@ jobs:
       # comment asking nicely, which is how it silently stopped running once
       # already (CHOO-1865).
       - name: Bundled standalone compose is current
-        run: pnpm --filter switchdash-desktop run sync:compose:check
+        run: pnpm --filter switch-console-desktop run sync:compose:check
 
       - name: Build workspace packages
         run: pnpm -r --filter './packages/**' run build

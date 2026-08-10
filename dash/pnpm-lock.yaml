@@ -14,7 +14,7 @@ importers:
 
   .: {}
 
-  apps/switchdash-desktop:
+  apps/switch-console-desktop:
     dependencies:
       '@parcel/watcher':
         specifier: ^2.5.6

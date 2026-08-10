@@ -9,7 +9,7 @@ name: switchdash release
 # Signing identity — tracked as a follow-up).
 #
 # Trigger by pushing a tag like `switchdash-v1.1.34` (the version after
-# `switchdash-v` MUST match apps/switchdash-desktop/package.json `version`).
+# `switchdash-v` MUST match apps/switch-console-desktop/package.json `version`).
 # `workflow_dispatch` builds the artifacts for testing without creating a Release.
 #
 # The Release stays a **draft** until every platform job has uploaded, and is
@@ -54,10 +54,10 @@ jobs:
       - name: Verify tag matches package.json version
         run: |
           tag_version="${GITHUB_REF_NAME#switchdash-v}"
-          pkg_version="$(node -p "require('./apps/switchdash-desktop/package.json').version")"
+          pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::Tag version ($tag_version) does not match apps/switchdash-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
+            echo "::error::Tag version ($tag_version) does not match apps/switch-console-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
             exit 1
           fi
 
@@ -115,10 +115,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag_version="${GITHUB_REF_NAME#switchdash-v}"
-          pkg_version="$(node -p "require('./apps/switchdash-desktop/package.json').version")"
+          pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::Tag version ($tag_version) does not match apps/switchdash-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
+            echo "::error::Tag version ($tag_version) does not match apps/switch-console-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
             exit 1
           fi
 
@@ -128,7 +128,7 @@ jobs:
       - name: Rebuild native modules for Electron
         # postinstall skips electron-rebuild under CI; do it explicitly so
         # better-sqlite3 / node-pty match the packaged Electron ABI.
-        run: pnpm --filter @switchdash/switchdash-desktop run rebuild
+        run: pnpm --filter @switchdash/switch-console-desktop run rebuild
 
       - name: Build workspace packages + app
         # Root recursive build (topological): packages/** then the desktop app.
@@ -145,7 +145,7 @@ jobs:
           echo "APPLE_API_KEY=$RUNNER_TEMP/appstore/AuthKey.p8" >> "$GITHUB_ENV"
 
       - name: Package (mac arm64, no publish)
-        working-directory: dash/apps/switchdash-desktop
+        working-directory: dash/apps/switch-console-desktop
         env:
           # Developer ID signing: when the cert secret is set, electron-builder
           # signs with it and the config enables notarization. When it's empty,
@@ -160,7 +160,7 @@ jobs:
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        working-directory: dash/apps/switchdash-desktop
+        working-directory: dash/apps/switch-console-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -180,8 +180,8 @@ jobs:
         with:
           name: switchdash-macos-arm64
           path: |
-            dash/apps/switchdash-desktop/release/*.dmg
-            dash/apps/switchdash-desktop/release/*.zip
+            dash/apps/switch-console-desktop/release/*.dmg
+            dash/apps/switch-console-desktop/release/*.zip
           if-no-files-found: error
 
   build-linux:
@@ -216,10 +216,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag_version="${GITHUB_REF_NAME#switchdash-v}"
-          pkg_version="$(node -p "require('./apps/switchdash-desktop/package.json').version")"
+          pkg_version="$(node -p "require('./apps/switch-console-desktop/package.json').version")"
           echo "tag=$tag_version package.json=$pkg_version"
           if [ "$tag_version" != "$pkg_version" ]; then
-            echo "::error::Tag version ($tag_version) does not match apps/switchdash-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
+            echo "::error::Tag version ($tag_version) does not match apps/switch-console-desktop/package.json version ($pkg_version). Bump package.json and re-tag."
             exit 1
           fi
 
@@ -227,18 +227,18 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Rebuild native modules for Electron
-        run: pnpm --filter @switchdash/switchdash-desktop run rebuild
+        run: pnpm --filter @switchdash/switch-console-desktop run rebuild
 
       - name: Build workspace packages + app
         run: pnpm run build
 
       - name: Package (linux x64, no publish)
-        working-directory: dash/apps/switchdash-desktop
+        working-directory: dash/apps/switch-console-desktop
         run: pnpm exec electron-builder --linux --publish never --config electron-builder.config.ts
 
       - name: Upload to GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        working-directory: dash/apps/switchdash-desktop
+        working-directory: dash/apps/switch-console-desktop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -256,9 +256,9 @@ jobs:
         with:
           name: switchdash-linux-x64
           path: |
-            dash/apps/switchdash-desktop/release/*.AppImage
-            dash/apps/switchdash-desktop/release/*.deb
-            dash/apps/switchdash-desktop/release/*.rpm
+            dash/apps/switch-console-desktop/release/*.AppImage
+            dash/apps/switch-console-desktop/release/*.deb
+            dash/apps/switch-console-desktop/release/*.rpm
           if-no-files-found: error
 
   # Flips the draft to a published Release, once — and only once — every platform

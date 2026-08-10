@@ -23,7 +23,7 @@
     "test:watch": "vitest",
     "format": "oxfmt --write",
     "format:check": "oxfmt --check",
-    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switchdash-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/plugins/src\"'",
+    "lint": "sh -c 'root=$(cd ../.. && pwd); cd \"$root/apps/switch-console-desktop\" && pnpm exec oxlint --config .oxlintrc.json \"$root/packages/plugins/src\"'",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
