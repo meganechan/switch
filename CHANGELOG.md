@@ -41,6 +41,26 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.13.0] - 2026-08-10
+
+#### Added
+- The Discord collaboration bridge registers native slash commands (`/…`) that
+  map onto the same in-room command dispatcher as typed `!` commands, giving
+  Discord the interaction surface Slack already had (CHOO-1879). One
+  implementation, two entry points: a slash invocation is reassembled into the
+  same positional `@token` string the `!` handlers already parse. Argument shapes
+  come from a new shared `Command.args_spec` in the command registry — validated
+  up front, so a malformed spec names the offending command and fails in CI
+  rather than taking the bridge down at startup — and registration is
+  guild-scoped. Requires the `applications.commands` OAuth2 scope: a bot invited
+  without it runs but answers only `!`-prefixed commands.
+
+#### Changed
+- **Breaking (agent-facing):** `read_context` returns
+  `{threads, truncated, oldest_timestamp}` rather than a bare list of thread
+  groups, and every entry carries a `kind` (CHOO-2034). Both connector skills
+  are updated.
+
 #### Fixed
 - `read_context` seeks to a `before` window via the homeserver's
   `timestamp_to_event` rather than paging over everything newer to reach it,
@@ -56,12 +76,36 @@ version of their own to them without also giving them a release of their own.
   `GET /agents/{id}/rooms/{id}/history` endpoint, which read the result as a
   flat message list when it has always been thread groups and so returned no
   events at all, is fixed with it.
-
-#### Changed
-- **Breaking (agent-facing):** `read_context` returns
-  `{threads, truncated, oldest_timestamp}` rather than a bare list of thread
-  groups, and every entry carries a `kind` (CHOO-2034). Both connector skills
-  are updated.
+- Discord no longer silently drops outbound messages over its 2,000-character
+  limit (CHOO-1879). Both send paths caught the 400, logged it, and returned
+  `None`, so the message never reached the channel; text is now split on line (or
+  word) boundaries, reopening a fenced code block across the break so a torn fence
+  doesn't render the remainder as plain text. `help`, at 2,063 characters, had
+  been failing to post as `!help` for as long as the command list has been this
+  long.
+- The "no agents in this channel" notice now gives each platform its own invite
+  syntax instead of one Slack-shaped `/invite-agent @agent-name` line (CHOO-1879).
+  Discord names the argument as a field (`/invite-agent agent:agent-name`), and
+  Mattermost and Teams — which register no slash commands — no longer point at a
+  command that does not exist.
+- Outbound `@name` mentions on the Slack bridge resolve to real `<@U…>` mentions
+  from the `external_users` table, primed at startup and topped up as puppets are
+  created (CHOO-1781). The name→id map was previously filled only as a side effect
+  of resolving an inbound sender, so it was empty after every restart and whether
+  a person was actually notified depended on whether they happened to have posted
+  since — otherwise the mention went out as plain text. Matching is now
+  case-insensitive, and app/bot rows, whose `B…` id cannot form a valid user
+  mention, are skipped.
+- The first message from a channel member the room does not yet know is no longer
+  dropped (CHOO-1781). Provisioning the sender's puppet only *invited* it; the
+  join landed asynchronously from the puppet's own sync loop while the triggering
+  message was relayed immediately, and a send issued before the join is rejected
+  by the homeserver — a failure that was then swallowed.
+  `_ensure_user_in_matrix_room` now blocks on a new `ClientBase.wait_joined()`
+  (bounded by a 30s timeout) after inviting, and returns `None` rather than
+  relaying into a room the sender is not in; inbound relay failures are logged as
+  errors instead of silently skipped. This hit app/bot senders every time — they
+  key on `bot_id` and are never pre-warmed by a join.
 
 ### [0.12.4] - 2026-08-09
 
@@ -296,12 +340,106 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.20.0] - 2026-08-10
+
+#### Added
+- The bundled Mattermost row on the server page now has a "Sign-in details"
+  disclosure — server URL, username and password, each with copy-to-clipboard —
+  so signing in to a managed deployment's bundled chat no longer means finding the
+  generated `.env` on disk. The password is masked until revealed, and can be
+  copied without revealing it. Values are read from what the deployment actually
+  runs (the host port Switch Console chose and the password from the encrypted
+  app-secrets store), fetched only on expand so the secret does not cross into the
+  renderer for everyone who opens the page. When a value cannot be read the card
+  names which one is missing rather than showing a placeholder that could be
+  mistaken for a real password (CHOO-1787).
+- A per-host cap on how many remote terminals stay attached at once
+  (`remote.maxAttachedSessionsPerHost`, default 4), exposed as an Interface
+  setting. Beyond the cap the least-recently-viewed session on that host is
+  detached — its agent keeps running in its tmux pane and still reports status,
+  so only the on-screen terminal goes away.
+
 #### Changed
+- The app is now called **Switch Console** (formerly "switchdash") everywhere a
+  user reads it: the window and menus, the home-screen wordmark, the server/agent
+  dialogs, the auto-session / auto-approve / sidecar settings, the version-drift
+  warning, the command palette, remote-host setup, and the "Open in Switch
+  Console" deeplink the bridges post into Slack and Mattermost. Storage and OS
+  identity deliberately keep the `switchdash` name (app id, userData directory,
+  `switchdash://` scheme, npm packages, `SWITCHDASH_*` env vars) so an existing
+  install updates in place rather than being stranded. The source tree moved from
+  `dash/` to `console/` and the release tag prefix is now `switch-console-v*`
+  (CHOO-2008).
+- Local-server mode now bundles and pulls **switch-core `0.13.0`** (was
+  `0.12.3`): the app's bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised so a
+  managed local stack runs the current core release.
 - Bump the Codex session runtime pin (`SWITCH_AGENT_RUNTIME_VERSION`) to `0.1.6`
-  so switchdash-launched Codex sessions run the published runtime. Ships in the
-  next switchdash release.
+  so Switch Console-launched Codex sessions run the published runtime.
+- Remote terminals now attach on demand instead of on provision. Opening a
+  session on a remote host is what brings up its terminal, driven by which session
+  is in focus (debounced so arrowing through the sidebar doesn't ask a slow host
+  for a terminal at every step), with least-recently-viewed eviction under the
+  per-host cap. Previously every known session on a host wanted a terminal the
+  moment it was provisioned — on one host that was 51 terminals opened at launch.
+  The agent runs on its VM regardless; sidebar status, room badges and deep links
+  are unaffected because they come from hook events and the session poll, not from
+  a PTY.
+- Search no longer returns filesystem results, and the per-location file indexer
+  behind them is removed (CHOO-2009). File hits were appended after the relevance
+  cut and the 30-item slice, so up to 20 irrelevant rows survived regardless of
+  ranking; the row navigated to the session, not a file. Removing search's only
+  reader of the index also drops the crawl it ran on every location and the
+  debounced re-crawl on every file-watch event; an existing database sheds the
+  now-unused index tables.
 
 #### Fixed
+- Clicking a session on a busy remote host no longer freezes, and opening a remote
+  session no longer lands on an empty pane or a "Terminal not attached" message
+  that Attach could not clear. On one host, 51 sessions sharing a single SSH
+  transport re-attached in the same instant whenever the transport recovered,
+  re-saturating the tunnel on a ~16-minute wedge cycle; separately, a runtime
+  reaching the attachment path at provision time knew neither its session nor that
+  it was attachable, so every attach quietly did nothing. Remote attachment is now
+  serialised per host, sidecar event relays are shared one-per-sidecar instead of
+  one-per-session, provisioned sessions are made attachable, and a failed attach
+  throws a real error instead of leaving a silent empty pane. A detached remote
+  session now shows that its agent is still running rather than an indefinite
+  spinner.
+- The sidebar's staleness banner no longer warns about servers you are not looking
+  at. Room state was loaded and reported across every server at once while the
+  sidebar only ever shows one, so a healthy selected server could be buried under
+  warnings about unrelated ones. Room state is now scoped to the server on screen
+  (cross-server search still loads every server, but only when opened) (CHOO-1943).
+- The sidebar no longer presents unknown room state as fact. A server that could
+  not be read kept its last-known rooms with no hint they were stale; a room whose
+  name had not loaded showed a short id styled like a name; an agent whose
+  membership lookup failed vanished from its rooms. These are now disclosed
+  distinctly ("asked and failed" vs "not connected, never asked"), an unloaded name
+  renders as provisional, and a retry is offered. A room's member count, list and
+  invite picker are now one read so they can't disagree (CHOO-1943).
+- A server you are not signed into now prompts you to sign in instead of reporting
+  "couldn't reach" it with a Retry that cannot work. Signed-out, dormant, and
+  genuinely-unreachable are now distinguished, and only a real failure offers
+  Retry. Agent names are also read from the local database instead of fetched
+  per-row from the gateway, which could silently render a plausible wrong name on
+  failure (CHOO-1943).
+- Selecting a session, agent or room from outside the sidebar (keyboard, command
+  palette, notifications, menu, modals, deep links, or the view restored at
+  startup) now scrolls the highlighted row into view, expanding whatever group
+  hides it. Previously only the deeplink handler scrolled, and only for session
+  rows. It scrolls only when the row is off-screen, never while dragging, and keys
+  on the selection so a reorder can't yank the viewport (CHOO-2010).
+- The per-room channel icon, the room pane's "Open in …" button and the Slack
+  bridge card's Open button now open bridged channels even without the native
+  desktop app installed (CHOO-2043). They handed the OS a native
+  `mattermost://` / `slack://` deeplink, which nothing answers when no desktop app
+  is registered, so the click did nothing. Links are now translated to the
+  channel's web address, which works either way. Opens now also report a failure
+  to the person who clicked instead of discarding it.
+- The bundled chat's sign-in prompt no longer offers to sign in "on your phone".
+  The managed stack publishes onto `127.0.0.1` and the URL shown is a `localhost`
+  one, which no other device can reach, so it now says "on this computer"
+  (CHOO-1787).
 - The server page no longer sits on _"Checking sign-in options…"_ forever after
   connectivity returns. Which login methods a server offers was read once when
   the page mounted, and a read that failed was never retried, so a blip left the
