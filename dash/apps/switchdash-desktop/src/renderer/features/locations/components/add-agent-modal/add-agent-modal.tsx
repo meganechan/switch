@@ -308,7 +308,12 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       };
     }),
   ];
-  const hasOnboardable = onboardableAgents.length > 0;
+  // Onboarding needs both halves of the question answered: which directory, and
+  // which agent type the agents brought in will run under. With no type picked
+  // there is nothing to offer — every row would be unactionable — so the list and
+  // its button stay away and the modal asks for the type instead. Derived in one
+  // place so the footer button and the list it submits cannot disagree.
+  const hasOnboardable = !!pickState.providerId && onboardableAgents.length > 0;
   /** Rows that cannot be brought in — listed with their reason, never selectable. */
   const blockedNames = new Set(
     onboardableAgents.filter((a) => a.blockedReason !== null).map((a) => a.name)
@@ -867,6 +872,18 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         {isChecking && (
           <p className="text-sm text-foreground-muted">Scanning directory for agents…</p>
         )}
+        {/* A directory chosen with no agent type yet is a half-answered question,
+            and the onboard list cannot be acted on from there: every row needs a
+            type to run under. Say what is missing rather than listing agents under
+            a disabled button (CHOO-2044). */}
+        {canConfigureAgent &&
+          !pickState.providerId &&
+          !isChecking &&
+          discoverDir.trim().length > 0 && (
+            <p className="text-sm text-foreground-muted">
+              Pick an agent type above to scan this directory for agents to bring in.
+            </p>
+          )}
         {canConfigureAgent && hasOnboardable && !createMode && (
           <>
             <OnboardExistingPanel
