@@ -31,6 +31,10 @@ export class SwitchServersStore {
   /** Server ids with an auth-config fetch in flight, so several recovery
    * signals arriving at once collapse into a single request. */
   private readonly authConfigInFlight = new Set<string>();
+  /** Server ids whose last gateway read failed. The page shows a single
+   * "cannot reach" state for these: with the gateway down there is nothing to
+   * sign into, so a sign-in form would be a dead end dressed up as a choice. */
+  readonly unreachable = new Set<string>();
 
   loadingServers = false;
   /** Server ids with an in-flight status refresh. */
@@ -69,6 +73,11 @@ export class SwitchServersStore {
 
   isConnected(serverId: string): boolean {
     return this.statuses.get(serverId)?.connected ?? false;
+  }
+
+  /** Whether the last read of this server's gateway failed to reach it. */
+  isUnreachable(serverId: string): boolean {
+    return this.unreachable.has(serverId);
   }
 
   async init(): Promise<void> {
@@ -138,15 +147,18 @@ export class SwitchServersStore {
       const status = await rpc.switchServers.getConnectionStatus(serverId);
       runInAction(() => {
         this.statuses.set(serverId, status);
+        this.unreachable.delete(serverId);
       });
-    } catch {
+    } catch (cause) {
       // An unreachable server is a real, displayable state — record it as
-      // disconnected (the per-server status dot shows it). A background poll
-      // failure must NOT raise the page-level `error` banner: that field is
-      // global, so one unreachable server would paint an error over every
-      // server's view.
+      // disconnected (the per-server status dot shows it) and flag the server
+      // so its page can say so in one line. A background poll failure must NOT
+      // raise the page-level `error` banner: that field is global, so one
+      // unreachable server would paint an error over every server's view.
+      console.warn(`[switch-servers] could not read status for ${serverId}`, cause);
       runInAction(() => {
         this.statuses.set(serverId, { serverId, connected: false, user: null });
+        this.unreachable.add(serverId);
       });
     } finally {
       runInAction(() => {
@@ -181,14 +193,17 @@ export class SwitchServersStore {
       const config = await rpc.switchServers.getAuthConfig(serverId);
       runInAction(() => {
         this.authConfigs.set(serverId, config);
-        // An answer means the gateway is reachable again, so a banner left over
-        // from the fetch that failed is stale. Only a successful fetch clears
-        // it: a background status refresh must not wipe a live error the user
-        // still needs to read, such as a rejected password.
-        this.error = null;
+        this.unreachable.delete(serverId);
       });
     } catch (cause) {
-      this.setError(cause);
+      // Not the error banner: the raw text is our own IPC method name wrapped
+      // around a fetch failure, which tells the user nothing they can act on.
+      // The page states the one thing that matters, that the server cannot be
+      // reached, and the detail stays in the console for us.
+      console.warn(`[switch-servers] could not read auth config for ${serverId}`, cause);
+      runInAction(() => {
+        this.unreachable.add(serverId);
+      });
     } finally {
       runInAction(() => {
         this.authConfigInFlight.delete(serverId);
@@ -294,6 +309,7 @@ export class SwitchServersStore {
         this.statuses.delete(serverId);
         this.authConfigs.delete(serverId);
         this.authConfigWanted.delete(serverId);
+        this.unreachable.delete(serverId);
       });
       // Keep a server scoped when any remain (the sidebar scopes to it).
       if (!this.activeServerId && servers.length > 0) {

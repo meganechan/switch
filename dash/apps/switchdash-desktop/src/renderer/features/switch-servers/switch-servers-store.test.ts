@@ -68,6 +68,8 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks();
   blockedHosts.clear();
+  // The store logs the raw gateway error rather than showing it. Expected here.
+  vi.spyOn(console, 'warn').mockImplementation(() => {});
   getConnectionStatus.mockImplementation(async (serverId: string) => ({
     serverId,
     connected: false,
@@ -204,21 +206,70 @@ describe('the manual refresh button', () => {
   });
 });
 
-describe('the error banner', () => {
-  it('clears once the sign-in fetch succeeds', async () => {
+describe('a server that cannot be reached', () => {
+  it('is flagged when the sign-in read fails', async () => {
     const store = newStore([server('srv-a')]);
-    getAuthConfig.mockRejectedValueOnce(new Error('offline'));
-    await store.ensureAuthConfig('srv-a');
-    expect(store.error).toBe('offline');
+    getAuthConfig.mockRejectedValueOnce(new Error('fetch failed'));
 
-    await store.recoverStale();
+    await store.ensureAuthConfig('srv-a');
+
+    expect(store.isUnreachable('srv-a')).toBe(true);
+  });
+
+  it('is flagged when the status read fails', async () => {
+    const store = newStore([server('srv-a')]);
+    getConnectionStatus.mockRejectedValueOnce(new Error('fetch failed'));
+
+    await store.refreshStatus('srv-a');
+
+    expect(store.isUnreachable('srv-a')).toBe(true);
+  });
+
+  it('never puts the raw gateway error in the banner', async () => {
+    // What used to reach the user: "Error invoking remote method
+    // 'switchServers.getAuthConfig': GatewayError: ... fetch failed". Our own
+    // IPC method name is not something anyone can act on.
+    const store = newStore([server('srv-a')]);
+    getAuthConfig.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'switchServers.getAuthConfig': fetch failed")
+    );
+
+    await store.ensureAuthConfig('srv-a');
 
     expect(store.error).toBeNull();
   });
 
-  it('survives a status refresh, which has no idea whether it is stale', async () => {
-    // A rejected password lives in the same field. A background status sweep
-    // clearing it would delete the one thing telling the user what went wrong.
+  it('clears the flag once it answers again', async () => {
+    const store = newStore([server('srv-a')]);
+    getAuthConfig.mockRejectedValueOnce(new Error('fetch failed'));
+    getConnectionStatus.mockRejectedValueOnce(new Error('fetch failed'));
+    await store.refreshServer('srv-a');
+    expect(store.isUnreachable('srv-a')).toBe(true);
+
+    await store.refreshServer('srv-a');
+
+    expect(store.isUnreachable('srv-a')).toBe(false);
+    expect(store.authConfigFor('srv-a')).toEqual(authConfig);
+  });
+
+  it('is flagged per server, not across the app', async () => {
+    const store = newStore([server('srv-a'), server('srv-b')]);
+    getConnectionStatus.mockImplementation(async (serverId: string) => {
+      if (serverId === 'srv-a') throw new Error('fetch failed');
+      return { serverId, connected: false, user: null };
+    });
+
+    await store.refreshAllStatuses();
+
+    expect(store.isUnreachable('srv-a')).toBe(true);
+    expect(store.isUnreachable('srv-b')).toBe(false);
+  });
+});
+
+describe('the error banner', () => {
+  it('survives a background refresh, which cannot tell whether it is stale', async () => {
+    // A rejected password lives in the same field. A background sweep clearing
+    // it would delete the one thing telling the user what went wrong.
     const store = newStore([server('srv-a')]);
     await store.ensureAuthConfig('srv-a');
     store.error = 'Invalid email or password';

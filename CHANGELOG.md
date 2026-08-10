@@ -309,9 +309,15 @@ version of their own to them without also giving them a release of their own.
   on the signals connection status already used — the page's Refresh button,
   returning to the app window, and a remote host becoming reachable again. The
   Refresh button in particular re-checked only the connection status, so the one
-  control a user would reach for did nothing visible. A stale error banner now
-  clears once the read succeeds, while still leaving a live error such as a
-  rejected password on screen (CHOO-2042).
+  control a user would reach for did nothing visible (CHOO-2042).
+- A server whose gateway cannot be reached now says so in one line and retries
+  on its own, instead of stacking three surfaces that each described the same
+  failure differently: a red banner quoting a raw internal error
+  (`Error invoking remote method 'switchServers.getAuthConfig': …`), a
+  "Not signed in" row, and a sign-in panel that claimed to be checking options
+  it would never receive. There is nothing to sign into while the gateway is
+  down, so the sign-in form no longer appears at all. The underlying error goes
+  to the console (CHOO-2042).
 
 ### [0.19.3] - 2026-08-09
 
