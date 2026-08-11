@@ -13,7 +13,7 @@
 import { NPM_TOKEN_VAR } from '@shared/core/npm-registry';
 
 /** npm package name of the local Switch MCP runtime. */
-export const SWITCH_AGENT_RUNTIME_PACKAGE = '@sandbox-quantum/switch-agent-runtime';
+export const SWITCH_AGENT_RUNTIME_PACKAGE = '@sandboxaq/switch-agent-runtime';
 
 /**
  * Exact version the runtime is pinned to. Must match the pin in

@@ -821,7 +821,7 @@ A connection that has silently missed events must never appear healthy.
    drift. Unblocks the local runtime and closes the overlap with CHOO-490.
 
    **The two MCP servers are merged into one local runtime.** *(implemented)*
-   `@sandbox-quantum/switch-agent-runtime` serves the tool surface over stdio —
+   `@sandboxaq/switch-agent-runtime` serves the tool surface over stdio —
    fetched from the server at startup, so it cannot drift — and translates each
    call to `POST /ops/${toolName}` on its connection. Each connector plugin now
    registers exactly one MCP server (`switch`); the separate remote `switch` and

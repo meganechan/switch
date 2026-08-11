@@ -82,7 +82,7 @@ each ships its own copy of the Switch room-workflow skill at
 
 - `connectors/claude-code-plugin/` — manifest `.claude-plugin/plugin.json`.
   Ships the skill plus an MCP config (`.mcp.json`) and hooks. It contains **no
-  runtime code**: the MCP server is `@sandbox-quantum/switch-agent-runtime`,
+  runtime code**: the MCP server is `@sandboxaq/switch-agent-runtime`,
   fetched with `npx` and built from `console/packages/switch-agent-runtime/`.
   Switch Console imports the same package for its protocol client, so there is one
   implementation of the agent protocol rather than a copy per consumer.
