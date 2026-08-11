@@ -3,6 +3,10 @@
 Thanks for your interest in contributing! This guide covers what you need to
 get a change merged.
 
+Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md). To
+report a security vulnerability, follow [SECURITY.md](SECURITY.md) rather than
+opening an issue.
+
 ## Development setup
 
 ```bash
