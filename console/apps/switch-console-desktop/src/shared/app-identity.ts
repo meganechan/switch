@@ -38,7 +38,7 @@ export const ARTIFACT_PREFIX = isCanary ? 'switch-console-canary' : 'switch-cons
 export const IS_CANARY = isCanary;
 
 // GitHub repo the desktop app publishes releases to / reads auto-updates from.
-// CHOO-1260 config-flip point — see RELEASING.md. Mirrored in
+// The repo is public, so the feed is read unauthenticated. Mirrored in
 // app-identity.canary.ts (keep in sync).
 export const RELEASE_REPO_OWNER = 'sandbox-quantum';
 export const RELEASE_REPO_NAME = 'switch';

@@ -9,7 +9,7 @@ export const APP_NAME_LOWER = 'switch-console-canary';
 export const UPDATE_CHANNEL = 'v1-canary';
 export const ARTIFACT_PREFIX = 'switch-console-canary';
 
-// Keep in sync with RELEASE_REPO_* in ./app-identity.ts (CHOO-1260 flip point).
+// Keep in sync with RELEASE_REPO_* in ./app-identity.ts.
 export const RELEASE_REPO_OWNER = 'sandbox-quantum';
 export const RELEASE_REPO_NAME = 'switch';
 
