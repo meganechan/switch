@@ -4,8 +4,9 @@ Switch Console is distributed as a desktop app through **GitHub Releases on this
 repository** (`sandbox-quantum/switch`). The repo is public, so the downloads
 need no account, token or sign-up. No need to build from source.
 
-> Builds are currently **macOS arm64** (Apple Silicon) and **Linux x64**.
-> Windows is not built yet.
+> Builds are currently **macOS arm64** (Apple Silicon), **Linux x64** and
+> **Windows x64**. Windows builds are not code signed — see
+> [Install (Windows x64)](#install-windows-x64).
 
 ## Download
 
@@ -15,8 +16,9 @@ need no account, token or sign-up. No need to build from source.
    page.
 2. Find the latest release titled **`Switch Console <version>`** (tag
    `switch-console-v<version>`).
-3. Under **Assets**, download the file for your platform — `.dmg` on macOS, or
-   one of `.AppImage` / `.deb` / `.rpm` on Linux.
+3. Under **Assets**, download the file for your platform — `.dmg` on macOS, one
+   of `.AppImage` / `.deb` / `.rpm` on Linux, or `.exe` on Windows (a `.msi` is
+   also published if you deploy that way).
 
 ### Option B — command line
 
@@ -28,6 +30,9 @@ curl -fLO https://github.com/sandbox-quantum/switch/releases/download/switch-con
 
 # Linux — pick the format your distro uses:
 curl -fLO https://github.com/sandbox-quantum/switch/releases/download/switch-console-v<version>/switch-console-x86_64.AppImage
+
+# Windows:
+curl -fLO https://github.com/sandbox-quantum/switch/releases/download/switch-console-v<version>/switch-console-x64.exe
 ```
 
 With the [`gh` CLI](https://cli.github.com), if you prefer it:
@@ -73,6 +78,43 @@ Linux builds are **unsigned**. Pick the format your distro uses:
 > The app does not yet set a `desktopName`, so desktop environments may not
 > associate its windows with the installed `.desktop` entry (the icon can appear
 > as a duplicate or generic entry in the taskbar).
+
+## Install (Windows x64)
+
+1. Run the downloaded `switch-console-x64.exe`.
+2. Choose an install location if you want a non-default one, and finish the
+   installer.
+
+### First launch — SmartScreen warning
+
+Windows builds are **not code signed** — there is no Authenticode certificate for
+this app yet (CHOO-1468). Windows therefore shows a full-screen blue **"Windows
+protected your PC"** prompt the first time you run the installer:
+
+1. Click **More info**.
+2. Click **Run anyway**.
+
+This is expected, and it recurs for each new version until the app is signed. Two
+consequences worth knowing:
+
+- Antivirus software occasionally quarantines unsigned Electron installers. If
+  the download vanishes, check your AV quarantine.
+- **Managed / corporate Windows may refuse to install it outright.** AppLocker
+  and WDAC policies commonly block unsigned binaries, and there is no
+  click-through for that — the install simply fails. Signing is the only fix.
+
+The `.msi` supports the usual `msiexec` flow if you would rather not run the
+installer interactively.
+
+### Docker-backed features are not available on Windows
+
+Switch Console can manage a local or remote Switch server through Docker. That
+path is **macOS/Linux only** — Docker CLI discovery does not resolve
+`docker.exe` on Windows. Connecting to a Switch server that is already running
+elsewhere is unaffected.
+
+Windows support is new and less exercised than the other platforms; please report
+anything that misbehaves.
 
 ## Updating
 

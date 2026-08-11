@@ -141,18 +141,28 @@ const config: Configuration = {
   rpm: {
     packageName: APP_NAME_LOWER,
   },
+  // Windows ships UNSIGNED: there is no Authenticode identity for this app
+  // (CHOO-1468), so SmartScreen warns on first run.
+  //
+  // There is deliberately no `azureSignOptions` key. electron-builder chooses its
+  // signing backend from that key's presence alone, never checking for
+  // credentials, so setting it commits the build to Azure Trusted Signing: a
+  // PowerShell call that fails on any non-Windows host and, without credentials,
+  // on Windows too. Its absence selects the signtool backend, which finds no
+  // certificate and skips signing rather than failing.
+  //
+  // Its absence also keeps `publisherName` out of app-update.yml, which is what
+  // makes auto-update work here: electron-updater verifies an installer's
+  // Authenticode signature only when app-update.yml names a publisher, so an
+  // unsigned build that named one would reject every update it downloaded.
+  //
+  // Adding signing therefore means adding both an identity and this key together.
   win: {
     icon: 'src/assets/images/switch-console/app-icon-beta.png',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'msi', arch: ['x64'] },
     ],
-    azureSignOptions: {
-      publisherName: 'General Action, Inc.',
-      endpoint: 'https://eus.codesigning.azure.net/',
-      certificateProfileName: 'switch-console-public',
-      codeSigningAccountName: 'switch-console',
-    },
   },
   msi: {
     oneClick: false,
