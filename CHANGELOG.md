@@ -978,9 +978,26 @@ per-release notes on their GitHub Releases (`switch-console-v*` tags).
 ## agent-runtime
 
 The Switch protocol client and MCP runtime
-(`dash/packages/switch-agent-runtime/`). Version lives in its `package.json`.
+(`console/packages/switch-agent-runtime/`). Version lives in its `package.json`.
 
 ### [Unreleased]
+
+### [0.3.0] - 2026-08-11
+
+#### Changed
+- Published to **npmjs.com** under the **`@sandboxaq`** scope (was
+  `@sandbox-quantum` on GitHub Packages), so `npx` fetches it with no login and
+  nothing on disk — anyone, inside or outside SandboxAQ, can run the connector
+  plugins. GitHub Packages required a `read:packages` token even for public
+  packages, which `gh auth login` does not grant, so external consumers hit a
+  404 naming neither the registry nor the missing credential (CHOO-2021).
+- Publishing now authenticates by **npm trusted publishing (OIDC)** and runs in
+  the `release` environment, so a pushed tag queues the publish for approval;
+  builds carry `--provenance` and no npm token is stored (CHOO-2021).
+
+The package name (`switch-agent-runtime`) and the runtime's behavior are
+unchanged — only where and under what scope it ships. Version `0.2.x` was
+skipped to `0.3.0` by request.
 
 ### [0.2.0] - 2026-08-10
 
