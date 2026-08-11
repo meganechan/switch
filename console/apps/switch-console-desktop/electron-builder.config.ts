@@ -127,10 +127,18 @@ const config: Configuration = {
     // space-free name avoids that and matches `desktopName` above.
     executableName: APP_NAME_LOWER,
     syncDesktopName: true,
+    // Build ONE arch per electron-builder invocation, always with an explicit
+    // `--x64` / `--arm64`. `npmRebuild: false` means the native modules
+    // (better-sqlite3, node-pty, @parcel/watcher) are whatever the earlier
+    // `pnpm rebuild` produced for the HOST, and they are copied into every
+    // package unchanged — so building both arches on one machine yields a
+    // second package that installs, launches and then dies on the first
+    // require of a wrong-arch `.node`. The release workflow runs each arch on
+    // a runner of that arch for the same reason.
     target: [
-      { target: 'AppImage', arch: ['x64'] },
-      { target: 'deb', arch: ['x64'] },
-      { target: 'rpm', arch: ['x64'] },
+      { target: 'AppImage', arch: ['x64', 'arm64'] },
+      { target: 'deb', arch: ['x64', 'arm64'] },
+      { target: 'rpm', arch: ['x64', 'arm64'] },
     ],
   },
   // deb/rpm package names must be lowercase and space-free, so they are pinned

@@ -4,8 +4,8 @@ Switch Console is distributed as a desktop app through **GitHub Releases on this
 repository** (`sandbox-quantum/switch`). The repo is public, so the downloads
 need no account, token or sign-up. No need to build from source.
 
-> Builds are currently **macOS arm64** (Apple Silicon) and **Linux x64**.
-> Windows is not built yet.
+> Builds are currently **macOS arm64** (Apple Silicon) and **Linux x64 and
+> arm64**. Windows is not built yet.
 
 ## Download
 
@@ -47,27 +47,46 @@ gh release download switch-console-v<version> \
 Tagged macOS releases are signed and notarized with SandboxAQ's Developer ID, so
 they open without a Gatekeeper bypass.
 
-## Install (Linux x64)
+## Install (Linux)
 
-Linux builds are **unsigned**. Pick the format your distro uses:
+Linux builds are **unsigned**. First check which arch you are on — the assets
+carry it in the filename, and each packager reports it differently:
+
+```bash
+dpkg --print-architecture     # amd64 | arm64
+```
+
+An asset for the wrong arch does not fail cleanly. `apt` reports every
+dependency as "not installable" (including core ones like `libuuid1`), which
+reads like a broken package list rather than an arch mismatch.
+
+Pick the format your distro uses:
 
 - **AppImage** — no install step; make it executable and run it:
 
   ```bash
-  chmod +x switch-console-x86_64.AppImage
+  chmod +x switch-console-x86_64.AppImage      # arm64: switch-console-arm64.AppImage
   ./switch-console-x86_64.AppImage
   ```
+
+  On Ubuntu 22.04+ the AppImage needs FUSE 2 (`sudo apt install libfuse2`), and
+  on 24.04+ AppArmor's restriction on unprivileged user namespaces can break
+  Electron's sandbox. The `.deb` has neither problem — it installs
+  `chrome-sandbox` correctly — so prefer it on Ubuntu.
 
 - **Debian / Ubuntu** (`.deb`):
 
   ```bash
-  sudo apt install ./switch-console-amd64.deb
+  sudo apt install ./switch-console-amd64.deb  # arm64: switch-console-arm64.deb
   ```
+
+  Use `apt install ./file.deb` rather than `dpkg -i`, so the Electron runtime
+  dependencies get resolved.
 
 - **Fedora / RHEL** (`.rpm`):
 
   ```bash
-  sudo dnf install ./switch-console-x86_64.rpm
+  sudo dnf install ./switch-console-x86_64.rpm # arm64: switch-console-aarch64.rpm
   ```
 
 > The app does not yet set a `desktopName`, so desktop environments may not

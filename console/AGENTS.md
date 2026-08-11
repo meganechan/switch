@@ -182,9 +182,15 @@ Package desktop artifacts locally:
 ```bash
 pnpm run package
 pnpm run package:mac
-pnpm run package:linux
+pnpm run package:linux         # x64
+pnpm run package:linux:arm64
 pnpm run package:win
 ```
+
+The Linux scripts name an arch on purpose. `npmRebuild` is off, so the native
+modules in the package are whatever `pnpm run rebuild` produced for the host —
+building the other arch on the same machine yields a package that installs and
+then dies on the first wrong-arch `.node`. Build each arch on that arch.
 
 Run formatting, linting, type checks, and tests:
 
