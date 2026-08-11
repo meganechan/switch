@@ -46,7 +46,14 @@ const LEGACY_STEP_STATES: Record<string, HostSetupStepState> = {
   // "never attempted because something upstream failed" is just "not yet".
   blocked: 'pending',
 };
-const STEP_KINDS: HostSetupStepKind[] = ['core-dependency', 'agent-cli', 'agent-plugin', 'gh-auth'];
+const STEP_KINDS: HostSetupStepKind[] = ['core-dependency', 'agent-cli', 'agent-plugin'];
+
+/**
+ * Step kinds that existed in plans written by older versions. They are dropped
+ * on read instead of rejected: an unknown kind otherwise throws, which would
+ * make every host with a stored plan unreadable rather than merely out of date.
+ */
+const RETIRED_STEP_KINDS = new Set(['gh-auth']);
 const OUTCOMES: DependencyCheckOutcome[] = [
   'satisfied',
   'missing',
@@ -120,10 +127,19 @@ function toPlan(row: RemoteHostSetupPlanRow): HostSetupPlan {
     throw new Error(`Persisted setup plan for host ${row.sshHost} is not a list of steps`);
   }
 
+  const live = parsed.filter(
+    (step) =>
+      !(
+        typeof step === 'object' &&
+        step !== null &&
+        RETIRED_STEP_KINDS.has(String((step as { kind?: unknown }).kind))
+      )
+  );
+
   return {
     sshHost: row.sshHost,
     status: oneOf(PLAN_STATUSES, row.status, 'plan status', row.sshHost, LEGACY_PLAN_STATUSES),
-    steps: parsed.map((step) => toStep(step, row.sshHost)),
+    steps: live.map((step) => toStep(step, row.sshHost)),
     currentStepId: row.currentStepId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,

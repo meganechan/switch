@@ -79,7 +79,7 @@ export type HostSetupStepState =
   | 'skipped';
 
 /** What kind of thing a step manages, for rendering and for install routing. */
-export type HostSetupStepKind = 'core-dependency' | 'agent-cli' | 'agent-plugin' | 'gh-auth';
+export type HostSetupStepKind = 'core-dependency' | 'agent-cli' | 'agent-plugin';
 
 export type HostSetupStep = {
   /** Stable within a plan. Dependency id for deps; `<agentId>:plugin` for plugins. */
@@ -189,7 +189,7 @@ export function agentPluginStepId(agentId: string): string {
  * perfectly well installed.
  */
 export function isHostLevelStep(step: HostSetupStep): boolean {
-  return step.kind === 'core-dependency' || step.kind === 'gh-auth';
+  return step.kind === 'core-dependency';
 }
 
 /** The agent type a step belongs to, or null when the step is host-level. */

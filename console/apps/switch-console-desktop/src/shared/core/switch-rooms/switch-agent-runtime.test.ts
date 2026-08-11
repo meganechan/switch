@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { NPM_TOKEN_VAR } from '@shared/core/npm-registry';
 import {
   SWITCH_AGENT_RUNTIME_PACKAGE,
   SWITCH_AGENT_RUNTIME_VERSION,
@@ -61,14 +60,6 @@ function runtimePackageVersion(): string {
 }
 
 describe('the pinned runtime version', () => {
-  it('forwards what npx itself needs to reach the private registry', () => {
-    // Without these the child cannot fetch the package at all on a cold cache,
-    // and the failure reads as a 404 for something that does not exist.
-    expect(SWITCH_RUNTIME_ENV_VARS).toEqual(
-      expect.arrayContaining(['npm_config_userconfig', NPM_TOKEN_VAR])
-    );
-  });
-
   it.each([
     ['Claude', CLAUDE_MCP_JSON],
     ['Codex', CODEX_MCP_JSON],

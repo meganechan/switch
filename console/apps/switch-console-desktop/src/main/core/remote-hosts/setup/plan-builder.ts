@@ -49,9 +49,6 @@ export type BuildPlanInput = {
   now: string;
 };
 
-/** Step id for the interactive `gh auth login`. */
-export const GH_AUTH_STEP_ID = 'gh:auth';
-
 function blankStep(
   id: string,
   kind: HostSetupStepKind,
@@ -81,21 +78,7 @@ export function buildSetupPlan(input: BuildPlanInput): HostSetupPlan {
   const steps: HostSetupStep[] = [];
 
   for (const dep of coreDependencies) {
-    // gh was optional on the theory that its interactive login could be
-    // deferred without the host being unusable. CHOO-1873 disproved that: the
-    // Switch connector fetches its MCP runtime from GitHub Packages at session
-    // start, so without gh — authenticated, with read:packages — every agent on
-    // this host comes up with no Switch tools. A host in that state is not
-    // ready, and calling it ready is the failure this rewrite exists to remove.
     steps.push(blankStep(dep.id, 'core-dependency', dep.name, now));
-
-    if (dep.id === 'gh') {
-      steps.push(
-        blankStep(GH_AUTH_STEP_ID, 'gh-auth', 'GitHub CLI login', now, {
-          dependsOn: ['gh'],
-        })
-      );
-    }
   }
 
   for (const agent of agentTypes) {
