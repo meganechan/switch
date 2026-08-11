@@ -7,7 +7,7 @@ name: Container image security (Trivy)
 #     standing VULNMGMT ticket per project dir (routed to AISIM). No PRs.
 #   * pull_request (renovate/* container PRs): scan the bumped base image(s) and report
 #     remaining fixable CVEs as a non-blocking PR comment + job summary.
-# See the module docstrings in .github/renovate-security/. Never gates merge (report-only).
+# See .github/renovate-security/README.md. Never gates merge (report-only).
 on:
   schedule:
     - cron: "43 6 * * 2" # Tuesdays 06:43 UTC (off the top of the hour on purpose)
@@ -97,7 +97,6 @@ jobs:
     # Non-blocking scan of the base image(s) a renovate/* PR bumps to.
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.fork == false &&
       startsWith(github.event.pull_request.head.ref, 'renovate/')
     runs-on: ubuntu-latest
     timeout-minutes: 30

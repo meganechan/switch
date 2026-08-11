@@ -1,7 +1,7 @@
 """Tiny Jira REST client (stdlib only) for linking/creating vulnerability tickets.
 
-Uses REST API v3 with basic auth (email + API token) against the Jira Cloud
-instance named by JIRA_BASE_URL: search via /rest/api/3/search/jql
+Uses REST API v3 with basic auth (email + API token) against the SandboxAQ Jira
+Cloud instance (sandboxquantum.atlassian.net): search via /rest/api/3/search/jql
 (with a legacy fallback), create with an ADF description, assign, comment, remote
 link and transition to Done. Stdlib-only so the CI step needs no extra pip install.
 
@@ -25,10 +25,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-# The workflows pass JIRA_BASE_URL from a repo/org var that is not currently
-# set, so this default is what actually addresses Jira. Not a secret — an
-# Atlassian site name — and removing it silently disables ticketing rather than
-# hiding anything.
 DEFAULT_BASE = "https://sandboxquantum.atlassian.net"
 # Vulnerabilities are tracked in the VULNMGMT project. Both search and create
 # default here; the driver overrides them from JIRA_VULN_PROJECT when set.
@@ -42,9 +38,9 @@ class JiraIssue:
     summary: str
     url: str
     status: str = ""
-    # Stable numeric issue id. Unlike `key`, it does NOT change when the tracker's
-    # automation MOVES the issue to a BU project, so all post-create writes
-    # (route/verify/comment/remotelink/close) must key off id.
+    # Stable numeric issue id. Unlike `key`, it does NOT change when VULNMGMT
+    # automation MOVES the issue to a BU project (VULNMGMT-496 -> QNV-7011), so all
+    # post-create writes (route/verify/comment/remotelink/close) must key off id.
     id: str = ""
 
 
@@ -62,7 +58,7 @@ class JiraClient:
         # the repo var is undefined. get(k, default) returns "" there (key present),
         # leaving base="" and every request URL schemeless. Treat empty as unset.
         base = os.environ.get("JIRA_BASE_URL") or DEFAULT_BASE
-        if not (base and email and token):
+        if not (email and token):
             return None
         return cls(base, email, token)
 
@@ -143,9 +139,9 @@ class JiraClient:
         )
 
     def resolve_key(self, id_or_key: str) -> str | None:
-        """Current key for an issue id/key. After the tracker's automation MOVES a
-        created issue to its BU project, the numeric id still resolves but returns the
-        NEW key. Used to stamp the real key into the PR body / close marker."""
+        """Current key for an issue id/key. After VULNMGMT automation MOVES a created
+        issue to its BU project, the numeric id still resolves but returns the NEW key
+        (e.g. QNV-7011). Used to stamp the real key into the PR body / close marker."""
         data = self._request(
             "GET", f"/rest/api/3/issue/{urllib.parse.quote(id_or_key)}?fields=key"
         )
