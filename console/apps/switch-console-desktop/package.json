@@ -52,7 +52,7 @@
   },
   "dependencies": {
     "@parcel/watcher": "^2.5.6",
-    "@sandbox-quantum/switch-agent-runtime": "workspace:*",
+    "@sandboxaq/switch-agent-runtime": "workspace:*",
     "@switch-console/core": "workspace:*",
     "@switch-console/plugins": "workspace:*",
     "@switch-console/shared": "workspace:*",

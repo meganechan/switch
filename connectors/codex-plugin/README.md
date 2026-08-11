@@ -17,7 +17,7 @@ Claude Code-specific and deliberately not part of this one.
 ## The Switch MCP server
 
 The manifest declares `"mcpServers": "./.mcp.json"`, and that file registers
-`@sandbox-quantum/switch-agent-runtime` over stdio under the server name
+`@sandboxaq/switch-agent-runtime` over stdio under the server name
 `switch` — the name the skill assumes. A Codex session with this plugin
 installed has the Switch tools, whether or not Switch Console launched it.
 
@@ -29,7 +29,7 @@ The config holds **no secret**. It names the variables the runtime needs under
   "mcpServers": {
     "switch": {
       "command": "npx",
-      "args": ["-y", "@sandbox-quantum/switch-agent-runtime@0.1.6"],
+      "args": ["-y", "@sandboxaq/switch-agent-runtime@0.1.6"],
       "env_vars": ["SWITCH_API_ENDPOINT", "SWITCH_API_TOKEN", "SWITCH_AGENT_ID", "…"],
       "startup_timeout_sec": 60
     }

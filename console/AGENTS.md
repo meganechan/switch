@@ -383,7 +383,7 @@ pnpm run lint
   directory, and does not need the credential. Do not add a token back to it:
   two copies is how one goes stale and authenticates as the wrong agent.
   - Three consumers read this layout: switchdash, the sidecar, and
-    `@sandbox-quantum/switch-agent-runtime` (which reads it directly when
+    `@sandboxaq/switch-agent-runtime` (which reads it directly when
     nothing sets `SWITCH_*` in the environment). Changing the shape means
     changing all three.
   - The token being in a working tree at all is a known exposure — a
@@ -416,7 +416,7 @@ The pairs that must stay in step:
 | `agent-hooks/hook-config-service.ts` + `ssh-agent-runtime.installRemoteHooks` | `sidecar/session-spawner.installHooks` | nothing — same failure mode: one side quietly installs fewer hooks |
 | `switch-rooms/auto-session-watcher.ts` | `sidecar/notification-watcher.ts` | nothing — two implementations of one watcher |
 | `switch-rooms/room-connection.ts` | — | shared: the sidecar constructs the same class |
-| protocol client (stream, heartbeat, cursor) | — | shared: `@sandbox-quantum/switch-agent-runtime` |
+| protocol client (stream, heartbeat, cursor) | — | shared: `@sandboxaq/switch-agent-runtime` |
 
 Where a row says *shared*, a change lands in both for free — prefer putting
 logic there. Where it says *nothing*, you are editing one of two copies and the
