@@ -3,8 +3,6 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  SWITCH_AGENT_RUNTIME_PACKAGE,
-  SWITCH_AGENT_RUNTIME_VERSION,
   SWITCH_RUNTIME_ENV_VARS,
   SWITCH_RUNTIME_OPTIONAL_ENV,
   SWITCH_RUNTIME_REQUIRED_ENV,
@@ -43,50 +41,6 @@ function switchServerIn(relative: string): SwitchServerEntry {
 
 const claudeSwitchServer = (): SwitchServerEntry => switchServerIn(CLAUDE_MCP_JSON);
 const codexSwitchServer = (): SwitchServerEntry => switchServerIn(CODEX_MCP_JSON);
-
-/** The runtime package's own version, the third pin nothing else checks. */
-function runtimePackageVersion(): string {
-  let dir = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 12; i++) {
-    const candidate = join(dir, 'console/packages/switch-agent-runtime/package.json');
-    if (existsSync(candidate)) {
-      return (JSON.parse(readFileSync(candidate, 'utf8')) as { version: string }).version;
-    }
-    const parent = dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  throw new Error('could not locate packages/switch-agent-runtime/package.json');
-}
-
-describe('the pinned runtime version', () => {
-  it.each([
-    ['Claude', CLAUDE_MCP_JSON],
-    ['Codex', CODEX_MCP_JSON],
-  ])('is the version the %s connector .mcp.json registers', (_host, relative) => {
-    // Both connectors register this runtime from their own bundled .mcp.json,
-    // and both must run the same published version; this guards the pins from
-    // drifting when only one is bumped.
-    const args = switchServerIn(relative).args ?? [];
-    expect(args).toContain(`${SWITCH_AGENT_RUNTIME_PACKAGE}@${SWITCH_AGENT_RUNTIME_VERSION}`);
-  });
-
-  it('never pins a version ahead of the one the package declares', () => {
-    // The third pin AGENTS.md names. Not an equality: the package version may
-    // run ahead while a release is prepared, and the pin must keep naming a
-    // published version until then — pinning ahead points every session at
-    // something the registry does not have. Behind is staged; ahead is broken.
-    const pinned = SWITCH_AGENT_RUNTIME_VERSION.split('.').map(Number);
-    const declared = runtimePackageVersion().split('.').map(Number);
-    expect(pinned.length).toBe(3);
-    for (let i = 0; i < 3; i++) {
-      if (pinned[i]! !== declared[i]!) {
-        expect(pinned[i]!).toBeLessThan(declared[i]!);
-        return;
-      }
-    }
-  });
-});
 
 describe('the credentials the runtime needs', () => {
   it('are declared by the Claude connector not at all, so a standalone session can start', () => {

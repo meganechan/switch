@@ -172,6 +172,5 @@ jobs:
             *)   npm publish --access public --provenance ;;
           esac
           echo "Published $name@$version"
-          echo "Point the sessions at it: bump the three pins that name the" \
-               "version — both connectors' .mcp.json and" \
-               "SWITCH_AGENT_RUNTIME_VERSION — plus the plugin versions."
+          echo "Point the sessions at it: bump the version in both connectors'" \
+               ".mcp.json — plus the plugin versions."

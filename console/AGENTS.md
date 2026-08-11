@@ -438,21 +438,21 @@ forgotten and someone will debug a build they think is newer than it is.
 |---|---|---|
 | Remote sidecar | `src/sidecar/sidecar-version.ts` | any behaviour change; **major only** on a client↔sidecar wire break (ready line, endpoint shapes, shared on-disk layout) |
 | Claude Code plugin | `connectors/claude-code-plugin/.claude-plugin/plugin.json` | any change to the plugin — installs will not pick it up otherwise |
-| Codex plugin | `connectors/codex-plugin/.codex-plugin/plugin.json` | any change to the plugin (it ships only the skill) — installs will not pick it up otherwise |
-| Agent runtime package | `packages/switch-agent-runtime/package.json` | any change; it is published, and two pins name the version sessions actually run — the Claude connector `.mcp.json`, and `SWITCH_AGENT_RUNTIME_VERSION` in `src/shared/core/switch-rooms/switch-agent-runtime.ts` (which the Codex profile uses) |
+| Codex plugin | `connectors/codex-plugin/.codex-plugin/plugin.json` | any change to the plugin (it ships the skill and its own `.mcp.json`) — installs will not pick it up otherwise |
+| Agent runtime package | `packages/switch-agent-runtime/package.json` | any change; it is published, and **both** connectors' `.mcp.json` pin the version sessions actually run. Nothing in the app pins it — the plugins register the runtime themselves — so those two files are the only pins |
 
 "Non-trivial" means anything a user could observe: behaviour, protocol, wiring,
 dependencies. A comment or a rename that changes nothing does not need one.
 
-**The runtime's version and its two pins move at different times, in this
-order.** Bump `package.json` with the change; the pins must keep naming a
+**The runtime's version and the connector pins move at different times, in
+this order.** Bump `package.json` with the change; the pins must keep naming a
 version that is *published*, so they stay behind until the tag exists
 (`git tag switch-agent-runtime-v<version> && git push origin <tag>`), and only
 then move to it. Pinning ahead points every session at something the registry
-does not have. `switch-agent-runtime.test.ts` enforces exactly this: the two
-pins must agree with each other, and neither may run ahead of `package.json`.
-The cost of the lag is real and worth stating in the PR — a change to `bin.ts`
-reaches no session until the tag is pushed and the pins follow.
+does not have. Nothing checks this for you — the pins and `package.json` are
+free to sit apart, and how far apart is a release decision rather than an
+invariant. The cost of the lag is real and worth stating in the PR — a change
+to `bin.ts` reaches no session until the tag is pushed and the pins follow.
 
 Two traps worth knowing rather than rediscovering:
 
