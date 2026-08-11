@@ -41,6 +41,16 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.13.1] - 2026-08-11
+
+#### Fixed
+- The first message bridged from a channel member is no longer dropped when that
+  member's puppet had joined the room in an earlier run (#199). `wait_joined`
+  only resolved on a join it observed live, so a puppet already in the room from
+  a previous process never satisfied the wait and the send was skipped. It now
+  checks current membership up front and returns immediately when the puppet is
+  already joined.
+
 ### [0.13.0] - 2026-08-10
 
 #### Added
@@ -339,6 +349,25 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.21.0] - 2026-08-11
+
+#### Changed
+- The private-repo machinery is gone now that the repository and its packages are
+  public (CHOO-2023). The updater no longer gates on a `gh` token or a private
+  feed, so every user receives updates and the `auth-required` state is removed;
+  managed-server image pulls drop `docker login ghcr.io` and the remote
+  `.ghcr-token` forwarding; remote-host setup drops its interactive `gh:auth`
+  step (a persisted plan still carrying a `gh-auth` step drops it on read); agent
+  onboarding no longer withholds every agent type when `gh` cannot reach a
+  registry; and Switch no longer installs, probes, or forwards credentials to
+  `gh` on a remote host at all.
+- Local-server mode now bundles and pulls **switch-core `0.13.1`** (was
+  `0.13.0`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
+- Codex sessions launched by Switch Console now run
+  `@sandboxaq/switch-agent-runtime@0.3.0` (`SWITCH_AGENT_RUNTIME_VERSION`, was
+  `0.1.6`), matching the runtime's move to public npmjs.
 
 ### [0.20.0] - 2026-08-10
 
@@ -1046,9 +1075,18 @@ reconstructed here: an invented history reads exactly like a real one.
 
 ## sidecar
 
-The remote runtime switchdash deploys to an agent host. Versioned in
-`dash/apps/switchdash-desktop/src/sidecar/sidecar-version.ts` and deployed by
-switchdash rather than published on its own.
+The remote runtime Switch Console deploys to an agent host. Versioned in
+`console/apps/switch-console-desktop/src/sidecar/sidecar-version.ts` and deployed
+by Switch Console rather than published on its own.
+
+### [1.9.0]
+
+#### Changed
+- Dropped the npm-registry-auth machinery (`npm-registry-auth.ts`): now that the
+  agent runtime is published to public npmjs (CHOO-2021, CHOO-2023), the sidecar
+  no longer needs a token to `npx` it. Behavior change only — the
+  client↔sidecar wire (ready line, endpoints, on-disk layout) is unchanged, so
+  the major stays at `1`.
 
 ### [1.8.0]
 
@@ -1084,10 +1122,21 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+### [0.8.1] - 2026-08-11
+
 #### Changed
-- Document `read_context`'s new response shape — `truncated` /
+- Pin `@sandboxaq/switch-agent-runtime@0.3.0` — the runtime moved to public
+  npmjs under the `@sandboxaq` scope (CHOO-2021), so `npx` no longer needs a
+  GitHub token. The scope change had shipped without a plugin version bump and so
+  never reached installs; this release carries it and bumps the plugin version so
+  installs re-download.
+- Skill: document `read_context`'s new response shape — `truncated` /
   `oldest_timestamp` and the per-entry `kind` — and tell the agent not to
   conclude anything from a truncated read (CHOO-2034).
+
+#### Removed
+- Dropped the bundled `configure` skill as part of removing the private-repo /
+  `gh` setup machinery now that the repository is public (CHOO-2023).
 
 ### [0.7.9] - 2026-08-09
 
@@ -1110,7 +1159,16 @@ manifest history.
 
 ### [Unreleased]
 
+### [0.2.3] - 2026-08-11
+
 #### Changed
+- Pin `@sandboxaq/switch-agent-runtime@0.3.0` — the runtime moved to public
+  npmjs under the `@sandboxaq` scope (CHOO-2021); the scope change had shipped
+  without a plugin version bump and never reached installs, so this release
+  carries it and bumps the plugin version to force re-download.
+- Drop `SWITCHDASH_GITHUB_TOKEN` and `npm_config_userconfig` from the forwarded
+  `env_vars` in `.mcp.json` — `npx` no longer needs a GitHub token now that the
+  runtime is on public npmjs (CHOO-2023).
 - Skill updated for `read_context`'s new response shape — `truncated` /
   `oldest_timestamp` and the per-entry `kind` (CHOO-2034).
 
