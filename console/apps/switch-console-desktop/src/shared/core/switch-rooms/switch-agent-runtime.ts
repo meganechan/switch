@@ -10,16 +10,6 @@
  * Electron and the database) spawns from it.
  */
 
-/** npm package name of the local Switch MCP runtime. */
-export const SWITCH_AGENT_RUNTIME_PACKAGE = '@sandboxaq/switch-agent-runtime';
-
-/**
- * Exact version the runtime is pinned to. Must match the pin in
- * `connectors/claude-code-plugin/.mcp.json`; `switch-agent-runtime.test.ts`
- * fails if the two drift. Bump both together when the runtime is republished.
- */
-export const SWITCH_AGENT_RUNTIME_VERSION = '0.3.0';
-
 /**
  * The credentials switchdash injects into a session it launches. The runtime
  * takes all three together as its identity and asks no further questions —
