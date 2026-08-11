@@ -7,15 +7,7 @@
  * for detail — so a host reads like the rest of the product.
  */
 
-import {
-  GitBranch,
-  Github,
-  Package,
-  Puzzle,
-  RefreshCw,
-  Server,
-  SquareTerminal,
-} from 'lucide-react';
+import { GitBranch, Package, Puzzle, RefreshCw, Server, SquareTerminal } from 'lucide-react';
 import { Loader2 } from 'lucide-react';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { Button } from '@renderer/lib/ui/button';
@@ -38,7 +30,6 @@ const PREREQUISITE_ICON: Record<string, React.ComponentType<{ className?: string
   git: GitBranch,
   tmux: SquareTerminal,
   node: Package,
-  gh: Github,
 };
 
 export function PrerequisiteIcon({ step, size = 16 }: { step: HostSetupStep; size?: 16 | 24 }) {

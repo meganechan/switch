@@ -112,11 +112,7 @@ export type HostSetupStep = {
   error: string | null;
   /** Raw command output from a failed install — the detail users need. */
   output: string | null;
-  /**
-   * An optional step does not block the run or the host's usability. `gh` is
-   * the motivating case: it needs an interactive device-flow login that a user
-   * may reasonably defer without the host being unusable.
-   */
+  /** An optional step does not block the run or the host's usability. */
   optional: boolean;
   /** Steps that must be satisfied before this one is attempted. */
   dependsOn: string[];

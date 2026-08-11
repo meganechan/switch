@@ -7,8 +7,7 @@
  * declared once, in one place:
  *
  *   1. core host tools, in dependency order (git → node → tmux → …)
- *   2. gh, then its interactive login
- *   3. per agent type: its CLI, then the Switch connector plugin
+ *   2. per agent type: its CLI, then the Switch connector plugin
  *
  * Rebuilding is **merge, not replace**. A plan is rebuilt whenever the set of
  * known dependencies changes (a new agent type ships, say), and discarding the
