@@ -25,10 +25,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-# No default host: the site is deployment-specific, so a missing JIRA_BASE_URL
-# should surface as unconfigured rather than silently addressing someone else's
-# Jira.
-DEFAULT_BASE = ""
+# The workflows pass JIRA_BASE_URL from a repo/org var that is not currently
+# set, so this default is what actually addresses Jira. Not a secret — an
+# Atlassian site name — and removing it silently disables ticketing rather than
+# hiding anything.
+DEFAULT_BASE = "https://sandboxquantum.atlassian.net"
 # Vulnerabilities are tracked in the VULNMGMT project. Both search and create
 # default here; the driver overrides them from JIRA_VULN_PROJECT when set.
 SEARCH_PROJECTS = ("VULNMGMT",)
