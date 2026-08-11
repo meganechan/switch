@@ -336,9 +336,13 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: switch-console-windows-x64
+          # latest.yml rides along so a dispatch run shows whether the channel
+          # manifest was produced — publish-release refuses to publish a tagged
+          # Release without it, and a dispatch run is where that should surface.
           path: |
             console/apps/switch-console-desktop/release/*.exe
             console/apps/switch-console-desktop/release/*.msi
+            console/apps/switch-console-desktop/release/latest.yml
           if-no-files-found: error
 
   # Flips the draft to a published Release, once — and only once — every platform
