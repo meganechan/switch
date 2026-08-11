@@ -10,6 +10,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@main/db/client';
 import { remoteHostSetupPlans, type RemoteHostSetupPlanRow } from '@main/db/schema';
+import { log } from '@main/lib/logger';
 import type {
   DependencyCheckOutcome,
   HostSetupPlan,
@@ -48,12 +49,6 @@ const LEGACY_STEP_STATES: Record<string, HostSetupStepState> = {
 };
 const STEP_KINDS: HostSetupStepKind[] = ['core-dependency', 'agent-cli', 'agent-plugin'];
 
-/**
- * Step kinds that existed in plans written by older versions. They are dropped
- * on read instead of rejected: an unknown kind otherwise throws, which would
- * make every host with a stored plan unreadable rather than merely out of date.
- */
-const RETIRED_STEP_KINDS = new Set(['gh-auth']);
 const OUTCOMES: DependencyCheckOutcome[] = [
   'satisfied',
   'missing',
@@ -61,6 +56,19 @@ const OUTCOMES: DependencyCheckOutcome[] = [
   'wrong-version',
   'unknown',
 ];
+
+/**
+ * A step whose kind this version no longer defines is dropped, not rejected.
+ *
+ * `listSetupPlans` parses every host's row in one pass, so raising here would
+ * take the readiness list — the sidebar and the agent-creation gate — down for
+ * ALL hosts on account of one stale row. The plan is rebuilt from the live
+ * dependency set immediately afterwards, so the step is not lost, it is
+ * recomputed. Dropping is logged rather than silent.
+ */
+function isKnownStepKind(raw: unknown): raw is HostSetupStepKind {
+  return typeof raw === 'string' && (STEP_KINDS as string[]).includes(raw);
+}
 
 function oneOf<T extends string>(
   allowed: T[],
@@ -127,14 +135,16 @@ function toPlan(row: RemoteHostSetupPlanRow): HostSetupPlan {
     throw new Error(`Persisted setup plan for host ${row.sshHost} is not a list of steps`);
   }
 
-  const live = parsed.filter(
-    (step) =>
-      !(
-        typeof step === 'object' &&
-        step !== null &&
-        RETIRED_STEP_KINDS.has(String((step as { kind?: unknown }).kind))
-      )
-  );
+  const live = parsed.filter((step) => {
+    if (typeof step !== 'object' || step === null) return true;
+    const kind = (step as { kind?: unknown }).kind;
+    if (isKnownStepKind(kind)) return true;
+    log.warn('remote-host setup: dropping a step kind this version no longer defines', {
+      sshHost: row.sshHost,
+      kind: String(kind),
+    });
+    return false;
+  });
 
   return {
     sshHost: row.sshHost,
