@@ -72,7 +72,7 @@ Linux builds are **unsigned**. Pick the format your distro uses:
 
 > The app does not yet set a `desktopName`, so desktop environments may not
 > associate its windows with the installed `.desktop` entry (the icon can appear
-> as a duplicate or generic entry in the taskbar). Tracked under CHOO-1905.
+> as a duplicate or generic entry in the taskbar).
 
 ## Updating
 

@@ -1,5 +1,10 @@
 # Project Overview
 
+**This repository is public.** Everything written here is world-readable and
+permanent, git history included. See "This repository is public" in the root
+`CLAUDE.md` for what that rules out — credentials, internal hostnames and
+infrastructure names, personal addresses. It applies to test fixtures too.
+
 Switch Console is a cross-platform, local-first Electron app for orchestrating multiple AI
 coding agents in parallel. Each agent runs in its own session in its location's directory
 (there are no Git worktrees). An agent runs either locally or — when configured remote — on an
