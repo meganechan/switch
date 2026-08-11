@@ -132,7 +132,7 @@ describe('describeInstallFailure — the install command could not run', () => {
   const banner = [
     '  ____              _ ',
     ' / ___|  __ _ _ __ | |',
-    'alg-bench-debian-12-v260624',
+    'example-host-debian-12-v260624',
     '/bin/bash: line 1: npm: command not found',
   ].join('\n');
 

@@ -52,9 +52,9 @@ depends on them:
   such. (This was previously documented the other way round, as a reason the
   server could not ship here at all.)
 - **An unset name is simply not forwarded.** So the list can name
-  Switch Console-only variables (`SWITCH_CONNECTION_ID`, the npm registry settings)
-  without breaking a session that has none of them. The Claude connector cannot
-  do this: `${VAR}` expansion makes every declared variable mandatory.
+  Switch Console-only variables (`SWITCH_CONNECTION_ID`) without breaking a
+  session that has none of them. The Claude connector cannot do this: `${VAR}`
+  expansion makes every declared variable mandatory.
 
 `startup_timeout_sec` is raised from Codex's 10s default because a host that has
 never run the runtime can exceed it on the `npx` fetch alone, and a timeout

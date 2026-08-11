@@ -346,7 +346,7 @@ describe('HostDependencyManager install', () => {
   });
 
   it('extracts the version past login-shell banner noise on stdout', async () => {
-    const banner = ['  _____   _ _   ____', ' / ____|  | | | |  __ \\', 'alg-bench-debian-12'].join(
+    const banner = ['  _____   _ _   ____', ' / ____|  | | | |  __ \\', 'example-host-debian-12'].join(
       '\n'
     );
     const ctx = makeCtx(async (command, args = []) => {

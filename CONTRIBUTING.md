@@ -5,8 +5,6 @@ get a change merged.
 
 ## Development setup
 
-See [CLAUDE.md](CLAUDE.md) for the full developer guide. In short:
-
 ```bash
 uv sync            # install dependencies
 just up            # start Switch locally (Docker Compose)
@@ -22,10 +20,12 @@ just migrate       # apply database migrations
 
 ## Conventions
 
-[CLAUDE.md](CLAUDE.md) documents the code style, import rules, and the
-error-handling philosophy ("fail loud, never fake") this project follows.
-Please read it before making substantial changes — matching the surrounding
-code and these conventions keeps review fast.
+Code style, import rules, and the error-handling philosophy ("fail loud, never
+fake") are documented in [CLAUDE.md](CLAUDE.md). That file is written as
+instructions for AI coding agents working in this repository, but the
+conventions it describes are the ones the project follows, so it is worth
+reading before making substantial changes — matching the surrounding code keeps
+review fast.
 
 ## License
 

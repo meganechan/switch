@@ -153,11 +153,10 @@ def _route_aisim(
 ) -> tuple[bool, str]:
     """Set the Business Unit routing field and return (routed, settled_key).
 
-    Right after creation the VULNMGMT automation CHURNS the issue for ~15s (observed in
-    the changelog): a create-time rule clobbers the BU to a default (INFOSEC), assignee
-    automation fires, and the issue is MOVED between the VULNMGMT project and the target
-    BU project several times — its key changing each time
-    (VULNMGMT-498 -> QNV-7012 -> VULNMGMT-499 -> QNV-7013). During every move the issue
+    Right after creation the tracker's automation CHURNS the issue for ~15s (observed
+    in the changelog): a create-time rule clobbers the BU to a default, assignee
+    automation fires, and the issue is MOVED between the intake project and the target
+    BU project several times — its key changing each time. During every move the issue
     transiently 404s by BOTH key and id. So we:
 
       1. set the BU field, re-asserting through the default-BU clobber and the mid-move
@@ -288,8 +287,8 @@ def reconcile(args) -> int:
             # that moves the issue to the BU project, changing its key mid-flight.
             ref = created.id or created.key
             assigned, settled_key = _route_aisim(client, ref, created.key)
-            # Stamp the settled post-move key so the PR body + close marker point at the
-            # real ticket (e.g. QNV-7011), not the now-404 VULNMGMT-xxx key.
+            # Stamp the settled post-move key so the PR body + close marker point at
+            # the real ticket, not the now-404 pre-move key.
             if settled_key and settled_key != created.key:
                 created.key = settled_key
                 created.url = f"{client.base}/browse/{settled_key}"

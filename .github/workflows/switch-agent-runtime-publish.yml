@@ -23,9 +23,11 @@
 # Publishing is idempotent: a tag for a version already on the registry reports
 # that and exits cleanly rather than failing.
 #
-# No secret is needed. GitHub Packages accepts the workflow's own GITHUB_TOKEN
-# with `packages: write`, so there is no PAT to create, rotate, or leak.
-# Consumers authenticate with `gh auth token` on the host instead.
+# No secret is needed to publish. GitHub Packages accepts the workflow's own
+# GITHUB_TOKEN with `packages: write`, so there is no PAT to create, rotate, or
+# leak. Note that GitHub Packages still requires consumers to present a token
+# even for a public package — moving the package to npmjs.org (CHOO-2021) is
+# what removes that requirement.
 name: Publish switch-agent-runtime
 
 on:
@@ -55,7 +57,7 @@ jobs:
         working-directory: console
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         # Full history + tags so the version guard can resolve the tag pointing
         # at HEAD on a workflow_dispatch (where github.ref is a branch, not the tag).
         with:
@@ -63,11 +65,11 @@ jobs:
 
       # Pinned rather than read from packageManager: that field lives in
       # console/package.json, and the action looks at the repo root.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           version: 10.28.2
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: pnpm

@@ -57,10 +57,9 @@ One cost was accepted rather than avoided: because `APP_NAME_LOWER` moved, `apt`
 `dnf` treat `switch-console` as a new package rather than an upgrade of `switchdash`,
 so a Linux user upgrading across the rename has to remove the old package by hand.
 
-The **update feed** points at GitHub Releases on the private
-`sandbox-quantum/switch` repo (see `electron-builder.config.ts` `publish`): the app
-distributes to repo-readers and authenticates the updater with the user's `gh` CLI token
-(`src/main/core/updates/github-token.ts`). The SQLite database file is `switchdash.db`;
+The **update feed** points at GitHub Releases on the public
+`sandbox-quantum/switch` repo (see `electron-builder.config.ts` `publish`): the feed is
+read unauthenticated, so the updater needs no token. The SQLite database file is `switchdash.db`;
 installs upgrading from a pre-rebrand build are migrated forward from their legacy database
 on first launch — see `LEGACY_DB_FILENAMES` in `src/main/db/default-path.ts` and the
 copy-migration in `database-file.ts` (those legacy filenames are the only place the
