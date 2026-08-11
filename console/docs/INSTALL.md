@@ -103,6 +103,31 @@ You can always grab a newer build manually from the
 [Releases page](https://github.com/sandbox-quantum/switch/releases) and
 re-install (drag over the old app).
 
+## Building from source
+
+Only needed for a platform with no published artifact. Requires the Node version
+in `console/.nvmrc` and the pinned pnpm, plus `build-essential`, `python3` (for
+the native modules) and `rpm` if you want the `.rpm` target. Budget ~10 GB free
+disk: Electron's download plus the unpacked tree are several GB.
+
+```bash
+git clone https://github.com/sandbox-quantum/switch.git
+cd switch/console
+pnpm install
+pnpm run build                                       # workspace packages, then the app
+pnpm --filter @switch-console/desktop run rebuild    # native modules for THIS machine
+cd apps/switch-console-desktop
+pnpm run package:linux          # or package:linux:arm64 / package:mac / package:win
+```
+
+The first two steps are not optional. Packaging from the app directory alone
+fails at the renderer with `Failed to resolve entry for package
+"@switch-console/shared"` — the workspace packages publish a `dist/` that has
+not been built yet. And because `npmRebuild` is off, skipping the rebuild ships
+whatever native binaries happen to be in `node_modules`.
+
+Artifacts land in `console/apps/switch-console-desktop/release/`.
+
 ## Notes
 
 - Release **asset filenames are prefixed `switch-console-`** (e.g.

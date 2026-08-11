@@ -75,13 +75,9 @@ const config: Configuration = {
     // without it.
     maintainer: 'Louis Amaudruz <louis.amaudruz@sandboxaq.com>',
     syncDesktopName: true,
-    // One arch per invocation — see the base config for why building both on a
-    // single machine produces a broken package.
-    target: [
-      { target: 'AppImage', arch: ['x64', 'arm64'] },
-      { target: 'deb', arch: ['x64', 'arm64'] },
-      { target: 'rpm', arch: ['x64', 'arm64'] },
-    ],
+    // Arch comes from the CLI flag / host — see the base config for why naming
+    // both arches here produces a broken package.
+    target: ['AppImage', 'deb', 'rpm'],
   },
   deb: {
     packageName: APP_NAME_LOWER,

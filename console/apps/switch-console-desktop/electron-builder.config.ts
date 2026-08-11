@@ -127,19 +127,16 @@ const config: Configuration = {
     // space-free name avoids that and matches `desktopName` above.
     executableName: APP_NAME_LOWER,
     syncDesktopName: true,
-    // Build ONE arch per electron-builder invocation, always with an explicit
-    // `--x64` / `--arm64`. `npmRebuild: false` means the native modules
-    // (better-sqlite3, node-pty, @parcel/watcher) are whatever the earlier
-    // `pnpm rebuild` produced for the HOST, and they are copied into every
-    // package unchanged — so building both arches on one machine yields a
-    // second package that installs, launches and then dies on the first
-    // require of a wrong-arch `.node`. The release workflow runs each arch on
-    // a runner of that arch for the same reason.
-    target: [
-      { target: 'AppImage', arch: ['x64', 'arm64'] },
-      { target: 'deb', arch: ['x64', 'arm64'] },
-      { target: 'rpm', arch: ['x64', 'arm64'] },
-    ],
+    // No `arch` here on purpose: electron-builder then builds the HOST arch,
+    // or whichever `--x64` / `--arm64` the caller passes. Naming both arches
+    // in the target entries instead makes every invocation build both and
+    // ignore the flag — which is not merely slow. `npmRebuild: false` means
+    // the native modules (better-sqlite3, node-pty, @parcel/watcher) are
+    // whatever the earlier `pnpm rebuild` produced for the host, copied into
+    // every package unchanged, so the non-host arch comes out installable,
+    // launchable, and dead on the first require of a wrong-arch `.node`. The
+    // release workflow builds each arch on a runner of that arch.
+    target: ['AppImage', 'deb', 'rpm'],
   },
   // deb/rpm package names must be lowercase and space-free, so they are pinned
   // rather than derived from the display name (same as the canary channel).
