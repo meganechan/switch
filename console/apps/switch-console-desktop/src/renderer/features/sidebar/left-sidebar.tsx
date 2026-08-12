@@ -5,7 +5,7 @@ import { SidebarOnboardingChecklist } from '@renderer/features/onboarding/sideba
 import { isCurrentView, useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { openExternalUrl } from '@renderer/lib/open-external';
-import { SwitchConsoleAppIcon } from '@renderer/lib/switch-console-app-icon';
+import { SwitchConsoleMark } from '@renderer/lib/switch-console-mark';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { cn } from '@renderer/utils/utils';
 import { SWITCH_CONSOLE_DOCS_URL } from '@shared/urls';
@@ -117,9 +117,9 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             onClick={() => navigate('home')}
             aria-label="Go to home"
             title="Home"
-            className="rounded-md opacity-70 transition-opacity hover:opacity-100"
+            className="rounded-md text-foreground-passive transition-colors hover:text-foreground"
           >
-            <SwitchConsoleAppIcon size={18} className="rounded-[4px]" />
+            <SwitchConsoleMark size={18} />
           </button>
           <UpdateSection />
         </div>
