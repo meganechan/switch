@@ -71,6 +71,9 @@ export const SETTINGS_DEFAULTS = {
   remote: {
     maxAttachedSessionsPerHost: 4,
   },
+  onboarding: {
+    showChecklist: true,
+  },
   changesViewMode: {
     unstaged: 'flat' as const,
     staged: 'flat' as const,

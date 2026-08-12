@@ -187,6 +187,9 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   filterBridgeTypes = observable.set<string>();
   filterRoomHasLiveSession = false;
 
+  /** Whether the first-run setup checklist is collapsed to its header row. */
+  onboardingChecklistCollapsed = false;
+
   constructor(private readonly locationManager: LocationManagerStore) {
     makeAutoObservable(this, {
       expandedLocationIds: false,
@@ -467,6 +470,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       roomSortBy: this.roomSortBy,
       filterBridgeTypes: [...this.filterBridgeTypes],
       filterRoomHasLiveSession: this.filterRoomHasLiveSession,
+      onboardingChecklistCollapsed: this.onboardingChecklistCollapsed,
     };
   }
 
@@ -512,6 +516,13 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (snapshot.filterRoomHasLiveSession !== undefined) {
       this.filterRoomHasLiveSession = snapshot.filterRoomHasLiveSession;
     }
+    if (snapshot.onboardingChecklistCollapsed !== undefined) {
+      this.onboardingChecklistCollapsed = snapshot.onboardingChecklistCollapsed;
+    }
+  }
+
+  toggleOnboardingChecklistCollapsed(): void {
+    this.onboardingChecklistCollapsed = !this.onboardingChecklistCollapsed;
   }
 
   /** Called on first load when no snapshot exists — expand all known locations. */

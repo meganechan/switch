@@ -1,6 +1,7 @@
 import { FolderInput, Server, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
+import { SidebarOnboardingChecklist } from '@renderer/features/onboarding/sidebar-onboarding-checklist';
 import { isCurrentView, useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { BoundShortcut } from '@renderer/lib/ui/shortcut';
@@ -60,6 +61,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+        <SidebarOnboardingChecklist />
         <SidebarFooter>
           <SidebarMenu>
             <SidebarSearchTrigger />

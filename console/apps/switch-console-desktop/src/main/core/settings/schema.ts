@@ -142,6 +142,18 @@ export const openInSettingsSchema = z.object({
   hidden: z.array(openInAppIdSchema),
 });
 
+/**
+ * Whether the first-run setup checklist is shown (CHOO-2022).
+ *
+ * Dismissing the checklist with its ✕ clears this, and the Settings toggle is
+ * the way back — a dismissal that could not be undone would make the checklist
+ * a one-shot, which is the wrong shape for something a user may dismiss before
+ * they know what it was.
+ */
+export const onboardingSettingsSchema = z.object({
+  showChecklist: z.boolean(),
+});
+
 export const APP_SETTINGS_SCHEMA_MAP = {
   localLocation: localLocationSettingsSchema,
   location: locationSettingsSchema,
@@ -158,6 +170,7 @@ export const APP_SETTINGS_SCHEMA_MAP = {
   resourceMonitor: resourceMonitorSettingsSchema,
   changesViewMode: changesViewModeSchema,
   remote: remoteSettingsSchema,
+  onboarding: onboardingSettingsSchema,
 } as const;
 
 export const appSettingsSchema = z.object({
@@ -176,4 +189,5 @@ export const appSettingsSchema = z.object({
   resourceMonitor: resourceMonitorSettingsSchema,
   changesViewMode: changesViewModeSchema,
   remote: remoteSettingsSchema,
+  onboarding: onboardingSettingsSchema,
 });
