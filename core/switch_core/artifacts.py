@@ -23,7 +23,7 @@ ARTIFACT_VERSIONS: Final[dict[str, str]] = {
     "switch-core": "0.13.1",
     "switch-console": "0.22.0",
     "agent-runtime": "0.3.0",
-    "sidecar": "1.9.0",
+    "sidecar": "1.9.1",
     "gateway": "0.13.1",
     "setup": "0.13.1",
     "helm-chart": "0.13.1",
