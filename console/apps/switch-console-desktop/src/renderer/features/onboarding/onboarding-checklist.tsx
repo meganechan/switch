@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { openExternalUrl } from '@renderer/lib/open-external';
 import { MicroLabel } from '@renderer/lib/ui/label';
@@ -34,7 +34,7 @@ const LEARN_MORE_LINKS: { label: string; linkText: string; url: string }[] = [
   },
   {
     label: 'Best ways to use ',
-    linkText: '“Rooms”',
+    linkText: 'Rooms',
     url: SWITCH_CONSOLE_DOCS_URL,
   },
 ];
@@ -49,27 +49,37 @@ function OnboardingStepRow({
   onStart: (id: OnboardingStepId) => void;
 }) {
   const done = step.status === 'done';
+  // A step you have not reached yet is not startable: doing it out of order
+  // either fails or produces something the earlier steps then contradict. It
+  // stays visible — the list is meant to show what is coming — but it does not
+  // pretend to be a button.
+  const locked = step.status === 'upcoming';
+
   return (
     <button
       type="button"
       onClick={() => onStart(step.id)}
+      disabled={locked}
+      aria-disabled={locked}
+      title={locked ? 'Finish the step above first' : undefined}
       className={cn(
-        'group flex w-full items-center gap-2 rounded-md px-1 py-1 text-left text-sm',
+        'flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left text-sm transition-colors',
+        locked && 'cursor-default text-foreground-muted opacity-60',
+        !locked && 'hover:bg-background-secondary-2',
         done && 'text-foreground-muted',
-        step.status === 'active' && 'text-foreground',
-        step.status === 'upcoming' && 'text-foreground-muted'
+        step.status === 'active' && 'text-foreground'
       )}
     >
       <span
         aria-hidden
         className={cn(
-          'size-2.5 shrink-0 rounded-full',
-          done ? 'bg-foreground-success' : 'border border-current opacity-60'
+          'flex size-3.5 shrink-0 items-center justify-center rounded-full',
+          done ? 'bg-foreground-success text-white' : 'border border-current opacity-60'
         )}
-      />
-      <span className={cn('truncate', done && 'line-through', !done && 'group-hover:underline')}>
-        {step.label}
+      >
+        {done && <Check className="size-2.5" strokeWidth={3.5} />}
       </span>
+      <span className={cn('truncate', done && 'line-through')}>{step.label}</span>
     </button>
   );
 }

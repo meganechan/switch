@@ -106,11 +106,36 @@ describe('onboarding checklist panel', () => {
 
   it('reports which step was started', async () => {
     const onStart = vi.fn();
-    const el = await renderPanel({ onStart });
+    const el = await renderPanel({
+      progress: { addServer: true, agentProviders: true, onboardAgents: true },
+      onStart,
+    });
 
     await act(async () => stepButton(el, 'Create a room')?.click());
 
     expect(onStart).toHaveBeenCalledWith('createRoom');
+  });
+
+  it('refuses to start a step behind an unfinished one', async () => {
+    const onStart = vi.fn();
+    const el = await renderPanel({ onStart });
+
+    const locked = stepButton(el, 'Create a room');
+    expect(locked?.disabled).toBe(true);
+
+    await act(async () => locked?.click());
+    expect(onStart).not.toHaveBeenCalled();
+  });
+
+  it('keeps a completed step startable so it can be revisited', async () => {
+    const onStart = vi.fn();
+    const el = await renderPanel({ progress: { addServer: true }, onStart });
+
+    const done = stepButton(el, 'Add a server');
+    expect(done?.disabled).toBe(false);
+
+    await act(async () => done?.click());
+    expect(onStart).toHaveBeenCalledWith('addServer');
   });
 
   it('dismisses through its own control rather than collapsing', async () => {

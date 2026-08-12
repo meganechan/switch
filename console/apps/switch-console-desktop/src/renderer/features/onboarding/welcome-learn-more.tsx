@@ -13,7 +13,7 @@ import { SWITCH_CONSOLE_DOCS_URL } from '@shared/urls';
 const LEARN_MORE_CARDS: { title: string; url: string }[] = [
   { title: 'Hosting Switch on a SSH device or a cloud', url: SWITCH_CONSOLE_DOCS_URL },
   { title: 'Connecting to message apps', url: SWITCH_CONSOLE_DOCS_URL },
-  { title: 'Best ways to use “Rooms”', url: SWITCH_CONSOLE_DOCS_URL },
+  { title: 'Best ways to use Rooms', url: SWITCH_CONSOLE_DOCS_URL },
 ];
 
 export function WelcomeLearnMore() {
@@ -36,7 +36,11 @@ export function WelcomeLearnMore() {
             key={card.title}
             type="button"
             onClick={() => openExternalUrl(card.url, `Could not open “${card.title}”`)}
-            className="flex h-28 items-start rounded-lg bg-background-secondary p-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-background-tertiary"
+            // `background-secondary` is the same colour as `background` in the
+            // dark theme, so a card painted with it reads as three floating
+            // strings of text. The elevated tone differs in both themes, and
+            // the border keeps the card's edge legible either way.
+            className="flex h-28 items-start rounded-lg border border-border bg-background-secondary-2 p-3 text-left text-sm font-medium text-foreground transition-colors hover:bg-background-secondary-3"
           >
             {card.title}
           </button>
