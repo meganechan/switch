@@ -564,6 +564,15 @@ pnpm run test
   Getting this wrong is silent — the POSIX form ends in `|| true` and agents
   ignore hook exit codes, so the only symptom is a remote session whose provider
   session id is never captured and whose room never stops saying "working on it".
+- **A Windows hook command carries no quotes of its own.** It is a bare
+  `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand <base64>`,
+  never a `cmd.exe /d /c "…"` wrapper. Hosts wrap a `command` hook in a shell
+  before running it, and Claude Code's wrapping did not reliably survive the
+  inner double quotes: when they were lost, cmd.exe ignored its `/c` argument,
+  opened an interactive prompt and exited 0 — a hook that reported success
+  having never run. Because the marker then exists only inside the base64,
+  `isManagedHookEntry` decodes it; matching on the raw string would stop
+  recognising managed entries and append a duplicate on every launch.
 - The Codex Windows install list leads with the ChatGPT `install.ps1`, and npm's
   option is stripped of the `recommended` flag `npmDependency` adds for every
   platform — both `pickInstallOption` and the settings UI take the *first*

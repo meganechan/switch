@@ -184,13 +184,26 @@ describe('makeStdinHookCommand target platform', () => {
 
     expect(build({ platform: 'linux' })).toContain('curl -sf -X POST');
     expect(build({ platform: 'darwin' })).toContain('curl -sf -X POST');
-    expect(build({ platform: 'win32' })).toContain('cmd.exe /d /c');
+    expect(build({ platform: 'win32' })).toContain('powershell.exe -NoProfile');
   });
 
-  it('keeps the marker scannable on Windows, where the script itself is base64', () => {
+  // A host wraps a `command` hook in a shell of its own before running it. When
+  // this carried a `cmd.exe /d /c "…"` layer, that wrapping could eat the double
+  // quotes, leaving cmd.exe to ignore its `/c` argument, open an interactive
+  // prompt and exit 0 — a hook that reported success without running.
+  it('invokes PowerShell directly, with no shell wrapper and nothing quoted', () => {
     const command = makeStdinHookCommand('stop')({ platform: 'win32' });
 
-    expect(command).toContain(SWITCHDASH_MARKER);
+    expect(command).not.toContain('cmd.exe');
+    expect(command).not.toContain('"');
+    expect(command.startsWith('powershell.exe ')).toBe(true);
+  });
+
+  it('stays recognisable on Windows, where the marker only exists inside the base64', () => {
+    const command = makeStdinHookCommand('stop')({ platform: 'win32' });
+
+    expect(command).not.toContain(SWITCHDASH_MARKER);
+    expect(decodeWindowsHookScript(command)).toContain(SWITCHDASH_MARKER);
     expect(filterUserHooks([{ command }, { command: 'user-own-hook' }])).toEqual([
       { command: 'user-own-hook' },
     ]);

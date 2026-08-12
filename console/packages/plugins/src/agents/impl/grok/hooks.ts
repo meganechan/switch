@@ -37,7 +37,10 @@ function grokWindowsSessionStart(): string {
       '} -Body $payload | Out-Null } catch { exit 0 }',
   ].join('; ');
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  return `cmd.exe /d /c "echo SWITCHDASH_HOOK_PORT >NUL & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}"`;
+  // No `cmd.exe /d /c "…"` wrapper, for the reason given on
+  // makeWindowsHookPostCommand: a host's own shell wrapping can strip the
+  // quotes, leaving cmd.exe to exit 0 without ever running the script.
+  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
 }
 
 function grokPosixSessionStart(): string {

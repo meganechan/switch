@@ -3,10 +3,33 @@ import type { HookCommand, HookCommandOptions } from '../capabilities/hooks-type
 
 export const SWITCHDASH_MARKER = 'SWITCHDASH_HOOK_PORT';
 
+const ENCODED_COMMAND_RE = /-EncodedCommand\s+([A-Za-z0-9+/=]+)/;
+
+/**
+ * Whether a hook entry is one Switch Console wrote.
+ *
+ * POSIX commands name the marker outright. The Windows command is a single
+ * `powershell.exe -EncodedCommand <base64>` invocation with nothing quoted
+ * around it, so the marker only exists inside the encoded script and has to be
+ * decoded back out. Getting this wrong is not cosmetic: an unrecognised managed
+ * entry is treated as the user's, so it is never replaced and a second copy is
+ * appended on every launch.
+ */
+export function isManagedHookEntry(text: string): boolean {
+  if (text.includes(SWITCHDASH_MARKER)) return true;
+  const encoded = ENCODED_COMMAND_RE.exec(text)?.[1];
+  if (!encoded) return false;
+  try {
+    return Buffer.from(encoded, 'base64').toString('utf16le').includes(SWITCHDASH_MARKER);
+  } catch {
+    return false;
+  }
+}
+
 /** Filter out Switch Console-managed entries from a hook array. */
 export function filterUserHooks<T>(entries: T[], stringify?: (entry: T) => string): T[] {
   const toStr = stringify ?? JSON.stringify;
-  return entries.filter((entry) => !toStr(entry).includes(SWITCHDASH_MARKER));
+  return entries.filter((entry) => !isManagedHookEntry(toStr(entry)));
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────────
@@ -90,9 +113,15 @@ function makeWindowsHookPostCommand(eventType: string, payload: HookPostPayload)
       '} -Body $payload | Out-Null } catch { exit 0 }',
   ].join('; ');
   const encoded = Buffer.from(script, 'utf16le').toString('base64');
-  // The script is base64 in the file, so the marker filterUserHooks scans for
-  // has to be spelled out here or a managed entry is never recognised again.
-  return `cmd.exe /d /c "echo SWITCHDASH_HOOK_PORT >NUL & powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}"`;
+  // Deliberately a bare invocation with no quoting of its own. Hosts wrap a
+  // `command` hook in a shell of their own on Windows, and Claude Code's
+  // wrapping did not reliably survive the double quotes this used to carry
+  // around a `cmd.exe /d /c "…"` layer: when they were lost, cmd.exe ignored
+  // the `/c` argument, opened an interactive prompt, and exited 0 — so the hook
+  // reported success having never run the script at all, and the room's
+  // "working on it…" never cleared. One layer, no quotes, nothing to mis-escape.
+  // {@link isManagedHookEntry} decodes the payload to recognise this again.
+  return `powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand ${encoded}`;
 }
 
 /** Post an event with an arbitrary payload, resolved against the target platform. */

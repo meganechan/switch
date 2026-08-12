@@ -5,7 +5,7 @@ import type {
   HookCommandOptions,
   HookRegistration,
 } from '../capabilities/hooks-types';
-import { SWITCHDASH_MARKER, filterUserHooks } from './hooks';
+import { SWITCHDASH_MARKER, filterUserHooks, isManagedHookEntry } from './hooks';
 
 // ── JSON config helpers ────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ export function buildFlatTomlHookConfig(
   const getHookEntries = (config: Record<string, unknown>) =>
     Array.isArray(config.hooks) ? (config.hooks as Record<string, unknown>[]) : [];
   const hasSwitchConsoleHook = (config: Record<string, unknown>) =>
-    getHookEntries(config).some((entry) => stringifyEntry(entry).includes(SWITCHDASH_MARKER));
+    getHookEntries(config).some((entry) => isManagedHookEntry(stringifyEntry(entry)));
 
   return {
     async readHooks(fs: PluginFs): Promise<HookRegistration[]> {
@@ -192,7 +192,7 @@ export function buildNestedJsonHookConfig(configPath: string, hookSpecs: HookSpe
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       const installed = hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
       return installed ? [{ event: 'switchdash', command: SWITCHDASH_MARKER }] : [];
     },
@@ -233,7 +233,7 @@ export function buildNestedJsonHookConfig(configPath: string, hookSpecs: HookSpe
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       return hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
     },
   };
@@ -256,7 +256,7 @@ export function buildFlatJsonHookConfig(
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       const installed = hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
       return installed ? [{ event: 'switchdash', command: SWITCHDASH_MARKER }] : [];
     },
@@ -287,7 +287,7 @@ export function buildFlatJsonHookConfig(
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       return hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
     },
   };
@@ -308,7 +308,7 @@ export function buildMinimalJsonHookConfig(
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       const installed = hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
       return installed ? [{ event: 'switchdash', command: SWITCHDASH_MARKER }] : [];
     },
@@ -339,7 +339,7 @@ export function buildMinimalJsonHookConfig(
       const hooks = (config.hooks ?? {}) as Record<string, unknown[]>;
       return hookSpecs.some(({ hookKey }) => {
         const entries = Array.isArray(hooks[hookKey]) ? hooks[hookKey] : [];
-        return entries.some((e) => JSON.stringify(e).includes(SWITCHDASH_MARKER));
+        return entries.some((e) => isManagedHookEntry(JSON.stringify(e)));
       });
     },
   };
