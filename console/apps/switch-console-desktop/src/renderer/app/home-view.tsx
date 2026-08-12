@@ -1,28 +1,26 @@
-import { Plus, type LucideIcon } from 'lucide-react';
+import { observer } from 'mobx-react-lite';
 import { motion } from 'motion/react';
-import { useArrowKeyNavigation } from '@renderer/lib/hooks/use-arrow-key-navigation';
-import { useTheme } from '@renderer/lib/hooks/useTheme';
-import { useShowModal } from '@renderer/lib/modal/modal-provider';
-import { SwitchConsoleShimmerLogo } from '@renderer/lib/switch-console-shimmer-logo';
-import { ActionListItem } from '@renderer/lib/ui/action-list-item';
+import { OnboardingChecklistCard } from '@renderer/features/onboarding/onboarding-checklist';
+import { useOnboardingChecklist } from '@renderer/features/onboarding/use-onboarding-checklist';
+import { WelcomeFooter, WelcomeLearnMore } from '@renderer/features/onboarding/welcome-learn-more';
+import { SwitchConsoleAppIcon } from '@renderer/lib/switch-console-app-icon';
 
-const LOCATION_ACTIONS = [
-  {
-    label: 'Add Switch agent',
-    description: 'Onboard a local directory as a Switch agent — configuring one if needed',
-    icon: Plus,
-    modalArgs: {},
-  },
-] as const;
+const TAGLINE = 'A platform-agnostic framework to bring humans and agents together.';
 
-export function HomeMainPanel() {
-  const showAddLocationModal = useShowModal('addAgentModal');
-  const { selectedIndex, setSelectedIndex } = useArrowKeyNavigation(
-    LOCATION_ACTIONS.length,
-    (index) => showAddLocationModal(LOCATION_ACTIONS[index].modalArgs)
-  );
-  const { effectiveTheme } = useTheme();
-  const isDark = effectiveTheme === 'emdark';
+/**
+ * The welcome screen (CHOO-2022).
+ *
+ * It used to be the logo and a single "Add Switch agent" action, which said
+ * nothing about what the app was or what setting it up involved. It now carries
+ * the same setup checklist as the sidebar — so the main pane answers "what do I
+ * do first" instead of leaving it to the one action that happened to be there.
+ *
+ * The checklist here has no dismiss or collapse: this screen is not somewhere
+ * you are trying to get it out of the way of, and it is only ever seen when
+ * nothing else is open.
+ */
+export const HomeMainPanel = observer(function HomeMainPanel() {
+  const { steps, complete, startStep } = useOnboardingChecklist();
 
   return (
     // Home registers no TitlebarSlot, so without a drag region here the whole
@@ -35,60 +33,20 @@ export function HomeMainPanel() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5, ease: 'easeOut' }}
     >
-      <div className="container mx-auto flex min-h-full max-w-6xl flex-1 flex-col justify-center px-8 py-8">
-        <div className="mb-3 text-center">
-          <div className="mb-3 flex items-center justify-center">
-            <SwitchConsoleShimmerLogo
-              height={32}
-              color={isDark ? 'var(--color-background-2)' : 'var(--color-foreground)'}
-              shimmerColor={isDark ? 'white' : 'var(--color-foreground-passive)'}
-            />
-          </div>
+      <div className="container mx-auto flex min-h-full max-w-2xl flex-1 flex-col justify-center px-8 py-10">
+        <div className="flex flex-col items-center gap-4">
+          <SwitchConsoleAppIcon size={64} className="rounded-2xl" />
+          <p className="max-w-sm text-center text-base text-foreground-muted">{TAGLINE}</p>
         </div>
-        <div className="mx-auto mt-8 flex w-full max-w-md flex-col gap-1 [-webkit-app-region:no-drag]">
-          {LOCATION_ACTIONS.map((action, i) => (
-            <HomeLocationAction
-              key={action.label}
-              label={action.label}
-              description={action.description}
-              icon={action.icon}
-              isSelected={i === selectedIndex}
-              onMouseEnter={() => setSelectedIndex(i)}
-              onClick={() => showAddLocationModal(action.modalArgs)}
-            />
-          ))}
+        <div className="mt-8 flex w-full flex-col gap-4 [-webkit-app-region:no-drag]">
+          <OnboardingChecklistCard steps={steps} complete={complete} onStart={startStep} />
+          <WelcomeLearnMore />
+          <WelcomeFooter />
         </div>
       </div>
     </motion.div>
   );
-}
-
-function HomeLocationAction({
-  label,
-  description,
-  icon,
-  isSelected,
-  onClick,
-  onMouseEnter,
-}: {
-  label: string;
-  description: string;
-  icon: LucideIcon;
-  isSelected: boolean;
-  onClick: () => void;
-  onMouseEnter: () => void;
-}) {
-  return (
-    <ActionListItem
-      label={label}
-      description={description}
-      icon={icon}
-      isSelected={isSelected}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-    />
-  );
-}
+});
 
 export const homeView = {
   MainPanel: HomeMainPanel,

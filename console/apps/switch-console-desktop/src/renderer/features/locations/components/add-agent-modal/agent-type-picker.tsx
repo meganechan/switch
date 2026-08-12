@@ -75,7 +75,7 @@ export function AgentTypePicker({
         ) : (
           <>
             No agent type is set up for Switch on this computer. Install an agent&apos;s Switch
-            connector in Settings &rarr; Agents before onboarding it.
+            connector in Settings &rarr; Agent providers before onboarding it.
           </>
         )}
       </span>

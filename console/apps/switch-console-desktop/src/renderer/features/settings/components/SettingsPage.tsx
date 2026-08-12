@@ -7,6 +7,7 @@ import HiddenToolsSettingsCard from './HiddenToolsSettingsCard';
 import InterfaceSettingsCard from './InterfaceSettingsCard';
 import KeyboardSettingsCard from './KeyboardSettingsCard';
 import NotificationSettingsCard from './NotificationSettingsCard';
+import { OnboardingChecklistRow } from './OnboardingSettingsRow';
 import RemoteAttachmentSettingsCard from './RemoteAttachmentSettingsCard';
 import ResourceMonitorSettingsCard from './ResourceMonitorSettingsCard';
 import {
@@ -51,6 +52,7 @@ function GeneralSettingsPage() {
       <IncludeIssueContextByDefaultRow />
       <EnableTmuxRow />
       <NotificationSettingsCard />
+      <OnboardingChecklistRow />
     </div>
   );
 }
@@ -127,7 +129,7 @@ export function SettingsPage({
   }> = [
     // Switch Console v0 hides Account, Integrations, Connections (SSH), and Browser tabs.
     { id: 'general', label: 'General' },
-    { id: 'clis-models', label: 'Agents' },
+    { id: 'clis-models', label: 'Agent providers' },
     { id: 'interface', label: 'Interface' },
     { id: 'docs', label: 'Docs', isExternal: true },
   ];
