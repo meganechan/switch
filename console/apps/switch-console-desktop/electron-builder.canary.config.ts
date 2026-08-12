@@ -75,11 +75,9 @@ const config: Configuration = {
     // without it.
     maintainer: 'Louis Amaudruz <louis.amaudruz@sandboxaq.com>',
     syncDesktopName: true,
-    target: [
-      { target: 'AppImage', arch: ['x64'] },
-      { target: 'deb', arch: ['x64'] },
-      { target: 'rpm', arch: ['x64'] },
-    ],
+    // Arch comes from the CLI flag / host — see the base config for why naming
+    // both arches here produces a broken package.
+    target: ['AppImage', 'deb', 'rpm'],
   },
   deb: {
     packageName: APP_NAME_LOWER,

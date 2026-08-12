@@ -4,8 +4,8 @@ Switch Console is distributed as a desktop app through **GitHub Releases on this
 repository** (`sandbox-quantum/switch`). The repo is public, so the downloads
 need no account, token or sign-up. No need to build from source.
 
-> Builds are currently **macOS arm64** (Apple Silicon), **Linux x64** and
-> **Windows x64**. Windows builds are not code signed — see
+> Builds are currently **macOS arm64** (Apple Silicon), **Linux x64 and arm64**
+> and **Windows x64**. Windows builds are not code signed — see
 > [Install (Windows x64)](#install-windows-x64).
 
 ## Download
@@ -52,27 +52,46 @@ gh release download switch-console-v<version> \
 Tagged macOS releases are signed and notarized with SandboxAQ's Developer ID, so
 they open without a Gatekeeper bypass.
 
-## Install (Linux x64)
+## Install (Linux)
 
-Linux builds are **unsigned**. Pick the format your distro uses:
+Linux builds are **unsigned**. First check which arch you are on — the assets
+carry it in the filename, and each packager reports it differently:
+
+```bash
+dpkg --print-architecture     # amd64 | arm64
+```
+
+An asset for the wrong arch does not fail cleanly. `apt` reports every
+dependency as "not installable" (including core ones like `libuuid1`), which
+reads like a broken package list rather than an arch mismatch.
+
+Pick the format your distro uses:
 
 - **AppImage** — no install step; make it executable and run it:
 
   ```bash
-  chmod +x switch-console-x86_64.AppImage
+  chmod +x switch-console-x86_64.AppImage      # arm64: switch-console-arm64.AppImage
   ./switch-console-x86_64.AppImage
   ```
+
+  On Ubuntu 22.04+ the AppImage needs FUSE 2 (`sudo apt install libfuse2`), and
+  on 24.04+ AppArmor's restriction on unprivileged user namespaces can break
+  Electron's sandbox. The `.deb` has neither problem — it installs
+  `chrome-sandbox` correctly — so prefer it on Ubuntu.
 
 - **Debian / Ubuntu** (`.deb`):
 
   ```bash
-  sudo apt install ./switch-console-amd64.deb
+  sudo apt install ./switch-console-amd64.deb  # arm64: switch-console-arm64.deb
   ```
+
+  Use `apt install ./file.deb` rather than `dpkg -i`, so the Electron runtime
+  dependencies get resolved.
 
 - **Fedora / RHEL** (`.rpm`):
 
   ```bash
-  sudo dnf install ./switch-console-x86_64.rpm
+  sudo dnf install ./switch-console-x86_64.rpm # arm64: switch-console-aarch64.rpm
   ```
 
 > The app does not yet set a `desktopName`, so desktop environments may not
@@ -125,6 +144,31 @@ automatically; you can also recheck manually.
 You can always grab a newer build manually from the
 [Releases page](https://github.com/sandbox-quantum/switch/releases) and
 re-install (drag over the old app).
+
+## Building from source
+
+Only needed for a platform with no published artifact. Requires the Node version
+in `console/.nvmrc` and the pinned pnpm, plus `build-essential`, `python3` (for
+the native modules) and `rpm` if you want the `.rpm` target. Budget ~10 GB free
+disk: Electron's download plus the unpacked tree are several GB.
+
+```bash
+git clone https://github.com/sandbox-quantum/switch.git
+cd switch/console
+pnpm install
+pnpm run build                                       # workspace packages, then the app
+pnpm --filter @switch-console/desktop run rebuild    # native modules for THIS machine
+cd apps/switch-console-desktop
+pnpm run package:linux          # or package:linux:arm64 / package:mac / package:win
+```
+
+The first two steps are not optional. Packaging from the app directory alone
+fails at the renderer with `Failed to resolve entry for package
+"@switch-console/shared"` — the workspace packages publish a `dist/` that has
+not been built yet. And because `npmRebuild` is off, skipping the rebuild ships
+whatever native binaries happen to be in `node_modules`.
+
+Artifacts land in `console/apps/switch-console-desktop/release/`.
 
 ## Notes
 
