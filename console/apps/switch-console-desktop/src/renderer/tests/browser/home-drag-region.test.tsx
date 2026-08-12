@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -24,18 +25,25 @@ async function renderHome(): Promise<HTMLDivElement> {
   container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
+  // The welcome screen reads onboarding progress through React Query, so it
+  // needs a client even though nothing here resolves.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   await act(async () =>
     root.render(
-      <ThemeContext.Provider
-        value={{
-          theme: null,
-          setTheme: () => {},
-          toggleTheme: () => {},
-          effectiveTheme: 'emlight',
-        }}
-      >
-        <HomeMainPanel />
-      </ThemeContext.Provider>
+      <QueryClientProvider client={queryClient}>
+        <ThemeContext.Provider
+          value={{
+            theme: null,
+            setTheme: () => {},
+            toggleTheme: () => {},
+            effectiveTheme: 'emlight',
+          }}
+        >
+          <HomeMainPanel />
+        </ThemeContext.Provider>
+      </QueryClientProvider>
     )
   );
   return container;
@@ -55,11 +63,13 @@ describe('home view drag region', () => {
     expect(surface?.className).toContain('[-webkit-app-region:drag]');
   });
 
-  it('opts the action list out so its buttons stay clickable', async () => {
+  it('opts the checklist out so its steps stay clickable', async () => {
     const el = await renderHome();
-    const action = el.querySelector('button[aria-label="Add Switch agent"]');
+    const step = [...el.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'Add a server'
+    );
 
-    expect(action).not.toBeNull();
-    expect(action?.closest('[class*="[-webkit-app-region:no-drag]"]')).not.toBeNull();
+    expect(step).toBeDefined();
+    expect(step?.closest('[class*="[-webkit-app-region:no-drag]"]')).not.toBeNull();
   });
 });
