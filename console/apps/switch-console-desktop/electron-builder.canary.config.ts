@@ -85,18 +85,14 @@ const config: Configuration = {
   rpm: {
     packageName: APP_NAME_LOWER,
   },
+  // Unsigned, like the base config — see the `win` comment there before adding
+  // any signing key here.
   win: {
     icon: 'src/assets/images/switch-console/app-icon-canary.png',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'msi', arch: ['x64'] },
     ],
-    azureSignOptions: {
-      publisherName: 'General Action, Inc.',
-      endpoint: 'https://eus.codesigning.azure.net/',
-      certificateProfileName: 'switch-console-public',
-      codeSigningAccountName: 'switch-console',
-    },
   },
   msi: {
     oneClick: false,
