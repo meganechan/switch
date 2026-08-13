@@ -41,6 +41,15 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Fixed
+- The Mattermost bridge no longer litters a channel with "(message deleted)"
+  placeholders while an agent works. Mattermost's web client shows that
+  placeholder for any message removed while it is on screen — a permanent
+  delete looks no different to it, and no server setting turns it off — so the
+  agent's status line is now retired by editing it into a "✓ Done · 2m14s"
+  marker rather than being deleted, and it no longer moves down the channel to
+  follow the conversation (each move was a delete of its own).
+
 ### [0.13.2] - 2026-08-12
 
 #### Fixed
