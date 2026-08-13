@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
 import {
   AddressingPolicyEditor,
   type OptionItem,
@@ -36,10 +37,17 @@ export function AddressingPolicySettingsSection({
 
   return (
     <Field>
-      <FieldTitle>Who can address this agent</FieldTitle>
+      <FieldTitle>
+        <span className="flex items-center gap-1.5">
+          Who can address this agent
+          <InfoTooltip
+            label="More info about addressing"
+            content="Addressing means an @mention, a targeted message, or a delegated task. Open allows any room participant; restricted permits only senders matching a rule."
+          />
+        </span>
+      </FieldTitle>
       <FieldDescription className="text-foreground-muted">
-        Restrict who may @mention, target, or delegate tasks to the agent. Open means any room
-        participant can; restricted permits only senders matching a rule.
+        Open to everyone, or restricted to matching senders.
       </FieldDescription>
       <div className="flex flex-col gap-4">
         {switchAgents.map((agent) => (

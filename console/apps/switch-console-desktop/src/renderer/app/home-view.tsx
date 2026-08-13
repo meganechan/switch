@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { OnboardingChecklistCard } from '@renderer/features/onboarding/onboarding-checklist';
 import { useOnboardingChecklist } from '@renderer/features/onboarding/use-onboarding-checklist';
 import { WelcomeFooter, WelcomeLearnMore } from '@renderer/features/onboarding/welcome-learn-more';
+import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { SwitchConsoleAppIcon } from '@renderer/lib/switch-console-app-icon';
 
 const TAGLINE = 'A platform-agnostic framework to bring humans and agents together.';
@@ -15,12 +16,21 @@ const TAGLINE = 'A platform-agnostic framework to bring humans and agents togeth
  * the same setup checklist as the sidebar — so the main pane answers "what do I
  * do first" instead of leaving it to the one action that happened to be there.
  *
- * The checklist here has no dismiss or collapse: this screen is not somewhere
- * you are trying to get it out of the way of, and it is only ever seen when
- * nothing else is open.
+ * The checklist here cannot be collapsed — there is no space to reclaim on a
+ * screen this empty — but it can be dismissed, and does so through the same
+ * setting as the sidebar's, so it goes away everywhere at once and comes back
+ * from Settings → General.
  */
 export const HomeMainPanel = observer(function HomeMainPanel() {
   const { steps, complete, startStep } = useOnboardingChecklist();
+  const {
+    value: onboarding,
+    update: updateOnboarding,
+    isLoading,
+  } = useAppSettingsKey('onboarding');
+  // Until the setting has loaded there is no honest answer, and guessing "show"
+  // flashes the checklist at someone who dismissed it launches ago.
+  const showChecklist = !isLoading && onboarding?.showChecklist === true;
 
   return (
     // Home registers no TitlebarSlot, so without a drag region here the whole
@@ -39,7 +49,14 @@ export const HomeMainPanel = observer(function HomeMainPanel() {
           <p className="max-w-sm text-center text-base text-foreground-muted">{TAGLINE}</p>
         </div>
         <div className="mt-8 flex w-full flex-col gap-4 [-webkit-app-region:no-drag]">
-          <OnboardingChecklistCard steps={steps} complete={complete} onStart={startStep} />
+          {showChecklist && (
+            <OnboardingChecklistCard
+              steps={steps}
+              complete={complete}
+              onStart={startStep}
+              onDismiss={() => updateOnboarding({ showChecklist: false })}
+            />
+          )}
           <WelcomeLearnMore />
           <WelcomeFooter />
         </div>

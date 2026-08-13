@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { HomeMainPanel } from '@renderer/app/home-view';
+import { appSettingsMetaQueryKey } from '@renderer/features/settings/app-settings-client';
 import { ThemeContext } from '@renderer/lib/providers/theme-provider';
 
 /**
@@ -21,7 +22,9 @@ import { ThemeContext } from '@renderer/lib/providers/theme-provider';
 
 let container: HTMLDivElement | null = null;
 
-async function renderHome(): Promise<HTMLDivElement> {
+async function renderHome({
+  showChecklist = true,
+}: { showChecklist?: boolean } = {}): Promise<HTMLDivElement> {
   container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -29,6 +32,14 @@ async function renderHome(): Promise<HTMLDivElement> {
   // needs a client even though nothing here resolves.
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
+  });
+  // The checklist is hidden until the setting says otherwise, and the test
+  // bridge answers every IPC call with `undefined` — so without seeding this
+  // there is no checklist on screen to make assertions about.
+  queryClient.setQueryData(appSettingsMetaQueryKey('onboarding'), {
+    value: { showChecklist },
+    defaults: { showChecklist: true },
+    overrides: {},
   });
   await act(async () =>
     root.render(
@@ -71,5 +82,13 @@ describe('home view drag region', () => {
 
     expect(step).toBeDefined();
     expect(step?.closest('[class*="[-webkit-app-region:no-drag]"]')).not.toBeNull();
+  });
+
+  it('drops the checklist once it has been dismissed', async () => {
+    const el = await renderHome({ showChecklist: false });
+
+    expect(el.textContent).not.toContain('Setting up Switch');
+    // The rest of the welcome screen is not the checklist's to take with it.
+    expect(el.textContent).toContain('Learn more');
   });
 });

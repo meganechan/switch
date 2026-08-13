@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useId } from 'react';
+import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
 import {
   AddressingPolicyEditor,
   type OptionItem,
@@ -140,10 +141,15 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
       <Field>
         <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
           <span className="flex flex-col gap-0.5">
-            <span className="text-sm">Auto-create a session on notify</span>
+            <span className="flex items-center gap-1.5 text-sm">
+              Auto-create a session on notify
+              <InfoTooltip
+                label="More info about auto-creating a session"
+                content="Switch Console watches this agent's Switch rooms and starts a session — connected to the room and ready to reply — whenever it's addressed with no session running."
+              />
+            </span>
             <span className="text-xs text-foreground-muted">
-              Switch Console watches this agent&apos;s rooms and starts a session automatically when
-              it&apos;s addressed with none running.
+              Start a session when this agent is addressed.
             </span>
           </span>
           <Switch
@@ -157,10 +163,15 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
       <Field>
         <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
           <span className="flex flex-col gap-0.5">
-            <span className="text-sm">Bypass permissions</span>
+            <span className="flex items-center gap-1.5 text-sm">
+              Bypass permissions
+              <InfoTooltip
+                label="More info about bypassing permissions"
+                content="Sessions start with the provider's auto-approve flag, including ones started automatically. Turn it on only for agents you trust to run unattended."
+              />
+            </span>
             <span className="text-xs text-foreground-muted">
-              Start this agent&apos;s sessions with permission prompts bypassed (the provider&apos;s
-              auto-approve flag). Turn on only for agents you trust to run unattended.
+              Run this agent&apos;s sessions without permission prompts.
             </span>
           </span>
           <Switch
@@ -172,10 +183,17 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
       </Field>
 
       <Field>
-        <FieldLabel>Who can address this agent</FieldLabel>
+        <FieldLabel>
+          <span className="flex items-center gap-1.5">
+            Who can address this agent
+            <InfoTooltip
+              label="More info about addressing"
+              content="Addressing means an @mention, a targeted message, or a delegated task. Open allows any room participant; restricted permits only senders matching a rule. You can change this later from the agent's settings."
+            />
+          </span>
+        </FieldLabel>
         <span className="text-xs text-foreground-muted">
-          Restrict who may @mention, target, or delegate tasks to the agent. Defaults to open
-          (anyone in the room). You can change this later from the agent&apos;s settings.
+          Open to everyone, or restricted to matching senders.
         </span>
         <AddressingPolicyEditor
           value={form.addressingPolicy}

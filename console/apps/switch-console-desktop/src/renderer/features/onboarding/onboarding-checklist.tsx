@@ -12,8 +12,10 @@ import { SWITCH_CONSOLE_DOCS_URL } from '@shared/urls';
  * - {@link OnboardingChecklistPanel} — the sidebar panel, collapsible and
  *   dismissible.
  * - {@link OnboardingChecklistCard} — the same list embedded in the welcome
- *   screen, without that chrome: the welcome screen is not somewhere you are
- *   trying to get the checklist out of the way of.
+ *   screen. It cannot be collapsed, which only makes sense against a sidebar
+ *   you are reclaiming space in, but it can be dismissed: a user who has set
+ *   Switch up their own way should not be told to do it again every time they
+ *   land on the welcome screen.
  */
 
 /**
@@ -192,19 +194,35 @@ export const OnboardingChecklistPanel = observer(function OnboardingChecklistPan
   );
 });
 
-/** The welcome-screen embed: the same list, framed as a card, no chrome. */
+/**
+ * The welcome-screen embed: the same list, framed as a card. The ✕ sets the
+ * same setting the sidebar's does, so dismissing it in one place dismisses it
+ * in both and Settings → General brings it back.
+ */
 export function OnboardingChecklistCard({
   steps,
   complete,
   onStart,
+  onDismiss,
 }: {
   steps: OnboardingStep[];
   complete: boolean;
   onStart: (id: OnboardingStepId) => void;
+  onDismiss: () => void;
 }) {
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl border border-border p-4">
-      <MicroLabel className="text-foreground-tertiary-passive">Setting up Switch</MicroLabel>
+      <div className="flex items-center justify-between">
+        <MicroLabel className="text-foreground-tertiary-passive">Setting up Switch</MicroLabel>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss setup checklist"
+          className="rounded-md p-0.5 text-foreground-muted hover:text-foreground"
+        >
+          <X className="size-3.5" />
+        </button>
+      </div>
       <OnboardingSteps steps={steps} complete={complete} onStart={onStart} showLearnMore={false} />
     </div>
   );

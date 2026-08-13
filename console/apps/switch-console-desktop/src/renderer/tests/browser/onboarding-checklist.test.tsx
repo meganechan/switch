@@ -49,6 +49,36 @@ async function renderPanel(
   return container;
 }
 
+async function renderCard(
+  options: {
+    progress?: Partial<Record<string, boolean>>;
+    onStart?: (id: string) => void;
+    onDismiss?: () => void;
+  } = {}
+): Promise<HTMLDivElement> {
+  const progress = {
+    addServer: true,
+    agentProviders: true,
+    onboardAgents: true,
+    createRoom: true,
+    ...options.progress,
+  };
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () =>
+    root.render(
+      <OnboardingChecklistCard
+        steps={deriveOnboardingSteps(progress)}
+        complete={Object.values(progress).every(Boolean)}
+        onStart={options.onStart ?? (() => {})}
+        onDismiss={options.onDismiss ?? (() => {})}
+      />
+    )
+  );
+  return container;
+}
+
 function stepButton(el: HTMLElement, label: string): HTMLButtonElement | undefined {
   return [...el.querySelectorAll('button')].find(
     (button) => button.textContent?.trim() === label
@@ -142,23 +172,29 @@ describe('onboarding checklist panel', () => {
   });
 
   it('does not repeat the doc links on the welcome card, which has its own', async () => {
-    const done = {
-      addServer: true,
-      agentProviders: true,
-      onboardAgents: true,
-      createRoom: true,
-    };
-    container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    await act(async () =>
-      root.render(
-        <OnboardingChecklistCard steps={deriveOnboardingSteps(done)} complete onStart={() => {}} />
-      )
-    );
+    const el = await renderCard();
 
-    expect(container.textContent).toContain('All set!');
-    expect(container.textContent).not.toContain('Learn more');
+    expect(el.textContent).toContain('All set!');
+    expect(el.textContent).not.toContain('Learn more');
+  });
+
+  it('lets the welcome card be dismissed too, not just the sidebar panel', async () => {
+    const onDismiss = vi.fn();
+    const el = await renderCard({ onDismiss });
+
+    const dismiss = el.querySelector<HTMLButtonElement>(
+      'button[aria-label="Dismiss setup checklist"]'
+    );
+    expect(dismiss, 'the welcome card needs a dismiss control of its own').not.toBeNull();
+
+    await act(async () => dismiss?.click());
+    expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it('offers no collapse on the welcome card, where there is no space to reclaim', async () => {
+    const el = await renderCard();
+
+    expect(el.querySelector('button[aria-label="Collapse setup checklist"]')).toBeNull();
   });
 
   it('dismisses through its own control rather than collapsing', async () => {

@@ -8,7 +8,6 @@ import {
   getLocationStore,
 } from '@renderer/features/locations/stores/location-selectors';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { ListPopoverCard } from '@renderer/lib/components/list-popover-card';
 import {
   getEffectiveHotkey,
@@ -140,7 +139,6 @@ export const SessionList = observer(function SessionList() {
   const sessionManager = getSessionManagerStore(locationId);
   const showDeleteSession = useShowModal('deleteSessionModal');
   const showCreateSessionModal = useShowModal('sessionModal');
-  const { value: keyboard } = useAppSettingsKey('keyboard');
 
   const sessionView = store?.view.sessionView ?? null;
 
@@ -194,7 +192,7 @@ export const SessionList = observer(function SessionList() {
   };
 
   useHotkey(
-    getHotkeyRegistration('deleteSelectedSessions', keyboard),
+    getHotkeyRegistration('deleteSelectedSessions'),
     (e) => {
       e.preventDefault();
       bulkDelete();
@@ -203,7 +201,7 @@ export const SessionList = observer(function SessionList() {
       enabled:
         (sessionView?.selectedIds.size ?? 0) > 0 &&
         !modalStore.isOpen &&
-        getEffectiveHotkey('deleteSelectedSessions', keyboard) !== null,
+        getEffectiveHotkey('deleteSelectedSessions') !== null,
       ignoreInputs: true,
     }
   );

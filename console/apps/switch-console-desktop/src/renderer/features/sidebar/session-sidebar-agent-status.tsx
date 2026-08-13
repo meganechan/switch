@@ -22,10 +22,8 @@ function Slot({ children }: { children: React.ReactNode }) {
 
 export const SessionSidebarTrailingSlot = observer(function SessionSidebarTrailingSlot({
   session,
-  showTimestamp,
 }: {
   session: SessionStore;
-  showTimestamp: boolean;
 }) {
   const delayedIsBootstrapping = useDelayedBoolean(session.isBootstrapping, 500);
 
@@ -53,8 +51,6 @@ export const SessionSidebarTrailingSlot = observer(function SessionSidebarTraili
       </Slot>
     );
   }
-
-  if (!showTimestamp) return null;
 
   const instant = getSortInstant(session, sortKindFor(sidebarStore.sessionSortBy));
   if (!instant) return null;

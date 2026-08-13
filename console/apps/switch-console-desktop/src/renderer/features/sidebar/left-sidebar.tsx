@@ -1,4 +1,4 @@
-import { ArrowUpRight, BookOpen, FolderInput, Server, Settings } from 'lucide-react';
+import { ArrowUpRight, BookOpen, FolderInput, Settings } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import React from 'react';
 import { SidebarOnboardingChecklist } from '@renderer/features/onboarding/sidebar-onboarding-checklist';
@@ -70,20 +70,8 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             <SidebarSearchTrigger />
             <SidebarMenuButton
               isActive={
-                isCurrentView(currentView, 'remoteHosts') ||
-                isCurrentView(currentView, 'remoteHost')
+                isCurrentView(currentView, 'settings') || isCurrentView(currentView, 'remoteHost')
               }
-              onClick={() => navigate('remoteHosts')}
-              aria-label="Remote hosts"
-              className="w-full justify-between"
-            >
-              <span className="flex items-center gap-2">
-                <Server className="h-5 w-5 sm:h-4 sm:w-4" />
-                Remote hosts
-              </span>
-            </SidebarMenuButton>
-            <SidebarMenuButton
-              isActive={isCurrentView(currentView, 'settings')}
               onClick={() => navigate('settings')}
               aria-label="Settings"
               className="w-full justify-between"
