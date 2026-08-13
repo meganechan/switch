@@ -2,7 +2,6 @@ import { AlertTriangle } from 'lucide-react';
 import { reaction } from 'mobx';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useRef } from 'react';
-import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { switchRoomsStore as roomConnectionsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
@@ -12,7 +11,7 @@ import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { AgentTree } from './agent-tree';
 import { RoomTree } from './room-tree';
 import { useScrollSelectionIntoView } from './sidebar-auto-scroll';
-import { switchIdentities } from './sidebar-tree-data';
+import { refreshSidebarRoomState } from './sidebar-tree-data';
 
 /**
  * How often the room state is reconciled against the servers while the window
@@ -21,22 +20,9 @@ import { switchIdentities } from './sidebar-tree-data';
  */
 const ROOM_STATE_RECONCILE_MS = 60_000;
 
-/**
- * Re-read everything the sidebar's trees are built from: this install's agents,
- * their room membership, and the room catalogue.
- *
- * One function for every "catch up with the world" trigger — first paint, window
- * focus, signing in to a server, the background reconcile, the retry button. The
- * bug being fixed here is triggers refreshing different subsets, so they share
- * one.
- */
-async function loadSidebarState(force: boolean): Promise<void> {
-  await agentsStore.load();
-  await Promise.all([
-    switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force }),
-    switchRoomsStore.loadRoomNames(),
-  ]);
-}
+/** @see refreshSidebarRoomState — shared so every trigger, including the
+ * mutations in other components, refreshes the same set. */
+const loadSidebarState = refreshSidebarRoomState;
 
 /**
  * The sidebar body: loads what both trees read, then hands over to whichever

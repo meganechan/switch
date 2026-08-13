@@ -39,7 +39,7 @@ const LEARN_MORE_LINKS: { label: string; linkText: string; url: string }[] = [
   },
 ];
 
-const ALL_SET_COPY = 'All set! Bring your agents and team into a room to start collaborating!';
+const ALL_SET_COPY = 'All set! You can now start collaborating with your agents!';
 
 function OnboardingStepRow({
   step,
@@ -113,10 +113,14 @@ function OnboardingSteps({
   steps,
   complete,
   onStart,
+  showLearnMore,
 }: {
   steps: OnboardingStep[];
   complete: boolean;
   onStart: (id: OnboardingStepId) => void;
+  /** The welcome screen has a Learn more shelf of its own, so the completion
+   * block there is the message alone rather than the same links twice. */
+  showLearnMore: boolean;
 }) {
   return (
     <div className="flex flex-col">
@@ -126,7 +130,7 @@ function OnboardingSteps({
       {complete && (
         <>
           <p className="px-1 pt-2 text-sm text-foreground-success">{ALL_SET_COPY}</p>
-          <LearnMore />
+          {showLearnMore && <LearnMore />}
         </>
       )}
     </div>
@@ -181,7 +185,7 @@ export const OnboardingChecklistPanel = observer(function OnboardingChecklistPan
       </div>
       {!collapsed && (
         <div className="pt-1">
-          <OnboardingSteps steps={steps} complete={complete} onStart={onStart} />
+          <OnboardingSteps steps={steps} complete={complete} onStart={onStart} showLearnMore />
         </div>
       )}
     </div>
@@ -201,7 +205,7 @@ export function OnboardingChecklistCard({
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl border border-border p-4">
       <MicroLabel className="text-foreground-tertiary-passive">Setting up Switch</MicroLabel>
-      <OnboardingSteps steps={steps} complete={complete} onStart={onStart} />
+      <OnboardingSteps steps={steps} complete={complete} onStart={onStart} showLearnMore={false} />
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import type { LocationStore } from '@renderer/features/locations/stores/location';
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
+import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
 import type { Agent } from '@shared/core/agents/agents';
@@ -94,4 +95,26 @@ export function switchIdentities(): { serverId: string; switchAgentId: string }[
     }
   }
   return identities;
+}
+
+/**
+ * Re-read everything the sidebar's trees are built from: this install's agents,
+ * their room membership, and the room catalogue.
+ *
+ * One function for every "catch up with the world" trigger — first paint, window
+ * focus, signing in to a server, the background reconcile, the retry button, and
+ * any mutation here that changes membership. The bug this exists to prevent is
+ * triggers refreshing different subsets of the same state.
+ *
+ * It re-reads the agent list *first* and derives the identities from that, which
+ * is what makes it correct after a room is created with an agent onboarded
+ * moments earlier: refreshing membership for the previously-known identities
+ * would skip the new agent, and it would surface only at the next reconcile.
+ */
+export async function refreshSidebarRoomState(force: boolean): Promise<void> {
+  await agentsStore.load();
+  await Promise.all([
+    switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force }),
+    switchRoomsStore.loadRoomNames(),
+  ]);
 }

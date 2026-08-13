@@ -1,7 +1,10 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OnboardingChecklistPanel } from '@renderer/features/onboarding/onboarding-checklist';
+import {
+  OnboardingChecklistCard,
+  OnboardingChecklistPanel,
+} from '@renderer/features/onboarding/onboarding-checklist';
 import { deriveOnboardingSteps } from '@shared/core/onboarding/checklist';
 
 /**
@@ -136,6 +139,26 @@ describe('onboarding checklist panel', () => {
 
     await act(async () => done?.click());
     expect(onStart).toHaveBeenCalledWith('addServer');
+  });
+
+  it('does not repeat the doc links on the welcome card, which has its own', async () => {
+    const done = {
+      addServer: true,
+      agentProviders: true,
+      onboardAgents: true,
+      createRoom: true,
+    };
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () =>
+      root.render(
+        <OnboardingChecklistCard steps={deriveOnboardingSteps(done)} complete onStart={() => {}} />
+      )
+    );
+
+    expect(container.textContent).toContain('All set!');
+    expect(container.textContent).not.toContain('Learn more');
   });
 
   it('dismisses through its own control rather than collapsing', async () => {
