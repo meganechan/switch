@@ -126,9 +126,10 @@ def test_a_finished_turn_retires_the_indicator_in_place() -> None:
     assert ("chan-1", "worker") not in adapter._working_msg
 
 
-def test_the_done_marker_keeps_the_link_into_switch_console() -> None:
-    # The line is staying in the channel either way, so it may as well remain
-    # useful — the session that produced it is one click away.
+def test_the_done_marker_carries_no_session_link() -> None:
+    # The marker is permanent, so it stays minimal. A link into the session is
+    # worth having while the agent is working, not on the record of a finished
+    # turn — and it is one more thing to read on a line nobody asked to keep.
     adapter = _adapter()
     recorder = _Recorder()
     recorder.install(adapter)
@@ -145,12 +146,7 @@ def test_the_done_marker_keeps_the_link_into_switch_console() -> None:
         )
     )
 
-    assert recorder.patches == [
-        (
-            "post-1",
-            "✓ Done · 8s ([Open in Switch Console](https://switch.example/session/1))",
-        )
-    ]
+    assert recorder.patches == [("post-1", "✓ Done · 8s")]
 
 
 def test_an_operator_ping_is_resolved_rather_than_removed() -> None:

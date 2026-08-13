@@ -489,7 +489,7 @@ class MattermostAdapter(CollaborationAdapter):
             if ref is not None:
                 self._input_pings.setdefault(key, []).append(ref)
         else:
-            await self._dispose_working(channel_id, agent_name, deeplink_url)
+            await self._dispose_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
 
     async def _clear_input_pings(self, channel_id: str, agent_name: str) -> None:
@@ -516,16 +516,15 @@ class MattermostAdapter(CollaborationAdapter):
         """
         return
 
-    async def _dispose_working(
-        self, channel_id: str, agent_name: str, deeplink_url: str | None
-    ) -> None:
+    async def _dispose_working(self, channel_id: str, agent_name: str) -> None:
         """Retire the live "working on it…" message when the turn ends.
 
         Edited into a terminal marker rather than removed — see
-        ``_apply_runtime_state`` for why nothing here is ever deleted. The
-        marker carries how long the turn took, and keeps the link into Switch
-        Console when the ending event supplies one, so the line left behind
-        says something worth reading."""
+        ``_apply_runtime_state`` for why nothing here is ever deleted. Kept to
+        the bare fact that the turn finished and how long it took: this line
+        stays in the channel for good, so it earns its place by being small.
+        The session link belongs on the live indicator, where it is still
+        actionable, not on the record of a turn that is over."""
         live = self._working_msg.pop((channel_id, agent_name), None)
         if live is None:
             return
@@ -533,9 +532,7 @@ class MattermostAdapter(CollaborationAdapter):
         await self._patch_post_as(
             agent_name,
             live.message_ref,
-            self.translate_outbound(
-                f"✓ Done · {elapsed}" + self._deeplink_suffix(deeplink_url)
-            ),
+            self.translate_outbound(f"✓ Done · {elapsed}"),
         )
 
     async def _patch_post_as(self, agent_name: str, post_id: str, content: str) -> None:
