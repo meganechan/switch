@@ -1248,6 +1248,16 @@ manifest history.
 
 ### [Unreleased]
 
+### [0.3.2] - 2026-08-12
+
+#### Added
+- A `configure` skill: the standalone setup path. Registers this Codex instance
+  as a Switch agent and writes `.switch/agents/<name>.json` in the working
+  directory, so `codex` reaches Switch with no Switch Console involved
+  (CHOO-1936). It writes no MCP config — the plugin's `.mcp.json` stays the
+  single server definition and the runtime resolves its own identity from the
+  store (`switch-agent-runtime` 0.2.0+).
+
 ### [0.3.1] - 2026-08-12
 
 #### Changed
