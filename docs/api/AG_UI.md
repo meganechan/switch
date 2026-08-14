@@ -467,6 +467,51 @@ point of writing it down.
 
 ---
 
+### 10.3 Where the agent runs
+
+The agent needs **no Switch-specific code**. You expose the framework's own
+AG-UI endpoint and give Switch the URL. For LangGraph that is one line:
+
+```python
+from ag_ui_langgraph import LangGraphAgent, add_langgraph_fastapi_endpoint
+from fastapi import FastAPI
+
+app = FastAPI()
+add_langgraph_fastapi_endpoint(app, LangGraphAgent(name="my-agent", graph=graph), "/agui")
+```
+
+Google ADK has the same shape via `add_adk_fastapi_endpoint`. Neither knows
+Switch exists; the same endpoint serves any AG-UI client.
+
+The only requirement is that **the switch-core process can open an HTTP
+connection to that URL**, which differs per deployment:
+
+| deployment | where switch-core runs | endpoint URL to configure |
+|---|---|---|
+| dev (`just up` + `just run`) | on the host | `http://localhost:8000/agui` |
+| standalone compose | a container in the stack | `http://my-agent:8000/agui` |
+| Helm / Kubernetes | a pod | `http://my-agent:8000/agui` (same namespace) |
+
+**Dev is the easy case and worth knowing about.** `just up` starts only the
+infrastructure in Docker; switch-core itself runs on the host under
+`just run`. A framework agent on `localhost` is therefore directly reachable,
+with no networking setup at all.
+
+**The trap, in compose and Kubernetes, is `localhost`.** Inside a container,
+`http://localhost:8000` means *switch-core itself*, not your machine and not
+the agent. It will connect to something, fail confusingly, and look like an
+AG-UI problem. Use the compose service name or the Kubernetes Service name.
+
+For compose, the agent has to be a service in the **same compose project** so
+its name resolves — a container started separately with `docker run` is on a
+different network and will not be found. For Kubernetes, a `Deployment` plus a
+`Service` in the same namespace; nothing in the chart restricts egress, so no
+NetworkPolicy work is needed.
+
+**A laptop agent with a deployed Switch does not work** without a tunnel
+(ngrok, Cloudflare Tunnel) — see §9.6. That is the one case this design is
+genuinely awkward for.
+
 ## 11. Delivery
 
 Each phase is independently reviewable and lands with its tests.
