@@ -406,14 +406,41 @@ deployment constraint, documented, not a surprise.
 Connector configuration carries the endpoint URL, the bearer token, the agent's
 name and description, and the timeout and iteration bounds.
 
-- **The token is encrypted at rest.** `ServerConnector.connection_config` is
-  plain JSONB and the OpenCode connector puts its password there. The AG-UI
-  connector instead mints an `ApiKey` row — Fernet-encrypted, referenced by
-  `api_key_id` — which is the same mechanism the connector's own registration
-  token already uses, and the only encrypted-secret pattern in the codebase.
-- **The endpoint URL is validated.** Switch making outbound HTTP to an
-  operator-supplied address is new attack surface. The URL is checked at
-  registration; deployment expectations are documented rather than assumed.
+### 10.1 The bearer token is not encrypted at rest
+
+This section originally specified that the token would be held as a
+Fernet-encrypted `ApiKey` row. **It is not, and the reason is worth recording
+rather than quietly dropping.**
+
+Registration happens in the shared connector lifecycle: it validates the config
+against the connector's model and persists it verbatim into
+`ServerConnector.connection_config`, which is plain JSONB. The connector is
+constructed *afterwards*, from the already-stored config, so there is no point
+at which an AG-UI-specific hook could encrypt the value on the way in. The
+token therefore gets exactly the treatment the OpenCode connector's password
+gets: stored in the clear, masked in the admin form via `format: "password"`,
+and never returned by the gateway API.
+
+Doing better means teaching `ServerSideConnectorLifecycleService` to encrypt
+fields a config declares as secret — perhaps twenty lines, and a real
+improvement. But it changes how **every** connector's stored config is read,
+including rows written before the change, so it needs a compatibility path and
+a decision that is not this ticket's to make. It is a follow-on, deliberately,
+rather than a refactor smuggled in beside a new feature.
+
+### 10.2 The endpoint URL is validated
+
+Switch making outbound HTTP to an operator-supplied address is new attack
+surface, so the URL's shape is checked at registration rather than discovered
+on the first run: http or https only, a host present, and no embedded
+credentials — those would otherwise surface in logs and error messages.
+
+**Private and loopback addresses are deliberately allowed.** An agent running
+beside Switch is the ordinary development case, and blocking it would make the
+connector unusable locally while doing little for a determined operator. What
+confines where Switch can reach is the network boundary around the deployment,
+not this validator. That is a deployment expectation, and stating it is the
+point of writing it down.
 
 ---
 
