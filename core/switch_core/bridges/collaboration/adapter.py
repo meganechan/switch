@@ -8,6 +8,7 @@ from dataclasses import dataclass, replace
 
 from switch_core.bridges.collaboration.models import (
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -419,6 +420,22 @@ class CollaborationAdapter(ABC):
         raise NotImplementedError(
             f"{type(self).__name__} cannot create DM channels — on this platform "
             "DMs are initiated by the user from the messaging client"
+        )
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Search the platform's own user directory (CHOO-2137).
+
+        Lets someone claim their platform identity before Switch has ever seen
+        them speak — `ExternalUser` rows are only created on first message, so
+        without this a freshly connected workspace offers nobody to pick from.
+
+        Platforms with no searchable directory raise instead of returning an
+        empty list, so the caller can say "you must post once first" rather
+        than showing an empty picker that looks broken.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} has no searchable user directory — on this "
+            "platform someone must send a message before Switch knows them"
         )
 
     async def channel_deeplink(self, external_channel_id: str) -> str | None:

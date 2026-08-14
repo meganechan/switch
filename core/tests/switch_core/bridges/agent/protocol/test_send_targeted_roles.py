@@ -44,8 +44,29 @@ class _FakeAgentStore:
         return self._agents.get(agent_id)
 
 
-def _participant(name: str, ptype: str, status: AgentStatus | None) -> SimpleNamespace:
-    return SimpleNamespace(name=name, type=ptype, status=status)
+class _FakeRoomStore:
+    def __init__(self, group_id: str | None) -> None:
+        self._group_id = group_id
+
+    async def get(self, _session: Any, _room_id: str) -> Any:
+        return SimpleNamespace(group_id=self._group_id)
+
+
+def _participant(
+    name: str, ptype: str, status: AgentStatus | None, *, agent_id: str | None = None
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=agent_id if agent_id is not None else f"a-{name}",
+        name=name,
+        type=ptype,
+        status=status,
+    )
+
+
+def _agent(name: str, addressing_policy: dict | None = None) -> SimpleNamespace:
+    return SimpleNamespace(
+        name=name, addressing_policy=addressing_policy, owner_id="owner-1"
+    )
 
 
 def _build_service(
@@ -54,6 +75,7 @@ def _build_service(
     roles: list[Any],
     holders: dict[str, list[str]],
     agents: dict[str, Any],
+    group_id: str | None = None,
 ) -> tuple[ProtocolService, list[str]]:
     sent_bodies: list[str] = []
 
@@ -64,6 +86,7 @@ def _build_service(
     svc.session_factory = _session_factory  # type: ignore[assignment]
     svc.room_role_store = _FakeRoomRoleStore(roles, holders)  # type: ignore[assignment]
     svc.agent_store = _FakeAgentStore(agents)  # type: ignore[assignment]
+    svc.room_store = _FakeRoomStore(group_id)  # type: ignore[assignment]
 
     async def _list_participants(_room_id: str) -> list[Any]:
         return list(participants)
@@ -89,10 +112,7 @@ class TestSendTargetedRoles:
             ],
             roles=[role],
             holders={"r-mgr": ["a-alice", "a-bob"]},
-            agents={
-                "a-alice": SimpleNamespace(name="alice"),
-                "a-bob": SimpleNamespace(name="bob"),
-            },
+            agents={"a-alice": _agent("alice"), "a-bob": _agent("bob")},
         )
 
         result = await svc.send_targeted_message(
@@ -116,7 +136,7 @@ class TestSendTargetedRoles:
             ],
             roles=[role],
             holders={"r-mgr": ["a-alice"]},
-            agents={"a-alice": SimpleNamespace(name="alice")},
+            agents={"a-alice": _agent("alice"), "a-carol": _agent("carol")},
         )
 
         result = await svc.send_targeted_message(
@@ -163,3 +183,112 @@ class TestSendTargetedRoles:
 
         assert bodies == ["@manager anyone?"]
         assert result.target_statuses == {}
+
+
+class TestSendTargetedAddressingGate:
+    """Targeting an agent by name is subject to its addressing policy, and the
+    SENDER is told — rather than being handed an event_id for a message the
+    receiver would silently demote."""
+
+    def _restricted(self, name: str) -> dict:
+        return {"rules": [{"agents": ["someone-else"], "users": []}]}
+
+    async def test_restricted_name_target_raises(self) -> None:
+        svc, bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={"a-alice": _agent("alice", self._restricted("alice"))},
+        )
+
+        with pytest.raises(PermissionError, match="not permitted to address"):
+            await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
+
+        assert bodies == []  # nothing posted
+
+    async def test_permitted_name_target_posts(self) -> None:
+        svc, bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={
+                "a-alice": _agent(
+                    "alice", {"rules": [{"agents": ["sender"], "users": []}]}
+                )
+            },
+        )
+
+        await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        assert bodies == ["@alice ping"]
+
+    async def test_owner_rule_does_not_admit_an_agent_sender(self) -> None:
+        # The sender agent shares alice's owner, but an owner rule admits the
+        # human, not the agents acting for them.
+        svc, bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={
+                "a-alice": _agent(
+                    "alice",
+                    {"rules": [{"agents": [], "users": [], "owner": True}]},
+                )
+            },
+        )
+
+        with pytest.raises(PermissionError, match="not permitted to address"):
+            await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        assert bodies == []
+
+    async def test_restricted_role_holder_raises(self) -> None:
+        # Role targets are resolved to their live holders and checked the same
+        # way, so a role mention can't be used to route around the policy.
+        role = SimpleNamespace(id="r-mgr", name="manager")
+        svc, bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[role],
+            holders={"r-mgr": ["a-alice"]},
+            agents={"a-alice": _agent("alice", self._restricted("alice"))},
+        )
+
+        with pytest.raises(PermissionError, match="not permitted to address"):
+            await svc.send_targeted_message(
+                "sender", "room-1", [], "standup", target_roles=["manager"]
+            )
+        assert bodies == []
+
+    async def test_user_target_is_not_gated(self) -> None:
+        # The policy governs addressing an AGENT; a human target is the
+        # bridge's business.
+        svc, bodies = _build_service(
+            participants=[_participant("dana", "user", None)],
+            roles=[],
+            holders={},
+            agents={},
+        )
+
+        await svc.send_targeted_message("sender", "room-1", ["dana"], "ping")
+        assert bodies == ["@dana ping"]
+
+    async def test_group_scoped_policy_uses_the_rooms_group(self) -> None:
+        policy = {"rules": [{"room_groups": ["g1"], "agents": ["sender"], "users": []}]}
+        allowed, bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={"a-alice": _agent("alice", policy)},
+            group_id="g1",
+        )
+        await allowed.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        assert bodies == ["@alice ping"]
+
+        denied, denied_bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={"a-alice": _agent("alice", policy)},
+            group_id="g2",
+        )
+        with pytest.raises(PermissionError, match="not permitted to address"):
+            await denied.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        assert denied_bodies == []

@@ -27,6 +27,7 @@ from switch_core.bridges.collaboration.models import (
     AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -1254,6 +1255,48 @@ class MattermostAdapter(CollaborationAdapter):
             )
         )
         self._dispatch(coro, loop)  # type: ignore[arg-type]
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Find team members via Mattermost's own user search.
+
+        Scoped to the bridge's team, and bots are dropped — a bot is not a
+        person who can own an agent.
+        """
+        if not self._admin_driver or not self._main_loop:
+            raise RuntimeError("Mattermost adapter is not started")
+
+        term = query.strip()
+        if not term:
+            return []
+
+        driver = self._admin_driver
+        try:
+            found = await self._main_loop.run_in_executor(
+                None,
+                driver.users.search_users,
+                {"term": term, "team_id": self._team_id, "allow_inactive": False},
+            )
+        except Exception as e:
+            raise RuntimeError(f"Mattermost user directory lookup failed: {e}") from e
+
+        results: list[DirectoryUser] = []
+        for user in found or []:
+            if user.get("is_bot"):
+                continue
+            username = user.get("username", "") or ""
+            first = user.get("first_name", "") or ""
+            last = user.get("last_name", "") or ""
+            full_name = " ".join(part for part in (first, last) if part)
+            results.append(
+                DirectoryUser(
+                    external_user_id=str(user.get("id")),
+                    username=username,
+                    display_name=(user.get("nickname") or full_name or username),
+                    email=user.get("email") or None,
+                )
+            )
+        results.sort(key=lambda u: u.display_name.lower())
+        return results
 
     @staticmethod
     def _to_channel_type(mm_type: str) -> ChannelType:

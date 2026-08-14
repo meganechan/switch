@@ -5,7 +5,7 @@ import logging
 import random
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from nio import (
     MatrixRoom,
@@ -148,13 +148,32 @@ _CONNECTED_NOT_LIVE_MESSAGE = (
 
 
 # Posted (once, guarded by AUTO_REPLY_FLAG) when a sender tags this agent but
-# the agent's scoped addressing policy (CHOO-1585) does not permit that sender
-# to address it here. The message is demoted to unaddressed room chatter; this
-# reply is the sender's only feedback that the attempt was rejected.
+# the agent's scoped addressing policy does not permit that sender to address
+# it here. The message is demoted to unaddressed room chatter; this reply is
+# the sender's only feedback that the attempt was rejected.
 _ADDRESSING_DENIED_MESSAGE = (
     "You're not permitted to direct messages to me in this room — my operator "
     "has restricted who can address me here."
 )
+
+
+# The same refusal, for the case worth telling apart: the agent answers only to
+# its owner, and the sender's chat account is not linked to any Switch user, so
+# it cannot be recognised as the owner even if it is. Without this the owner
+# gets refused by their own agent with no idea why.
+_ADDRESSING_UNCLAIMED_MESSAGE = (
+    "I only take instructions from my owner, and this chat account isn't "
+    "linked to a Switch user yet — so I can't tell whether that's you. If it "
+    "is, link this account to your Switch user in Switch Console and try again."
+)
+
+
+class _AddressingDecision(NamedTuple):
+    """The outcome of checking a sender against an agent's addressing policy,
+    carrying the wording to reply with so the caller need not re-derive why."""
+
+    allowed: bool
+    refusal: str
 
 
 # Shown to an agent addressed here while it holds a role in THIS room but the
@@ -596,6 +615,9 @@ class AgentClient(ClientBase[ClientConfig]):
         if not await addressed(self, event.args, meta.room_id):
             return
 
+        if not await self._gate_command(room, event, meta):
+            return
+
         handled = await self._handle_command(room, event)
         if handled:
             return
@@ -616,6 +638,53 @@ class AgentClient(ClientBase[ClientConfig]):
                 ),
             ),
         )
+
+    async def _command_targets_me_explicitly(self, args: str, room_id: str) -> bool:
+        """Whether the command names this agent, rather than reaching it as part
+        of a room-wide fan-out (`!reset-all-agents`, or a bare command with no
+        `@` token)."""
+        if "@" not in args:
+            return False
+        if self._args_tag_my_name(args):
+            return True
+        if await self._text_tags_my_alias(args, room_id):
+            return True
+        return await self._text_tags_my_role(args, room_id)
+
+    async def _gate_command(
+        self, room: MatrixRoom, event: CommandEvent, meta: RoomMeta
+    ) -> bool:
+        """Apply the addressing policy to a command aimed at this agent.
+
+        Commands drive the agent as surely as a message does — `!reset` wipes
+        its context, `!interrupt` stops it mid-task — so a sender who may not
+        address the agent may not command it either.
+
+        A refusal is posted only when the command named this agent. A room-wide
+        command (`!reset-all-agents`, or a bare one with no target) makes no
+        claim about this agent in particular, and answering every one of them
+        would flood a room holding several restricted agents; those are declined
+        quietly, with a warning in the log.
+        """
+        decision = await self._addressing_allowed(event.user_id, meta.room_id)
+        if decision.allowed:
+            return True
+        if await self._command_targets_me_explicitly(event.args, meta.room_id):
+            await self.reply_command(
+                room.room_id,
+                decision.refusal,
+                thread_root_id=event.thread_id,
+            )
+        else:
+            logger.warning(
+                "Command %s from %s declined for %s in room %s: sender may not "
+                "address this agent",
+                event.command,
+                event.user_id,
+                self.agent.name,
+                meta.room_id,
+            )
+        return False
 
     # ── Command handling ──────────────────────────────────────────────────────
 
@@ -1025,68 +1094,104 @@ class AgentClient(ClientBase[ClientConfig]):
 
     async def _resolve_sender_principal(
         self, session: AsyncSession, matrix_user_id: str
-    ) -> tuple[SenderKind, str] | None:
+    ) -> tuple[SenderKind, str, str | None] | None:
         """Resolve a Matrix sender to an addressing principal.
 
         Maps the sender's mxid to its Client, then to either an Agent (an
         agent-to-agent attempt) or an ExternalUser (a human on a bridge).
         Returns ``None`` when the sender has no such record — an
         unresolvable identity that a restricted agent should not trust.
+
+        The third element is the Switch user behind a human sender, which is
+        what an owner-scoped rule matches on. It is ``None`` when the platform
+        identity has not been claimed by anyone, and always ``None`` for an
+        agent sender: an agent is never its owner, even its owner's own.
         """
         client = await self.client_store.get_by_matrix_user_id(session, matrix_user_id)
         if client is None:
             return None
         agent = await self._agent_store.get_by_client_id(session, client.id)
         if agent is not None:
-            return ("agent", agent.id)
+            return ("agent", agent.id, None)
         external_user = await self._external_user_store.get_by_client_id(
             session, client.id
         )
         if external_user is not None:
-            return ("user", external_user.id)
+            return ("user", external_user.id, external_user.user_id)
         return None
 
-    async def _addressing_allowed(self, event: RoomMessage, meta: RoomMeta) -> bool:
-        """Whether the message's sender may address this agent, per the agent's
-        scoped addressing policy (CHOO-1585).
+    async def _addressing_allowed(
+        self, matrix_sender: str, room_id: str
+    ) -> _AddressingDecision:
+        """Whether `matrix_sender` may address this agent in `room_id`, per the
+        agent's scoped addressing policy.
 
-        An agent with no policy is open to anyone (today's behaviour), so this
-        returns True without a DB round-trip. With a policy set it is
-        deny-by-default: an unresolvable sender is rejected (fail-closed).
+        An agent with no policy is open to anyone, so this returns allowed
+        without a DB round-trip. With a policy set it is deny-by-default: an
+        unresolvable sender is rejected (fail-closed). A denial carries the
+        wording to send back, which differs when the sender looks like someone
+        whose platform identity simply has not been claimed yet.
         """
         agent = await self._fresh_agent()
         policy = parse_policy(agent.addressing_policy)
         if policy.is_open():
-            return True
+            return _AddressingDecision(allowed=True, refusal="")
         async with self.session_factory() as session:
-            principal = await self._resolve_sender_principal(session, event.sender)
-            room = await self._room_store.get(session, meta.room_id)
+            principal = await self._resolve_sender_principal(session, matrix_sender)
+            room = await self._room_store.get(session, room_id)
         if principal is None:
             logger.warning(
                 "Addressing denied for %s: unresolvable sender %s in room %s",
                 self.agent.name,
-                event.sender,
-                meta.room_id,
+                matrix_sender,
+                room_id,
             )
-            return False
-        sender_kind, sender_id = principal
+            return _AddressingDecision(
+                allowed=False, refusal=_ADDRESSING_DENIED_MESSAGE
+            )
+        sender_kind, sender_id, sender_user_id = principal
         group_id = room.group_id if room is not None else None
         allowed = can_address(
             policy,
-            room_id=meta.room_id,
+            room_id=room_id,
             group_id=group_id,
             sender_kind=sender_kind,
             sender_id=sender_id,
+            sender_user_id=sender_user_id,
+            owner_user_id=agent.owner_id,
         )
-        if not allowed:
+        if allowed:
+            return _AddressingDecision(allowed=True, refusal="")
+        unclaimed = (
+            sender_kind == "user"
+            and sender_user_id is None
+            and policy.requires_owner_identity()
+        )
+        if unclaimed:
+            logger.warning(
+                "Addressing denied for %s: sender %s in room %s has not been "
+                "claimed by any Switch user, so an owner-scoped rule cannot "
+                "match them — the owner may need to link this identity",
+                self.agent.name,
+                sender_id,
+                room_id,
+            )
+        else:
             logger.warning(
                 "Addressing denied for %s: %s %s not permitted in room %s",
                 self.agent.name,
                 sender_kind,
                 sender_id,
-                meta.room_id,
+                room_id,
             )
-        return allowed
+        return _AddressingDecision(
+            allowed=False,
+            refusal=(
+                _ADDRESSING_UNCLAIMED_MESSAGE
+                if unclaimed
+                else _ADDRESSING_DENIED_MESSAGE
+            ),
+        )
 
     async def _gate_addressed(
         self,
@@ -1107,14 +1212,15 @@ class AgentClient(ClientBase[ClientConfig]):
         """
         if not is_addressed:
             return False
-        if await self._addressing_allowed(event, meta):
+        decision = await self._addressing_allowed(event.sender, meta.room_id)
+        if decision.allowed:
             return True
         triggered_by_auto_reply = bool(
             event.source.get("content", {}).get(AUTO_REPLY_FLAG)
         )
         if not triggered_by_auto_reply:
             handle = self._sender_handle(event)
-            msg = _ADDRESSING_DENIED_MESSAGE
+            msg = decision.refusal
             already_tagged = _mention_regex(handle).search(msg) is not None
             body = msg if already_tagged else f"@{handle} {msg}"
             await self.send_message(

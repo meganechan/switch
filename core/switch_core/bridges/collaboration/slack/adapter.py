@@ -7,6 +7,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
+from typing import Any
 
 import httpx
 from pydantic import BaseModel
@@ -25,6 +26,7 @@ from switch_core.bridges.collaboration.models import (
     AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -1113,6 +1115,67 @@ class SlackAdapter(CollaborationAdapter):
                         parts.append(str(body))
 
         return "\n".join(p.strip() for p in parts if str(p).strip())
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Find workspace members by handle, real name or email.
+
+        Slack has no server-side user search, so this pages `users.list` and
+        filters locally. Deactivated accounts and bots are dropped — a bot is
+        not a person who can own an agent. `email` is only present when the
+        app holds the `users:read.email` scope; without it the field is simply
+        absent rather than the search failing.
+        """
+        if not self._web_client:
+            raise RuntimeError("Slack adapter is not started")
+
+        needle = query.strip().lower()
+        if not needle:
+            return []
+
+        matches: list[DirectoryUser] = []
+        cursor: str | None = None
+        while True:
+            try:
+                result = await self._web_client.users_list(
+                    limit=200, cursor=cursor or None
+                )
+            except SlackApiError as e:
+                raise RuntimeError(f"Slack user directory lookup failed: {e}") from e
+
+            members: list[dict[str, Any]] = result.get("members") or []
+            for member in members:
+                if member.get("deleted") or member.get("is_bot"):
+                    continue
+                if member.get("id") == "USLACKBOT":
+                    continue
+                profile: dict[str, Any] = member.get("profile") or {}
+                handle = member.get("name", "") or ""
+                real_name = profile.get("real_name", "") or member.get("real_name", "")
+                display_name = profile.get("display_name", "") or real_name or handle
+                email = profile.get("email") or None
+                haystack = " ".join(
+                    part.lower()
+                    for part in (handle, real_name, display_name, email or "")
+                    if part
+                )
+                if needle not in haystack:
+                    continue
+                matches.append(
+                    DirectoryUser(
+                        external_user_id=str(member.get("id")),
+                        username=handle or str(member.get("id")),
+                        display_name=display_name or handle,
+                        email=email,
+                    )
+                )
+
+            metadata: dict[str, Any] = result.get("response_metadata") or {}
+            cursor = metadata.get("next_cursor")
+            if not cursor:
+                break
+
+        matches.sort(key=lambda u: u.display_name.lower())
+        return matches
 
     async def _resolve_user_name(self, slack_user_id: str) -> SlackUser:
         cached = self._user_cache.get(slack_user_id)

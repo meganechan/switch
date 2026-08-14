@@ -447,6 +447,52 @@ class ExternalUserSummary(BaseModel):
     bridge_id: str
     external_user_id: str
     external_username: str
+    # The Switch user who has claimed this platform identity, if any. An
+    # owner-scoped addressing rule only recognises a sender whose identity is
+    # claimed by the agent's owner.
+    user_id: str | None = None
+    user_name: str | None = None
+
+
+class DirectoryUserSummary(BaseModel):
+    """Someone found in the messaging platform's own directory, and whether
+    Switch already knows them."""
+
+    external_user_id: str
+    username: str
+    display_name: str
+    email: str | None = None
+    # Set when this person has already spoken on the bridge and so has an
+    # ExternalUser row; claiming reuses it rather than creating a duplicate.
+    known_external_user_id: str | None = None
+    claimed_by_user_id: str | None = None
+    claimed_by_user_name: str | None = None
+
+
+class ClaimIdentityRequest(BaseModel):
+    """Claim a platform identity for a Switch user.
+
+    `external_user_id` is the platform's own id (a Slack `U…`, a Mattermost
+    user id), not an `ExternalUser.id` — that row may not exist yet for
+    someone who has never posted, and is created on demand.
+    """
+
+    external_user_id: str
+    username: str
+    # Omitted means "claim it for me"; only an admin may claim on behalf of
+    # someone else.
+    user_id: str | None = None
+
+
+class LinkedIdentity(BaseModel):
+    """One platform identity claimed by a Switch user."""
+
+    id: str
+    bridge_id: str
+    bridge_display_name: str
+    bridge_type: str
+    external_user_id: str
+    external_username: str
 
 
 # ── Server-Side Connectors ──────────────────────────────────────────────────

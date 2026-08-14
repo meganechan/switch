@@ -16,15 +16,24 @@ Model:
     empty list ``[]`` is the "none" value: it matches nothing. The sender is
     exactly one kind (user XOR agent), so a rule that should admit only humans
     sets ``agents: []`` and vice-versa.
+  - A rule additionally carries an `owner` flag (CHOO-2137): when set, the
+    rule admits the agent's own owner, whoever that currently is. This is a
+    *symbolic* subject resolved at enforcement time rather than a stored id,
+    so it survives the owner claiming a new platform identity, a bridge being
+    recreated, or the agent changing hands. It applies to human senders only —
+    an agent owned by the same person is still just an agent, and must be
+    admitted through `agents` if that is wanted.
   - A rule *allows* an attempt when the context matches (room AND group) AND
-    the sender matches (its own kind's dimension). Addressing is permitted when
-    **any** rule allows it.
+    the sender matches (its own kind's dimension, or `owner` for a human).
+    Addressing is permitted when **any** rule allows it.
 
-Defaults / precedence (agreed on CHOO-1585):
-  - An agent with **no rules** preserves today's behaviour: anyone may address
-    it (allow-all). Enforcement only kicks in once at least one rule exists.
+Defaults / precedence:
+  - An agent with **no rules** is open: anyone may address it. This is what a
+    pre-CHOO-2137 agent carries, and it is preserved rather than migrated.
   - With rules present it is **deny-by-default**: only attempts matching a rule
     are permitted.
+  - Agents created from CHOO-2137 onwards start owner-only (see
+    `owner_only_policy`) rather than open.
 
 This module is deliberately pure (no DB, no I/O) so it is trivially testable
 and reusable from the receive path, the protocol service, and the gateway.
@@ -54,6 +63,7 @@ class AddressingRule(BaseModel):
     room_groups: Dimension = ANY
     users: Dimension = ANY
     agents: Dimension = ANY
+    owner: bool = False
 
     @field_validator("rooms", "room_groups", "users", "agents")
     @classmethod
@@ -71,13 +81,30 @@ class AddressingRule(BaseModel):
         group_id: str | None,
         sender_kind: SenderKind,
         sender_id: str,
+        sender_user_id: str | None,
+        owner_user_id: str | None,
     ) -> bool:
         if not _dim_contains(self.rooms, room_id):
             return False
         if not _dim_contains(self.room_groups, group_id):
             return False
+        if sender_kind == "user" and self._is_owner(sender_user_id, owner_user_id):
+            return True
         sender_dim = self.users if sender_kind == "user" else self.agents
         return _dim_contains(sender_dim, sender_id)
+
+    def _is_owner(self, sender_user_id: str | None, owner_user_id: str | None) -> bool:
+        """Whether this rule admits the sender as the agent's owner.
+
+        Both ids must be known: an ownerless agent has no owner to match, and
+        an unclaimed platform identity resolves to no Switch user. Either way
+        the answer is "not the owner" rather than a permissive guess.
+        """
+        if not self.owner:
+            return False
+        if owner_user_id is None or sender_user_id is None:
+            return False
+        return sender_user_id == owner_user_id
 
 
 class AddressingPolicy(BaseModel):
@@ -96,10 +123,17 @@ class AddressingPolicy(BaseModel):
         group_id: str | None,
         sender_kind: SenderKind,
         sender_id: str,
+        sender_user_id: str | None,
+        owner_user_id: str | None,
     ) -> bool:
         """Whether an addressing attempt from this sender, in this room, is
         permitted. Allow-all when the policy is open; otherwise permitted iff
-        at least one rule matches."""
+        at least one rule matches.
+
+        `sender_user_id` is the Switch user behind a human sender (``None``
+        when the platform identity is unclaimed); `owner_user_id` is the
+        addressed agent's owner. Together they resolve an `owner` rule.
+        """
         if self.is_open():
             return True
         return any(
@@ -108,9 +142,20 @@ class AddressingPolicy(BaseModel):
                 group_id=group_id,
                 sender_kind=sender_kind,
                 sender_id=sender_id,
+                sender_user_id=sender_user_id,
+                owner_user_id=owner_user_id,
             )
             for rule in self.rules
         )
+
+    def requires_owner_identity(self) -> bool:
+        """Whether any rule depends on resolving the owner's platform identity.
+
+        Used to warn an operator that an agent is unreachable until its owner
+        claims an identity on the bridges it works over — the difference
+        between a policy that is merely strict and one that admits nobody.
+        """
+        return any(rule.owner for rule in self.rules)
 
 
 def _dim_contains(dimension: Dimension, value: str | None) -> bool:
@@ -131,6 +176,27 @@ def parse_policy(raw: dict | None) -> AddressingPolicy:
     return AddressingPolicy.model_validate(raw)
 
 
+def owner_only_policy(allowed_agent_ids: list[str]) -> AddressingPolicy:
+    """The default policy for a newly created agent (CHOO-2137).
+
+    Admits the agent's owner anywhere, and nobody else — no other human, and
+    no agent except those explicitly granted. `allowed_agent_ids` is how a
+    dispatcher (a manager agent, an orchestrator) is let back in; empty means
+    the agent answers only to its owner.
+    """
+    return AddressingPolicy(
+        rules=[
+            AddressingRule(
+                rooms=ANY,
+                room_groups=ANY,
+                users=[],
+                agents=list(allowed_agent_ids),
+                owner=True,
+            )
+        ]
+    )
+
+
 def can_address(
     policy: AddressingPolicy,
     *,
@@ -138,6 +204,8 @@ def can_address(
     group_id: str | None,
     sender_kind: SenderKind,
     sender_id: str,
+    sender_user_id: str | None,
+    owner_user_id: str | None,
 ) -> bool:
     """Convenience free function mirroring :meth:`AddressingPolicy.allows`."""
     return policy.allows(
@@ -145,4 +213,6 @@ def can_address(
         group_id=group_id,
         sender_kind=sender_kind,
         sender_id=sender_id,
+        sender_user_id=sender_user_id,
+        owner_user_id=owner_user_id,
     )

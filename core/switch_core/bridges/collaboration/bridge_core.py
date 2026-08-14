@@ -916,6 +916,39 @@ class BridgeCore:
 
     # ── Puppet lifecycle ─────────────────────────────────────────────────────
 
+    async def ensure_external_user(
+        self, *, external_user_id: str, external_username: str
+    ) -> ExternalUser:
+        """Get-or-create the `ExternalUser` record for a platform identity,
+        without waiting for that person to speak.
+
+        The inbound path creates these lazily on first message, which leaves
+        nobody to claim for a workspace that has only just been connected.
+        Claiming an identity (CHOO-2137) needs the record to exist up front, so
+        this provisions the same puppet the inbound path would have.
+        """
+        async with self._session_factory() as session:
+            existing = await self._external_user_store.get_by_external_id(
+                session, self._bridge_id, external_user_id
+            )
+        if existing is not None:
+            return existing
+
+        client_id = self._user_puppets.get(external_user_id)
+        if client_id is None:
+            client_id = await self._create_puppet(external_user_id, external_username)
+
+        async with self._session_factory() as session:
+            created = await self._external_user_store.get_by_client_id(
+                session, client_id
+            )
+        if created is None:
+            raise RuntimeError(
+                f"Puppet for external user {external_user_id} on bridge "
+                f"{self._bridge_id} was created without an ExternalUser record"
+            )
+        return created
+
     async def _create_puppet(
         self, external_user_id: str, external_username: str
     ) -> str:

@@ -63,6 +63,44 @@ class ExternalUserStore:
         )
         return list(result.scalars().all())
 
+    async def get_by_user(
+        self, session: AsyncSession, switch_user_id: str
+    ) -> list[ExternalUser]:
+        """Every platform identity claimed by this Switch user, across bridges."""
+        result = await session.execute(
+            select(ExternalUser).where(ExternalUser.user_id == switch_user_id)
+        )
+        return list(result.scalars().all())
+
+    async def claim(
+        self, session: AsyncSession, external_user: ExternalUser, switch_user_id: str
+    ) -> ExternalUser:
+        """Attach a platform identity to a Switch user.
+
+        One identity belongs to at most one Switch user, so claiming an already
+        claimed identity is a conflict the caller must resolve rather than a
+        silent reassignment.
+        """
+        if (
+            external_user.user_id is not None
+            and external_user.user_id != switch_user_id
+        ):
+            raise ValueError(
+                f"external user {external_user.id} is already claimed by "
+                f"another Switch user"
+            )
+        external_user.user_id = switch_user_id
+        await session.flush()
+        return external_user
+
+    async def release(
+        self, session: AsyncSession, external_user: ExternalUser
+    ) -> ExternalUser:
+        """Detach a platform identity from whichever Switch user claimed it."""
+        external_user.user_id = None
+        await session.flush()
+        return external_user
+
     async def delete(self, session: AsyncSession, user_id: str) -> None:
         user = await session.get(ExternalUser, user_id)
         if user:

@@ -553,6 +553,14 @@ class ExternalUser(Base):
     client_id: Mapped[str] = mapped_column(
         Text, ForeignKey("clients.id"), nullable=False
     )
+    # The Switch user this platform identity belongs to, when someone has
+    # claimed it (CHOO-2137). NULL means nobody has: the identity still works
+    # as a bridge puppet, it just cannot satisfy an owner-scoped addressing
+    # rule. ON DELETE SET NULL so removing a Switch account leaves the puppet
+    # and its history intact, merely unclaimed.
+    user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[str] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
