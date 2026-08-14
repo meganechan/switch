@@ -406,10 +406,11 @@ so agents work behind NAT with only outbound HTTPS." An AG-UI agent is a server
 Switch must reach, which reverses that.
 
 **Accepted, with scope.** Framework agents are server-deployed by nature, so
-this fits their deployment shape. It does mean an AG-UI agent on a developer
-laptop needs a tunnel or must sit beside Switch, and that is a real regression
-against a property the protocol document calls out on purpose. It is a
-deployment constraint, documented, not a surprise.
+this fits their deployment shape. It is still a real regression against a
+property the protocol document advertises on purpose, and it lands hardest on
+the case a developer will try first — an agent on a laptop, with Switch
+deployed elsewhere. §10.4 covers what to do about that, and why a tunnel is
+the last option rather than the first.
 
 ---
 
@@ -508,9 +509,47 @@ different network and will not be found. For Kubernetes, a `Deployment` plus a
 `Service` in the same namespace; nothing in the chart restricts egress, so no
 NetworkPolicy work is needed.
 
-**A laptop agent with a deployed Switch does not work** without a tunnel
-(ngrok, Cloudflare Tunnel) — see §9.6. That is the one case this design is
-genuinely awkward for.
+### 10.4 A laptop agent with a deployed Switch
+
+This is the one configuration AG-UI genuinely fights, and it is worth being
+explicit because it is also the one a developer will try first.
+
+Every other agent Switch supports dials *out*: Claude Code, Codex and OpenCode
+all run on a laptop behind NAT and open a connection to Switch, which needs no
+inbound reachability at all. An AG-UI agent inverts that (§9.6). A laptop has
+no address a deployed Switch can resolve, so **a framework agent running on
+`localhost` cannot be reached by a Switch running anywhere else.** There is no
+setting that changes this; it is what the protocol's shape requires.
+
+Three ways out, in the order worth trying:
+
+**1. Run Switch locally too.** For development this is the best answer and the
+least work — `just up` plus `just run` puts switch-core on the host, where
+`http://localhost:8000/agui` just works (§10.3). No tunnel, no exposure, no
+credentials leaving the machine.
+
+**2. Deploy the agent.** For anything shared, this is the intended shape. A
+framework agent is a web service; run it as one, beside Switch, and the
+problem disappears.
+
+**3. Tunnel, if you must — and read the next paragraph before you do.** ngrok
+or Cloudflare Tunnel will give a laptop agent a public URL that a deployed
+Switch can reach.
+
+> **A tunnel puts your agent on the public internet, and AG-UI has no
+> authentication of its own.** Anything that finds the URL can run your agent:
+> spend your model credits, use whatever tools it has, and — because Switch
+> hands the agent room-scoped operations — potentially act in your rooms.
+> **Set a bearer token on the connector and enforce it in the agent**; it is
+> optional in the config because plenty of endpoints sit on a trusted network,
+> but on a tunnel it is the only thing between the internet and your agent.
+> Prefer a tunnel that does its own access control, and take it down when you
+> are finished with it.
+
+Switch does not try to detect or prevent any of this: the endpoint validator
+deliberately allows private and loopback addresses (§10.2), because it cannot
+tell a sensible local deployment from a mistake. The judgement is the
+operator's, which is why it is written down here.
 
 ## 11. Delivery
 
