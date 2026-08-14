@@ -229,7 +229,7 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
                 You are already linked to{' '}
                 <span className="font-medium">{alreadyLinked.externalUsername}</span> on{' '}
                 {alreadyLinked.bridgeDisplayName}. Linking another account here keeps that one too —
-                search for it to unlink it, or use the server page.
+                search for it to unlink it, or use that app&apos;s row on the server page.
               </span>
             </div>
           )}

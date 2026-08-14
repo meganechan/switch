@@ -293,7 +293,7 @@ function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => 
         </span>
         {onClaimIdentity === null ? (
           <span className="text-foreground-muted">
-            Link your account from the server page, under “Your messaging accounts”.
+            Link your account from the server page, under “Messaging apps”.
           </span>
         ) : (
           <Button variant="outline" size="sm" className="self-start" onClick={onClaimIdentity}>

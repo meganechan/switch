@@ -441,8 +441,13 @@ version of their own to them without also giving them a release of their own.
   instead of showing an empty list (CHOO-2137).
 - The dialog is offered as step 2 of connecting a messaging app, straight after
   the connection succeeds, because that is the one moment the workspace is on
-  your mind. It is skippable; the server page has a **Your messaging accounts**
-  card that reopens it, lists what you have linked, and unlinks any of it.
+  your mind. It is skippable, and linking lives on the server page for later:
+  each app under **Messaging apps** carries its own line saying which account
+  there is you, with Change and Unlink — or a Link button when none is, opening
+  the dialog already pointed at that app. So you can see at a glance where you
+  are recognised and where you are not, without a separate list to reconcile
+  against. Linking is not an admin action: a member of the server sees the same
+  card and can link on any app in it, and only the Connect button is withheld.
 - **A new agent now answers only its owner.** Agents used to be created open to
   everyone in every room; the add-agent dialog now defaults to an owner-only
   rule and offers an agent picker for the manager/orchestrator case, where

@@ -25,7 +25,6 @@ import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
 import { localServerStore } from './local-server-store';
 import { LocalServerControls } from './LocalServerControls';
 import { MessagingAppsCard } from './MessagingAppsCard';
-import { MyIdentitiesCard } from './MyIdentitiesCard';
 import { remoteServerStore } from './remote-server-store';
 import { RemoteServerControls } from './RemoteServerControls';
 import { switchServersStore } from './switch-servers-store';
@@ -243,8 +242,6 @@ const ServerMainPanel = observer(function ServerMainPanel() {
             {!connected && <LoginPanel serverId={serverId} />}
 
             {connected && <MessagingAppsCard serverId={serverId} className={card} />}
-
-            {connected && <MyIdentitiesCard serverId={serverId} className={card} />}
 
             <div className={`${card} space-y-3`}>
               <p className="text-sm text-foreground-muted">
