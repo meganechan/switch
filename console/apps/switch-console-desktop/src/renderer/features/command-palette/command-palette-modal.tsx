@@ -15,7 +15,6 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/views/remote-hosts-view';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
-import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { agentExpandKey } from '@renderer/features/sidebar/sidebar-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
@@ -197,8 +196,6 @@ export function CommandPaletteModal({
   const [query, setQuery] = useState('');
   const debouncedQuery = useDebounce(query, 100);
   const { navigate } = useNavigate();
-  const { value: resourceMonitor } = useAppSettingsKey('resourceMonitor');
-  const { value: keyboard } = useAppSettingsKey('keyboard');
   const queryClient = useQueryClient();
 
   const handleClose = onClose;
@@ -248,7 +245,7 @@ export function CommandPaletteModal({
           id: cmd.id,
           title: cmd.label,
           subtitle: cmd.description,
-          shortcut: cmd.shortcutKey ? getEffectiveHotkey(cmd.shortcutKey, keyboard) : null,
+          shortcut: cmd.shortcutKey ? getEffectiveHotkey(cmd.shortcutKey) : null,
           icon: getCommandIcon(def?.iconKey),
           execute: () => {
             handleClose();
@@ -258,21 +255,18 @@ export function CommandPaletteModal({
       })
   );
 
-  const resourceMonitorAction = useMemo<PaletteAction | null>(
-    () =>
-      resourceMonitor?.enabled
-        ? {
-            kind: 'action',
-            id: 'resource-monitor',
-            title: 'Resource Monitor',
-            subtitle: 'Show CPU and memory performance for running agents',
-            icon: Activity,
-            execute: () => {
-              setView('resource-monitor');
-            },
-          }
-        : null,
-    [resourceMonitor?.enabled]
+  const resourceMonitorAction = useMemo<PaletteAction>(
+    () => ({
+      kind: 'action',
+      id: 'resource-monitor',
+      title: 'Resource Monitor',
+      subtitle: 'Show CPU and memory performance for running agents',
+      icon: Activity,
+      execute: () => {
+        setView('resource-monitor');
+      },
+    }),
+    []
   );
 
   const actions = useMemo(() => {
@@ -282,10 +276,7 @@ export function CommandPaletteModal({
       : locationId
         ? LOCATION_SUGGESTED
         : APP_SUGGESTED;
-    const pool = resourceMonitorAction
-      ? [...registryActions, resourceMonitorAction]
-      : registryActions;
-    return pool
+    return [...registryActions, resourceMonitorAction]
       .filter((a) => suggestedIds.includes(a.id))
       .sort((a, b) => suggestedIds.indexOf(a.id) - suggestedIds.indexOf(b.id))
       .slice(0, 7);
@@ -313,7 +304,6 @@ export function CommandPaletteModal({
 
   const q = debouncedQuery.toLowerCase();
   const matchedResourceMonitor =
-    resourceMonitorAction &&
     q &&
     (resourceMonitorAction.title.toLowerCase().includes(q) ||
       resourceMonitorAction.subtitle?.toLowerCase().includes(q))
@@ -470,9 +460,7 @@ export function CommandPaletteModal({
                   const def = ALL_COMMAND_DEFS.find((d) => d.id === item.id) as
                     | CommandDef
                     | undefined;
-                  const shortcut = def?.shortcutKey
-                    ? getEffectiveHotkey(def.shortcutKey, keyboard)
-                    : null;
+                  const shortcut = def?.shortcutKey ? getEffectiveHotkey(def.shortcutKey) : null;
                   const displayItem: PaletteAction = {
                     kind: 'action',
                     id: item.id,

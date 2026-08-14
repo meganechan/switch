@@ -2,8 +2,11 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
+import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
+import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { rpc } from '@renderer/lib/ipc';
 import { type BaseModalProps, useModalContext } from '@renderer/lib/modal/modal-provider';
+import { sidebarStore } from '@renderer/lib/stores/app-state';
 import { Button } from '@renderer/lib/ui/button';
 import {
   Combobox,
@@ -33,7 +36,6 @@ import {
 import { Textarea } from '@renderer/lib/ui/textarea';
 import { cn } from '@renderer/utils/utils';
 import type { RemoteAgentSummary, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
-import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
 
 type CreateRoomModalArgs = {
@@ -114,8 +116,19 @@ export const CreateRoomModal = observer(function CreateRoomModal({
       }
 
       // Re-read the room state so the sidebar shows the room straight away
-      // rather than at the next window focus.
-      await switchRoomsStore.refreshRoomState();
+      // rather than at the next window focus. This goes through the sidebar's
+      // own refresh rather than `refreshRoomState`, which only re-reads
+      // membership for the agents the sidebar knew about when it last loaded —
+      // an agent onboarded moments ago is not among them, so the room would
+      // appear with nothing under it until the next reconcile.
+      await refreshSidebarRoomState(true);
+
+      // Open what was just created: expanded in the tree, and shown in the main
+      // panel. Creating a room and being left where you were reads as if
+      // nothing happened.
+      sidebarStore.ensureRoomExpanded(result.room.id);
+      openRoomView(result.room.id);
+
       onSuccess({ roomId: result.room.id });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

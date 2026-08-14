@@ -426,6 +426,30 @@ version of their own to them without also giving them a release of their own.
   repo-agent definition for Claude Code, the launch profile for Codex — and the
   main process now routes the read and the write, so the difference is no longer
   visible as the shape of the Settings page.
+- **Remote hosts** are a tab of Settings again rather than an entry in the left
+  sidebar. Older saved navigation state, and the host page's way back, both land
+  on the tab.
+- The setup checklist on the welcome screen can now be dismissed. It shares the
+  sidebar checklist's setting, so it goes away in both places at once and comes
+  back from Settings → General.
+- Settings descriptions for an agent's own options are cut back to a line, with
+  the detail behind the ⓘ beside each one.
+- The agent providers list no longer separates out a "recommended" group; each
+  filter is a single list.
+- The sidebar's ＋ opens a menu offering both "Add an agent" and "Create a
+  room", instead of the single action matching the list you were looking at.
+- The remote hosts page explains what a host is for, and links out to the
+  cloud-hosting documentation.
+
+#### Removed
+- A batch of interface settings, along with the toggles for creating a branch
+  and worktree, including issue context, and OS notifications. Each was already
+  on by default and is now simply always on, so nothing changes for anyone who
+  had not turned one off. Several of them — the left-sidebar line-change and
+  PR-status toggles, the context bar, and confirm-on-tab-close — turned out to
+  control nothing at all: no code read them.
+- Keyboard shortcuts are no longer rebindable from Settings, and open-in tools
+  can no longer be hidden. The shortcuts themselves are unchanged.
 
 #### Fixed
 - Add Agent no longer stalls with an unset agent type once more than one Switch

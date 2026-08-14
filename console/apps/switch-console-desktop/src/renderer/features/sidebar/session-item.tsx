@@ -10,7 +10,6 @@ import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider
 import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { cn } from '@renderer/utils/utils';
-import { useAppSettingsKey } from '../settings/use-app-settings-key';
 import { SidebarMenuAction, SidebarMenuRow } from './sidebar-primitives';
 import { depthIndent } from './sidebar-store';
 
@@ -36,7 +35,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
 
   const { currentView } = useWorkspaceSlots();
   const { params } = useParams('session');
-  const { value: interfaceSettings } = useAppSettingsKey('interface');
   const isActive =
     currentView === 'session' && params.sessionId === sessionId && params.locationId === locationId;
 
@@ -73,8 +71,6 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
     });
 
   const canPin = session.state !== 'unregistered';
-
-  const showTimestamps = interfaceSettings?.showLeftSidebarTimestamps ?? true;
 
   return (
     <SessionContextMenu
@@ -116,7 +112,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
           </span>
         </SidebarMenuAction>
         <div className="ml-2 flex shrink-0 items-center justify-end gap-1.5">
-          <SessionSidebarTrailingSlot session={session} showTimestamp={showTimestamps} />
+          <SessionSidebarTrailingSlot session={session} />
         </div>
       </SidebarMenuRow>
     </SessionContextMenu>

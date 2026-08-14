@@ -1,4 +1,4 @@
-import { DoorOpen, Filter, Laptop, ListFilter, Plus, Server, Users } from 'lucide-react';
+import { DoorOpen, Filter, Laptop, ListFilter, Plus, Server, UserPlus, Users } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import type { ComponentType } from 'react';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
@@ -19,7 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -245,11 +244,11 @@ const FilterDropdown = observer(function FilterDropdown() {
 export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
   const showAddLocationModal = useShowModal('addAgentModal');
   const showCreateRoomModal = useShowModal('createRoomModal');
-  // The add button acts on whatever the section is currently listing: adding an
-  // agent while looking at a list of rooms is not what the button appears to
-  // offer (CHOO-1875).
+  // The add button offers both actions rather than the one matching the current
+  // view. Which grouping you are looking at says how you want the list
+  // arranged, not which thing you next want to make, and reaching the other
+  // action used to mean switching view first.
   const roomMode = sidebarStore.grouping === 'room';
-  const addLabel = roomMode ? 'New Room' : 'Add Agent';
 
   return (
     <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
@@ -326,28 +325,41 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
           </DropdownMenuContent>
         </DropdownMenu>
         <FilterDropdown />
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <button
-                type="button"
-                onClick={() => (roomMode ? showCreateRoomModal({}) : showAddLocationModal({}))}
-                aria-label={addLabel}
-                className={buttonVariants({
-                  size: 'icon-xs',
-                  variant: 'ghost',
-                  className: 'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                })}
-              >
-                <Plus />
-              </button>
-            }
-          />
-          <TooltipContent>
-            {addLabel}
-            {!roomMode && <BoundShortcut settingsKey="newLocation" variant="badge" />}
-          </TooltipContent>
-        </Tooltip>
+        <DropdownMenu>
+          <Tooltip>
+            <DropdownMenuTrigger
+              render={
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-label="Add"
+                      className={buttonVariants({
+                        size: 'icon-xs',
+                        variant: 'ghost',
+                        className:
+                          'hover:bg-transparent text-foreground-muted hover:text-foreground',
+                      })}
+                    >
+                      <Plus />
+                    </button>
+                  }
+                />
+              }
+            />
+            <TooltipContent>Add</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent className="min-w-48" align="start">
+            <DropdownMenuItem onClick={() => showAddLocationModal({})}>
+              <UserPlus className="mr-1.5 h-4 w-4" />
+              Add an agent
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
+              <DoorOpen className="mr-1.5 h-4 w-4" />
+              Create a room
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   );

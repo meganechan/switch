@@ -61,6 +61,13 @@ export type SidebarSnapshot = {
   roomSortBy?: SidebarRoomSortBy;
   filterBridgeTypes?: string[];
   filterRoomHasLiveSession?: boolean;
+  /**
+   * Whether the first-run setup checklist is collapsed to its header row.
+   * Collapsing is a "not now", distinct from dismissing it entirely — that is a
+   * setting (`onboarding.showChecklist`), because it has to be undoable from
+   * somewhere the checklist itself no longer occupies.
+   */
+  onboardingChecklistCollapsed?: boolean;
 };
 
 /** `filterBridgeTypes` entry standing for "no messaging app", which has no
