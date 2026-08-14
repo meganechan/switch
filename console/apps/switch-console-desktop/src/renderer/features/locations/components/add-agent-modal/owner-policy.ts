@@ -1,9 +1,18 @@
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 
 /**
- * The addressing policy a newly created agent starts on, and the reverse
- * reading the "allow these agents" picker works from (CHOO-2137).
+ * The addressing policy a newly created agent starts on, the reverse reading
+ * the "allow these agents" picker works from, and the mapping between a policy
+ * and the three choices the UI offers for it (CHOO-2137).
  */
+
+/**
+ * What the "Who can send instructions" chooser offers.
+ *
+ * `owner` and `anyone` are the two answers almost everyone wants, each backed
+ * by one policy shape; `custom` is the rule editor for everything else.
+ */
+export type AddressingMode = 'owner' | 'anyone' | 'custom';
 
 /**
  * Its owner may address it, plus whichever agents the user explicitly grants.
@@ -35,4 +44,42 @@ export function ownerRuleAgentIds(policy: AddressingPolicy | null): string[] | n
   if (rule.users === '*' || rule.users.length > 0) return null;
   if (rule.agents === '*') return null;
   return rule.agents;
+}
+
+/**
+ * "Anyone" written as a rule, for the switch into the rule editor.
+ *
+ * An empty rule list is already open (both here and in switch-core, where
+ * `AddressingPolicy.is_open()` allows everything), but an editor with no rules
+ * in it does not show what the previous choice meant — this does.
+ */
+function anyoneRulePolicy(): AddressingPolicy {
+  return { rules: [{ rooms: '*', room_groups: '*', users: '*', agents: '*', owner: false }] };
+}
+
+/**
+ * Which of the three choices a stored policy is. `custom` is everything the
+ * two shortcuts cannot express, including a policy hand-edited into a shape
+ * {@link ownerRuleAgentIds} steps aside from.
+ */
+export function addressingModeOf(policy: AddressingPolicy | null): AddressingMode {
+  if (policy === null || policy.rules.length === 0) return 'anyone';
+  return ownerRuleAgentIds(policy) === null ? 'custom' : 'owner';
+}
+
+/**
+ * The policy a chooser change produces, seeded from the policy being left.
+ *
+ * Moving to `custom` carries the current policy into the editor so the rules
+ * start from what the previous choice meant; moving to either shortcut
+ * replaces it, since neither can hold arbitrary rules.
+ */
+export function policyForMode(
+  mode: AddressingMode,
+  current: AddressingPolicy | null
+): AddressingPolicy | null {
+  if (mode === 'anyone') return null;
+  if (mode === 'owner') return ownerOnlyPolicy(ownerRuleAgentIds(current) ?? []);
+  if (current === null || current.rules.length === 0) return anyoneRulePolicy();
+  return current;
 }

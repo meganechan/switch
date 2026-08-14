@@ -460,6 +460,17 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
+- **Who can send instructions to an agent is one question with three answers** —
+  *Only me (default)*, *Anyone*, or *Custom rules* — rather than an open /
+  restricted switch above a rule builder. Only me keeps the "also allow these
+  agents" picker, which is the case it exists for; Anyone drops the policy
+  entirely; Custom rules opens the rule editor, seeded from whichever of the two
+  the agent was on, so nothing has to be rebuilt to add one exception. Rules
+  built by hand are kept while the chooser is on one of the shortcuts, and a
+  policy too specific for either reads back as Custom rules rather than being
+  flattened into one of them. The same control is on the add-agent dialog and on
+  the agent's Settings tab, so a policy is changed the way it was set.
+
 - An addressing rule can admit **the agent's owner** as a sender kind of its
   own, next to the users and agents lists, and says so in the collapsed rule
   summary.
@@ -467,6 +478,10 @@ version of their own to them without also giving them a release of their own.
   account, so the addressing editor warns — with a button into the linking
   dialog — when the signed-in user has linked none. A privacy control that
   silently admits nobody is the failure this exists to prevent.
+- The linking dialog is opened on one workspace rather than asking which. It is
+  titled for the platform it is linking on — "Link your Discord user account" —
+  and its search names the workspace, not the platform, since two workspaces on
+  the same platform can be connected and only the name tells them apart.
 
 ### [0.23.0] - 2026-08-14
 

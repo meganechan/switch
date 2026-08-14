@@ -1,4 +1,4 @@
-import { CircleAlert, Trash2, X } from 'lucide-react';
+import { Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
@@ -15,7 +15,6 @@ import type {
   AddressingDimension,
   AddressingPolicy,
   AddressingRule,
-  LinkedIdentity,
 } from '@shared/core/switch-servers/switch-servers';
 
 export type OptionItem = { id: string; label: string };
@@ -67,10 +66,11 @@ export function policyNamesOwner(policy: AddressingPolicy | null): boolean {
 }
 
 /**
- * Controlled editor for an agent's scoped addressing policy (CHOO-1585). A null
- * value means "open" (anyone may address the agent); a policy value restricts to
- * senders matching a rule. Option lists (rooms / room groups / users / agents)
- * are supplied by the parent so this component stays presentational and reusable
+ * Controlled editor for the rule list of an agent's scoped addressing policy
+ * (CHOO-1585). Rendered only behind the "Custom rules" choice in
+ * {@link AddressingPolicyControl}, which owns the open/restricted decision and
+ * the owner warning. Option lists (rooms / room groups / users / agents) are
+ * supplied by the parent so this component stays presentational and reusable
  * across the settings page and the creation modal.
  */
 export function AddressingPolicyEditor({
@@ -80,29 +80,17 @@ export function AddressingPolicyEditor({
   roomGroups,
   users,
   agents,
-  linkedIdentities,
-  onClaimIdentity,
   disabled = false,
 }: {
-  value: AddressingPolicy | null;
-  onChange: (next: AddressingPolicy | null) => void;
+  value: AddressingPolicy;
+  onChange: (next: AddressingPolicy) => void;
   rooms: OptionItem[];
   roomGroups: OptionItem[];
   users: OptionItem[];
   agents: OptionItem[];
-  /** Messaging accounts the signed-in user has claimed on this server. An
-   * owner rule resolves through these, so an empty list means such a rule
-   * admits nobody. Null while unknown — no warning is drawn from a list that
-   * has not arrived. */
-  linkedIdentities: LinkedIdentity[] | null;
-  /** Opens the claim-your-identity modal. Null where a modal cannot be opened
-   * over the current one (the add-agent dialog), which turns the warning into
-   * a statement rather than an action that would discard the form. */
-  onClaimIdentity: (() => void) | null;
   disabled?: boolean;
 }) {
-  const restricted = value !== null;
-  const rules = value?.rules ?? [];
+  const rules = value.rules;
   // Which rule (by index) is currently open for editing. Loaded rules start
   // collapsed (shown as a read-only summary); a freshly added rule opens for
   // editing. Only one rule is edited at a time.
@@ -132,175 +120,117 @@ export function AddressingPolicyEditor({
 
   return (
     <div className="flex flex-col gap-3">
-      <Select
-        value={restricted ? 'restricted' : 'open'}
-        onValueChange={(next) => onChange(next === 'restricted' ? { rules } : null)}
-        disabled={disabled}
-      >
-        <SelectTrigger className="w-full">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="open">Open — anyone in the room can address it</SelectItem>
-          <SelectItem value="restricted">Restricted — only matching rules</SelectItem>
-        </SelectContent>
-      </Select>
-
-      {restricted && policyNamesOwner(value) && linkedIdentities?.length === 0 && (
-        <OwnerUnreachableWarning onClaimIdentity={onClaimIdentity} />
+      {rules.length === 0 && (
+        <p className="text-xs text-foreground-muted">
+          No rules — a policy with no rules restricts nothing, so anyone in the agent&apos;s rooms
+          can address it. Add a rule, or choose “Anyone” above.
+        </p>
       )}
-
-      {restricted && (
-        <div className="flex flex-col gap-3">
-          {rules.length === 0 && (
-            <p className="text-destructive text-xs">
-              No rules — a restricted policy with no rules means nobody can address this agent. Add
-              a rule or switch back to Open.
-            </p>
-          )}
-          {rules.map((rule, index) =>
-            index === editingIndex ? (
-              <div
-                key={index}
-                className="border-primary/50 flex flex-col gap-2 rounded-md border bg-background-2/40 p-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Editing rule {index + 1}</span>
-                  {!disabled && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => removeRule(index)}
-                      aria-label="Remove rule"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
-                  )}
-                </div>
-                <DimensionRow
-                  label="Rooms"
-                  value={rule.rooms}
-                  options={optionsFor('rooms')}
-                  allowNone={false}
-                  disabled={disabled}
-                  onChange={(rooms) => updateRule(index, { ...rule, rooms })}
-                />
-                <DimensionRow
-                  label="Room groups"
-                  value={rule.room_groups}
-                  options={optionsFor('room_groups')}
-                  allowNone={false}
-                  disabled={disabled}
-                  onChange={(room_groups) => updateRule(index, { ...rule, room_groups })}
-                />
-                <label className="flex cursor-pointer items-start gap-2 pl-1">
-                  <Checkbox
-                    className="mt-0.5"
-                    checked={rule.owner === true}
-                    disabled={disabled}
-                    onCheckedChange={(checked) =>
-                      updateRule(index, { ...rule, owner: checked === true })
-                    }
-                  />
-                  <span className="flex flex-col gap-0.5">
-                    <span className="text-xs font-medium">The agent&apos;s owner</span>
-                    <span className="text-xs text-foreground-muted">
-                      Resolved when the message arrives, so it survives connecting a new workspace
-                      or the agent changing hands. Needs the owner to have linked their messaging
-                      account.
-                    </span>
-                  </span>
-                </label>
-                <DimensionRow
-                  label="Users"
-                  value={rule.users}
-                  options={optionsFor('users')}
-                  allowNone
-                  disabled={disabled}
-                  onChange={(users) => updateRule(index, { ...rule, users })}
-                />
-                <DimensionRow
-                  label="Agents"
-                  value={rule.agents}
-                  options={optionsFor('agents')}
-                  allowNone
-                  disabled={disabled}
-                  onChange={(agents) => updateRule(index, { ...rule, agents })}
-                />
-                {deadRuleReason(rule) !== null && (
-                  <p className="text-destructive text-xs">{deadRuleReason(rule)}</p>
-                )}
-                {!disabled && (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      disabled={deadRuleReason(rule) !== null}
-                      onClick={() => setEditingIndex(null)}
-                    >
-                      Apply rule
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <RuleSummary
-                key={index}
-                index={index}
-                rule={rule}
-                rooms={rooms}
-                roomGroups={roomGroups}
-                users={users}
-                agents={agents}
-                disabled={disabled}
-                onEdit={() => setEditingIndex(index)}
-                onRemove={() => removeRule(index)}
-              />
-            )
-          )}
-          {!disabled && (
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={editingIndex !== null}
-                onClick={addRule}
-              >
-                Add rule
-              </Button>
+      {rules.map((rule, index) =>
+        index === editingIndex ? (
+          <div
+            key={index}
+            className="border-primary/50 flex flex-col gap-2 rounded-md border bg-background-2/40 p-2"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium">Editing rule {index + 1}</span>
+              {!disabled && (
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => removeRule(index)}
+                  aria-label="Remove rule"
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              )}
             </div>
-          )}
+            <DimensionRow
+              label="Rooms"
+              value={rule.rooms}
+              options={optionsFor('rooms')}
+              allowNone={false}
+              disabled={disabled}
+              onChange={(rooms) => updateRule(index, { ...rule, rooms })}
+            />
+            <DimensionRow
+              label="Room groups"
+              value={rule.room_groups}
+              options={optionsFor('room_groups')}
+              allowNone={false}
+              disabled={disabled}
+              onChange={(room_groups) => updateRule(index, { ...rule, room_groups })}
+            />
+            <label className="flex cursor-pointer items-start gap-2 pl-1">
+              <Checkbox
+                className="mt-0.5"
+                checked={rule.owner === true}
+                disabled={disabled}
+                onCheckedChange={(checked) =>
+                  updateRule(index, { ...rule, owner: checked === true })
+                }
+              />
+              <span className="flex flex-col gap-0.5">
+                <span className="text-xs font-medium">The agent&apos;s owner</span>
+                <span className="text-xs text-foreground-muted">
+                  Resolved when the message arrives, so it survives connecting a new workspace or
+                  the agent changing hands. Needs the owner to have linked their messaging account.
+                </span>
+              </span>
+            </label>
+            <DimensionRow
+              label="Users"
+              value={rule.users}
+              options={optionsFor('users')}
+              allowNone
+              disabled={disabled}
+              onChange={(users) => updateRule(index, { ...rule, users })}
+            />
+            <DimensionRow
+              label="Agents"
+              value={rule.agents}
+              options={optionsFor('agents')}
+              allowNone
+              disabled={disabled}
+              onChange={(agents) => updateRule(index, { ...rule, agents })}
+            />
+            {deadRuleReason(rule) !== null && (
+              <p className="text-destructive text-xs">{deadRuleReason(rule)}</p>
+            )}
+            {!disabled && (
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  disabled={deadRuleReason(rule) !== null}
+                  onClick={() => setEditingIndex(null)}
+                >
+                  Apply rule
+                </Button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <RuleSummary
+            key={index}
+            index={index}
+            rule={rule}
+            rooms={rooms}
+            roomGroups={roomGroups}
+            users={users}
+            agents={agents}
+            disabled={disabled}
+            onEdit={() => setEditingIndex(index)}
+            onRemove={() => removeRule(index)}
+          />
+        )
+      )}
+      {!disabled && (
+        <div>
+          <Button variant="outline" size="sm" disabled={editingIndex !== null} onClick={addRule}>
+            Add rule
+          </Button>
         </div>
       )}
-    </div>
-  );
-}
-
-/**
- * Shown when a rule admits the agent's owner but the signed-in user has claimed
- * no messaging account, which is exactly the case where a privacy control ends
- * up admitting nobody. Silence here would look like a working restriction right
- * up until someone wonders why the agent never answers.
- */
-function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => void) | null }) {
-  return (
-    <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
-      <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <span>
-          This rule admits the agent&apos;s owner, but you have not linked a messaging account on
-          this server — so Switch cannot tell that a message from you is from you, and the agent
-          will answer nobody.
-        </span>
-        {onClaimIdentity === null ? (
-          <span className="text-foreground-muted">
-            Link your account from the server page, under “Messaging apps”.
-          </span>
-        ) : (
-          <Button variant="outline" size="sm" className="self-start" onClick={onClaimIdentity}>
-            Link my messaging account
-          </Button>
-        )}
-      </div>
     </div>
   );
 }

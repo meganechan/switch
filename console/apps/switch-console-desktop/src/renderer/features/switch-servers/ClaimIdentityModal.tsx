@@ -1,8 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Info } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useMemo, useState } from 'react';
-import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
+import { useState } from 'react';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { useDebounce } from '@renderer/lib/hooks/useDebounce';
 import { rpc } from '@renderer/lib/ipc';
@@ -17,13 +16,6 @@ import {
 } from '@renderer/lib/ui/dialog';
 import { Field, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@renderer/lib/ui/select';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import type {
   BridgeDirectorySearchResult,
@@ -46,8 +38,10 @@ const MIN_QUERY_LENGTH = 2;
 type ClaimIdentityModalArgs = {
   /** Claim on this server instead of the active one. */
   serverId?: string;
-  /** Start on this bridge — set when the modal follows connecting one. */
-  bridgeId?: string;
+  /** The messaging app to claim an account in. Required: an account is claimed
+   * in one workspace, and every entry point knows which one it opened from —
+   * asking again would be a question the caller has already answered. */
+  bridgeId: string;
 };
 
 type Props = BaseModalProps<{ identity: LinkedIdentity }> & ClaimIdentityModalArgs;
@@ -67,7 +61,7 @@ type Props = BaseModalProps<{ identity: LinkedIdentity }> & ClaimIdentityModalAr
  */
 export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   serverId: overrideServerId,
-  bridgeId: initialBridgeId,
+  bridgeId,
   onSuccess,
   onClose,
 }: Props) {
@@ -77,7 +71,6 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   const serverId = overrideServerId ?? switchServersStore.activeServerId ?? '';
   const currentUserId = switchServersStore.statusFor(serverId)?.user?.id ?? null;
 
-  const [bridgeId, setBridgeId] = useState<string | null>(initialBridgeId ?? null);
   const [search, setSearch] = useState('');
   const [claiming, setClaiming] = useState<string | null>(null);
   const [releasing, setReleasing] = useState<string | null>(null);
@@ -90,33 +83,29 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
     queryFn: () => rpc.switchServers.listRemoteBridges(serverId),
     enabled: !!serverId,
   });
-  const bridges = useMemo(() => bridgesQuery.data ?? [], [bridgesQuery.data]);
+  const bridges = bridgesQuery.data ?? [];
 
-  // With one messaging app there is no choice to present, and after connecting
-  // one the caller names it — either way the picker is skipped past rather than
-  // left waiting for a selection the user has no basis to make.
-  useEffect(() => {
-    if (bridgeId === null && bridges.length === 1) setBridgeId(bridges[0].id);
-  }, [bridgeId, bridges]);
-
+  // Names the workspace being searched. Null only while the list is in flight
+  // or when the named bridge has since been removed — the second is reported
+  // rather than searched around.
   const selectedBridge = bridges.find((b) => b.id === bridgeId) ?? null;
+  const bridgeIsGone = !bridgesQuery.isLoading && bridges.length > 0 && selectedBridge === null;
   const alreadyLinked = (identities ?? []).find((i) => i.bridgeId === bridgeId) ?? null;
 
   const debouncedQuery = useDebounce(search.trim(), SEARCH_DEBOUNCE_MS);
-  const searchable = !!serverId && bridgeId !== null && debouncedQuery.length >= MIN_QUERY_LENGTH;
+  const searchable = !!serverId && debouncedQuery.length >= MIN_QUERY_LENGTH;
   const directoryQuery = useQuery({
     queryKey: ['bridge-directory', serverId, bridgeId, debouncedQuery],
     queryFn: () =>
       rpc.switchServers.searchBridgeDirectory({
         serverId,
-        bridgeId: bridgeId as string,
+        bridgeId,
         query: debouncedQuery,
       }),
     enabled: searchable,
   });
 
   const handleClaim = async (person: BridgeDirectoryUser) => {
-    if (bridgeId === null) return;
     setClaiming(person.externalUserId);
     setCloseGuard(true);
     setError(null);
@@ -145,7 +134,7 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   // they realise it is the wrong account, so the modal stays open and the
   // directory is re-read to show who is left holding the account.
   const handleRelease = async (person: BridgeDirectoryUser) => {
-    if (bridgeId === null || person.knownExternalUserId === null) return;
+    if (person.knownExternalUserId === null) return;
     setReleasing(person.externalUserId);
     setCloseGuard(true);
     setError(null);
@@ -169,14 +158,14 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   return (
     <>
       <DialogHeader showCloseButton={false}>
-        <DialogTitle>Link your messaging account</DialogTitle>
+        <DialogTitle>
+          Link your {bridgePlatformLabel(selectedBridge?.type)} user account
+        </DialogTitle>
       </DialogHeader>
       <DialogContentArea className="pt-0">
         <div className="flex w-full flex-col gap-5">
           <p className="text-xs text-foreground-muted">
-            Find yourself in the workspace so Switch knows which account is you. Agents you own can
-            then be restricted to only answer you — without this link, a rule that admits “the
-            owner” recognises nobody.
+            Tell Switch which account is you, so your own agents can tell it&apos;s you.
           </p>
 
           {!serverId && (
@@ -185,41 +174,10 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
             </p>
           )}
 
-          {serverId && !bridgesQuery.isLoading && bridges.length === 0 && (
-            <p className="text-xs text-foreground-muted">
-              No messaging app is connected to this server yet. Connect one first, then come back.
+          {bridgeIsGone && (
+            <p className="text-destructive text-xs">
+              That messaging app is no longer connected to this server.
             </p>
-          )}
-
-          {bridges.length > 1 && (
-            <Field>
-              <FieldLabel>Messaging app</FieldLabel>
-              <Select
-                value={bridgeId ?? ''}
-                onValueChange={(next) => {
-                  setBridgeId(next ?? null);
-                  setError(null);
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a messaging app">
-                    {selectedBridge?.displayName}
-                  </SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {bridges.map((bridge) => (
-                    <SelectItem key={bridge.id} value={bridge.id}>
-                      <span className="flex items-center gap-2">
-                        {hasBridgeIcon(bridge.type) && (
-                          <BridgeIcon bridgeType={bridge.type} size={16} />
-                        )}
-                        {bridge.displayName}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
           )}
 
           {alreadyLinked && (
@@ -234,36 +192,34 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
             </div>
           )}
 
-          {bridgeId !== null && (
-            <Field>
-              <FieldLabel>Search {bridgePlatformLabel(selectedBridge?.type)}</FieldLabel>
-              <Input
-                autoFocus
-                placeholder="Your name, handle or email"
-                value={search}
-                spellCheck={false}
-                onChange={(e) => {
-                  setSearch(e.target.value);
-                  setError(null);
-                }}
-              />
-            </Field>
-          )}
-
-          {bridgeId !== null && (
-            <DirectoryResults
-              query={debouncedQuery}
-              searchable={searchable}
-              isFetching={directoryQuery.isFetching}
-              result={directoryQuery.data ?? null}
-              fetchError={directoryQuery.error}
-              currentUserId={currentUserId}
-              claimingId={claiming}
-              releasingId={releasing}
-              onClaim={(person) => void handleClaim(person)}
-              onRelease={(person) => void handleRelease(person)}
+          {/* The workspace, not the platform: two of them on the same platform
+              can be connected, and only the name tells them apart. */}
+          <Field>
+            <FieldLabel>Search {selectedBridge?.displayName ?? 'the workspace'}</FieldLabel>
+            <Input
+              autoFocus
+              placeholder="Your name, handle or email"
+              value={search}
+              spellCheck={false}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setError(null);
+              }}
             />
-          )}
+          </Field>
+
+          <DirectoryResults
+            query={debouncedQuery}
+            searchable={searchable}
+            isFetching={directoryQuery.isFetching}
+            result={directoryQuery.data ?? null}
+            fetchError={directoryQuery.error}
+            currentUserId={currentUserId}
+            claimingId={claiming}
+            releasingId={releasing}
+            onClaim={(person) => void handleClaim(person)}
+            onRelease={(person) => void handleRelease(person)}
+          />
 
           {error && <p className="text-destructive text-xs">{error}</p>}
         </div>
