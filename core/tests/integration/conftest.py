@@ -278,6 +278,10 @@ class Harness:
             integration_profile=_PROFILE,
             owner_id=self.owner_id,
             overwrite=True,
+            # Harness agents address each other; the owner-only default would
+            # block every agent-to-agent message. Tests that exercise scoped
+            # addressing set a policy explicitly.
+            owner_only=False,
         )
         self._registered.append(result.agent_id)
         return result

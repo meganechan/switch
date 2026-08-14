@@ -44,6 +44,43 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+
+- A Switch user can claim their messaging-app account as their own, linking a
+  Slack / Mattermost / Teams identity to their Switch login
+  (`external_users.user_id`). Claiming searches the platform's own user
+  directory, so someone can be recognised before they have ever posted —
+  previously Switch only learned of a person when they first spoke, which left
+  a freshly connected workspace with nobody to pick. Platforms with no
+  searchable directory say so instead of showing an empty list (CHOO-2137).
+- An addressing rule can name the agent's **owner** rather than a list of
+  identities. It resolves when the message arrives, so it survives connecting a
+  new workspace, recreating a bridge, or the agent changing hands (CHOO-2137).
+
+#### Changed
+
+- **Newly created agents are owner-only by default**: only their owner may
+  address them, from any room, and no other agent unless explicitly allowed.
+  The default is applied where every registration path converges, so it holds
+  for Switch Console, the gateway, the agent bridge, the configure skill and
+  bulk subagent registration alike. Existing agents are left open — the default
+  is not applied retroactively, since that would mute every agent whose owner
+  has not yet claimed an identity. Server-side connector agents opt out: they
+  are services a deployment offers everyone, not one person's assistant
+  (CHOO-2137).
+- In-room commands are subject to the addressing policy, not just messages —
+  `!reset`, `!interrupt` and `!compact` drive an agent as surely as a mention
+  does, and previously reached a restricted agent from anyone in the room. A
+  command naming the agent draws the same one-line refusal; a room-wide command
+  is declined quietly rather than producing a refusal from every restricted
+  agent present (CHOO-2137).
+- `send_targeted_message` fails for the sender when the target's policy
+  forbids it, instead of returning an event id and a "live" status for a
+  message that would never trigger anyone (CHOO-2137).
+- An agent that refuses a sender because its owner cannot be identified says
+  so, and points at linking the account in Switch Console — rather than giving
+  the owner the generic refusal from their own agent (CHOO-2137).
+
 ### [0.14.0] - 2026-08-14
 
 #### Added
@@ -1315,6 +1352,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
+
 ### [0.9.2] - 2026-08-14
 #### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
@@ -1391,6 +1435,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
 
 ### [0.3.3] - 2026-08-14
 
@@ -1475,6 +1526,13 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
 
 ### [0.1.0] - 2026-08-14
 

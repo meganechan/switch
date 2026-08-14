@@ -190,7 +190,8 @@ class TestSendTargetedAddressingGate:
     SENDER is told — rather than being handed an event_id for a message the
     receiver would silently demote."""
 
-    def _restricted(self, name: str) -> dict:
+    def _restricted(self) -> dict:
+        """Admits one specific other agent, so `sender` is not permitted."""
         return {"rules": [{"agents": ["someone-else"], "users": []}]}
 
     async def test_restricted_name_target_raises(self) -> None:
@@ -198,7 +199,7 @@ class TestSendTargetedAddressingGate:
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
             roles=[],
             holders={},
-            agents={"a-alice": _agent("alice", self._restricted("alice"))},
+            agents={"a-alice": _agent("alice", self._restricted())},
         )
 
         with pytest.raises(PermissionError, match="not permitted to address"):
@@ -248,7 +249,7 @@ class TestSendTargetedAddressingGate:
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
             roles=[role],
             holders={"r-mgr": ["a-alice"]},
-            agents={"a-alice": _agent("alice", self._restricted("alice"))},
+            agents={"a-alice": _agent("alice", self._restricted())},
         )
 
         with pytest.raises(PermissionError, match="not permitted to address"):

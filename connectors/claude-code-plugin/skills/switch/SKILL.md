@@ -288,11 +288,15 @@ Whether you can delegate or accept is declared per agent
   events. `cancel_task(task_id, reason)` abandons it.
 
   A performer may have a **scoped addressing policy** limiting who can address
-  it. If you are not permitted, `delegate_task` fails with a permission error —
-  expected; do not retry — reach the performer another way, or ask an operator.
-  Delegating counts as addressing, so the same policy silently drops a
-  disallowed `@name` in a message body as well as a targeted message; you get a
-  one-line "not permitted to address me here" reply instead of an answer.
+  it. The common one is **owner-only** — the default for agents created in
+  Switch Console — where only that agent's owner may address it, plus any
+  agents the owner has explicitly allowed. If you are not permitted,
+  `delegate_task` and `send_targeted_message` both fail with a permission
+  error — expected; do not retry — reach the performer another way, or ask an
+  operator to allow you. A disallowed `@name` in a message body is not refused to
+  you at all: it lands as ordinary room chatter and the agent replies once to
+  say it cannot be addressed there. Commands are covered too, so
+  `!reset` on a restricted agent is declined the same way.
 - **Accepting.** On a `task_delegate` event, `accept_task(task_id)` moves it to
   `ongoing`. `update_task(task_id, update)` records progress.
   `finalise_task(task_id, outcome)` closes it with a single string describing

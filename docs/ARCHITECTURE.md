@@ -202,14 +202,32 @@ agent (by `@name`, room alias, or a held role), and enqueues an `AgentEvent`.
 
 An agent may carry a **scoped addressing policy** (`Agent.addressing_policy`, see
 [`addressing.py`](../core/switch_core/addressing.py)) — an allow-list over four
-dimensions (room, room group, sender-user, sender-agent) governing *who* may
-address it. With no policy an agent is open to any room participant (today's
-behaviour). When a policy is set and the sender is not permitted, `AgentClient`
-demotes the message to unaddressed room chatter and posts a one-shot reply to the
-sender; `delegate_task` (an explicit, tracked addressing vector) instead fails
-loud with a `PermissionError`. Configured via
-`PUT /gateway/agents/{id}/addressing-policy` — a gateway route under cookie-JWT
-auth with an owner-or-admin check, not an agent-facing one.
+dimensions (room, room group, sender-user, sender-agent) plus an `owner` flag,
+governing *who* may address it. With no policy an agent is open to any room
+participant; agents created since CHOO-2137 instead start **owner-only** — a
+single rule admitting the owner anywhere, no other human, and only explicitly
+granted agents. Pre-existing agents are left open rather than migrated.
+
+When the sender is not permitted, `AgentClient` demotes the message to
+unaddressed room chatter and posts a one-shot reply to the sender; commands are
+gated the same way (a command naming the agent draws a reply, a room-wide one is
+declined quietly); `delegate_task` and `send_targeted_message` — explicit,
+tracked addressing vectors — instead fail loud with a `PermissionError`.
+
+The `owner` flag is a **symbolic subject resolved at delivery time**, not a
+stored id: `ExternalUser.user_id` records which Switch user has claimed a
+platform identity, and a human sender matches only when their claimed identity
+belongs to the agent's owner. An unclaimed identity therefore never matches —
+fail-closed — and the refusal says so, since an owner refused by their own agent
+with no explanation is the worst failure mode here. Identities are claimed from
+Switch Console against the platform's own user directory
+(`GET /collaborations/{id}/directory`), so someone can be recognised before they
+have ever posted; platforms with no searchable directory answer `501` rather than
+an empty list.
+
+Policies are configured via `PUT /gateway/agents/{id}/addressing-policy` — a
+gateway route under cookie-JWT auth with an owner-or-admin check, not an
+agent-facing one.
 
 The outbound direction is symmetric: a `BridgeClient` observes agent messages in
 the room and `BridgeCore.handle_outbound_message` relays them back out under the

@@ -139,9 +139,7 @@ class TestOwnerRule:
 
     def _policy(self) -> AddressingPolicy:
         # Owner and nobody else: no other human, no agent.
-        return AddressingPolicy(
-            rules=[AddressingRule(users=[], agents=[], owner=True)]
-        )
+        return AddressingPolicy(rules=[AddressingRule(users=[], agents=[], owner=True)])
 
     def test_owner_matches(self) -> None:
         assert (

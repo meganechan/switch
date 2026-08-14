@@ -269,9 +269,7 @@ def _gate_client(*, allowed: bool, refusal: str = _ADDRESSING_DENIED_MESSAGE):  
     sent: list[dict] = []
 
     async def _addressing_allowed(_matrix_sender, _room_id):  # type: ignore[no-untyped-def]
-        return _AddressingDecision(
-            allowed=allowed, refusal="" if allowed else refusal
-        )
+        return _AddressingDecision(allowed=allowed, refusal="" if allowed else refusal)
 
     async def _send_message(room_id, body, **kwargs):  # type: ignore[no-untyped-def]
         sent.append({"room_id": room_id, "body": body, **kwargs})
@@ -441,9 +439,7 @@ class TestCommandTargetsMeExplicitly:
     async def test_own_name_is_explicit(self) -> None:
         client = self._client()
         assert (
-            await AgentClient._command_targets_me_explicitly(
-                client, "@fixer", "room-1"
-            )
+            await AgentClient._command_targets_me_explicitly(client, "@fixer", "room-1")
             is True
         )
 
