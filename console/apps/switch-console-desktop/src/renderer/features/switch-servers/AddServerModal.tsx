@@ -1,4 +1,4 @@
-import { CircleCheck, Globe, HardDrive, Server, TriangleAlert } from 'lucide-react';
+import { CircleCheck, Globe, Laptop, Server, TriangleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { HostReachabilityNotice } from '@renderer/features/remote-hosts/host-reachability-notice';
@@ -130,7 +130,7 @@ function ChooseStep({
       <DialogContentArea className="pt-0">
         <div className="grid gap-3">
           <ChoiceCard
-            icon={<HardDrive className="size-5" />}
+            icon={<Laptop className="size-5" />}
             title="Run a server on this computer"
             description="Switch Console sets up and runs the full Switch stack here with Docker. Best for trying Switch out."
             onClick={onLocal}
@@ -234,7 +234,7 @@ const LocalSetupStep = observer(function LocalSetupStep({
       <DialogContentArea className="space-y-4 pt-0">
         <div className="flex items-center gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-background-tertiary text-foreground-muted">
-            <HardDrive className="size-5" />
+            <Laptop className="size-5" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-medium text-foreground">Switch server · this computer</p>
