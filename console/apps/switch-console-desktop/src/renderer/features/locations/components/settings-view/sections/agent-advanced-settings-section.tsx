@@ -11,6 +11,11 @@ import {
   type FormState,
   type FormValue,
 } from '@renderer/features/locations/components/agent-definition-fields';
+import {
+  fieldCatalogueState,
+  fieldWithCatalogue,
+  type ModelCatalogueResult,
+} from '@renderer/features/locations/components/agent-model-catalogue';
 import { getSessionManagerStore } from '@renderer/features/sessions/stores/session-selectors';
 import { isProvisioned } from '@renderer/features/sessions/stores/session-store';
 import { toast } from '@renderer/lib/hooks/use-toast';
@@ -54,6 +59,35 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
     enabled: !!providerId,
   });
   const fields = useMemo(() => advancedFields(allFields ?? []), [allFields]);
+
+  // Where the provider keeps these settings, which decides whether a running
+  // session can be brought onto them. Asked of the provider rather than inferred
+  // from its id.
+  const { data: surface } = useQuery({
+    queryKey: ['agentAdvancedSurface', providerId],
+    queryFn: () =>
+      providerId ? rpc.agents.advancedSurface({ providerId }) : Promise.resolve('none' as const),
+    enabled: !!providerId,
+  });
+
+  const { data: locations } = useQuery({
+    queryKey: ['locations'],
+    queryFn: () => rpc.locations.getLocations(),
+  });
+  const location = (locations ?? []).find((l) => l.id === locationId);
+
+  // What the agent's own host offers, for the fields bound to it. Fetched per
+  // host rather than per keystroke: it shells out to the provider CLI, over SSH
+  // for a remote agent.
+  const { data: catalogue } = useQuery({
+    queryKey: ['agent-model-catalogue', providerId, location?.sshHost ?? 'local', location?.dir],
+    queryFn: (): Promise<ModelCatalogueResult> =>
+      providerId && location
+        ? rpc.agents.modelCatalogue({ providerId, sshHost: location.sshHost, dir: location.dir })
+        : Promise.resolve({ kind: 'unavailable', reason: 'No host to ask.' }),
+    enabled: !!providerId && !!location && editable,
+    staleTime: 60_000,
+  });
 
   const { data: current } = useQuery({
     queryKey: ['agent-advanced-config', agentId],
@@ -153,11 +187,12 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
   const setField = (key: string, value: FormValue) =>
     setForm((prev) => ({ ...prev, [key]: value }));
 
-  // Only Codex is offered a restart here. Its profile is provably read once, at
-  // spawn, and its resume is verified to carry the new profile. Claude reads its
-  // definition at launch too and very likely wants the same treatment, but that
-  // is a change to Claude's behaviour and is being raised on its own.
-  const restartable = providerId === 'codex';
+  // A launch profile is read once, when the session starts, so a change cannot
+  // reach a running session without one — and a resume carries the new profile,
+  // which is what makes the restart safe to offer. A repo-agent definition
+  // (Claude) reads at launch too and very likely wants the same treatment, but
+  // that is a change to Claude's behaviour and is being raised on its own.
+  const restartable = surface === 'launch-profile';
   const showStaleNotice = restartable && staleSessionIds.length > 0 && (dirty || save.isSuccess);
 
   return (
@@ -167,22 +202,37 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
         The agent&apos;s model, reasoning effort, tools, and system prompt. The agent name is fixed.
       </FieldDescription>
       <div className="flex flex-col gap-4 rounded-md border border-border px-3 py-3">
-        {fields.map((field) => (
-          <Field key={field.key}>
-            <FieldLabel htmlFor={`agent-advanced-${field.key}`}>
-              {field.label}
-              {field.required || field.type === 'boolean' ? '' : ' (optional)'}
-            </FieldLabel>
-            <DefinitionFieldInput
-              field={field}
-              value={form[field.key] ?? (field.type === 'boolean' ? false : '')}
-              onChange={(value) => setField(field.key, value)}
-            />
-            {field.help && (
-              <FieldDescription className="text-foreground-muted">{field.help}</FieldDescription>
-            )}
-          </Field>
-        ))}
+        {fields.map((field) => {
+          const catalogueState = fieldCatalogueState(field, form, catalogue);
+          const rendered = fieldWithCatalogue(field, catalogueState);
+          return (
+            <Field key={field.key}>
+              <FieldLabel htmlFor={`agent-advanced-${field.key}`}>
+                {field.label}
+                {field.required || field.type === 'boolean' ? '' : ' (optional)'}
+              </FieldLabel>
+              <DefinitionFieldInput
+                field={rendered}
+                value={form[field.key] ?? (field.type === 'boolean' ? false : '')}
+                disabled={catalogueState.disabled}
+                suggestions={catalogueState.suggestions}
+                onChange={(value) => setField(field.key, value)}
+              />
+              {field.help && (
+                <FieldDescription className="text-foreground-muted">{field.help}</FieldDescription>
+              )}
+              {catalogueState.note && (
+                <FieldDescription
+                  className={
+                    catalogueState.warning ? 'text-foreground-warning' : 'text-foreground-muted'
+                  }
+                >
+                  {catalogueState.note}
+                </FieldDescription>
+              )}
+            </Field>
+          );
+        })}
         <div className="flex justify-end">
           <Button
             type="button"
@@ -200,7 +250,7 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
               {staleSessionIds.length === 1
                 ? 'A session is running'
                 : `${staleSessionIds.length} sessions are running`}{' '}
-              on the previous configuration — Codex reads this only when a session starts.{' '}
+              on the previous configuration — it is read only when a session starts.{' '}
               {dirty
                 ? 'Save, then Restart to apply it now.'
                 : 'It applies to the next session — or use Restart to apply it now (the conversation is resumed).'}
