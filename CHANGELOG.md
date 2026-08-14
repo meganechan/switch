@@ -404,6 +404,21 @@ version of their own to them without also giving them a release of their own.
   room. It was already opened in the main panel, but the sidebar stayed on
   Agents, which does not list rooms — so the room you had just made was nowhere
   in it.
+- Installing a Switch connector now finishes the onboarding step it belongs to.
+  The list of agent types you can onboard is cached separately from the agent's
+  own status, and the install refreshed everything but that — so the step stayed
+  unticked, and because the checklist locks each step behind the one above it,
+  the rest of onboarding stayed greyed out with nothing explaining why.
+
+#### Changed
+- An update to an agent's own CLI is no longer reported as though something were
+  wrong. It never gated anything, but an amber badge ahead of "Installed" read
+  like a fault on an agent that worked, and it was the nearest explanation for
+  onboarding appearing stuck. A newer CLI is now mentioned only on the agent's
+  own page, in plain text with the command that installs it.
+- The Switch connector's own updates keep their badge and gain a name —
+  "Connector update" rather than "Update available". That one is worth acting
+  on, and the two used to share a badge that could not say which was behind.
 
 ### [0.23.0] - 2026-08-14
 
