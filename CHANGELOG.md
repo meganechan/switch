@@ -517,6 +517,48 @@ version of their own to them without also giving them a release of their own.
   clicking at each other. Replacement is otherwise unchanged: an older sidecar
   is still replaced whoever deployed it, and a rebuild of your own is still
   picked up.
+- Search results no longer read as though agents, sessions and commands were
+  servers. Those three had no heading of their own, so they were drawn after the
+  last group on screen — usually "Servers" — and appeared to belong to it. Every
+  result now sits under a heading that names it.
+- The server running on this computer shows a laptop everywhere — the sidebar
+  and search as well as the dialog that adds it. The sidebar and search each
+  chose the icon themselves; they now share one rule, so the next change lands
+  in all three at once.
+- The local server's setup log now fills as the work happens rather than all at
+  once at the end. Every line Docker printed was applied to the screen on its
+  own, and a pull narrates faster than the UI can redraw — so the renderer spent
+  the whole install rebuilding the list instead of painting it. Lines are
+  applied in batches now. The same fix covers a remote host's setup.
+- Setting up the local server no longer looks stalled before Docker says
+  anything. The output panel appeared only once the first line arrived, so the
+  seconds Docker spends resolving the registry showed as an empty dialog; the
+  panel is now there from the start and says what it is waiting for.
+- The command palette no longer opens onto a "Notifications" list of sessions
+  and rooms. It is a search field; the first thing under it should be what you
+  searched for.
+- Creating a room offers only the agents this Switch Console registered. The
+  server answers with everyone on it, including agents belonging to another
+  install — which this app cannot show under a room or drive.
+- Creating a room switches the sidebar to its Rooms list and selects the new
+  room. It was already opened in the main panel, but the sidebar stayed on
+  Agents, which does not list rooms — so the room you had just made was nowhere
+  in it.
+- Installing a Switch connector now finishes the onboarding step it belongs to.
+  The list of agent types you can onboard is cached separately from the agent's
+  own status, and the install refreshed everything but that — so the step stayed
+  unticked, and because the checklist locks each step behind the one above it,
+  the rest of onboarding stayed greyed out with nothing explaining why.
+
+#### Changed
+- An update to an agent's own CLI is no longer reported as though something were
+  wrong. It never gated anything, but an amber badge ahead of "Installed" read
+  like a fault on an agent that worked, and it was the nearest explanation for
+  onboarding appearing stuck. A newer CLI is now mentioned only on the agent's
+  own page, in plain text with the command that installs it.
+- The Switch connector's own updates keep their badge and gain a name —
+  "Connector update" rather than "Update available". That one is worth acting
+  on, and the two used to share a badge that could not say which was behind.
 
 ### [0.23.0] - 2026-08-14
 

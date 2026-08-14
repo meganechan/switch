@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { rpc } from '@renderer/lib/ipc';
@@ -78,6 +79,19 @@ export const CreateRoomModal = observer(function CreateRoomModal({
     enabled: !!serverId,
   });
 
+  /**
+   * Only agents this install registered on the server.
+   *
+   * The server answers with everyone registered on it, including agents
+   * belonging to somebody else's Switch Console. Those cannot be shown under a
+   * room here or driven from here, so offering them in the picker promises
+   * something this app cannot deliver — the same rule the room views already
+   * follow.
+   */
+  const invitableAgents = (agentsQuery.data ?? []).filter((remote) =>
+    agentsStore.agentsOnServer(serverId).some((local) => local.switchAgentId === remote.id)
+  );
+
   // Only a running bridge can back a new room, and creating a room here means
   // creating a channel on it — a bridge withheld from that (an operator's
   // switch, or a platform like Telegram that has no such call at all) is just
@@ -133,9 +147,11 @@ export const CreateRoomModal = observer(function CreateRoomModal({
       // appear with nothing under it until the next reconcile.
       await refreshSidebarRoomState(true);
 
-      // Open what was just created: expanded in the tree, and shown in the main
-      // panel. Creating a room and being left where you were reads as if
-      // nothing happened.
+      // Open what was just created: listed in the sidebar, expanded in the
+      // tree, and shown in the main panel. Creating a room and being left where
+      // you were reads as if nothing happened — and the agent grouping does not
+      // list rooms at all, so the new room would be nowhere on screen.
+      sidebarStore.setGrouping('room');
       sidebarStore.ensureRoomExpanded(result.room.id);
       openRoomView(result.room.id);
 
@@ -257,7 +273,7 @@ export const CreateRoomModal = observer(function CreateRoomModal({
           <Field>
             <FieldLabel>Agents</FieldLabel>
             <Combobox
-              items={(agentsQuery.data ?? []).filter((a) => !agents.some((s) => s.id === a.id))}
+              items={invitableAgents.filter((a) => !agents.some((s) => s.id === a.id))}
               value={null}
               onValueChange={(next: RemoteAgentSummary | null) => {
                 if (next) setAgents((current) => [...current, next]);

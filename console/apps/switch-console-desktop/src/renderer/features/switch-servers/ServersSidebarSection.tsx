@@ -3,11 +3,9 @@ import {
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  Globe,
-  HardDrive,
+  Laptop,
   Pencil,
   Plus,
-  Server,
   Trash2,
   TriangleAlert,
 } from 'lucide-react';
@@ -33,6 +31,7 @@ import { SidebarMenu, SidebarMenuButton } from '../sidebar/sidebar-primitives';
 import { localServerStore } from './local-server-store';
 import { remoteServerStore } from './remote-server-store';
 import { serverAvailability } from './server-availability';
+import { serverIcon } from './server-icon';
 import { switchServersStore } from './switch-servers-store';
 
 export const ServersSidebarSection = observer(function ServersSidebarSection() {
@@ -130,7 +129,7 @@ const LocalServerPendingEntry = observer(function LocalServerPendingEntry({
   return (
     <SidebarMenuButton onClick={onOpen} className="justify-between">
       <span className="flex min-w-0 items-center gap-2">
-        <HardDrive className="size-4 shrink-0" />
+        <Laptop className="size-4 shrink-0" />
         <span className="truncate">
           {failed ? 'Local server (setup failed)' : 'Local Switch server'}
         </span>
@@ -187,10 +186,8 @@ function ServerDriftIndicator({ drift }: { drift: SwitchVersionDrift }) {
 }
 
 function ServerIcon({ server, isScoped }: { server: SwitchServer; isScoped: boolean }) {
-  const className = cn('size-4 shrink-0', isScoped && 'text-foreground');
-  if (server.managementKind === 'remote') return <Server className={className} />;
-  if (server.managed) return <HardDrive className={className} />;
-  return <Globe className={className} />;
+  const Icon = serverIcon(server);
+  return <Icon className={cn('size-4 shrink-0', isScoped && 'text-foreground')} />;
 }
 
 const ServerEntry = observer(function ServerEntry({ serverId }: { serverId: string }) {
