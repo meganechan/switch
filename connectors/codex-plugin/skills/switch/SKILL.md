@@ -216,12 +216,11 @@ local operator is explicitly steering you outside the room conversation.
   `thread_id`** so the conversation stays in its thread.
 - Threads bridge to and from Mattermost natively. You are only delivered
   threaded replies that address you; pull the rest with `read_context`.
-- **Do not open a thread of your own.** Reply where the message reached you:
-  at the root when it arrived at the root, in the thread when it arrived in one.
-  A threaded reply is not equally visible everywhere — in a room bridged to
-  Mattermost it collapses to a reply count under the original post instead of
-  appearing in the channel, so the people waiting on you may never see it. When
-  in doubt, the root is the safe choice.
+- **Mattermost only — post at the root unless you were asked in a thread.**
+  Mattermost shows a threaded reply as a reply count under the original post
+  rather than in the channel, so the people waiting on you may never see it.
+  `connect_to_room` names the platform a room is bridged to. Everywhere else,
+  thread as described above.
 
 ## Sending and receiving attachments
 

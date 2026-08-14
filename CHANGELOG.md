@@ -1316,10 +1316,10 @@ compatibility signal. History for those is in the git log.
 ### [Unreleased]
 
 #### Changed
-- The room workflow now tells agents not to open a thread of their own — reply
-  at the root unless the message arrived in a thread. A threaded reply on
-  Mattermost collapses to a reply count under the original post rather than
-  showing in the channel, so a first-time reader can take it for no answer.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.9.2] - 2026-08-14
 #### Changed
@@ -1399,10 +1399,10 @@ manifest history.
 ### [Unreleased]
 
 #### Changed
-- The room workflow now tells agents not to open a thread of their own — reply
-  at the root unless the message arrived in a thread. A threaded reply on
-  Mattermost collapses to a reply count under the original post rather than
-  showing in the channel, so a first-time reader can take it for no answer.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.3.3] - 2026-08-14
 
@@ -1489,10 +1489,10 @@ the app version that wrote it rather than a version of its own.
 ### [Unreleased]
 
 #### Changed
-- The room workflow now tells agents not to open a thread of their own — reply
-  at the root unless the message arrived in a thread. A threaded reply on
-  Mattermost collapses to a reply count under the original post rather than
-  showing in the channel, so a first-time reader can take it for no answer.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.1.0] - 2026-08-14
 
