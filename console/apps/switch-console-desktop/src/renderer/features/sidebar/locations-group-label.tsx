@@ -19,7 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { BoundShortcut } from '@renderer/lib/ui/shortcut';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -350,11 +349,10 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
             />
             <TooltipContent>Add</TooltipContent>
           </Tooltip>
-          <DropdownMenuContent className="min-w-48" align="end">
+          <DropdownMenuContent className="min-w-48" align="start">
             <DropdownMenuItem onClick={() => showAddLocationModal({})}>
               <UserPlus className="mr-1.5 h-4 w-4" />
-              Add your agents
-              <BoundShortcut settingsKey="newLocation" variant="badge" />
+              Add an agent
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
               <DoorOpen className="mr-1.5 h-4 w-4" />

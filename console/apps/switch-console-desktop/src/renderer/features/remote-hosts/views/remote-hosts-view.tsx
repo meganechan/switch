@@ -20,6 +20,7 @@ import { PageHeader } from '@renderer/lib/components/page-header';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { openExternalUrl } from '@renderer/lib/open-external';
 import { Button } from '@renderer/lib/ui/button';
 import { Label } from '@renderer/lib/ui/label';
 import { Spinner } from '@renderer/lib/ui/spinner';
@@ -32,6 +33,9 @@ import { hostReachabilityStore } from '../host-reachability-store';
 import { useAllHostSetupPlans } from '../setup/use-host-setup';
 
 export const REMOTE_HOSTS_QUERY_KEY = ['remote-hosts'];
+
+/** Same destination as the Docs tab in Settings, until a cloud-hosting page exists to point at. */
+const CLOUD_HOSTING_DOC_URL = 'https://github.com/sandbox-quantum/switch';
 
 type HostFilter = 'all' | 'ready' | 'attention';
 
@@ -159,7 +163,22 @@ export const RemoteHostsSettingsPage = observer(function RemoteHostsSettingsPage
       <PageHeader
         sticky
         title="Remote hosts"
-        description="SSH hosts that can run agents. Each host has its own page for setup and for the agent types installed on it."
+        description={
+          <>
+            Host your agents on any SSH devices, allowing your team to work with them 24/7. Check
+            out this{' '}
+            <button
+              type="button"
+              className="cursor-pointer underline underline-offset-2 hover:text-foreground"
+              onClick={() =>
+                void openExternalUrl(CLOUD_HOSTING_DOC_URL, 'Could not open the documentation')
+              }
+            >
+              doc for cloud hosting ↗︎
+            </button>
+            .
+          </>
+        }
       >
         <div className="flex items-center justify-between gap-2">
           <ToggleGroup

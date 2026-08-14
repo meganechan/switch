@@ -365,6 +365,10 @@ version of their own to them without also giving them a release of their own.
   the detail behind the ⓘ beside each one.
 - The agent providers list no longer separates out a "recommended" group; each
   filter is a single list.
+- The sidebar's ＋ opens a menu offering both "Add an agent" and "Create a
+  room", instead of the single action matching the list you were looking at.
+- The remote hosts page explains what a host is for, and links out to the
+  cloud-hosting documentation.
 
 #### Removed
 - A batch of interface settings, along with the toggles for creating a branch
