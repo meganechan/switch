@@ -128,6 +128,7 @@ class RunAssembler:
         self._text: _OpenText | None = None
         self._tool_calls: dict[str, _OpenToolCall] = {}
         self._tool_order: list[str] = []
+        self._seen_tool_ids: set[str] = set()
         self._terminated = False
         self._error: RunError | None = None
 
@@ -175,7 +176,7 @@ class RunAssembler:
         if isinstance(event, StateDelta):
             return [StateOutput(delta=event.delta)]
         if isinstance(event, MessagesSnapshot):
-            return []
+            return self._feed_messages_snapshot(event)
 
         if isinstance(event, RunFinished):
             self._terminated = True
@@ -244,7 +245,58 @@ class RunAssembler:
             self._text.parts.append(event.delta)
         return outputs
 
+    def _feed_messages_snapshot(self, event: MessagesSnapshot) -> list[RunOutput]:
+        """Pick up tool calls that never arrived as `TOOL_CALL_*` events.
+
+        Not a theoretical case. `ag-ui-langgraph` derives `TOOL_CALL_*` events
+        from *streaming* model output, so a LangGraph node that returns an
+        assistant message directly — anything using `invoke()` rather than
+        `astream()` — produces no tool-call events at all. The call appears
+        only here, inside the snapshot, as `toolCalls` on the assistant
+        message. Ignoring snapshots meant silently dropping it: the agent asks
+        Switch to post a message and nothing happens, with no error anywhere.
+
+        Only *unseen* ids are emitted. A snapshot repeats the whole history, so
+        without that a run would re-execute every tool call it had already
+        made, every time a snapshot arrived.
+
+        Text is deliberately not taken from snapshots — it arrives as events,
+        and reading it here as well would post everything twice.
+        """
+        outputs: list[RunOutput] = []
+        for message in event.messages:
+            if not isinstance(message, dict):
+                continue
+            for call in message.get("toolCalls") or []:
+                output = self._tool_call_from_snapshot(call)
+                if output is not None:
+                    outputs.append(output)
+        return outputs
+
+    def _tool_call_from_snapshot(self, call: object) -> ToolCallOutput | None:
+        if not isinstance(call, dict):
+            return None
+        tool_call_id = call.get("id")
+        function = call.get("function")
+        if not isinstance(tool_call_id, str) or not isinstance(function, dict):
+            return None
+        if tool_call_id in self._seen_tool_ids:
+            return None
+
+        name = function.get("name")
+        if not isinstance(name, str):
+            return None
+
+        self._seen_tool_ids.add(tool_call_id)
+        arguments = function.get("arguments")
+        return ToolCallOutput(
+            tool_call_id=tool_call_id,
+            name=name,
+            arguments=arguments if isinstance(arguments, str) else "",
+        )
+
     def _open_tool_call(self, tool_call_id: str, name: str) -> None:
+        self._seen_tool_ids.add(tool_call_id)
         if tool_call_id not in self._tool_calls:
             self._tool_order.append(tool_call_id)
         self._tool_calls[tool_call_id] = _OpenToolCall(

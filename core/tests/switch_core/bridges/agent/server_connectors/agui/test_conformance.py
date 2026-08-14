@@ -235,3 +235,96 @@ def test_the_reference_sdk_defines_thirty_three_events() -> None:
         line for line in (FIXTURES / "event_types.txt").read_text().splitlines() if line
     ]
     assert len(reference) == 33
+
+
+# ── A real LangGraph tool call, which does not arrive as tool-call events ─────
+
+
+def test_a_real_langgraph_tool_call_is_picked_up() -> None:
+    # Captured from a LangGraph node that returns an assistant message directly
+    # rather than streaming one. `ag-ui-langgraph` derives TOOL_CALL_* events
+    # from streaming model output, so this run contains none at all — the call
+    # exists only inside MESSAGES_SNAPSHOT. Ignoring snapshots dropped it
+    # silently, which is what this fixture exists to prevent.
+    outputs = _replay("langgraph_tool_call_run.sse")
+    calls = [output for output in outputs if isinstance(output, ToolCallOutput)]
+
+    assert len(calls) == 1
+    assert calls[0].name == "post_message"
+    assert calls[0].tool_call_id == "call-1"
+    assert json.loads(calls[0].arguments) == {"body": "status is green"}
+
+
+def test_that_capture_really_contains_no_tool_call_events() -> None:
+    # Guards the premise of the test above: if a future adapter version starts
+    # emitting TOOL_CALL_* here, the snapshot path stops being the thing under
+    # test and this fixture needs rethinking rather than silently passing.
+    types = _event_types("langgraph_tool_call_run.sse")
+    assert not any(name.startswith("TOOL_CALL") for name in types)
+    assert "MESSAGES_SNAPSHOT" in types
+
+
+def test_a_tool_call_is_not_executed_twice_when_a_snapshot_repeats_it() -> None:
+    # A snapshot restates the whole history, so an id already seen as events
+    # must not be run again.
+    assembler = RunAssembler()
+    for payload in [
+        {"type": "TOOL_CALL_START", "toolCallId": "c1", "toolCallName": "post_message"},
+        {"type": "TOOL_CALL_ARGS", "toolCallId": "c1", "delta": "{}"},
+        {"type": "TOOL_CALL_END", "toolCallId": "c1"},
+    ]:
+        assembler.feed(parse_event(payload))
+
+    from_snapshot = assembler.feed(
+        parse_event(
+            {
+                "type": "MESSAGES_SNAPSHOT",
+                "messages": [
+                    {
+                        "id": "m1",
+                        "role": "assistant",
+                        "toolCalls": [
+                            {
+                                "id": "c1",
+                                "type": "function",
+                                "function": {"name": "post_message", "arguments": "{}"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+    )
+    assert from_snapshot == []
+
+
+def test_repeated_snapshots_do_not_repeat_the_call() -> None:
+    snapshot = {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+            {
+                "id": "m1",
+                "role": "assistant",
+                "toolCalls": [
+                    {
+                        "id": "c9",
+                        "type": "function",
+                        "function": {"name": "post_message", "arguments": "{}"},
+                    }
+                ],
+            }
+        ],
+    }
+    assembler = RunAssembler()
+    first = assembler.feed(parse_event(snapshot))
+    second = assembler.feed(parse_event(snapshot))
+
+    assert len(first) == 1
+    assert second == []
+
+
+def test_snapshot_text_is_not_posted_a_second_time() -> None:
+    # The text run's snapshot repeats the assistant message that already
+    # arrived as events; taking content from snapshots would double-post it.
+    outputs = _replay("langgraph_text_run.sse")
+    assert len([o for o in outputs if isinstance(o, TextOutput)]) == 1
