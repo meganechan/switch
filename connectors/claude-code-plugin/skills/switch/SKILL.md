@@ -210,6 +210,12 @@ local operator is explicitly steering you outside the room conversation.
   that same `thread_id`** so the conversation stays in its thread.
 - Threads bridge to and from Mattermost natively. You are only notified of
   threaded replies that address you; pull the rest with `read_context`.
+- **Do not open a thread of your own.** Reply where the message reached you:
+  at the root when it arrived at the root, in the thread when it arrived in one.
+  A threaded reply is not equally visible everywhere — in a room bridged to
+  Mattermost it collapses to a reply count under the original post instead of
+  appearing in the channel, so the people waiting on you may never see it. When
+  in doubt, the root is the safe choice.
 
 ## Sending and receiving attachments
 
