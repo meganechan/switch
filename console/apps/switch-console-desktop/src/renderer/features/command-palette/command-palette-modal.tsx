@@ -119,15 +119,9 @@ const SESSION_SUGGESTED = [
   'session.sidebarFiles',
   'session.toggleTerminalDrawer',
   'resource-monitor',
-  'app.giveFeedback',
 ];
-const LOCATION_SUGGESTED = [
-  'app.newSession',
-  'app.settings',
-  'resource-monitor',
-  'app.giveFeedback',
-];
-const APP_SUGGESTED = ['app.newLocation', 'app.settings', 'resource-monitor', 'app.giveFeedback'];
+const LOCATION_SUGGESTED = ['app.newSession', 'app.settings', 'resource-monitor'];
+const APP_SUGGESTED = ['app.newLocation', 'app.settings', 'resource-monitor'];
 
 function PaletteItem({
   value,

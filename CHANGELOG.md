@@ -510,6 +510,14 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Removed
+
+- The "Give Feedback" feature — modal, Help menu entry, command-palette command
+  and its event — along with the hardcoded third-party Discord webhook it posted
+  to. The webhook arrived with the initial emdash import and is already revoked
+  upstream. **Help → Report Issue** remains the way to send us something; it
+  opens an issue on this repository (CHOO-2040).
+
 ### [0.24.0] - 2026-08-14
 
 #### Added
