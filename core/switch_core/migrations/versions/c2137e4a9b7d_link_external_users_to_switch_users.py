@@ -1,6 +1,6 @@
 """link external users to switch users (CHOO-2137)
 
-Revision ID: a1b2c3d4e5f6
+Revision ID: c2137e4a9b7d
 Revises: b3f36489c258
 Create Date: 2026-08-14 00:00:00.000000
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = "a1b2c3d4e5f6"
+revision: str = "c2137e4a9b7d"
 down_revision: str | None = "b3f36489c258"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
