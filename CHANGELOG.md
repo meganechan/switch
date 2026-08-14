@@ -518,6 +518,18 @@ version of their own to them without also giving them a release of their own.
   upstream. **Help → Report Issue** remains the way to send us something; it
   opens an issue on this repository (CHOO-2040).
 
+#### Fixed
+
+- **A session on a remote agent now opens at the size of the pane it opens
+  into**, instead of a fraction of it that only corrected itself when the window
+  was resized or the session was switched away from and back (CHOO-2066). A
+  remote session opens its terminal over SSH, and the renderer mounts and
+  measures its pane partway through that: the measurement arrived after the
+  spawn size had been read and before there was a PTY to resize, so it was
+  discarded and the session kept the 80x24 it was spawned with. Measured
+  dimensions are now kept whether or not a PTY is live yet, and applied to the
+  PTY when it registers.
+
 ### [0.24.0] - 2026-08-14
 
 #### Added
