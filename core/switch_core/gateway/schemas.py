@@ -230,6 +230,12 @@ class AgentSummary(BaseModel):
     # they let the UI render an "edit options" form against the spec's schema.
     known_agent_type: str | None = None
     known_agent_options: dict[str, Any] | None = None
+    # Scoped agent-addressing permissions. null → open (anyone may address the
+    # agent); otherwise the allow-list that governs who can. On the summary,
+    # not just the detail, so a caller can tell which of someone's agents are
+    # owner-restricted without fetching each one — the console warns about
+    # exactly that, and per-agent reads would make it a request storm.
+    addressing_policy: AddressingPolicy | None = None
 
 
 class AgentToolSummary(BaseModel):
@@ -286,9 +292,6 @@ class AgentDetail(AgentSummary):
     rooms: list[AgentRoomMembership]
     sessions: list[AgentSessionDetail]
     children: list[AgentSummary]
-    # Scoped agent-addressing permissions (CHOO-1585). null → open (anyone may
-    # address the agent); otherwise the allow-list that governs who can.
-    addressing_policy: AddressingPolicy | None = None
 
 
 class UpdateAddressingPolicyRequest(BaseModel):
