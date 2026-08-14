@@ -471,13 +471,51 @@ malformed events are rejected; the tool subset pinned against the registry
 (§6.1); a failing tool surfacing as `ToolMessage.error`; the iteration cap; and
 a regression test that a long run does not block the poll loop (§5.1).
 
-**Framework validation runs in CI.** Real AG-UI streams are captured once from
-LangGraph and ADK and committed as fixtures, then replayed in tests that run on
-every pull request. Live end-to-end runs against the frameworks sit behind a
-separate marker and an optional dependency group, because the existing
-`integration` marker means "boots Postgres and Tuwunel" and is excluded from
-CI — parking the test that proves this feature works somewhere CI never looks
-would defeat the point.
+**Framework validation runs in CI, from committed fixtures.** Every fixture
+under `tests/.../agui/fixtures/` was produced by real AG-UI software rather
+than written by hand, which matters because Switch hand-rolls its types: a
+hand-written fixture would only prove the decoder agrees with its own author.
+
+- `langgraph_text_run.sse` — a **genuine capture** from a LangGraph graph
+  driven through `ag-ui-langgraph`, using a deterministic fake chat model so it
+  needs no API key. `capture_langgraph.py` regenerates it.
+- `adk_text_run.sse` — a **genuine capture** from a Google ADK `LlmAgent`
+  driven through `ag-ui-adk`, using a stub model subclassing ADK's own
+  `BaseLlm` so it needs no Google credentials. `capture_adk.py` regenerates it.
+- The remaining fixtures were encoded by the **reference Python SDK's own
+  `EventEncoder`**. `generate_fixtures.py` regenerates them.
+
+The two framework captures are what make the ticket's claim testable rather
+than asserted: LangGraph and ADK share no code and neither knows Switch
+exists, and one client turns both into the same room message. A test asserts
+exactly that.
+
+They also show how differently two conforming adapters behave. LangGraph emits
+15 `RAW` passthrough events — more than any other type — and streams a short
+sentence as seven `TEXT_MESSAGE_CONTENT` deltas. ADK emits six events total,
+one delta, and carries its own bookkeeping in a `STATE_SNAPSHOT`. Both are
+valid; a client that assumed either shape would break on the other.
+
+Neither generator is a test dependency and neither runs in CI — the fixtures
+are committed, so the conformance suite runs offline on every pull request.
+Regenerating needs a throwaway virtualenv, which is the honest trade: CI gets
+real-traffic coverage without the suite depending on a pre-1.0 package or a
+live model.
+
+The reference SDK's event enum is committed alongside as `event_types.txt` and
+compared against ours, so an AG-UI release that adds or renames an event turns
+into a failing test rather than a silent gap.
+
+Live end-to-end runs against a framework are deliberately *not* wired into CI.
+The existing `integration` marker means "boots Postgres and Tuwunel", so
+reusing it would both misuse the marker and park this work where CI never
+looks; and a live run needs the framework installed and, for most models, a
+key. The captured fixtures are what makes the claim testable on every PR.
+
+What is **not** covered: tool calling against a live framework. Both captures
+exercise a text turn. The tool-call path is covered by reference-SDK fixtures
+and unit tests, but no framework has yet been driven through a full
+call-execute-continue cycle end to end.
 
 ---
 
