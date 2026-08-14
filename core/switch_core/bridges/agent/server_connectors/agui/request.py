@@ -76,7 +76,9 @@ class AssistantMessage(WireModel):
     id: str
     role: Literal["assistant"] = "assistant"
     content: str | None = None
-    tool_calls: list[ToolCallRef] | None = Field(default=None, alias="toolCalls")
+    tool_calls: list[ToolCallRef] | None = Field(
+        default=None, serialization_alias="toolCalls"
+    )
 
 
 class ToolResultMessage(WireModel):
@@ -90,7 +92,7 @@ class ToolResultMessage(WireModel):
     id: str
     role: Literal["tool"] = "tool"
     content: str
-    tool_call_id: str = Field(alias="toolCallId")
+    tool_call_id: str = Field(serialization_alias="toolCallId")
     error: str | None = None
 
 
@@ -100,10 +102,10 @@ Message = UserMessage | SystemMessage | AssistantMessage | ToolResultMessage
 class RunAgentInput(WireModel):
     """One AG-UI run request."""
 
-    thread_id: str = Field(alias="threadId")
-    run_id: str = Field(alias="runId")
+    thread_id: str = Field(serialization_alias="threadId")
+    run_id: str = Field(serialization_alias="runId")
     messages: list[Message]
     tools: list[Tool]
     context: list[Context]
     state: Any = None
-    forwarded_props: Any = Field(default=None, alias="forwardedProps")
+    forwarded_props: Any = Field(default=None, serialization_alias="forwardedProps")
