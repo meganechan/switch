@@ -168,12 +168,24 @@ this can be simplified.
 
 ### 5.2 Threads
 
-A room thread maps deterministically to an AG-UI `threadId`; room-level
-conversation gets a stable per-room id. This works inbound only.
-`ConnectorReporter` has no thread parameter — `send_message(room_id, content)`
-is the whole surface — so **everything an AG-UI agent says lands at the room
-root**, even when replying to a threaded message. Fixing that means widening
-the reporter interface, which is out of scope here and worth doing separately.
+Threading works in both directions.
+
+Inbound, a Matrix thread maps to its own AG-UI `threadId`, so two threads in
+one room are two conversations rather than one interleaved history — and agent
+state is keyed per (agent, room, thread) to match. Room-level conversation gets
+a stable per-room id.
+
+Outbound, a reply lands in the thread it was asked in. That needed a small
+change to shared connector code: `ProtocolService.send_message` had always
+accepted a `thread_id` and normalised it to the thread root, but
+`ConnectorReporter.send_message` had no parameter to pass one, so every
+server-side connector was posting at the room root regardless. The reporter now
+carries it.
+
+**An unthreaded question gets an unthreaded answer.** It would be easy to root
+a thread at every incoming message, and wrong: it would fragment conversations
+nobody chose to thread. `thread_id` is passed through when the incoming message
+had one, and omitted otherwise.
 
 ---
 
@@ -406,27 +418,38 @@ deployment constraint, documented, not a surprise.
 Connector configuration carries the endpoint URL, the bearer token, the agent's
 name and description, and the timeout and iteration bounds.
 
-### 10.1 The bearer token is not encrypted at rest
+### 10.1 The bearer token is encrypted at rest
 
-This section originally specified that the token would be held as a
-Fernet-encrypted `ApiKey` row. **It is not, and the reason is worth recording
-rather than quietly dropping.**
+`ServerConnector.connection_config` is a plain JSONB column, so a connector's
+credentials used to sit in the database in the clear — the only protection
+being that the admin form masked the input and the gateway never read it back,
+neither of which helps anyone holding a dump.
 
-Registration happens in the shared connector lifecycle: it validates the config
-against the connector's model and persists it verbatim into
-`ServerConnector.connection_config`, which is plain JSONB. The connector is
-constructed *afterwards*, from the already-stored config, so there is no point
-at which an AG-UI-specific hook could encrypt the value on the way in. The
-token therefore gets exactly the treatment the OpenCode connector's password
-gets: stored in the clear, masked in the admin form via `format: "password"`,
-and never returned by the gateway API.
+A config class now declares which fields are secret:
 
-Doing better means teaching `ServerSideConnectorLifecycleService` to encrypt
-fields a config declares as secret — perhaps twenty lines, and a real
-improvement. But it changes how **every** connector's stored config is read,
-including rows written before the change, so it needs a compatibility path and
-a decision that is not this ticket's to make. It is a follow-on, deliberately,
-rather than a refactor smuggled in beside a new feature.
+```python
+secret_fields: ClassVar[frozenset[str]] = frozenset({"bearer_token"})
+```
+
+The shared connector lifecycle encrypts those on the way in and decrypts them
+on the way out, with the same Fernet key the registration tokens already use. A
+connector only ever sees plaintext. Fields not declared secret are stored as
+given, so a config stays debuggable apart from the parts that must not be.
+
+This is deliberately generic rather than AG-UI-specific: encrypting one
+connector's credentials and not another's would be incoherent, so OpenCode's
+password is declared too.
+
+**Rows written before this existed still work.** An encrypted value carries an
+`enc:v1:` prefix, so a value without one is recognised as legacy plaintext and
+passed through rather than failing to decrypt — refusing to start would turn a
+security improvement into an outage. It is logged at warning, because an
+operator should be able to discover that a secret is still exposed, and it
+stops being true the next time the connector is registered.
+
+A value that *claims* to be encrypted and cannot be decrypted raises. The usual
+cause is a changed `jwt_secret_key`, and starting anyway would surface later as
+a confusing 401 from the agent's endpoint.
 
 ### 10.2 The endpoint URL is validated
 

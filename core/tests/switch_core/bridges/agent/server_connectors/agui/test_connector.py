@@ -38,11 +38,15 @@ ROOM_ID = "room-1"
 class _FakeReporter(ConnectorReporter):
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.threads: list[str | None] = []
         self.statuses: list[str] = []
         self.typing: list[bool] = []
 
-    async def send_message(self, room_id: str, content: str) -> None:
+    async def send_message(
+        self, room_id: str, content: str, thread_id: str | None = None
+    ) -> None:
         self.messages.append(content)
+        self.threads.append(thread_id)
 
     async def report_events(self, room_id: str, events: Any) -> None:
         pass
@@ -98,7 +102,9 @@ def _config(**overrides: Any) -> AgUiConnectionConfig:
     )
 
 
-def _message(body: str = "what is the status?") -> MessagePayload:
+def _message(
+    body: str = "what is the status?", thread_id: str | None = None
+) -> MessagePayload:
     return MessagePayload(
         addressed=True,
         sender="@someone:switch.local",
@@ -106,6 +112,7 @@ def _message(body: str = "what is the status?") -> MessagePayload:
         message_id="$evt1",
         body=body,
         timestamp=1,
+        thread_id=thread_id,
     )
 
 
@@ -362,19 +369,6 @@ async def test_a_failed_turn_does_not_wedge_the_room(wired: None) -> None:
 # ── Commands and lifecycle ────────────────────────────────────────────────────
 
 
-async def test_reset_clears_the_room_state(wired: None) -> None:
-    connector = _connector(_FakeClient([]))
-    connector._state[(AGENT_NAME, ROOM_ID)] = {"step": 3}
-
-    await connector.handle_command(
-        AGENT_NAME,
-        ROOM_ID,
-        CommandPayload(command="reset", user_id="u", user_name="christian"),
-    )
-
-    assert (AGENT_NAME, ROOM_ID) not in connector._state
-
-
 async def test_stop_cancels_runs_in_flight(wired: None) -> None:
     gate = asyncio.Event()
     client = _FakeClient([_text_run("never arrives")], gate=gate)
@@ -396,3 +390,116 @@ async def test_running_before_start_fails_loudly(wired: None) -> None:
     await _settle(connector)
 
     assert any("Connector not started" in message for message in reporter.messages)
+
+
+# ── Threading ─────────────────────────────────────────────────────────────────
+
+
+async def test_a_reply_lands_in_the_thread_it_was_asked_in(wired: None) -> None:
+    client = _FakeClient([_text_run("in-thread answer")])
+    connector = _connector(client)
+    reporter = _FakeReporter()
+
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$root1"), reporter
+    )
+    await _settle(connector)
+
+    assert reporter.messages == ["in-thread answer"]
+    assert reporter.threads == ["$root1"]
+
+
+async def test_a_top_level_message_is_answered_at_the_room_root(wired: None) -> None:
+    # Inventing a thread for every reply would fragment conversations that
+    # were never threaded, so an unthreaded question gets an unthreaded answer.
+    client = _FakeClient([_text_run("top-level answer")])
+    connector = _connector(client)
+    reporter = _FakeReporter()
+
+    await connector.handle_message(AGENT_NAME, ROOM_ID, _message(), reporter)
+    await _settle(connector)
+
+    assert reporter.threads == [None]
+
+
+async def test_a_failure_is_reported_into_the_same_thread(wired: None) -> None:
+    client = _FakeClient([], raises=AgUiTimeoutError("endpoint went silent"))
+    connector = _connector(client)
+    reporter = _FakeReporter()
+
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$root1"), reporter
+    )
+    await _settle(connector)
+
+    assert reporter.threads == ["$root1"]
+
+
+async def test_backpressure_is_reported_into_the_same_thread(wired: None) -> None:
+    gate = asyncio.Event()
+    client = _FakeClient([_text_run("x") for _ in range(10)], gate=gate)
+    connector = _connector(client)
+    reporter = _FakeReporter()
+
+    for _ in range(MAX_QUEUED_TURNS_PER_ROOM + 1):
+        await connector.handle_message(
+            AGENT_NAME, ROOM_ID, _message(thread_id="$root1"), reporter
+        )
+
+    assert reporter.threads == ["$root1"]
+    gate.set()
+    await _settle(connector)
+
+
+async def test_separate_threads_get_separate_agui_conversations(wired: None) -> None:
+    # Two threads in one room are two conversations. Sharing an AG-UI threadId
+    # would interleave their history and state.
+    client = _FakeClient([_text_run("a"), _text_run("b")])
+    connector = _connector(client)
+
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$one"), _FakeReporter()
+    )
+    await _settle(connector)
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$two"), _FakeReporter()
+    )
+    await _settle(connector)
+
+    assert client.requests[0].thread_id != client.requests[1].thread_id
+
+
+async def test_state_does_not_leak_between_threads(wired: None) -> None:
+    stateful = [
+        {"type": "STATE_SNAPSHOT", "snapshot": {"seen": "thread-one"}},
+        *_text_run("a"),
+    ]
+    client = _FakeClient([stateful, _text_run("b")])
+    connector = _connector(client)
+
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$one"), _FakeReporter()
+    )
+    await _settle(connector)
+    await connector.handle_message(
+        AGENT_NAME, ROOM_ID, _message(thread_id="$two"), _FakeReporter()
+    )
+    await _settle(connector)
+
+    assert connector._state[(AGENT_NAME, ROOM_ID, "$one")] == {"seen": "thread-one"}
+    assert client.requests[1].state is None
+
+
+async def test_reset_clears_every_thread_in_the_room(wired: None) -> None:
+    connector = _connector(_FakeClient([]))
+    connector._state[(AGENT_NAME, ROOM_ID, "$one")] = {"n": 1}
+    connector._state[(AGENT_NAME, ROOM_ID, None)] = {"n": 2}
+    connector._state[(AGENT_NAME, "other-room", "$x")] = {"n": 3}
+
+    await connector.handle_command(
+        AGENT_NAME,
+        ROOM_ID,
+        CommandPayload(command="reset", user_id="u", user_name="christian"),
+    )
+
+    assert list(connector._state) == [(AGENT_NAME, "other-room", "$x")]

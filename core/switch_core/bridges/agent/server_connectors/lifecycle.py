@@ -11,6 +11,10 @@ from switch_core.bridges.agent.server_connectors.base import (
     ServerSideConnector,
     ServerSideConnectorConfig,
 )
+from switch_core.bridges.agent.server_connectors.config_secrets import (
+    decrypt_secret_fields,
+    encrypt_secret_fields,
+)
 from switch_core.bridges.agent.server_connectors.core import ConnectorCore
 from switch_core.crypto import decrypt_token, encrypt_token
 from switch_core.db.models import ApiKey, ServerConnector
@@ -74,6 +78,9 @@ class ServerSideConnectorLifecycleService:
             raise ValueError(f"Unknown connector type: {connector_type}")
 
         config_cls.model_validate(connection_config)
+        stored_config = encrypt_secret_fields(
+            connection_config, config_cls, self._encryption_secret
+        )
 
         plaintext = secrets.token_urlsafe(32)
         key_hash = hashlib.sha256(plaintext.encode()).hexdigest()
@@ -91,7 +98,7 @@ class ServerSideConnectorLifecycleService:
             record = ServerConnector(
                 type=connector_type,
                 display_name=display_name,
-                connection_config=connection_config,  # type: ignore[arg-type]
+                connection_config=stored_config,  # type: ignore[arg-type]
                 api_key_id=reg_key.id,
                 status="active",
             )
@@ -127,7 +134,14 @@ class ServerSideConnectorLifecycleService:
             reg_key.encrypted_key, self._encryption_secret
         )
 
-        typed_config = config_cls.model_validate(record.connection_config or {})
+        typed_config = config_cls.model_validate(
+            decrypt_secret_fields(
+                record.connection_config or {},
+                config_cls,
+                self._encryption_secret,
+                connector_id=connector_id,
+            )
+        )
         connector = connector_cls(config=typed_config)  # type: ignore[call-arg]
 
         core = ConnectorCore(

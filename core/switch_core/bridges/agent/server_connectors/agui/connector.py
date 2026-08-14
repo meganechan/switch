@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, ClassVar
 from urllib.parse import urlparse
 
 from pydantic import Field, field_validator
@@ -100,14 +100,12 @@ _INTEGRATION_PROFILE = IntegrationProfile(
 class AgUiConnectionConfig(ServerSideConnectorConfig):
     """What an operator supplies to connect one framework agent.
 
-    The bearer token is stored in `connection_config`, which is plain JSONB —
-    the same treatment the OpenCode connector's password gets, and write-only
-    over the gateway API. It is *not* encrypted at rest. Doing that properly
-    means teaching the shared connector lifecycle to encrypt declared secret
-    fields, which would change how every connector's stored config is read;
-    that is a change worth making, and worth making deliberately rather than
-    as a side effect of adding AG-UI.
+    The bearer token is encrypted at rest: it is named in `secret_fields`, so
+    the lifecycle encrypts it into `connection_config` and hands this class the
+    plaintext when the connector starts.
     """
+
+    secret_fields: ClassVar[frozenset[str]] = frozenset({"bearer_token"})
 
     endpoint_url: str = Field(
         title="Endpoint URL",
@@ -189,7 +187,7 @@ class AgUiConnector(ServerSideConnector):
         self._queued: dict[tuple[str, str], int] = {}
         self._runs: set[asyncio.Task[None]] = set()
         self._agent_ids: dict[str, str] = {}
-        self._state: dict[tuple[str, str], Any] = {}
+        self._state: dict[tuple[str, str, str | None], Any] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -248,6 +246,7 @@ class AgUiConnector(ServerSideConnector):
                 room_id,
                 "I'm still working through earlier messages in this room and "
                 "have too many queued to take another. Please try again shortly.",
+                message.thread_id,
             )
             return None
 
@@ -263,7 +262,10 @@ class AgUiConnector(ServerSideConnector):
         self, agent_name: str, room_id: str, command: CommandPayload
     ) -> None:
         if command.command == "reset":
-            self._state.pop((agent_name, room_id), None)
+            for key in [
+                key for key in self._state if key[0] == agent_name and key[1] == room_id
+            ]:
+                del self._state[key]
 
     async def handle_task_delegate(
         self, agent_name: str, room_id: str, task: TaskDelegatePayload
@@ -296,18 +298,24 @@ class AgUiConnector(ServerSideConnector):
             async with lock:
                 await reporter.set_typing(room_id, True)
                 try:
-                    await self._drive(agent_name, room_id, message.body, reporter)
+                    await self._drive(
+                        agent_name,
+                        room_id,
+                        message.body,
+                        reporter,
+                        thread_id=message.thread_id,
+                    )
                 finally:
                     await reporter.set_typing(room_id, False)
         except asyncio.CancelledError:
             raise
         except AgUiProtocolError as exc:
             logger.warning("AG-UI turn failed in room %s: %s", room_id, exc)
-            await self._report_failure(reporter, room_id, str(exc))
+            await self._report_failure(reporter, room_id, str(exc), message.thread_id)
         except Exception as exc:
             logger.exception("AG-UI turn raised in room %s", room_id)
             await self._report_failure(
-                reporter, room_id, f"{type(exc).__name__}: {exc}"
+                reporter, room_id, f"{type(exc).__name__}: {exc}", message.thread_id
             )
         finally:
             self._queued[key] = max(0, self._queued.get(key, 1) - 1)
@@ -320,7 +328,9 @@ class AgUiConnector(ServerSideConnector):
         reporter: ConnectorReporter | None,
     ) -> str:
         collected: list[str] = []
-        await self._drive(agent_name, room_id, prompt, reporter, collect=collected)
+        await self._drive(
+            agent_name, room_id, prompt, reporter, thread_id=None, collect=collected
+        )
         return "\n\n".join(collected) or "The agent produced no output."
 
     async def _drive(
@@ -329,6 +339,7 @@ class AgUiConnector(ServerSideConnector):
         room_id: str,
         prompt: str,
         reporter: ConnectorReporter | None,
+        thread_id: str | None,
         collect: list[str] | None = None,
     ) -> None:
         if self._client is None:
@@ -359,36 +370,41 @@ class AgUiConnector(ServerSideConnector):
         )
 
         async for output in loop.run(
-            thread_id=_thread_id(room_id),
+            thread_id=_agui_thread_id(room_id, thread_id),
             messages=messages,
             context=build_context(
                 timeline, room_name=room_id, limit=self._config.history_limit
             ),
-            state=self._state.get((agent_name, room_id)),
+            state=self._state.get((agent_name, room_id, thread_id)),
         ):
-            await self._emit(output, room_id, reporter, collect)
+            await self._emit(output, room_id, reporter, thread_id, collect)
 
-        self._state[(agent_name, room_id)] = loop.latest_state
+        self._state[(agent_name, room_id, thread_id)] = loop.latest_state
 
     async def _emit(
         self,
         output: Any,
         room_id: str,
         reporter: ConnectorReporter | None,
+        thread_id: str | None,
         collect: list[str] | None,
     ) -> None:
         if isinstance(output, TextOutput):
             if collect is not None:
                 collect.append(output.content)
             elif reporter is not None:
-                await reporter.send_message(room_id, output.content)
+                await reporter.send_message(room_id, output.content, thread_id)
         elif isinstance(output, StatusOutput) and reporter is not None:
             await reporter.send_status(room_id, output.detail)
         elif isinstance(output, (AgentToolResult, StateOutput)):
             logger.debug("AG-UI produced %s in room %s", type(output).__name__, room_id)
 
     async def _report_failure(
-        self, reporter: ConnectorReporter | None, room_id: str, detail: str
+        self,
+        reporter: ConnectorReporter | None,
+        room_id: str,
+        detail: str,
+        thread_id: str | None,
     ) -> None:
         """Say what went wrong in the room rather than going quiet.
 
@@ -398,7 +414,9 @@ class AgUiConnector(ServerSideConnector):
         """
         if reporter is None:
             return
-        await reporter.send_message(room_id, f"I could not complete that: {detail}")
+        await reporter.send_message(
+            room_id, f"I could not complete that: {detail}", thread_id
+        )
 
     # ── Identity and room binding ────────────────────────────────────────────
 
@@ -437,5 +455,12 @@ def _session_key(agent_id: str, room_id: str) -> str:
     return f"agui:{agent_id}:{room_id}"
 
 
-def _thread_id(room_id: str) -> str:
-    return f"switch-room-{room_id}"
+def _agui_thread_id(room_id: str, thread_id: str | None) -> str:
+    """AG-UI's own conversation key — unrelated to a Matrix thread id.
+
+    A Matrix thread gets its own AG-UI conversation, so two threads in one room
+    do not share history or state. The room itself is one conversation.
+    """
+    if thread_id is None:
+        return f"switch-room-{room_id}"
+    return f"switch-room-{room_id}-thread-{thread_id}"

@@ -15,6 +15,7 @@ from testcontainers.postgres import PostgresContainer
 # create_all provisions the full schema (rooms, room_groups, FKs, …).
 import switch_core.db.models  # noqa: F401
 from switch_core.db.base import Base
+from tests.docker_host import ensure_docker_host
 
 
 @pytest.fixture(scope="session")
@@ -24,6 +25,7 @@ def postgres_url() -> Iterator[str]:
     Store tests run against real Postgres (not SQLite/mocks) so behaviours like
     `ON DELETE SET NULL` and check constraints are exercised for real.
     """
+    ensure_docker_host()
     with PostgresContainer("postgres:16-alpine") as pg:
         host = pg.get_container_host_ip()
         port = pg.get_exposed_port(5432)

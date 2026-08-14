@@ -47,8 +47,12 @@ class _ProtocolReporter(ConnectorReporter):
         self._protocol = protocol
         self._handle = handle
 
-    async def send_message(self, room_id: str, content: str) -> None:
-        await self._protocol.send_message(self._handle.agent_id, room_id, content)
+    async def send_message(
+        self, room_id: str, content: str, thread_id: str | None = None
+    ) -> None:
+        await self._protocol.send_message(
+            self._handle.agent_id, room_id, content, thread_id=thread_id
+        )
 
     async def report_events(
         self, room_id: str, events: Sequence[ToolCallReport | LlmCallReport]
@@ -240,7 +244,9 @@ class ConnectorCore:
 
         if response is not None:
             try:
-                await self._protocol.send_message(handle.agent_id, room_id, response)
+                await self._protocol.send_message(
+                    handle.agent_id, room_id, response, thread_id=payload.thread_id
+                )
             except Exception:
                 logger.exception(
                     "Failed to send response for agent %s in room %s",

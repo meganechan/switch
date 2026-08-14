@@ -17,11 +17,15 @@ ROOM_ID = "room-1"
 class _FakeReporter(ConnectorReporter):
     def __init__(self) -> None:
         self.messages: list[str] = []
+        self.threads: list[str | None] = []
         self.statuses: list[str] = []
         self.events: list[Any] = []
 
-    async def send_message(self, room_id: str, content: str) -> None:
+    async def send_message(
+        self, room_id: str, content: str, thread_id: str | None = None
+    ) -> None:
         self.messages.append(content)
+        self.threads.append(thread_id)
 
     async def report_events(self, room_id: str, events: Any) -> None:
         self.events.extend(events)

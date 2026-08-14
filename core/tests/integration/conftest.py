@@ -19,10 +19,6 @@ its users/rooms persist across the session — so tests must use unique agent na
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import shutil
-import subprocess
 import time
 import urllib.error
 import urllib.request
@@ -78,6 +74,7 @@ from switch_core.matrix_admin import (
     wait_for_homeserver,
 )
 from switch_core.room_service import RoomService
+from tests.docker_host import ensure_docker_host
 
 # ── Mirrors deploy/local/docker-compose.yml — keep in sync ──────────────────────
 POSTGRES_IMAGE = "postgres:16-alpine"
@@ -167,37 +164,9 @@ def _wait_matrix_ready(matrix_url: str, timeout_s: float = 60.0) -> None:
     raise RuntimeError(f"Tuwunel not ready at {matrix_url}: {last_err}")
 
 
-def _ensure_docker_host() -> None:
-    """Point docker-py at the active docker context when DOCKER_HOST is unset.
-
-    testcontainers' docker-py defaults to /var/run/docker.sock, which doesn't
-    exist under OrbStack/colima (and some Docker Desktop setups). Resolve the
-    daemon endpoint from `docker context inspect` so the suite runs regardless
-    of provider, without per-machine env setup.
-    """
-    if os.environ.get("DOCKER_HOST") or os.path.exists("/var/run/docker.sock"):
-        return
-    docker = shutil.which("docker")
-    if docker is None:
-        return
-    try:
-        out = subprocess.run(
-            [docker, "context", "inspect"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-        host = json.loads(out.stdout)[0]["Endpoints"]["docker"]["Host"]
-    except (subprocess.SubprocessError, ValueError, KeyError, IndexError):
-        return
-    if host:
-        os.environ["DOCKER_HOST"] = host
-
-
 @pytest.fixture(scope="session")
 def switch_stack() -> Iterator[StackInfo]:
-    _ensure_docker_host()
+    ensure_docker_host()
     tuwunel = DockerContainer(TUWUNEL_IMAGE).with_exposed_ports(8008)
     for key, value in TUWUNEL_ENV.items():
         tuwunel = tuwunel.with_env(key, value)

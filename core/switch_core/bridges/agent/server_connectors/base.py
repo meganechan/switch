@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel
 
@@ -29,7 +29,16 @@ class ConnectorReporter:
     decoupled from the bridge API client.
     """
 
-    async def send_message(self, room_id: str, content: str) -> None:
+    async def send_message(
+        self, room_id: str, content: str, thread_id: str | None = None
+    ) -> None:
+        """Post into the room, optionally as a reply in a thread.
+
+        `thread_id` is any message id in the thread; it is normalised to the
+        root. Omit it to post at the room's top level — a connector that
+        invented a thread for every reply would fragment conversations that
+        were never threaded to begin with.
+        """
         raise NotImplementedError
 
     async def report_events(
@@ -45,7 +54,17 @@ class ConnectorReporter:
 
 
 class ServerSideConnectorConfig(BaseModel):
-    """Base configuration for server-side connectors. Subclassed per connector type."""
+    """Base configuration for server-side connectors. Subclassed per connector type.
+
+    `secret_fields` names the fields whose values must not be stored in the
+    clear — a password, a bearer token. The lifecycle encrypts them on the way
+    into `connection_config` and decrypts them on the way out, so a connector
+    only ever sees plaintext and never has to think about it. Anything not
+    named here is stored as given, which keeps a config readable in the
+    database apart from the parts that must not be.
+    """
+
+    secret_fields: ClassVar[frozenset[str]] = frozenset()
 
 
 class DiscoveredAgent(BaseModel):
