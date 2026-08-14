@@ -20,17 +20,26 @@ from __future__ import annotations
 
 import importlib
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from switch_core.bridges.agent.auth import PUBLIC_PATH_PREFIXES
+from switch_core.bridges.collaboration.models import DirectoryUser
 from switch_core.db.models import Client, CollaborationBridge, User
 from switch_core.db.stores.collaboration_bridge_store import CollaborationBridgeStore
 from switch_core.db.stores.room_store import RoomStore
 from switch_core.gateway.auth import get_current_user, require_admin
-from switch_core.gateway.collaborations import router, set_default_bridge
+from switch_core.gateway.collaborations import (
+    _verify_identity_belongs_to,
+    claim_bridge_identity,
+    release_bridge_identity,
+    router,
+    set_default_bridge,
+)
+from switch_core.gateway.schemas import ClaimIdentityRequest
 
 _BRIDGE_STORE = CollaborationBridgeStore()
 _ROOM_STORE = RoomStore()
@@ -68,6 +77,18 @@ def test_collab_api_module_is_gone() -> None:
 
 WRITE_METHODS = {"POST", "PATCH", "PUT", "DELETE"}
 
+# Identity claiming (CHOO-2137) is the one collaboration write with an owner to
+# scope to: the row it mutates is a link between a platform account and one
+# Switch user, not part of the bridge itself, and a user must be able to claim
+# their own without an admin. These routes carry a self-or-admin check inside
+# the handler instead — asserted by
+# `test_owner_scoped_identity_routes_check_self_or_admin` below, so the
+# exemption cannot hide an unauthorized route.
+_OWNER_SCOPED_PATHS = {
+    "/{bridge_id}/identities",
+    "/{bridge_id}/identities/{external_user_row_id}",
+}
+
 
 def test_bridge_write_routes_require_admin() -> None:
     """EVERY state-changing route must be gated on require_admin — a bridge is an
@@ -81,11 +102,161 @@ def test_bridge_write_routes_require_admin() -> None:
         f"{sorted(route.methods & WRITE_METHODS)} {route.path}"
         for route in router.routes
         if route.methods & WRITE_METHODS
+        and route.path not in _OWNER_SCOPED_PATHS
         and require_admin not in _dependency_calls(route.dependant)
     )
     assert not unguarded, (
         f"collaboration write routes missing require_admin: {unguarded}"
     )
+
+
+def test_owner_scoped_exemptions_name_real_routes() -> None:
+    """Guard the exemption list itself: a path that no longer exists would
+    silently excuse nothing, or worse, a renamed route."""
+    paths = {route.path for route in router.routes}
+    assert _OWNER_SCOPED_PATHS <= paths
+
+
+class TestIdentityRoutesAreSelfOrAdmin:
+    """The check the require_admin exemption trades away moved into the
+    handler; it did not disappear."""
+
+    async def test_claiming_for_another_user_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as excinfo:
+            await claim_bridge_identity(
+                bridge_id="b1",
+                payload=ClaimIdentityRequest(
+                    external_user_id="U123",
+                    username="them",
+                    user_id="someone-else",
+                ),
+                session=object(),  # type: ignore[arg-type]
+                bridge_store=_StubGet(object()),  # type: ignore[arg-type]
+                external_user_store=_StubGet(None),  # type: ignore[arg-type]
+                user_store=_StubGet(None),  # type: ignore[arg-type]
+                collab_lifecycle=object(),  # type: ignore[arg-type]
+                user=_user(id="me", role="user"),
+            )
+        assert excinfo.value.status_code == 403
+
+    async def test_releasing_another_users_identity_is_refused(self) -> None:
+        theirs = SimpleNamespace(id="ext-1", bridge_id="b1", user_id="someone-else")
+        with pytest.raises(HTTPException) as excinfo:
+            await release_bridge_identity(
+                bridge_id="b1",
+                external_user_row_id="ext-1",
+                session=object(),  # type: ignore[arg-type]
+                external_user_store=_StubGet(theirs),  # type: ignore[arg-type]
+                user=_user(id="me", role="user"),
+            )
+        assert excinfo.value.status_code == 403
+
+
+class TestSelfClaimNeedsPlatformEvidence:
+    """A self-claim is only honoured when the messaging platform reports the
+    account under the claimant's own Switch email. Without that, any signed-in
+    user could squat a colleague's account and keep its real owner from ever
+    being recognised by their own agents."""
+
+    async def test_matching_email_is_accepted(self) -> None:
+        await _verify_identity_belongs_to(
+            _StubLifecycle([_directory_user("U123", "me@example.com")]),
+            bridge_id="b1",
+            external_user_id="U123",
+            email="me@example.com",
+        )
+
+    async def test_email_match_is_case_insensitive(self) -> None:
+        await _verify_identity_belongs_to(
+            _StubLifecycle([_directory_user("U123", "Me@Example.com")]),
+            bridge_id="b1",
+            external_user_id="U123",
+            email="me@example.com",
+        )
+
+    async def test_claiming_someone_elses_account_is_refused(self) -> None:
+        # The directory knows the claimant, but they asked for a different
+        # account's id — the squatting attempt this guard exists for.
+        with pytest.raises(HTTPException) as excinfo:
+            await _verify_identity_belongs_to(
+                _StubLifecycle([_directory_user("U-mine", "me@example.com")]),
+                bridge_id="b1",
+                external_user_id="U-theirs",
+                email="me@example.com",
+            )
+        assert excinfo.value.status_code == 403
+
+    async def test_account_without_email_is_refused(self) -> None:
+        # A Slack app lacking users:read.email discloses no address, so nothing
+        # can be proven and the claim must not stand on the id alone.
+        with pytest.raises(HTTPException) as excinfo:
+            await _verify_identity_belongs_to(
+                _StubLifecycle([_directory_user("U123", None)]),
+                bridge_id="b1",
+                external_user_id="U123",
+                email="me@example.com",
+            )
+        assert excinfo.value.status_code == 403
+
+    async def test_platform_without_a_directory_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as excinfo:
+            await _verify_identity_belongs_to(
+                _StubLifecycle(NotImplementedError("no searchable directory")),
+                bridge_id="b1",
+                external_user_id="U123",
+                email="me@example.com",
+            )
+        assert excinfo.value.status_code == 501
+
+    async def test_stopped_bridge_is_refused(self) -> None:
+        with pytest.raises(HTTPException) as excinfo:
+            await _verify_identity_belongs_to(
+                _StubLifecycle(None),
+                bridge_id="b1",
+                external_user_id="U123",
+                email="me@example.com",
+            )
+        assert excinfo.value.status_code == 409
+
+
+def _directory_user(external_user_id: str, email: str | None) -> DirectoryUser:
+    return DirectoryUser(
+        external_user_id=external_user_id,
+        username="someone",
+        display_name="Someone",
+        email=email,
+    )
+
+
+class _StubLifecycle:
+    """Stands in for the bridge lifecycle: holds an adapter that returns the
+    given directory results, raises the given error, or is absent entirely."""
+
+    def __init__(self, result: list[DirectoryUser] | Exception | None) -> None:
+        self._result = result
+
+    def get_adapter(self, _bridge_id: str) -> object | None:
+        if self._result is None:
+            return None
+        return self
+
+    async def search_directory_users(self, _query: str) -> list[DirectoryUser]:
+        if isinstance(self._result, Exception):
+            raise self._result
+        assert self._result is not None
+        return self._result
+
+
+class _StubGet:
+    def __init__(self, value: object) -> None:
+        self._value = value
+
+    async def get(self, *_args: object, **_kwargs: object) -> object:
+        return self._value
+
+
+def _user(*, id: str, role: str) -> SimpleNamespace:
+    return SimpleNamespace(id=id, role=role, name=id)
 
 
 def test_known_bridge_write_routes_are_present() -> None:

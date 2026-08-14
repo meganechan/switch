@@ -53,6 +53,10 @@ version of their own to them without also giving them a release of their own.
   previously Switch only learned of a person when they first spoke, which left
   a freshly connected workspace with nobody to pick. Platforms with no
   searchable directory say so instead of showing an empty list (CHOO-2137).
+  Claiming an account for yourself requires the platform to report it under
+  your Switch account's email; otherwise an admin has to make the link. An
+  unverified claim would let anyone squat a colleague's account and keep its
+  real owner from ever being recognised (CHOO-2137).
 - An addressing rule can name the agent's **owner** rather than a list of
   identities. It resolves when the message arrives, so it survives connecting a
   new workspace, recreating a bridge, or the agent changing hands (CHOO-2137).

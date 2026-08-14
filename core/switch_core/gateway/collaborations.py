@@ -326,6 +326,59 @@ async def search_bridge_directory(
     ]
 
 
+async def _verify_identity_belongs_to(
+    collab_lifecycle: CollaborationBridgeLifecycleService,
+    *,
+    bridge_id: str,
+    external_user_id: str,
+    email: str,
+) -> None:
+    """Raise unless the platform says `external_user_id` is the account behind
+    `email` — the evidence for a self-claim.
+
+    Searching the directory for the claimant's own Switch email is enough:
+    only the person whose platform account carries that address can match.
+    Where the platform will not disclose email — a Slack app without
+    `users:read.email`, a directory that cannot be searched — nothing can be
+    proven, so the claim is refused and an admin has to make it. Refusing is
+    the whole point: a claim that is not evidence of anything would make
+    owner-only addressing decorative.
+    """
+    adapter = collab_lifecycle.get_adapter(bridge_id)
+    if adapter is None:
+        raise HTTPException(
+            status_code=409,
+            detail="Bridge is not running — cannot verify the account is yours",
+        )
+    try:
+        candidates = await adapter.search_directory_users(email)
+    except NotImplementedError as e:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                f"{e} — so Switch cannot confirm this account is yours. "
+                "An admin can link it for you."
+            ),
+        ) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    matched = any(
+        candidate.external_user_id == external_user_id
+        and (candidate.email or "").lower() == email.lower()
+        for candidate in candidates
+    )
+    if not matched:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "This account could not be confirmed as yours — the messaging "
+                f"platform does not report it under {email}. Ask an admin to "
+                "link it for you."
+            ),
+        )
+
+
 @router.post("/{bridge_id}/identities")
 async def claim_bridge_identity(
     bridge_id: str,
@@ -345,9 +398,16 @@ async def claim_bridge_identity(
     behind a Slack or Mattermost account is known to be a particular Switch
     user, an owner-scoped rule can never recognise them.
 
-    You may claim an identity for yourself; claiming one for someone else is
-    an admin action. An identity already claimed by a different user is a
-    conflict rather than a silent takeover.
+    Claiming one for someone else is an admin action. Claiming one for
+    yourself requires the platform to agree that the account is yours: the
+    directory is searched for your Switch account's email address, and the
+    claim only stands if it turns up that same account. Without that, any
+    signed-in user could claim a colleague's account — which would not let
+    them impersonate that colleague, but would let them squat the identity and
+    keep its real owner from ever being recognised.
+
+    An identity already claimed by a different user is a conflict rather than
+    a silent takeover.
     """
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
@@ -359,8 +419,17 @@ async def claim_bridge_identity(
             status_code=403,
             detail="Only an admin may claim a messaging identity for another user",
         )
-    if await user_store.get(session, target_user_id) is None:
+    target_user = await user_store.get(session, target_user_id)
+    if target_user is None:
         raise HTTPException(status_code=404, detail="Switch user not found")
+
+    if user.role != "admin":
+        await _verify_identity_belongs_to(
+            collab_lifecycle,
+            bridge_id=bridge_id,
+            external_user_id=payload.external_user_id,
+            email=target_user.email,
+        )
 
     external_user = await external_user_store.get_by_external_id(
         session, bridge_id, payload.external_user_id
