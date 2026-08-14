@@ -1462,6 +1462,12 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+#### Changed
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
+
 ### [0.9.2] - 2026-08-14
 #### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
@@ -1549,6 +1555,12 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+#### Changed
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.3.3] - 2026-08-14
 
@@ -1642,6 +1654,12 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+#### Changed
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.1.0] - 2026-08-14
 
