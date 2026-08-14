@@ -5,6 +5,18 @@ from pydantic import BaseModel
 ChannelType = Literal["lobby", "channel_public", "channel_private", "group", "direct"]
 
 
+class ChannelCreationUnsupported(ValueError):
+    """Raised when a bridge will not create a channel for a new room.
+
+    Either the platform has no such call — a Telegram bot cannot create a chat
+    — or an operator has withheld it from this connection. Both are answers to
+    a caller's request rather than faults, so this is a ``ValueError``: every
+    door into room creation already turns one into a 4xx carrying the message,
+    where an unexpected exception becomes an opaque 500 and the explanation
+    never leaves the server.
+    """
+
+
 class Attachment(BaseModel):
     """An inbound file attachment of any type, with its raw bytes.
 
@@ -102,6 +114,23 @@ class InboundAppJoin(BaseModel):
     channel_id: str
     channel_type: ChannelType
     channel_name: str | None = None
+
+
+class BridgeInstallLink(BaseModel):
+    """A link that adds this bridge's app to a channel in one step.
+
+    Some platforms can express the whole install — pick a chat, grant the
+    permissions the bridge needs, confirm — as a single URL, which is strictly
+    better than a documented sequence of clicks an operator performs by hand.
+    Adapters that can build one return it here and the operator dashboard
+    offers it; the rest return nothing and the platform's own admin UI remains
+    the way in.
+    """
+
+    key: str
+    label: str
+    description: str
+    url: str
 
 
 class BridgeConnectionConfig(BaseModel):
