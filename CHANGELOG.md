@@ -44,6 +44,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.14.0] - 2026-08-14
+
 #### Added
 
 - `opencode` is a registerable known agent type, alongside `claude-code` and
@@ -384,6 +386,8 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.23.0] - 2026-08-14
 
 #### Added
 
@@ -1250,6 +1254,16 @@ The remote runtime Switch Console deploys to an agent host. Versioned in
 `console/apps/switch-console-desktop/src/sidecar/sidecar-version.ts` and deployed
 by Switch Console rather than published on its own.
 
+### [1.9.2]
+
+#### Changed
+- The remote session spawner now installs a provider's hooks whether they are
+  delivered as config files or as a dropped plugin (OpenCode), mirroring the
+  desktop side. A plugin-delivered provider previously launched on the VM with
+  nothing installed and never reported that it stopped (#203). Behavior change
+  only — the client↔sidecar wire (ready line, endpoints, on-disk layout) is
+  unchanged, so the major stays at `1`.
+
 ### [1.9.1]
 
 #### Changed
@@ -1300,10 +1314,13 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.9.2] - 2026-08-14
 #### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
   wherever it enumerates known agent types — the `list_agents` filter and the
-  per-type options of `update_agent_detail`.
+  per-type options of `update_agent_detail` (#203). The plugin version bumps so
+  installs re-download.
 
 
 ### [0.9.1] - 2026-08-12
@@ -1375,10 +1392,13 @@ manifest history.
 
 ### [Unreleased]
 
+### [0.3.3] - 2026-08-14
+
 #### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
   wherever it enumerates known agent types — the `list_agents` filter and the
-  per-type options of `update_agent_detail`.
+  per-type options of `update_agent_detail` (#203). The plugin version bumps so
+  installs re-download.
 
 ### [0.3.2] - 2026-08-12
 
@@ -1456,7 +1476,7 @@ the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
 
-### [0.1.0]
+### [0.1.0] - 2026-08-14
 
 First release. Ships the Switch room-workflow skill, registers the Switch MCP
 server in OpenCode's global config as a local server — so the runtime takes its
