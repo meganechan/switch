@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { CircleAlert, Info } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
@@ -72,6 +72,7 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   onClose,
 }: Props) {
   const { setCloseGuard } = useModalContext();
+  const queryClient = useQueryClient();
 
   const serverId = overrideServerId ?? switchServersStore.activeServerId ?? '';
   const currentUserId = switchServersStore.statusFor(serverId)?.user?.id ?? null;
@@ -79,6 +80,7 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
   const [bridgeId, setBridgeId] = useState<string | null>(initialBridgeId ?? null);
   const [search, setSearch] = useState('');
   const [claiming, setClaiming] = useState<string | null>(null);
+  const [releasing, setReleasing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const { identities, refresh: refreshIdentities } = useMyIdentities(serverId || null);
@@ -135,6 +137,31 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setClaiming(null);
+      setCloseGuard(false);
+    }
+  };
+
+  // Undo, in place: the row the user just linked is the row they look at when
+  // they realise it is the wrong account, so the modal stays open and the
+  // directory is re-read to show who is left holding the account.
+  const handleRelease = async (person: BridgeDirectoryUser) => {
+    if (bridgeId === null || person.knownExternalUserId === null) return;
+    setReleasing(person.externalUserId);
+    setCloseGuard(true);
+    setError(null);
+    try {
+      await rpc.switchServers.releaseBridgeIdentity({
+        serverId,
+        bridgeId,
+        identityId: person.knownExternalUserId,
+        userId: currentUserId,
+      });
+      refreshIdentities();
+      await queryClient.invalidateQueries({ queryKey: ['bridge-directory', serverId, bridgeId] });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setReleasing(null);
       setCloseGuard(false);
     }
   };
@@ -201,8 +228,8 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
               <span>
                 You are already linked to{' '}
                 <span className="font-medium">{alreadyLinked.externalUsername}</span> on{' '}
-                {alreadyLinked.bridgeDisplayName}. Claiming another account here replaces nothing —
-                unlink the old one from the server page if it is wrong.
+                {alreadyLinked.bridgeDisplayName}. Linking another account here keeps that one too —
+                search for it to unlink it, or use the server page.
               </span>
             </div>
           )}
@@ -232,7 +259,9 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
               fetchError={directoryQuery.error}
               currentUserId={currentUserId}
               claimingId={claiming}
+              releasingId={releasing}
               onClaim={(person) => void handleClaim(person)}
+              onRelease={(person) => void handleRelease(person)}
             />
           )}
 
@@ -243,7 +272,11 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
         {/* Skippable on purpose: this modal interrupts whatever the user came to
             do, and an unlinked account costs them nothing until they restrict an
             agent to its owner. */}
-        <Button variant="outline" onClick={onClose} disabled={claiming !== null}>
+        <Button
+          variant="outline"
+          onClick={onClose}
+          disabled={claiming !== null || releasing !== null}
+        >
           Skip for now
         </Button>
       </DialogFooter>
@@ -259,7 +292,9 @@ function DirectoryResults({
   fetchError,
   currentUserId,
   claimingId,
+  releasingId,
   onClaim,
+  onRelease,
 }: {
   query: string;
   searchable: boolean;
@@ -267,8 +302,12 @@ function DirectoryResults({
   result: BridgeDirectorySearchResult | null;
   fetchError: unknown;
   currentUserId: string | null;
+  /** The platform id of the account being linked, or null when none is. */
   claimingId: string | null;
+  /** The platform id of the account being unlinked, or null when none is. */
+  releasingId: string | null;
   onClaim: (person: BridgeDirectoryUser) => void;
+  onRelease: (person: BridgeDirectoryUser) => void;
 }) {
   if (!searchable) {
     return (
@@ -321,12 +360,15 @@ function DirectoryResults({
     );
   }
 
+  // Nothing here is disabled because someone else holds the account: several
+  // people can be recognised on the same one, and the other claimants are shown
+  // so a shared or misidentified account is visible rather than silent.
+  const pending = claimingId !== null || releasingId !== null;
   return (
     <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
       {result.users.map((person) => {
-        const claimedByMe =
-          person.claimedByUserId !== null && person.claimedByUserId === currentUserId;
-        const claimedByOther = person.claimedByUserId !== null && !claimedByMe;
+        const linkedToMe = person.claimedBy.some((c) => c.userId === currentUserId);
+        const others = person.claimedBy.filter((c) => c.userId !== currentUserId);
         return (
           <li
             key={person.externalUserId}
@@ -338,20 +380,26 @@ function DirectoryResults({
                 @{person.username}
                 {person.email ? ` · ${person.email}` : ''}
               </span>
+              {others.length > 0 && (
+                <span className="truncate text-xs text-foreground-muted">
+                  Also linked to {others.map((c) => c.userName).join(', ')}
+                </span>
+              )}
             </div>
-            {claimedByMe ? (
-              <Badge variant="secondary">Linked to you</Badge>
-            ) : claimedByOther ? (
+            {linkedToMe ? (
               <span className="flex shrink-0 items-center gap-2">
-                <Badge variant="secondary">
-                  Claimed by {person.claimedByUserName ?? 'another user'}
-                </Badge>
-                <Button size="sm" disabled>
-                  This is me
+                <Badge variant="secondary">Linked to you</Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pending || person.knownExternalUserId === null}
+                  onClick={() => onRelease(person)}
+                >
+                  {releasingId === person.externalUserId ? 'Unlinking…' : 'Unlink'}
                 </Button>
               </span>
             ) : (
-              <Button size="sm" disabled={claimingId !== null} onClick={() => onClaim(person)}>
+              <Button size="sm" disabled={pending} onClick={() => onClaim(person)}>
                 {claimingId === person.externalUserId ? 'Linking…' : 'This is me'}
               </Button>
             )}
@@ -367,7 +415,7 @@ function claimFailureText(result: Exclude<ClaimIdentityResult, { kind: 'claimed'
   switch (result.kind) {
     case 'unauthenticated':
       return 'Your session for this server expired. Sign in again, then retry.';
-    case 'conflict':
+    case 'bridge-unavailable':
       return result.message;
     case 'error':
       return result.message;

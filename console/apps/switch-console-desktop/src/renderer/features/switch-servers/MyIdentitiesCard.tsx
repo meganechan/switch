@@ -6,6 +6,7 @@ import { rpc } from '@renderer/lib/ipc';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { switchServersStore } from './switch-servers-store';
 import { useMyIdentities } from './use-my-identities';
 
 /**
@@ -28,12 +29,22 @@ export const MyIdentitiesCard = observer(function MyIdentitiesCard({
   const { identities, isLoading, error, refresh } = useMyIdentities(serverId);
   const [releasing, setReleasing] = useState<string | null>(null);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+  // Whose claim to drop. Every account in this list is one the signed-in user
+  // claimed, and other people may hold the same one — so name the user rather
+  // than let the server infer it. Null until the session is read back, where
+  // the server falls back to the caller, which is the same person.
+  const currentUserId = switchServersStore.statusFor(serverId)?.user?.id ?? null;
 
   const release = async (identityId: string, bridgeId: string) => {
     setReleasing(identityId);
     setReleaseError(null);
     try {
-      await rpc.switchServers.releaseBridgeIdentity({ serverId, bridgeId, identityId });
+      await rpc.switchServers.releaseBridgeIdentity({
+        serverId,
+        bridgeId,
+        identityId,
+        userId: currentUserId,
+      });
       refresh();
     } catch (cause) {
       setReleaseError(cause instanceof Error ? cause.message : String(cause));

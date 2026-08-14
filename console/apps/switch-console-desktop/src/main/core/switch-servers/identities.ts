@@ -59,6 +59,9 @@ export async function searchDirectoryOnServer(
  * Claim a directory entry as the signed-in user's own account, resolving the
  * bridge's display name so the caller gets a complete `LinkedIdentity` rather
  * than a row it has to name itself.
+ *
+ * Nothing here refuses an account other people have claimed — the server
+ * allows it, and each claimant is recognised as themselves on the account.
  */
 export async function claimIdentityOnServer(
   server: SwitchServer,
@@ -86,13 +89,11 @@ export async function claimIdentityOnServer(
   } catch (cause) {
     if (cause instanceof GatewayError) {
       if (cause.kind === 'unauthorized') return { kind: 'unauthenticated' };
-      // 409 — already claimed by a different Switch user, or the bridge is not
-      // running so an unseen account cannot be provisioned.
+      // 409 — the bridge is not running, so an account Switch has never seen
+      // cannot be provisioned. Claiming an account someone else has claimed is
+      // not a conflict: claims are not exclusive.
       if (cause.kind === 'http' && cause.status === 409) {
-        return { kind: 'conflict', message: cause.detail ?? cause.message };
-      }
-      if (cause.kind === 'http' && cause.status === 403) {
-        return { kind: 'error', message: cause.detail ?? cause.message };
+        return { kind: 'bridge-unavailable', message: cause.detail ?? cause.message };
       }
       if (cause.kind === 'network') return { kind: 'error', message: cause.message };
     }

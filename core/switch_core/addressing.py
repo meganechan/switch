@@ -81,30 +81,32 @@ class AddressingRule(BaseModel):
         group_id: str | None,
         sender_kind: SenderKind,
         sender_id: str,
-        sender_user_id: str | None,
+        sender_user_ids: list[str],
         owner_user_id: str | None,
     ) -> bool:
         if not _dim_contains(self.rooms, room_id):
             return False
         if not _dim_contains(self.room_groups, group_id):
             return False
-        if sender_kind == "user" and self._is_owner(sender_user_id, owner_user_id):
+        if sender_kind == "user" and self._is_owner(sender_user_ids, owner_user_id):
             return True
         sender_dim = self.users if sender_kind == "user" else self.agents
         return _dim_contains(sender_dim, sender_id)
 
-    def _is_owner(self, sender_user_id: str | None, owner_user_id: str | None) -> bool:
+    def _is_owner(self, sender_user_ids: list[str], owner_user_id: str | None) -> bool:
         """Whether this rule admits the sender as the agent's owner.
 
-        Both ids must be known: an ownerless agent has no owner to match, and
-        an unclaimed platform identity resolves to no Switch user. Either way
-        the answer is "not the owner" rather than a permissive guess.
+        A platform account may be claimed by several Switch users, so the
+        sender arrives as the set of users who say it is theirs; the owner
+        need only be among them. An ownerless agent has no owner to match, and
+        an unclaimed account resolves to nobody — both answer "not the owner"
+        rather than making a permissive guess.
         """
         if not self.owner:
             return False
-        if owner_user_id is None or sender_user_id is None:
+        if owner_user_id is None:
             return False
-        return sender_user_id == owner_user_id
+        return owner_user_id in sender_user_ids
 
 
 class AddressingPolicy(BaseModel):
@@ -123,16 +125,16 @@ class AddressingPolicy(BaseModel):
         group_id: str | None,
         sender_kind: SenderKind,
         sender_id: str,
-        sender_user_id: str | None,
+        sender_user_ids: list[str],
         owner_user_id: str | None,
     ) -> bool:
         """Whether an addressing attempt from this sender, in this room, is
         permitted. Allow-all when the policy is open; otherwise permitted iff
         at least one rule matches.
 
-        `sender_user_id` is the Switch user behind a human sender (``None``
-        when the platform identity is unclaimed); `owner_user_id` is the
-        addressed agent's owner. Together they resolve an `owner` rule.
+        `sender_user_ids` are the Switch users who have claimed a human
+        sender's platform account (empty when nobody has); `owner_user_id` is
+        the addressed agent's owner. Together they resolve an `owner` rule.
         """
         if self.is_open():
             return True
@@ -142,7 +144,7 @@ class AddressingPolicy(BaseModel):
                 group_id=group_id,
                 sender_kind=sender_kind,
                 sender_id=sender_id,
-                sender_user_id=sender_user_id,
+                sender_user_ids=sender_user_ids,
                 owner_user_id=owner_user_id,
             )
             for rule in self.rules
@@ -204,7 +206,7 @@ def can_address(
     group_id: str | None,
     sender_kind: SenderKind,
     sender_id: str,
-    sender_user_id: str | None,
+    sender_user_ids: list[str],
     owner_user_id: str | None,
 ) -> bool:
     """Convenience free function mirroring :meth:`AddressingPolicy.allows`."""
@@ -213,6 +215,6 @@ def can_address(
         group_id=group_id,
         sender_kind=sender_kind,
         sender_id=sender_id,
-        sender_user_id=sender_user_id,
+        sender_user_ids=sender_user_ids,
         owner_user_id=owner_user_id,
     )

@@ -33,7 +33,7 @@ from switch_core.db.stores.collaboration_bridge_store import CollaborationBridge
 from switch_core.db.stores.room_store import RoomStore
 from switch_core.gateway.auth import get_current_user, require_admin
 from switch_core.gateway.collaborations import (
-    _verify_identity_belongs_to,
+    _require_directory_account,
     claim_bridge_identity,
     release_bridge_identity,
     router,
@@ -139,106 +139,88 @@ class TestIdentityRoutesAreSelfOrAdmin:
             )
         assert excinfo.value.status_code == 403
 
-    async def test_releasing_another_users_identity_is_refused(self) -> None:
-        theirs = SimpleNamespace(id="ext-1", bridge_id="b1", user_id="someone-else")
+    async def test_releasing_another_users_claim_is_refused(self) -> None:
+        # Releasing names the claimant to drop; anyone else's claim on the same
+        # account is not the caller's to touch.
+        theirs = SimpleNamespace(id="ext-1", bridge_id="b1")
         with pytest.raises(HTTPException) as excinfo:
             await release_bridge_identity(
                 bridge_id="b1",
                 external_user_row_id="ext-1",
                 session=object(),  # type: ignore[arg-type]
                 external_user_store=_StubGet(theirs),  # type: ignore[arg-type]
+                user_store=_StubGet(None),  # type: ignore[arg-type]
                 user=_user(id="me", role="user"),
+                user_id="someone-else",
             )
         assert excinfo.value.status_code == 403
 
 
-class TestSelfClaimNeedsPlatformEvidence:
-    """A self-claim is only honoured when the messaging platform reports the
-    account under the claimant's own Switch email. Without that, any signed-in
-    user could squat a colleague's account and keep its real owner from ever
-    being recognised by their own agents."""
+class TestProvisioningNeedsARealAccount:
+    """Claiming an account Switch has not seen mints a Matrix puppet, and the
+    id comes from the request body. Anyone signed in may claim any *real*
+    account — that is the point of non-exclusive claims — but conjuring rows
+    for ids the platform has never heard of is a different thing."""
 
-    async def test_matching_email_is_accepted(self) -> None:
-        await _verify_identity_belongs_to(
-            _StubLifecycle([_directory_user("U123", "me@example.com")]),
+    async def test_account_in_the_directory_is_accepted(self) -> None:
+        await _require_directory_account(
+            _StubLifecycle([_directory_user("U123")]),
             bridge_id="b1",
             external_user_id="U123",
-            email="me@example.com",
+            username="someone",
         )
 
-    async def test_email_match_is_case_insensitive(self) -> None:
-        await _verify_identity_belongs_to(
-            _StubLifecycle([_directory_user("U123", "Me@Example.com")]),
-            bridge_id="b1",
-            external_user_id="U123",
-            email="me@example.com",
-        )
-
-    async def test_claiming_someone_elses_account_is_refused(self) -> None:
-        # The directory knows the claimant, but they asked for a different
-        # account's id — the squatting attempt this guard exists for.
+    async def test_invented_id_is_refused(self) -> None:
         with pytest.raises(HTTPException) as excinfo:
-            await _verify_identity_belongs_to(
-                _StubLifecycle([_directory_user("U-mine", "me@example.com")]),
+            await _require_directory_account(
+                _StubLifecycle([_directory_user("U-real")]),
                 bridge_id="b1",
-                external_user_id="U-theirs",
-                email="me@example.com",
+                external_user_id="U-invented",
+                username="someone",
             )
-        assert excinfo.value.status_code == 403
-
-    async def test_account_without_email_is_refused(self) -> None:
-        # A Slack app lacking users:read.email discloses no address, so nothing
-        # can be proven and the claim must not stand on the id alone.
-        with pytest.raises(HTTPException) as excinfo:
-            await _verify_identity_belongs_to(
-                _StubLifecycle([_directory_user("U123", None)]),
-                bridge_id="b1",
-                external_user_id="U123",
-                email="me@example.com",
-            )
-        assert excinfo.value.status_code == 403
+        assert excinfo.value.status_code == 404
 
     async def test_platform_without_a_directory_is_refused(self) -> None:
+        # Nothing can be checked, so the person has to be seen speaking first
+        # rather than have a puppet minted on their behalf.
         with pytest.raises(HTTPException) as excinfo:
-            await _verify_identity_belongs_to(
+            await _require_directory_account(
                 _StubLifecycle(NotImplementedError("no searchable directory")),
                 bridge_id="b1",
                 external_user_id="U123",
-                email="me@example.com",
+                username="someone",
             )
         assert excinfo.value.status_code == 501
 
     async def test_stopped_bridge_is_refused(self) -> None:
         with pytest.raises(HTTPException) as excinfo:
-            await _verify_identity_belongs_to(
+            await _require_directory_account(
                 _StubLifecycle(None),
                 bridge_id="b1",
                 external_user_id="U123",
-                email="me@example.com",
+                username="someone",
             )
         assert excinfo.value.status_code == 409
 
 
-def _directory_user(external_user_id: str, email: str | None) -> DirectoryUser:
+def _directory_user(external_user_id: str) -> DirectoryUser:
     return DirectoryUser(
         external_user_id=external_user_id,
         username="someone",
         display_name="Someone",
-        email=email,
+        email=None,
     )
 
 
 class _StubLifecycle:
-    """Stands in for the bridge lifecycle: holds an adapter that returns the
-    given directory results, raises the given error, or is absent entirely."""
+    """Holds an adapter that returns the given directory results, raises the
+    given error, or is absent entirely (a stopped bridge)."""
 
     def __init__(self, result: list[DirectoryUser] | Exception | None) -> None:
         self._result = result
 
     def get_adapter(self, _bridge_id: str) -> object | None:
-        if self._result is None:
-            return None
-        return self
+        return None if self._result is None else self
 
     async def search_directory_users(self, _query: str) -> list[DirectoryUser]:
         if isinstance(self._result, Exception):

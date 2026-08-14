@@ -657,14 +657,19 @@ export async function createBridge(
   };
 }
 
+/** The gateway `IdentityClaimant` wire shape. */
+type IdentityClaimantJson = {
+  user_id: string;
+  user_name: string;
+};
+
 /** The gateway `ExternalUserSummary` wire shape. */
 type ExternalUserSummaryJson = {
   id: string;
   bridge_id: string;
   external_user_id: string;
   external_username: string;
-  user_id?: string | null;
-  user_name?: string | null;
+  claimed_by?: IdentityClaimantJson[];
 };
 
 /**
@@ -712,8 +717,7 @@ export async function searchBridgeDirectory(
     display_name: string;
     email?: string | null;
     known_external_user_id?: string | null;
-    claimed_by_user_id?: string | null;
-    claimed_by_user_name?: string | null;
+    claimed_by?: IdentityClaimantJson[];
   }>;
   return json.map((u) => ({
     externalUserId: u.external_user_id,
@@ -721,8 +725,7 @@ export async function searchBridgeDirectory(
     displayName: u.display_name,
     email: u.email ?? null,
     knownExternalUserId: u.known_external_user_id ?? null,
-    claimedByUserId: u.claimed_by_user_id ?? null,
-    claimedByUserName: u.claimed_by_user_name ?? null,
+    claimedBy: (u.claimed_by ?? []).map((c) => ({ userId: c.user_id, userName: c.user_name })),
   }));
 }
 
@@ -731,8 +734,10 @@ export async function searchBridgeDirectory(
  * (`POST /collaborations/{id}/identities`). `user_id` is deliberately omitted:
  * Switch Console only ever claims on behalf of whoever is signed in, and
  * claiming for someone else is an admin action that belongs in the operator
- * dashboard. A 409 (already held by a different user) surfaces as a
- * `GatewayError` with that status.
+ * dashboard. Claims are not exclusive, so an account someone else has already
+ * claimed is claimed normally; a 409 means only that the bridge is stopped and
+ * an unseen account cannot be provisioned, and surfaces as a `GatewayError`
+ * with that status.
  */
 export async function claimBridgeIdentity(
   server: SwitchServer,
@@ -752,17 +757,26 @@ export async function claimBridgeIdentity(
 }
 
 /**
- * Release a claimed identity (`DELETE /collaborations/{id}/identities/{rowId}`).
- * `externalUserRowId` is the `ExternalUser` row id, not the platform's id.
+ * Drop one claim on a platform account
+ * (`DELETE /collaborations/{id}/identities/{rowId}`). `externalUserRowId` is
+ * the `ExternalUser` row id, not the platform's id.
+ *
+ * Several users can hold a claim on the same account, so `userId` says whose
+ * to drop; anyone else's is left standing. Null falls back to the server's
+ * default — the caller — which is what the app wants when the signed-in user's
+ * id has not been read from the server yet. Releasing someone else's claim is
+ * admin-only server-side.
  */
 export async function releaseBridgeIdentity(
   server: SwitchServer,
   bridgeId: string,
-  externalUserRowId: string
+  externalUserRowId: string,
+  userId: string | null
 ): Promise<void> {
+  const query = userId === null ? '' : `?user_id=${encodeURIComponent(userId)}`;
   await gatewayFetch(
     server,
-    `/collaborations/${encodeURIComponent(bridgeId)}/identities/${encodeURIComponent(externalUserRowId)}`,
+    `/collaborations/${encodeURIComponent(bridgeId)}/identities/${encodeURIComponent(externalUserRowId)}${query}`,
     { authenticated: true, method: 'DELETE' }
   );
 }

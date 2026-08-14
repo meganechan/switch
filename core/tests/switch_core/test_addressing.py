@@ -18,7 +18,7 @@ def _allows(policy: AddressingPolicy, **kw: object) -> bool:
         group_id=None,
         sender_kind="user",
         sender_id="u1",
-        sender_user_id=None,
+        sender_user_ids=[],
         owner_user_id=None,
     )
     defaults.update(kw)
@@ -135,7 +135,8 @@ class TestMultipleRules:
 
 class TestOwnerRule:
     """`owner=True` admits the agent's owner as a symbolic subject, resolved
-    from the (sender_user_id, owner_user_id) pair at enforcement time."""
+    at enforcement time from `owner_user_id` and the set of Switch users who
+    have claimed the sender's platform account."""
 
     def _policy(self) -> AddressingPolicy:
         # Owner and nobody else: no other human, no agent.
@@ -147,7 +148,7 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True
@@ -159,7 +160,36 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="user",
                 sender_id="ext-9",
-                sender_user_id="user-2",
+                sender_user_ids=["user-2"],
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+    def test_owner_among_several_claimants_matches(self) -> None:
+        # Claiming is not exclusive: a shared or duplicated account may be
+        # claimed by several Switch users, and the owner need only be one of
+        # them. Requiring them to be the sole claimant would let anyone else
+        # deny the owner their own agent just by claiming the account too.
+        assert (
+            _allows(
+                self._policy(),
+                sender_kind="user",
+                sender_id="ext-3",
+                sender_user_ids=["user-2", "user-1", "user-3"],
+                owner_user_id="user-1",
+            )
+            is True
+        )
+
+    def test_claimants_without_the_owner_denied(self) -> None:
+        # Claimed, just not by the owner — a stranger's claim admits nobody.
+        assert (
+            _allows(
+                self._policy(),
+                sender_kind="user",
+                sender_id="ext-9",
+                sender_user_ids=["user-2", "user-3"],
                 owner_user_id="user-1",
             )
             is False
@@ -172,7 +202,7 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id=None,
             )
             is False
@@ -186,7 +216,7 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id=None,
+                sender_user_ids=[],
                 owner_user_id="user-1",
             )
             is False
@@ -198,7 +228,7 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id=None,
+                sender_user_ids=[],
                 owner_user_id=None,
             )
             is False
@@ -212,7 +242,7 @@ class TestOwnerRule:
                 self._policy(),
                 sender_kind="agent",
                 sender_id="agent-7",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is False
@@ -227,7 +257,7 @@ class TestOwnerRule:
             _allows(
                 policy,
                 room_id="r1",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True
@@ -236,7 +266,7 @@ class TestOwnerRule:
             _allows(
                 policy,
                 room_id="r2",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is False
@@ -247,7 +277,7 @@ class TestOwnerRule:
         assert (
             _allows(
                 policy,
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is False
@@ -265,7 +295,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True
@@ -275,7 +305,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="user",
                 sender_id="ext-9",
-                sender_user_id="user-2",
+                sender_user_ids=["user-2"],
                 owner_user_id="user-1",
             )
             is False
@@ -285,7 +315,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="agent",
                 sender_id="agent-7",
-                sender_user_id=None,
+                sender_user_ids=[],
                 owner_user_id="user-1",
             )
             is False
@@ -299,7 +329,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="agent",
                 sender_id="dispatcher",
-                sender_user_id=None,
+                sender_user_ids=[],
                 owner_user_id="user-1",
             )
             is True
@@ -309,7 +339,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="agent",
                 sender_id="other-agent",
-                sender_user_id=None,
+                sender_user_ids=[],
                 owner_user_id="user-1",
             )
             is False
@@ -320,7 +350,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="user",
                 sender_id="dispatcher",
-                sender_user_id="user-2",
+                sender_user_ids=["user-2"],
                 owner_user_id="user-1",
             )
             is False
@@ -330,7 +360,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 sender_kind="user",
                 sender_id="ext-3",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True
@@ -343,7 +373,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 room_id="any-room",
                 group_id="any-group",
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True
@@ -353,7 +383,7 @@ class TestOwnerOnlyPolicy:
                 policy,
                 room_id="other-room",
                 group_id=None,
-                sender_user_id="user-1",
+                sender_user_ids=["user-1"],
                 owner_user_id="user-1",
             )
             is True

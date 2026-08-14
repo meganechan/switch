@@ -215,11 +215,13 @@ declined quietly); `delegate_task` and `send_targeted_message` — explicit,
 tracked addressing vectors — instead fail loud with a `PermissionError`.
 
 The `owner` flag is a **symbolic subject resolved at delivery time**, not a
-stored id: `ExternalUser.user_id` records which Switch user has claimed a
-platform identity, and a human sender matches only when their claimed identity
-belongs to the agent's owner. An unclaimed identity therefore never matches —
-fail-closed — and the refusal says so, since an owner refused by their own agent
-with no explanation is the worst failure mode here. Identities are claimed from
+stored id: `external_user_claims` records which Switch users have claimed a
+platform account, and a human sender matches when the agent's owner is among
+them. Claiming is deliberately **not exclusive** — several Switch users may
+claim the same account — because an exclusive claim would let whoever claimed
+first keep the real person from ever being recognised. An unclaimed account
+matches nobody — fail-closed — and the refusal says so, since an owner refused
+by their own agent with no explanation is the worst failure mode here. Identities are claimed from
 Switch Console against the platform's own user directory
 (`GET /collaborations/{id}/directory`), so someone can be recognised before they
 have ever posted; platforms with no searchable directory answer `501` rather than

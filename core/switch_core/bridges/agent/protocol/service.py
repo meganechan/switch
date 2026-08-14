@@ -969,7 +969,7 @@ class ProtocolService:
             group_id=group_id,
             sender_kind="agent",
             sender_id=sender_agent_id,
-            sender_user_id=None,
+            sender_user_ids=[],
             owner_user_id=target.owner_id,
         ):
             return

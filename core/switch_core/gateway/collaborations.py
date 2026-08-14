@@ -33,6 +33,7 @@ from switch_core.gateway.schemas import (
     ClaimIdentityRequest,
     DirectoryUserSummary,
     ExternalUserSummary,
+    IdentityClaimant,
 )
 from switch_core.room_service import RoomService
 
@@ -224,34 +225,44 @@ async def list_bridge_users(
         raise HTTPException(status_code=404, detail="Bridge not found")
 
     users = await external_user_store.get_by_bridge(session, bridge_id)
-    claimants = await _claimant_names(session, user_store, users)
+    claims = await external_user_store.claimant_ids_for(session, [u.id for u in users])
+    names = await _user_names(session, user_store, claims)
     return [
         ExternalUserSummary(
             id=u.id,
             bridge_id=u.bridge_id,
             external_user_id=u.external_user_id,
             external_username=u.external_username,
-            user_id=u.user_id,
-            user_name=claimants.get(u.user_id) if u.user_id else None,
+            claimed_by=_claimants(claims.get(u.id, []), names),
         )
         for u in users
     ]
 
 
-async def _claimant_names(
+async def _user_names(
     session: AsyncSession,
     user_store: UserStore,
-    external_users: list[ExternalUser],
+    claims: dict[str, list[str]],
 ) -> dict[str, str]:
-    """Display names for the Switch users who have claimed these identities."""
-    names: dict[str, str] = {}
-    for claimed_by in {u.user_id for u in external_users if u.user_id}:
-        if claimed_by is None:
-            continue
-        owner = await user_store.get(session, claimed_by)
-        if owner is not None:
-            names[claimed_by] = owner.name
-    return names
+    """Display names for every Switch user appearing in these claims.
+
+    Resolved in one pass over the user table rather than a lookup per
+    claimant: a bridge's user list is otherwise N+1 in the number of claims.
+    """
+    wanted = {uid for ids in claims.values() for uid in ids}
+    if not wanted:
+        return {}
+    return {u.id: u.name for u in await user_store.get_all(session) if u.id in wanted}
+
+
+def _claimants(user_ids: list[str], names: dict[str, str]) -> list[IdentityClaimant]:
+    def label(user_id: str) -> str:
+        return names.get(user_id) or user_id
+
+    return [
+        IdentityClaimant(user_id=user_id, user_name=label(user_id))
+        for user_id in sorted(user_ids, key=lambda uid: label(uid).lower())
+    ]
 
 
 @router.get("/{bridge_id}/directory")
@@ -299,7 +310,10 @@ async def search_bridge_directory(
         u.external_user_id: u
         for u in await external_user_store.get_by_bridge(session, bridge_id)
     }
-    claimants = await _claimant_names(session, user_store, list(known.values()))
+    claims = await external_user_store.claimant_ids_for(
+        session, [u.id for u in known.values()]
+    )
+    names = await _user_names(session, user_store, claims)
     return [
         DirectoryUserSummary(
             external_user_id=person.external_user_id,
@@ -311,70 +325,55 @@ async def search_bridge_directory(
                 if person.external_user_id in known
                 else None
             ),
-            claimed_by_user_id=(
-                known[person.external_user_id].user_id
+            claimed_by=(
+                _claimants(claims.get(known[person.external_user_id].id, []), names)
                 if person.external_user_id in known
-                else None
-            ),
-            claimed_by_user_name=(
-                claimants.get(known[person.external_user_id].user_id or "")
-                if person.external_user_id in known
-                else None
+                else []
             ),
         )
         for person in found
     ]
 
 
-async def _verify_identity_belongs_to(
+async def _require_directory_account(
     collab_lifecycle: CollaborationBridgeLifecycleService,
     *,
     bridge_id: str,
     external_user_id: str,
-    email: str,
+    username: str,
 ) -> None:
-    """Raise unless the platform says `external_user_id` is the account behind
-    `email` — the evidence for a self-claim.
+    """Raise unless the platform's directory really lists this account.
 
-    Searching the directory for the claimant's own Switch email is enough:
-    only the person whose platform account carries that address can match.
-    Where the platform will not disclose email — a Slack app without
-    `users:read.email`, a directory that cannot be searched — nothing can be
-    proven, so the claim is refused and an admin has to make it. Refusing is
-    the whole point: a claim that is not evidence of anything would make
-    owner-only addressing decorative.
+    This is an existence check, not an ownership one — anyone may claim any
+    real account, deliberately. What it prevents is provisioning a Matrix
+    puppet for an id that came from nowhere: the claim body is user-supplied,
+    and the row it creates is permanent.
     """
     adapter = collab_lifecycle.get_adapter(bridge_id)
     if adapter is None:
         raise HTTPException(
             status_code=409,
-            detail="Bridge is not running — cannot verify the account is yours",
+            detail="Bridge is not running — cannot look this account up",
         )
     try:
-        candidates = await adapter.search_directory_users(email)
+        candidates = await adapter.search_directory_users(username)
     except NotImplementedError as e:
         raise HTTPException(
             status_code=501,
             detail=(
-                f"{e} — so Switch cannot confirm this account is yours. "
-                "An admin can link it for you."
+                f"{e} — so this account cannot be linked before it has been "
+                "seen. Send one message in the workspace, then link it."
             ),
         ) from e
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    matched = any(
-        candidate.external_user_id == external_user_id
-        and (candidate.email or "").lower() == email.lower()
-        for candidate in candidates
-    )
-    if not matched:
+    if not any(c.external_user_id == external_user_id for c in candidates):
         raise HTTPException(
-            status_code=403,
+            status_code=404,
             detail=(
-                "This account could not be confirmed as yours — the messaging "
-                f"platform does not report it under {email}. Ask an admin to "
-                "link it for you."
+                f"No account {username!r} with that id exists on this "
+                "workspace's directory"
             ),
         )
 
@@ -398,16 +397,12 @@ async def claim_bridge_identity(
     behind a Slack or Mattermost account is known to be a particular Switch
     user, an owner-scoped rule can never recognise them.
 
-    Claiming one for someone else is an admin action. Claiming one for
-    yourself requires the platform to agree that the account is yours: the
-    directory is searched for your Switch account's email address, and the
-    claim only stands if it turns up that same account. Without that, any
-    signed-in user could claim a colleague's account — which would not let
-    them impersonate that colleague, but would let them squat the identity and
-    keep its real owner from ever being recognised.
-
-    An identity already claimed by a different user is a conflict rather than
-    a silent takeover.
+    Claiming one for someone else is an admin action; claiming one for
+    yourself is not. Claims are **not exclusive** — several Switch users may
+    claim the same account, and each is then recognised as themselves on it.
+    An exclusive claim would let whoever got there first keep the real person
+    from ever being recognised by their own agents, so a second claim is
+    ordinary rather than a conflict.
     """
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
@@ -419,17 +414,8 @@ async def claim_bridge_identity(
             status_code=403,
             detail="Only an admin may claim a messaging identity for another user",
         )
-    target_user = await user_store.get(session, target_user_id)
-    if target_user is None:
+    if await user_store.get(session, target_user_id) is None:
         raise HTTPException(status_code=404, detail="Switch user not found")
-
-    if user.role != "admin":
-        await _verify_identity_belongs_to(
-            collab_lifecycle,
-            bridge_id=bridge_id,
-            external_user_id=payload.external_user_id,
-            email=target_user.email,
-        )
 
     external_user = await external_user_store.get_by_external_id(
         session, bridge_id, payload.external_user_id
@@ -437,7 +423,16 @@ async def claim_bridge_identity(
     if external_user is None:
         # Nobody has seen this person speak yet, which is the normal case right
         # after connecting a workspace. Provision the identity now rather than
-        # making them post something first.
+        # making them post something first — but only once the platform agrees
+        # the account exists. Provisioning mints a Matrix puppet, so taking the
+        # request's word for it would let any signed-in user conjure accounts
+        # for people who do not exist.
+        await _require_directory_account(
+            collab_lifecycle,
+            bridge_id=bridge_id,
+            external_user_id=payload.external_user_id,
+            username=payload.username,
+        )
         bridge_core = collab_lifecycle.get(bridge_id)
         if bridge_core is None:
             raise HTTPException(
@@ -464,22 +459,32 @@ async def claim_bridge_identity(
                 detail="Identity was provisioned but could not be read back",
             )
 
-    try:
-        claimed = await external_user_store.claim(
-            session, external_user, target_user_id
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=409, detail=str(e)) from e
+    await external_user_store.claim(session, external_user, target_user_id)
     await session.commit()
 
-    owner = await user_store.get(session, target_user_id)
+    return await _identity_summary(
+        session, external_user_store, user_store, external_user
+    )
+
+
+async def _identity_summary(
+    session: AsyncSession,
+    external_user_store: ExternalUserStore,
+    user_store: UserStore,
+    external_user: ExternalUser,
+) -> ExternalUserSummary:
+    claims = {
+        external_user.id: await external_user_store.claimant_ids(
+            session, external_user.id
+        )
+    }
+    names = await _user_names(session, user_store, claims)
     return ExternalUserSummary(
-        id=claimed.id,
-        bridge_id=claimed.bridge_id,
-        external_user_id=claimed.external_user_id,
-        external_username=claimed.external_username,
-        user_id=claimed.user_id,
-        user_name=owner.name if owner is not None else None,
+        id=external_user.id,
+        bridge_id=external_user.bridge_id,
+        external_user_id=external_user.external_user_id,
+        external_username=external_user.external_username,
+        claimed_by=_claimants(claims[external_user.id], names),
     )
 
 
@@ -489,27 +494,34 @@ async def release_bridge_identity(
     external_user_row_id: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     external_user_store: Annotated[ExternalUserStore, Depends(get_external_user_store)],
+    user_store: Annotated[UserStore, Depends(get_user_store)],
     user: Annotated[User, Depends(get_current_user)],
+    user_id: str | None = None,
 ) -> ExternalUserSummary:
-    """Unclaim a platform identity. Yours, or anyone's if you are an admin."""
+    """Drop a claim on a platform account — your own, or someone else's if you
+    are an admin. Anyone else's claim on the same account is left standing."""
     external_user = await external_user_store.get(session, external_user_row_id)
     if external_user is None or external_user.bridge_id != bridge_id:
         raise HTTPException(status_code=404, detail="Identity not found")
-    if external_user.user_id != user.id and user.role != "admin":
+
+    target_user_id = user_id or user.id
+    if target_user_id != user.id and user.role != "admin":
         raise HTTPException(
             status_code=403,
             detail="Only an admin may release another user's messaging identity",
         )
 
-    released = await external_user_store.release(session, external_user)
+    released = await external_user_store.release(session, external_user, target_user_id)
+    if not released:
+        # Deleting nothing and reporting success would make a mistyped user id
+        # look like an unlink that worked.
+        raise HTTPException(
+            status_code=404,
+            detail="That user has no claim on this messaging account",
+        )
     await session.commit()
-    return ExternalUserSummary(
-        id=released.id,
-        bridge_id=released.bridge_id,
-        external_user_id=released.external_user_id,
-        external_username=released.external_username,
-        user_id=None,
-        user_name=None,
+    return await _identity_summary(
+        session, external_user_store, user_store, external_user
     )
 
 

@@ -48,15 +48,13 @@ version of their own to them without also giving them a release of their own.
 
 - A Switch user can claim their messaging-app account as their own, linking a
   Slack / Mattermost / Teams identity to their Switch login
-  (`external_users.user_id`). Claiming searches the platform's own user
+  (`external_user_claims`). Claiming searches the platform's own user
   directory, so someone can be recognised before they have ever posted —
   previously Switch only learned of a person when they first spoke, which left
   a freshly connected workspace with nobody to pick. Platforms with no
-  searchable directory say so instead of showing an empty list (CHOO-2137).
-  Claiming an account for yourself requires the platform to report it under
-  your Switch account's email; otherwise an admin has to make the link. An
-  unverified claim would let anyone squat a colleague's account and keep its
-  real owner from ever being recognised (CHOO-2137).
+  searchable directory say so instead of showing an empty list. Claims are not
+  exclusive: several Switch users may claim the same account, so nobody can
+  keep the real person from being recognised by claiming it first (CHOO-2137).
 - An addressing rule can name the agent's **owner** rather than a list of
   identities. It resolves when the message arrives, so it survives connecting a
   new workspace, recreating a bridge, or the agent changing hands (CHOO-2137).
@@ -435,9 +433,11 @@ version of their own to them without also giving them a release of their own.
   the account you pick to your Switch login. It searches the platform rather
   than Switch's record of who has spoken, so you can find yourself in a
   workspace you have never posted in, and it shows the display name, handle and
-  email so you can tell two similar accounts apart. Accounts already claimed are
-  marked with who holds them and cannot be taken over. A platform with no
-  searchable directory says so — and says a message has to arrive first —
+  email so you can tell two similar accounts apart. An account someone else has
+  already linked says who — linking is not exclusive, so that is information
+  about who else is recognised on it rather than a lock — and one you have
+  linked yourself offers to unlink instead of linking it twice. A platform with
+  no searchable directory says so — and says a message has to arrive first —
   instead of showing an empty list (CHOO-2137).
 - The dialog is offered as step 2 of connecting a messaging app, straight after
   the connection succeeds, because that is the one moment the workspace is on

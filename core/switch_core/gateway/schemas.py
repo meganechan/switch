@@ -442,16 +442,22 @@ class BridgeCreateRequest(BaseModel):
     set_as_default: bool = False
 
 
+class IdentityClaimant(BaseModel):
+    """A Switch user who says a platform account is theirs."""
+
+    user_id: str
+    user_name: str
+
+
 class ExternalUserSummary(BaseModel):
     id: str
     bridge_id: str
     external_user_id: str
     external_username: str
-    # The Switch user who has claimed this platform identity, if any. An
-    # owner-scoped addressing rule only recognises a sender whose identity is
-    # claimed by the agent's owner.
-    user_id: str | None = None
-    user_name: str | None = None
+    # Everyone who has claimed this platform account. A list, not one user:
+    # claiming is not exclusive, so an account shared by several Switch users
+    # satisfies an owner rule for any of them.
+    claimed_by: list[IdentityClaimant] = []
 
 
 class DirectoryUserSummary(BaseModel):
@@ -465,8 +471,9 @@ class DirectoryUserSummary(BaseModel):
     # Set when this person has already spoken on the bridge and so has an
     # ExternalUser row; claiming reuses it rather than creating a duplicate.
     known_external_user_id: str | None = None
-    claimed_by_user_id: str | None = None
-    claimed_by_user_name: str | None = None
+    # Who has already claimed this account. Shown so a picker can say the
+    # account is spoken for, not to stop anyone else claiming it too.
+    claimed_by: list[IdentityClaimant] = []
 
 
 class ClaimIdentityRequest(BaseModel):

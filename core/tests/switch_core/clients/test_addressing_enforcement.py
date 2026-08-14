@@ -37,9 +37,9 @@ def _event(
 
 class TestResolveSenderPrincipal:
     """mxid → Client → Agent (agent sender) or ExternalUser (human sender),
-    plus the Switch user that claimed the human's platform identity."""
+    plus every Switch user who has claimed the human's platform identity."""
 
-    def _client(self, *, client, agent, external_user) -> SimpleNamespace:  # type: ignore[no-untyped-def]
+    def _client(self, *, client, agent, external_user, claimants=()) -> SimpleNamespace:  # type: ignore[no-untyped-def]
         async def _get_by_mxid(_session, _mxid):  # type: ignore[no-untyped-def]
             return client
 
@@ -49,10 +49,15 @@ class TestResolveSenderPrincipal:
         async def _ext_by_client(_session, _cid):  # type: ignore[no-untyped-def]
             return external_user
 
+        async def _claimant_ids(_session, _external_user_id):  # type: ignore[no-untyped-def]
+            return list(claimants)
+
         return SimpleNamespace(
             client_store=SimpleNamespace(get_by_matrix_user_id=_get_by_mxid),
             _agent_store=SimpleNamespace(get_by_client_id=_agent_by_client),
-            _external_user_store=SimpleNamespace(get_by_client_id=_ext_by_client),
+            _external_user_store=SimpleNamespace(
+                get_by_client_id=_ext_by_client, claimant_ids=_claimant_ids
+            ),
         )
 
     async def test_agent_sender(self) -> None:
@@ -66,30 +71,45 @@ class TestResolveSenderPrincipal:
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@a:switch.local"
         )
-        assert result == ("agent", "agent-7", None)
+        assert result == ("agent", "agent-7", [])
 
     async def test_human_sender_claimed(self) -> None:
         client = self._client(
             client=SimpleNamespace(id="c1"),
             agent=None,
-            external_user=SimpleNamespace(id="ext-3", user_id="user-1"),
+            external_user=SimpleNamespace(id="ext-3"),
+            claimants=["user-1"],
         )
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@u:switch.local"
         )
-        assert result == ("user", "ext-3", "user-1")
+        assert result == ("user", "ext-3", ["user-1"])
+
+    async def test_human_sender_claimed_by_several(self) -> None:
+        # Claiming is not exclusive, so the principal carries every claimant
+        # rather than picking one.
+        client = self._client(
+            client=SimpleNamespace(id="c1"),
+            agent=None,
+            external_user=SimpleNamespace(id="ext-3"),
+            claimants=["user-1", "user-2"],
+        )
+        result = await AgentClient._resolve_sender_principal(
+            client, object(), "@u:switch.local"
+        )
+        assert result == ("user", "ext-3", ["user-1", "user-2"])
 
     async def test_human_sender_unclaimed(self) -> None:
         # Nobody has linked this platform identity to a Switch user.
         client = self._client(
             client=SimpleNamespace(id="c1"),
             agent=None,
-            external_user=SimpleNamespace(id="ext-3", user_id=None),
+            external_user=SimpleNamespace(id="ext-3"),
         )
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@u:switch.local"
         )
-        assert result == ("user", "ext-3", None)
+        assert result == ("user", "ext-3", [])
 
     async def test_unknown_client_is_none(self) -> None:
         client = self._client(client=None, agent=None, external_user=None)
@@ -113,7 +133,7 @@ class TestResolveSenderPrincipal:
 def _allowed_client(
     *,
     policy: dict | None,
-    principal: tuple[str, str, str | None] | None,
+    principal: tuple[str, str, list[str]] | None,
     group_id: str | None = None,
     owner_id: str | None = None,
 ) -> SimpleNamespace:
@@ -153,14 +173,12 @@ class TestAddressingAllowed:
 
     async def test_permitted_sender(self) -> None:
         policy = {"rules": [{"users": ["ext-3"], "agents": []}]}
-        client = _allowed_client(policy=policy, principal=("user", "ext-3", None))
+        client = _allowed_client(policy=policy, principal=("user", "ext-3", []))
         assert (await _decide(client)).allowed is True
 
     async def test_denied_sender(self) -> None:
         policy = {"rules": [{"users": ["ext-3"], "agents": []}]}
-        client = _allowed_client(
-            policy=policy, principal=("user", "someone-else", None)
-        )
+        client = _allowed_client(policy=policy, principal=("user", "someone-else", []))
         decision = await _decide(client)
         assert decision.allowed is False
         assert decision.refusal == _ADDRESSING_DENIED_MESSAGE
@@ -176,10 +194,10 @@ class TestAddressingAllowed:
     async def test_group_scoped_policy(self) -> None:
         policy = {"rules": [{"room_groups": ["g1"], "agents": []}]}
         allowed = _allowed_client(
-            policy=policy, principal=("user", "u1", None), group_id="g1"
+            policy=policy, principal=("user", "u1", []), group_id="g1"
         )
         denied = _allowed_client(
-            policy=policy, principal=("user", "u1", None), group_id="g2"
+            policy=policy, principal=("user", "u1", []), group_id="g2"
         )
         assert (await _decide(allowed)).allowed is True
         assert (await _decide(denied)).allowed is False
@@ -187,14 +205,24 @@ class TestAddressingAllowed:
 
 class TestOwnerAddressing:
     """An owner-scoped policy resolves the owner at enforcement time from the
-    agent's `owner_id` and the Switch user behind the sender."""
+    agent's `owner_id` and the Switch users who have claimed the sender's
+    platform account."""
 
     _POLICY = {"rules": [{"users": [], "agents": [], "owner": True}]}
 
     async def test_owner_allowed(self) -> None:
         client = _allowed_client(
             policy=self._POLICY,
-            principal=("user", "ext-3", "user-1"),
+            principal=("user", "ext-3", ["user-1"]),
+            owner_id="user-1",
+        )
+        assert (await _decide(client)).allowed is True
+
+    async def test_owner_among_several_claimants_allowed(self) -> None:
+        # Someone else claiming the same account does not lock the owner out.
+        client = _allowed_client(
+            policy=self._POLICY,
+            principal=("user", "ext-3", ["user-2", "user-1"]),
             owner_id="user-1",
         )
         assert (await _decide(client)).allowed is True
@@ -204,7 +232,19 @@ class TestOwnerAddressing:
         # to link their account would be wrong.
         client = _allowed_client(
             policy=self._POLICY,
-            principal=("user", "ext-9", "user-2"),
+            principal=("user", "ext-9", ["user-2"]),
+            owner_id="user-1",
+        )
+        decision = await _decide(client)
+        assert decision.allowed is False
+        assert decision.refusal == _ADDRESSING_DENIED_MESSAGE
+
+    async def test_claimed_by_others_only_denied_with_generic_wording(self) -> None:
+        # Several claimants, none of them the owner: still claimed, so the
+        # "link your account" wording would be misleading.
+        client = _allowed_client(
+            policy=self._POLICY,
+            principal=("user", "ext-9", ["user-2", "user-3"]),
             owner_id="user-1",
         )
         decision = await _decide(client)
@@ -214,7 +254,7 @@ class TestOwnerAddressing:
     async def test_unclaimed_sender_gets_link_your_account_wording(self) -> None:
         client = _allowed_client(
             policy=self._POLICY,
-            principal=("user", "ext-3", None),
+            principal=("user", "ext-3", []),
             owner_id="user-1",
         )
         decision = await _decide(client)
@@ -227,7 +267,7 @@ class TestOwnerAddressing:
         # Nothing to link an account for: the policy never consults the owner.
         client = _allowed_client(
             policy={"rules": [{"users": ["ext-3"], "agents": []}]},
-            principal=("user", "someone-else", None),
+            principal=("user", "someone-else", []),
             owner_id="user-1",
         )
         decision = await _decide(client)
@@ -239,7 +279,7 @@ class TestOwnerAddressing:
         # for it — it has no chat account to link.
         client = _allowed_client(
             policy=self._POLICY,
-            principal=("agent", "agent-7", None),
+            principal=("agent", "agent-7", []),
             owner_id="user-1",
         )
         decision = await _decide(client)
@@ -249,7 +289,7 @@ class TestOwnerAddressing:
     async def test_ownerless_agent_denies_its_would_be_owner(self) -> None:
         client = _allowed_client(
             policy=self._POLICY,
-            principal=("user", "ext-3", "user-1"),
+            principal=("user", "ext-3", ["user-1"]),
             owner_id=None,
         )
         assert (await _decide(client)).allowed is False
@@ -258,7 +298,7 @@ class TestOwnerAddressing:
         policy = {"rules": [{"users": [], "agents": ["agent-7"], "owner": True}]}
         client = _allowed_client(
             policy=policy,
-            principal=("agent", "agent-7", None),
+            principal=("agent", "agent-7", []),
             owner_id="user-1",
         )
         assert (await _decide(client)).allowed is True

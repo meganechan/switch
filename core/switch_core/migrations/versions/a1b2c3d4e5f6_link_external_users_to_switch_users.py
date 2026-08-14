@@ -19,28 +19,29 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "external_users",
-        sa.Column("user_id", sa.Text(), nullable=True),
-    )
-    op.create_foreign_key(
-        "fk_external_users_user_id",
-        "external_users",
-        "users",
-        ["user_id"],
-        ["id"],
-        ondelete="SET NULL",
+    op.create_table(
+        "external_user_claims",
+        sa.Column("external_user_id", sa.Text(), nullable=False),
+        sa.Column("user_id", sa.Text(), nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.func.now(),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(
+            ["external_user_id"], ["external_users.id"], ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("external_user_id", "user_id"),
     )
     op.create_index(
-        "ix_external_users_user_id",
-        "external_users",
+        "ix_external_user_claims_user_id",
+        "external_user_claims",
         ["user_id"],
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_external_users_user_id", table_name="external_users")
-    op.drop_constraint(
-        "fk_external_users_user_id", "external_users", type_="foreignkey"
-    )
-    op.drop_column("external_users", "user_id")
+    op.drop_index("ix_external_user_claims_user_id", table_name="external_user_claims")
+    op.drop_table("external_user_claims")

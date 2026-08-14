@@ -342,6 +342,15 @@ export type RemoteExternalUser = {
 };
 
 /**
+ * A Switch user who says a platform account is theirs (mirrors the gateway
+ * `IdentityClaimant`).
+ */
+export type IdentityClaimant = {
+  userId: string;
+  userName: string;
+};
+
+/**
  * Someone found in a messaging platform's own user directory (mirrors the
  * gateway `DirectoryUserSummary`).
  *
@@ -358,8 +367,10 @@ export type BridgeDirectoryUser = {
   /** The `ExternalUser` row id when Switch has already seen this person, else
    * null. Present rows are reused on claim rather than duplicated. */
   knownExternalUserId: string | null;
-  claimedByUserId: string | null;
-  claimedByUserName: string | null;
+  /** Everyone who has claimed this account. Claiming is not exclusive, so this
+   * is information about who else is recognised on the account rather than a
+   * reason to stop someone claiming it too. */
+  claimedBy: IdentityClaimant[];
 };
 
 /**
@@ -389,13 +400,13 @@ export type ClaimIdentityParams = {
 };
 
 /**
- * Outcome of claiming an identity. `conflict` is the one failure a user can
- * reason about: someone else already holds that account, so this is not a
- * silent takeover.
+ * Outcome of claiming an identity. `bridge-unavailable` is the one failure a
+ * user can act on: an account Switch has never seen has to be provisioned on
+ * the platform's side, which a stopped bridge cannot do.
  */
 export type ClaimIdentityResult =
   | { kind: 'claimed'; identity: LinkedIdentity }
-  | { kind: 'conflict'; message: string }
+  | { kind: 'bridge-unavailable'; message: string }
   | { kind: 'unauthenticated' }
   | { kind: 'error'; message: string };
 

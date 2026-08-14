@@ -327,18 +327,23 @@ export const switchServersController = createRPCController({
       username: params.username,
     }),
 
-  /** Give up a claimed identity. Failures propagate: unclaiming is a deliberate
-   * act, and reporting success for one that did not happen would leave the user
-   * thinking an agent is no longer reachable by them when it still is. */
+  /** Give up a claim on a messaging-app account, leaving any other user's claim
+   * on it in place. `userId` is whose claim to drop — null for the signed-in
+   * user, which is the only one this app offers. Failures propagate: unclaiming
+   * is a deliberate act, and reporting success for one that did not happen
+   * would leave the user thinking an agent is no longer reachable by them when
+   * it still is. */
   releaseBridgeIdentity: async (params: {
     serverId: string;
     bridgeId: string;
     identityId: string;
+    userId: string | null;
   }): Promise<void> =>
     releaseBridgeIdentity(
       await requireReachableServer(params.serverId),
       params.bridgeId,
-      params.identityId
+      params.identityId,
+      params.userId
     ),
 
   /** The messaging accounts the signed-in user has claimed on this server. */
