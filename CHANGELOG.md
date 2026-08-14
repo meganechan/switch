@@ -44,7 +44,7 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
-### [0.14.0] - 2026-08-14
+### [0.15.0] - 2026-08-14
 
 #### Added
 - Telegram collaboration bridge, at parity with Slack, Mattermost and Discord
@@ -95,11 +95,6 @@ version of their own to them without also giving them a release of their own.
   dashboard and Switch Console stop offering the option and say which reason
   applies, `list_bridges` carries `can_create_channels` so an agent can choose a
   bridge that works, and a refused create is a `400` naming what to do instead.
-- `opencode` is a registerable known agent type, alongside `claude-code` and
-  `codex`. It carries its own option set — auto-session, working directory and
-  notify-user — rather than borrowing another type's, and the start-session
-  command it shows in a room passes the prompt as a flag, since OpenCode reads
-  its first positional argument as a directory to open.
 
 #### Fixed
 - Creating a room on a bridge that cannot make channels returned "Internal
@@ -171,6 +166,19 @@ version of their own to them without also giving them a release of their own.
   alive and was deaf. Adapters now report the change (`CollaborationAdapter`
   gains `set_channel_migration_handler`) and the room is re-pointed, or the
   refusal is logged with the id to re-point it at by hand.
+
+### [0.14.0] - 2026-08-14
+
+#### Added
+
+- `opencode` is a registerable known agent type, alongside `claude-code` and
+  `codex`. It carries its own option set — auto-session, working directory and
+  notify-user — rather than borrowing another type's, and the start-session
+  command it shows in a room passes the prompt as a flag, since OpenCode reads
+  its first positional argument as a directory to open.
+
+#### Fixed
+
 - The OpenCode server-side connector no longer hangs when the OpenCode server
   raises a tool permission request. The connector's event loop ignored
   `permission.updated`, so no reply was ever sent, the session never went idle,
@@ -502,6 +510,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.24.0] - 2026-08-14
+
 #### Added
 
 - **An OpenCode agent can be configured like a Codex one.** Its model,
@@ -540,8 +550,15 @@ version of their own to them without also giving them a release of their own.
   utility-model setting is worth setting too if the point is to keep everything
   on one machine: it is what OpenCode uses for background work like naming a
   conversation, which otherwise goes wherever your own config sends it.
+- Telegram brand icon, platform label and setup-guide link, so Telegram-bridged
+  rooms show the "open channel" button and the attach form links the right guide
+  (CHOO-1686). Telegram bot tokens are also redacted from the diagnostic logs.
 
 #### Fixed
+- Opening a room from a deeplink expands the sidebar groups hiding it
+  (CHOO-1686). The reveal ran once, before the room a session belongs to had
+  loaded, and never again — so the view routed correctly to a row that stayed
+  collapsed. Affects any bridge, not only Telegram.
 - Two Switch Console installs sharing an agent host no longer trade the sidecar
   back and forth when they are on the *same* release but carry different builds
   — the everyday case for dev builds, and the half of the shared-host problem
@@ -602,9 +619,6 @@ version of their own to them without also giving them a release of their own.
 ### [0.23.0] - 2026-08-14
 
 #### Added
-- Telegram brand icon, platform label and setup-guide link, so Telegram-bridged
-  rooms show the "open channel" button and the attach form links the right guide
-  (CHOO-1686). Telegram bot tokens are also redacted from the diagnostic logs.
 - **OpenCode is now a supported Switch agent type**, locally and on remote
   hosts. An OpenCode session can be onboarded as a Switch agent, join rooms,
   take injected prompts, and be reset, compacted or interrupted from a room.
@@ -670,10 +684,6 @@ version of their own to them without also giving them a release of their own.
   can no longer be hidden. The shortcuts themselves are unchanged.
 
 #### Fixed
-- Opening a room from a deeplink expands the sidebar groups hiding it
-  (CHOO-1686). The reveal ran once, before the room a session belongs to had
-  loaded, and never again — so the view routed correctly to a row that stayed
-  collapsed. Affects any bridge, not only Telegram.
 - Add Agent no longer stalls with an unset agent type once more than one Switch
   connector is installed. The form auto-selected a type only when exactly one
   was available, so a second connector left it blank — and since the directory
@@ -1474,6 +1484,8 @@ by Switch Console rather than published on its own.
 
 ### [Unreleased]
 
+### [1.9.3]
+
 #### Added
 - The ready file carries a `deployer` field: the identity of the Switch Console
   install that started this sidecar, echoed from the environment it was
@@ -1481,6 +1493,10 @@ by Switch Console rather than published on its own.
   running — the content hash says only which. Purely additive, so no contract
   revision moves: an older client ignores the field, and a client reading a
   sidecar that omits it must treat that as unknown rather than as its own.
+- Writes an agent's launch profile on the VM and completes the home-directory
+  placeholder in its environment, so a provider that names a config file by
+  absolute path (OpenCode's `OPENCODE_CONFIG`) launches correctly on a remote
+  host. Additive — the client↔sidecar wire is unchanged, so the major stays `1`.
 
 ### [1.9.2]
 
@@ -1543,19 +1559,7 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
-#### Changed
-- The room workflow adds a Mattermost-only rule: post at the root there unless
-  you were asked in a thread. Mattermost shows a threaded reply as a reply count
-  under the original post rather than in the channel, so a first-time reader can
-  take it for no answer. Threading is unchanged everywhere else.
-
-### [0.9.2] - 2026-08-14
-#### Changed
-- The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
-  wherever it enumerates known agent types — the `list_agents` filter and the
-  per-type options of `update_agent_detail` (#203). The plugin version bumps so
-  installs re-download.
-
+### [0.9.3] - 2026-08-14
 
 #### Changed
 - The room-workflow skill covers Telegram: attachments cross the bridge as real
@@ -1567,6 +1571,17 @@ compatibility signal. History for those is in the git log.
   rest with `read_context`" promise does not hold. The slash-command and
   attachment platform lists now also name Discord, which had been left out of
   both.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
+
+### [0.9.2] - 2026-08-14
+#### Changed
+- The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
+  wherever it enumerates known agent types — the `list_agents` filter and the
+  per-type options of `update_agent_detail` (#203). The plugin version bumps so
+  installs re-download.
 
 ### [0.9.1] - 2026-08-12
 
@@ -1637,13 +1652,7 @@ manifest history.
 
 ### [Unreleased]
 
-#### Changed
-- The room workflow adds a Mattermost-only rule: post at the root there unless
-  you were asked in a thread. Mattermost shows a threaded reply as a reply count
-  under the original post rather than in the channel, so a first-time reader can
-  take it for no answer. Threading is unchanged everywhere else.
-
-### [0.3.3] - 2026-08-14
+### [0.3.4] - 2026-08-14
 
 #### Changed
 - The room-workflow skill covers Telegram: attachments cross the bridge as real
@@ -1655,6 +1664,14 @@ manifest history.
   rest with `read_context`" promise does not hold. The slash-command and
   attachment platform lists now also name Discord, which had been left out of
   both.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
+
+### [0.3.3] - 2026-08-14
+
+#### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
   wherever it enumerates known agent types — the `list_agents` filter and the
   per-type options of `update_agent_detail` (#203). The plugin version bumps so
@@ -1736,7 +1753,16 @@ the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
 
+### [0.1.1] - 2026-08-14
+
 #### Changed
+- The room-workflow skill covers Telegram: attachments cross the bridge as real
+  uploads, chats cannot be created by a bot at all (so `create_room` fails there
+  for every channel type), forum topics thread natively, and formatting has no
+  tables and a 4096-character cap (CHOO-1686). It also warns that a Telegram
+  room may be mention-only, where unaddressed talk never reaches Switch at all
+  and `read_context` cannot recover it. The slash-command and attachment
+  platform lists now also name Discord.
 - The room workflow adds a Mattermost-only rule: post at the root there unless
   you were asked in a thread. Mattermost shows a threaded reply as a reply count
   under the original post rather than in the channel, so a first-time reader can
