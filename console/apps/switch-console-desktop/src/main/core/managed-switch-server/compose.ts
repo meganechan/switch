@@ -47,10 +47,10 @@ async function runCompose(host: ServerHost, args: string[], timeout: number): Pr
  */
 export function composeUp(host: ServerHost, onLog: (line: string) => void): Promise<void> {
   log.info(`local-switch-server: docker compose up (${host.label})`);
-  // `--progress plain` is what makes the tail live. Compose's default writer
-  // repaints a block of pull progress in place, which off a TTY arrives in
-  // occasional bursts — minutes of apparent silence on a cold first run, which
-  // is the slowest one. Plain mode emits a line per event instead.
+  // Compose already falls back to plain, line-per-event output when it is not
+  // attached to a TTY, which is how we always run it — so this pins the
+  // behaviour we depend on rather than changing it. `--progress` belongs to
+  // `compose`, not to `up`; after the subcommand it exits with "unknown flag".
   return host.streamCommand(
     host.dockerBin,
     [...baseArgs(host, ['--progress', 'plain']), 'up', '-d'],

@@ -34,7 +34,6 @@ import { ALL_COMMAND_DEFS, type CommandDef } from '@shared/commands';
 import type { SearchItem, SearchResult } from '@shared/core/search';
 import { getCommandIcon } from './command-icons';
 import { PALETTE_ITEM_CLASS } from './palette-item-styles';
-import { PaletteNotificationsGroup } from './palette-notifications-group';
 import { PaletteSessionItem } from './palette-session-item';
 import { ResourceMonitorView } from './resource-monitor-view';
 import {
@@ -530,12 +529,6 @@ export function CommandPaletteModal({
           </>
         ) : (
           <>
-            <PaletteNotificationsGroup
-              currentLocationId={locationId}
-              currentSessionId={sessionId}
-              onClose={handleClose}
-              navigate={navigate}
-            />
             {actionResults.length > 0 && (
               <Command.Group heading="Suggested Actions" className={GROUP_CLASS}>
                 {actionResults.map((item) => (

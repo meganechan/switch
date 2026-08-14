@@ -396,10 +396,16 @@ version of their own to them without also giving them a release of their own.
   and search as well as the dialog that adds it. The sidebar and search each
   chose the icon themselves; they now share one rule, so the next change lands
   in all three at once.
-- Installing the local server shows its progress as it happens rather than in
-  occasional bursts. Compose was left to repaint a progress block, which off a
-  terminal means long silences during the first, slowest run; it is now asked
-  for plain output, which arrives a line at a time.
+- Setting up the local server no longer looks stalled before Docker says
+  anything. The output panel appeared only once the first line arrived, so the
+  seconds Docker spends resolving the registry showed as an empty dialog; the
+  panel is now there from the start and says what it is waiting for.
+- The command palette no longer opens onto a "Notifications" list of sessions
+  and rooms. It is a search field; the first thing under it should be what you
+  searched for.
+- Creating a room offers only the agents this Switch Console registered. The
+  server answers with everyone on it, including agents belonging to another
+  install — which this app cannot show under a room or drive.
 - Creating a room switches the sidebar to its Rooms list and selects the new
   room. It was already opened in the main panel, but the sidebar stayed on
   Agents, which does not list rooms — so the room you had just made was nowhere

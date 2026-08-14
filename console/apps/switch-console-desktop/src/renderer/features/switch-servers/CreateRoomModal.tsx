@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { rpc } from '@renderer/lib/ipc';
@@ -77,6 +78,19 @@ export const CreateRoomModal = observer(function CreateRoomModal({
     queryFn: () => rpc.switchServers.listRemoteAgents(serverId),
     enabled: !!serverId,
   });
+
+  /**
+   * Only agents this install registered on the server.
+   *
+   * The server answers with everyone registered on it, including agents
+   * belonging to somebody else's Switch Console. Those cannot be shown under a
+   * room here or driven from here, so offering them in the picker promises
+   * something this app cannot deliver — the same rule the room views already
+   * follow.
+   */
+  const invitableAgents = (agentsQuery.data ?? []).filter((remote) =>
+    agentsStore.agentsOnServer(serverId).some((local) => local.switchAgentId === remote.id)
+  );
 
   // Only a running bridge can back a new room. Keeping the inactive ones out of
   // the picker (rather than letting the create call fail) means the one thing
@@ -235,7 +249,7 @@ export const CreateRoomModal = observer(function CreateRoomModal({
           <Field>
             <FieldLabel>Agents</FieldLabel>
             <Combobox
-              items={(agentsQuery.data ?? []).filter((a) => !agents.some((s) => s.id === a.id))}
+              items={invitableAgents.filter((a) => !agents.some((s) => s.id === a.id))}
               value={null}
               onValueChange={(next: RemoteAgentSummary | null) => {
                 if (next) setAgents((current) => [...current, next]);
