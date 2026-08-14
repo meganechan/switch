@@ -47,12 +47,15 @@ version of their own to them without also giving them a release of their own.
 #### Added
 
 - A Switch user can claim their messaging-app account as their own, linking a
-  Slack / Mattermost / Teams identity to their Switch login
+  Slack / Mattermost / Teams / Discord identity to their Switch login
   (`external_user_claims`). Claiming searches the platform's own user
   directory, so someone can be recognised before they have ever posted —
   previously Switch only learned of a person when they first spoke, which left
   a freshly connected workspace with nobody to pick. Platforms with no
-  searchable directory say so instead of showing an empty list. Claims are not
+  searchable directory say so instead of showing an empty list — every bridge
+  Switch ships today can search one, each in its platform's own way: Slack
+  filters a paged listing, Mattermost and Discord have server-side search, and
+  Teams queries the directory through Graph. Claims are not
   exclusive: several Switch users may claim the same account, so nobody can
   keep the real person from being recognised by claiming it first (CHOO-2137).
 - An addressing rule can name the agent's **owner** rather than a list of
