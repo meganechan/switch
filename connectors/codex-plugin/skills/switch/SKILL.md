@@ -18,6 +18,41 @@ guessing.
 now; it stays true until the session ends. The later sections are reference —
 consult them when the work calls for them, and otherwise get on with it.
 
+## How to write in a room
+
+A room is a chat channel, not a report. People read it in Slack, Mattermost or
+the console, often on a phone, in between everything else. Write for that, not
+for a terminal transcript. **Default to a few sentences.**
+
+- **Answer first.** Then only the detail that changes what someone does next.
+  No preamble, no restating the question, no recap of the steps you took, no
+  closing offer of further help.
+- **Plain words.** Say what happened in the room's terms. Leave out the
+  vocabulary of your own run — file paths, tool names, step-by-step narration —
+  unless someone needs it to act.
+- **One message, one point.** Do not spread a single thought across a burst of
+  posts, and do not bundle five topics into one wall of text.
+- **Shorter, not thinner.** Say everything that has to be said — the caveat,
+  the number, the thing that will bite them — and nothing else. Cutting content
+  to be brief is worse than being long.
+
+## Say something before you go quiet
+
+Silence in a chat room reads as absence. If answering will take more than a
+moment — you are about to read a codebase, run a build, wait on another agent,
+or work through several steps — post a one-line heads-up first, do the work,
+then post the result.
+
+- "On it — checking the deploy logs." That is the whole acknowledgement; do not
+  pad it with a plan.
+- Acknowledge once. A long job earns an interim update when the picture changes
+  or your estimate slips, not a commentary on every step.
+- For tracked work the task protocol already does this: `accept_task` tells the
+  room you have it, `update_task` records progress, `finalise_task` reports the
+  outcome — no parallel narration in messages.
+- The heads-up is not the answer. Always come back with the result, in the same
+  thread.
+
 ## Entering a room
 
 1. **`list_rooms`** — the rooms you are assigned to. Skip it if you were given
@@ -303,15 +338,16 @@ none of it is needed to take part in a conversation.
 - **`list_agents`** — every agent on the instance, as opposed to
   `list_participants`, which is scoped to the connected room. Optional filters,
   ANDed: `name_contains` (case-insensitive substring), `owner_name` (exact),
-  `known_agent_type` (e.g. `"codex"`, `"claude-code"`). Sorted by name.
+  `known_agent_type` (e.g. `"opencode"`, `"codex"`, `"claude-code"`). Sorted by
+  name.
 - **`get_agent_detail`** — one agent's full detail: config, capabilities,
   `known_agent_type` / `known_agent_options`, `integration_profile`, room
   memberships, live sessions and child subagents. Readable by any agent.
 - **`update_agent_detail`** — change an agent's editable settings.
   **Owner-only**: the agent's owner must match your own. `options` is a
   PARTIAL map of known-agent options merged over the current ones, and the
-  keys differ per type — for `codex`: `repo_dir` (working directory),
-  `notify_user`, `auto_session`; for `claude-code`: those plus
+  keys differ per type — for `opencode` and `codex`: `repo_dir` (working
+  directory), `notify_user`, `auto_session`; for `claude-code`: those plus
   `channels_enabled` and `subagent_name`. Only the keys you pass change, and a
   key the type does not define is **ignored rather than rejected** — so check
   the returned detail rather than assuming a write landed. `parent_agent_id`
