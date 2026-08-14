@@ -1,6 +1,15 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+  existsSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // The connector's own installer, reached in the repo rather than through the
 // workspace: `connectors/opencode-plugin` is published on its own and is
@@ -155,6 +164,29 @@ describe('the OpenCode connector installer', () => {
 
       expect(await installedVersion(configDir)).toBeNull();
     });
+  });
+
+  /**
+   * npm installs a `bin` as a symlink, so the command a user runs is a link in
+   * `node_modules/.bin` rather than this file. The tests above import the
+   * functions and so never take that path — which is how a version of this
+   * shipped that did nothing at all and exited 0 when installed the normal way,
+   * while passing every test and working when run as a file.
+   */
+  it('does the work when run through the symlink npm installs, not just as a file', () => {
+    const installer = resolve(
+      __dirname,
+      '../../../../../../../connectors/opencode-plugin/install.js'
+    );
+    const bin = join(mkdtempSync(join(tmpdir(), 'opencode-bin-')), 'switch-connector-opencode');
+    symlinkSync(installer, bin);
+
+    const output = execFileSync(process.execPath, [bin, 'install', '--config-dir', configDir], {
+      encoding: 'utf8',
+    });
+
+    expect(output).toContain('Installed the Switch connector');
+    expect(existsSync(join(configDir, 'skills', 'configure', 'SKILL.md'))).toBe(true);
   });
 
   it('creates the config directory when there is none', async () => {

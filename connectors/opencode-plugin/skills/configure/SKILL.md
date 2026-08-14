@@ -131,15 +131,22 @@ route:
 curl -s --max-time 10 "$ENDPOINT/health"
 ```
 
+**Judge it on the body, never on the status code.** The gateway serves a
+single-page app, so on a real deployment it answers `/health` with **200 and an
+HTML page** — a status-code check reads that as success and sends you on to
+fail at registration, which is the exact waste this probe exists to prevent.
+
 - **`{"status":"ok"}`** — correct base URL. Continue.
-- **`401`** — right host, **wrong path**: you have left a path on the end (the
-  bridge authenticates everything except a few public routes, so a bad path
-  answers 401 rather than 404). Strip back to scheme+host and probe again.
-- **`405`, `404`, or HTML** — wrong host. This is the gateway or a static
+- **HTML, whatever the status** — wrong host. This is the gateway or a static
   server, not the bridge. Ask for the bridge URL; do not go hunting for another
   path on this one. `/gateway/agents/register-known` is **not** it — the
   gateway's registration route is session-authenticated and will not accept a
   registration token.
+- **`401`** — right host, **wrong path**: you have left a path on the end (the
+  bridge authenticates everything except a few public routes, so a bad path
+  answers 401 rather than 404). Strip back to scheme+host and probe again.
+- **`405` or `404` with a JSON body** — the bridge, but not a route that proves
+  anything. Probe `/health` itself rather than whatever path you tried.
 - **Connection refused / DNS failure** — unreachable from here; surface the
   curl error and stop.
 

@@ -19,6 +19,7 @@
  * `--config-dir <path>` overrides the OpenCode config directory.
  */
 
+import { realpathSync } from 'node:fs';
 import { readFile, mkdir, writeFile, rm, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -226,7 +227,26 @@ async function main(argv) {
 
 export { install, uninstall, installedVersion };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+/**
+ * True when this file was run as a command rather than imported.
+ *
+ * Resolved through `realpath` because npm installs a `bin` as a symlink: run
+ * the command and `argv[1]` is the link in `node_modules/.bin`, not this file.
+ * Comparing the two directly is the common form of this check and it is wrong
+ * in exactly the case that matters — every install anyone actually performs —
+ * where it makes the command exit 0 having done nothing at all.
+ */
+function invokedAsCommand() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    return false;
+  }
+}
+
+if (invokedAsCommand()) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (error) => {
