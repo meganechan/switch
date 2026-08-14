@@ -2,9 +2,9 @@ import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { ownerOnlyPolicy } from '@shared/core/switch-servers/owner-policy';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 import { basenameFromAnyPath } from '@shared/path-name';
-import { ownerOnlyPolicy } from './owner-policy';
 
 /** Switch agent-name charset, enforced server-side too: lowercase letters,
  * digits, `.`, `-`, `_`, starting with a letter or digit. */

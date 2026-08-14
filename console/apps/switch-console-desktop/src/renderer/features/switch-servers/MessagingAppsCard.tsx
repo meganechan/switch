@@ -1,7 +1,7 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { ExternalLink, Link2, MessageSquare, Plus } from 'lucide-react';
+import { CircleAlert, ExternalLink, Link2, MessageSquare, Plus, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
@@ -10,8 +10,14 @@ import { openExternalUrl } from '@renderer/lib/open-external';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
-import type { LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
+import { log } from '@renderer/utils/logger';
+import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import { BundledChatSignIn } from './BundledChatSignIn';
+import {
+  hasUnlinkedMessagingApp,
+  unrecognisedMessagingApps,
+  unrecognisedMessagingAppsMessage,
+} from './messaging-apps-warning';
 import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
 import { useMyIdentities } from './use-my-identities';
@@ -20,6 +26,11 @@ import { useMyIdentities } from './use-my-identities';
  * The messaging apps bridged to a server, which account in each one is the
  * signed-in user, and — for an admin — the way to connect another
  * (CHOO-1784, CHOO-2137).
+ *
+ * One row per app, read as a table: the app on the left, your account on it in
+ * a column of its own, its actions on the right. An app you have not linked
+ * says so by offering a Link button and nothing else — the fact is worth one
+ * control, not a sentence repeated down the card.
  *
  * Listing is offered on every server type, not just managed ones: a bridge is
  * registered through the server's own admin API, so there is nothing
@@ -61,6 +72,36 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
   // where the server falls back to the caller, which is the same person.
   const currentUserId = switchServersStore.statusFor(serverId)?.user?.id ?? null;
 
+  // Whether an unlinked app actually costs this user anything. Asked only once
+  // the cheap half of the condition holds — there is an app they have not
+  // linked — because a user who has linked everywhere has nothing to be warned
+  // about, so the answer would go nowhere. The probe itself is one agent-list
+  // read, so it is not cached beyond that: linking an account or changing an
+  // agent's policy should stop the warning on the next look, not a minute later.
+  const anyUnlinked = hasUnlinkedMessagingApp(bridges, identities);
+  const ownerAgentsQuery = useQuery({
+    queryKey: ['owns-owner-addressed-agent', serverId],
+    queryFn: () => rpc.switchServers.ownsOwnerAddressedAgent(serverId),
+    enabled: !!serverId && anyUnlinked,
+  });
+  // The probe failing costs no data on screen, only the warning — so it is
+  // logged rather than shown, and the card does not warn on a guess.
+  const ownerAgentsError = ownerAgentsQuery.error;
+  useEffect(() => {
+    if (ownerAgentsError) {
+      log.warn('Could not check for owner-addressed agents', {
+        serverId,
+        error: ownerAgentsError,
+      });
+    }
+  }, [ownerAgentsError, serverId]);
+
+  const unrecognisedIn = unrecognisedMessagingApps({
+    bridges,
+    identities,
+    ownsOwnerAddressedAgent: ownerAgentsQuery.isSuccess ? ownerAgentsQuery.data : null,
+  });
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between gap-3">
@@ -96,9 +137,17 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
       </div>
 
       <p className="mt-1 text-xs text-foreground-muted">
-        Which account in each messaging app is you. Agents you own can be restricted to only answer
-        their owner; that rule can recognise you on the apps listed here, and nowhere else.
+        Which account is you in each app, so your agents can recognise you.
       </p>
+
+      {/* Same shape as the addressing editor's owner warning, so the two
+        readings of one problem look like one problem. */}
+      {unrecognisedIn.length > 0 && (
+        <div className="mt-2 flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+          <span>{unrecognisedMessagingAppsMessage(unrecognisedIn)}</span>
+        </div>
+      )}
 
       {identitiesError !== null && (
         <p className="text-destructive mt-2 text-xs">
@@ -121,59 +170,21 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
             : 'No messaging app is connected. An admin on this server can connect one.'}
         </p>
       ) : (
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-2 divide-y divide-border">
           {bridges.map((bridge) => (
-            <li key={bridge.id} className="text-sm">
-              <div className="flex items-center gap-2">
-                {hasBridgeIcon(bridge.type) ? (
-                  <BridgeIcon bridgeType={bridge.type} size={16} />
-                ) : (
-                  <MessageSquare className="size-4 text-foreground-muted" />
-                )}
-                <span className="min-w-0 flex-1 truncate text-foreground">
-                  {bridge.displayName}
-                </span>
-                {/* Offered only when the link resolves — an older server, or a
-                  bridge that is down, reports none, and a button that cannot
-                  do anything is worse than no button. */}
-                {bridge.homeUrl && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Open ${bridgePlatformLabel(bridge.type)}`}
-                    onClick={() =>
-                      void openExternalUrl(
-                        bridge.homeUrl as string,
-                        `Could not open ${bridgePlatformLabel(bridge.type)}`
-                      )
-                    }
-                  >
-                    <ExternalLink className="size-3.5" />
-                    Open
-                  </Button>
-                )}
-                {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
-                {/* Surfaced only when it is NOT active: a bridge that is down
-                  cannot back a new room, and the room-creation picker silently
-                  omits it, so this is where that becomes visible. */}
-                {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
-              </div>
-              {/* Nothing is drawn until the list arrives: "not linked" and
-                "not known yet" look identical, and offering to link an account
-                the user already has is the more confusing of the two. */}
-              {identities !== null && (
-                <BridgeIdentityLine
-                  serverId={serverId}
-                  bridgeId={bridge.id}
-                  identity={identities.find((i) => i.bridgeId === bridge.id) ?? null}
-                  currentUserId={currentUserId}
-                  onReleased={refreshIdentities}
-                />
-              )}
-              {isManaged && bridge.type === 'mattermost' && (
-                <BundledChatSignIn serverId={serverId} />
-              )}
-            </li>
+            <MessagingAppRow
+              key={bridge.id}
+              serverId={serverId}
+              bridge={bridge}
+              /* Nothing is drawn in the identity column until the list
+                arrives: "not linked" and "not known yet" look identical, and
+                offering to link an account the user already has is the more
+                confusing of the two. */
+              identities={identities}
+              currentUserId={currentUserId}
+              onReleased={refreshIdentities}
+              showBundledSignIn={isManaged && bridge.type === 'mattermost'}
+            />
           ))}
         </ul>
       )}
@@ -182,34 +193,35 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
 });
 
 /**
- * Which account on one bridge is the signed-in user, and the way to link,
- * change or unlink it (CHOO-2137).
+ * One app: its name, which account on it is the signed-in user, and what can be
+ * done with the app itself.
  *
- * A secondary line under the bridge name rather than another trailing button:
- * the row already carries Open, a default marker and a status badge, and this
- * is per-user state about the app above it rather than an action on the app.
- * Deliberately quiet — an unlinked account costs nothing until an agent is
- * restricted to its owner, and the addressing editor is where that gets a
- * warning.
+ * The identity column is a fixed width and the trailing controls always occupy
+ * their slot, so five apps line up as columns rather than as five differently
+ * ragged lines.
  */
-function BridgeIdentityLine({
+function MessagingAppRow({
   serverId,
-  bridgeId,
-  identity,
+  bridge,
+  identities,
   currentUserId,
   onReleased,
+  showBundledSignIn,
 }: {
   serverId: string;
-  bridgeId: string;
-  /** The account the signed-in user has claimed on this bridge, or null when
-   * they have claimed none here. */
-  identity: LinkedIdentity | null;
+  bridge: RemoteBridge;
+  /** Accounts the user has claimed on this server, or null while unknown. */
+  identities: LinkedIdentity[] | null;
   currentUserId: string | null;
   onReleased: () => void;
+  showBundledSignIn: boolean;
 }) {
   const showClaimIdentity = useShowModal('claimIdentityModal');
   const [releasing, setReleasing] = useState(false);
   const [releaseError, setReleaseError] = useState<string | null>(null);
+
+  const identity = identities?.find((i) => i.bridgeId === bridge.id) ?? null;
+  const platform = bridgePlatformLabel(bridge.type);
 
   const release = async (identityId: string) => {
     setReleasing(true);
@@ -217,7 +229,7 @@ function BridgeIdentityLine({
     try {
       await rpc.switchServers.releaseBridgeIdentity({
         serverId,
-        bridgeId,
+        bridgeId: bridge.id,
         identityId,
         userId: currentUserId,
       });
@@ -230,46 +242,80 @@ function BridgeIdentityLine({
   };
 
   return (
-    <div className="mt-0.5 ml-6 flex flex-wrap items-center gap-x-1 text-xs text-foreground-muted">
-      {identity === null ? (
-        <>
-          <span>You have not linked an account here</span>
+    <li className="py-1 text-sm">
+      <div className="flex items-center gap-2">
+        {hasBridgeIcon(bridge.type) ? (
+          <BridgeIcon bridgeType={bridge.type} size={16} />
+        ) : (
+          <MessageSquare className="size-4 text-foreground-muted" />
+        )}
+        <span className="min-w-0 flex-1 truncate text-foreground">{bridge.displayName}</span>
+        {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
+        {/* Surfaced only when it is NOT active: a bridge that is down cannot
+          back a new room, and the room-creation picker silently omits it, so
+          this is where that becomes visible. */}
+        {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+
+        <div className="flex w-44 shrink-0 items-center justify-end gap-0.5">
+          {identities === null ? null : identity === null ? (
+            <Button
+              variant="outline"
+              size="xs"
+              onClick={() => showClaimIdentity({ serverId, bridgeId: bridge.id })}
+            >
+              <Link2 className="size-3" />
+              Link
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="min-w-0 shrink text-foreground"
+                title={`Change which ${bridge.displayName} account is you`}
+                onClick={() => showClaimIdentity({ serverId, bridgeId: bridge.id })}
+              >
+                <span className="truncate">{handleOf(identity)}</span>
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={releasing}
+                aria-label={`Unlink ${handleOf(identity)} from ${bridge.displayName}`}
+                onClick={() => void release(identity.id)}
+              >
+                {releasing ? <Spinner className="size-3" /> : <X className="size-3" />}
+              </Button>
+            </>
+          )}
+        </div>
+
+        {/* Offered only when the link resolves — an older server, or a bridge
+          that is down, reports none, and a button that cannot do anything is
+          worse than no button. The slot is held either way so the rows keep a
+          straight right edge. */}
+        {bridge.homeUrl ? (
           <Button
             variant="ghost"
-            size="sm"
-            className="h-auto px-1 py-0.5 text-xs"
-            onClick={() => showClaimIdentity({ serverId, bridgeId })}
+            size="icon-xs"
+            aria-label={`Open ${platform}`}
+            title={`Open ${platform}`}
+            onClick={() =>
+              void openExternalUrl(bridge.homeUrl as string, `Could not open ${platform}`)
+            }
           >
-            <Link2 className="size-3.5" />
-            Link
+            <ExternalLink className="size-3" />
           </Button>
-        </>
-      ) : (
-        <>
-          <span>
-            You are <span className="font-medium text-foreground">{handleOf(identity)}</span> here
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto px-1 py-0.5 text-xs"
-            onClick={() => showClaimIdentity({ serverId, bridgeId })}
-          >
-            Change
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-auto px-1 py-0.5 text-xs"
-            disabled={releasing}
-            onClick={() => void release(identity.id)}
-          >
-            {releasing ? 'Unlinking…' : 'Unlink'}
-          </Button>
-        </>
+        ) : (
+          <span aria-hidden className="size-6 shrink-0" />
+        )}
+      </div>
+
+      {releaseError !== null && (
+        <p className="text-destructive mt-0.5 ml-6 text-xs">{releaseError}</p>
       )}
-      {releaseError !== null && <span className="text-destructive">{releaseError}</span>}
-    </div>
+      {showBundledSignIn && <BundledChatSignIn serverId={serverId} />}
+    </li>
   );
 }
 

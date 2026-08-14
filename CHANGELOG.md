@@ -61,6 +61,10 @@ version of their own to them without also giving them a release of their own.
 - An addressing rule can name the agent's **owner** rather than a list of
   identities. It resolves when the message arrives, so it survives connecting a
   new workspace, recreating a bridge, or the agent changing hands (CHOO-2137).
+- `GET /agents` reports each agent's `addressing_policy`, which until now was
+  only on `GET /agents/{id}`. So "which of these agents answers only its owner"
+  is one list read rather than a read per agent — the shape a client needs to
+  ask that at all, instead of a request storm (CHOO-2137).
 
 #### Changed
 
@@ -445,12 +449,18 @@ version of their own to them without also giving them a release of their own.
 - The dialog is offered as step 2 of connecting a messaging app, straight after
   the connection succeeds, because that is the one moment the workspace is on
   your mind. It is skippable, and linking lives on the server page for later:
-  each app under **Messaging apps** carries its own line saying which account
-  there is you, with Change and Unlink — or a Link button when none is, opening
-  the dialog already pointed at that app. So you can see at a glance where you
+  **Messaging apps** lists one row per app — the app, the account on it that is
+  you, and what you can do with it — where your handle is the button that
+  changes it and a Link button stands in when there is none, opening the
+  dialog already pointed at that app. So you can see at a glance where you
   are recognised and where you are not, without a separate list to reconcile
   against. Linking is not an admin action: a member of the server sees the same
   card and can link on any app in it, and only the Connect button is withheld.
+- **The server page warns when an owner-only agent cannot recognise you**, and
+  only then. One line at the top of **Messaging apps** names the apps you have
+  not linked — shown when you own an agent on that server whose rule admits its
+  owner, and never otherwise. Link everywhere, or own no such agent, and there
+  is nothing to see: a warning shown to everybody teaches people to ignore it.
 - **A new agent now answers only its owner.** Agents used to be created open to
   everyone in every room; the add-agent dialog now defaults to an owner-only
   rule and offers an agent picker for the manager/orchestrator case, where

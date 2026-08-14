@@ -5,6 +5,7 @@ import {
 } from '@main/core/managed-switch-server/managed-server-status';
 import { ManagedServerStoppedError } from '@shared/core/managed-switch-server/managed-switch-server';
 import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
+import { policyNamesOwner } from '@shared/core/switch-servers/owner-policy';
 import type {
   AddressingPolicy,
   BridgeConfigField,
@@ -335,8 +336,10 @@ export async function fetchAgents(server: SwitchServer): Promise<RemoteAgentSumm
     name: string;
     description: string;
     connector_type: string;
+    owner_id?: string | null;
     owner_name: string | null;
     known_agent_type: string | null;
+    addressing_policy?: AddressingPolicy | null;
     created_at: string;
   }>;
   return json.map((a) => ({
@@ -344,8 +347,10 @@ export async function fetchAgents(server: SwitchServer): Promise<RemoteAgentSumm
     name: a.name,
     description: a.description,
     connectorType: a.connector_type,
+    ownerId: a.owner_id ?? null,
     ownerName: a.owner_name,
     knownAgentType: a.known_agent_type,
+    addressingPolicy: a.addressing_policy ?? null,
     createdAt: a.created_at,
   }));
 }
@@ -368,8 +373,10 @@ export async function fetchAgentDetail(
     name: string;
     description: string;
     connector_type: string;
+    owner_id?: string | null;
     owner_name: string | null;
     known_agent_type: string | null;
+    addressing_policy?: AddressingPolicy | null;
     created_at: string;
   };
   return {
@@ -377,8 +384,10 @@ export async function fetchAgentDetail(
     name: json.name,
     description: json.description,
     connectorType: json.connector_type,
+    ownerId: json.owner_id ?? null,
     ownerName: json.owner_name,
     knownAgentType: json.known_agent_type,
+    addressingPolicy: json.addressing_policy ?? null,
     createdAt: json.created_at,
   };
 }
@@ -502,6 +511,26 @@ export async function fetchAddressingPolicy(
     addressing_policy?: AddressingPolicy | null;
   };
   return json.addressing_policy ?? null;
+}
+
+/**
+ * Whether the signed-in user owns an agent here whose addressing policy admits
+ * its owner — the only case in which having claimed no messaging account costs
+ * them anything (CHOO-2137).
+ *
+ * Both halves of the answer are on the agent list — `GET /agents` carries each
+ * agent's `owner_id` and its policy — so this costs that list and `/auth/me`,
+ * however many agents the user owns.
+ *
+ * A server too old to report the policy on the list leaves every agent reading
+ * as open, so the warning stays quiet. That is the same answer as owning no
+ * restricted agent, and the safe direction for a warning to be wrong in.
+ */
+export async function ownsOwnerAddressedAgent(server: SwitchServer): Promise<boolean> {
+  const [me, agents] = await Promise.all([fetchMe(server), fetchAgents(server)]);
+  return agents.some(
+    (agent) => agent.ownerId === me.id && policyNamesOwner(agent.addressingPolicy)
+  );
 }
 
 /**

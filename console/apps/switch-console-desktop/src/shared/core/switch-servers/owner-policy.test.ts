@@ -3,6 +3,7 @@ import type { AddressingPolicy } from '@shared/core/switch-servers/switch-server
 import {
   type AddressingMode,
   addressingModeOf,
+  policyNamesOwner,
   ownerOnlyPolicy,
   ownerRuleAgentIds,
   policyForMode,
@@ -69,6 +70,36 @@ const HAND_BUILT: AddressingPolicy = {
     { rooms: '*', room_groups: ['group-1'], users: [], agents: ['agent-a'] },
   ],
 };
+
+describe('policyNamesOwner', () => {
+  it('is false for a policy that admits everyone', () => {
+    expect(policyNamesOwner(null)).toBe(false);
+    expect(policyNamesOwner({ rules: [] })).toBe(false);
+  });
+
+  it('is true for the owner-only shortcut', () => {
+    expect(policyNamesOwner(ownerOnlyPolicy([]))).toBe(true);
+    expect(policyNamesOwner(ownerOnlyPolicy(['agent-a']))).toBe(true);
+  });
+
+  it('is true for a hand-built rule set that names the owner', () => {
+    // Not only the shape the chooser calls `owner`: what matters is whether the
+    // agent has to recognise its owner at all, and this one does.
+    expect(addressingModeOf(HAND_BUILT)).toBe('custom');
+    expect(policyNamesOwner(HAND_BUILT)).toBe(true);
+  });
+
+  it('is false for rules that name people rather than the owner', () => {
+    expect(
+      policyNamesOwner({
+        rules: [
+          { rooms: '*', room_groups: '*', users: ['user-1'], agents: [], owner: false },
+          { rooms: '*', room_groups: '*', users: [], agents: ['agent-a'] },
+        ],
+      })
+    ).toBe(false);
+  });
+});
 
 describe('addressingModeOf', () => {
   it('reads an absent policy as anyone', () => {

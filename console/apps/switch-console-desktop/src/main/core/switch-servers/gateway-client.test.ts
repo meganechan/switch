@@ -8,6 +8,7 @@ import {
   HostUnreachableError,
   unknownHostReachability,
 } from '@shared/core/remote-hosts/reachability';
+import { ownerOnlyPolicy } from '@shared/core/switch-servers/owner-policy';
 
 const getSessionCookie = vi.hoisted(() => vi.fn());
 const refreshSession = vi.hoisted(() => vi.fn());
@@ -26,7 +27,8 @@ vi.mock('@main/core/managed-switch-server/managed-server-status', () => ({
 vi.mock('./servers-store', () => ({ getSessionCookie }));
 vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
 
-const { createRoom, fetchBridges, fetchMe, registerKnownAgent } = await import('./gateway-client');
+const { createRoom, fetchBridges, fetchMe, ownsOwnerAddressedAgent, registerKnownAgent } =
+  await import('./gateway-client');
 
 const SERVER = {
   id: 'srv-1',
@@ -464,5 +466,113 @@ describe('registerKnownAgent', () => {
       options: { channels_enabled: true, repo_dir: '/repo' },
       overwrite: false,
     });
+  });
+});
+
+describe('ownsOwnerAddressedAgent', () => {
+  let listedAgents: unknown[] = [];
+  const routedFetch = vi.fn<(url: string) => Promise<Response>>();
+
+  /** An agent as `GET /agents` returns it, with only the fields the probe uses
+   * spelled out per case. */
+  function listedAgent(fields: {
+    id: string;
+    owner_id: string | null;
+    addressing_policy?: unknown;
+  }): unknown {
+    return {
+      name: fields.id,
+      description: '',
+      connector_type: 'http',
+      owner_name: null,
+      known_agent_type: null,
+      created_at: '2026-01-01T00:00:00Z',
+      ...fields,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listedAgents = [];
+    // `GET /auth/me` answers as `u1`; everything else is the agent list.
+    routedFetch.mockImplementation(async (url: string) =>
+      url.endsWith('/auth/me') ? okMeResponse() : jsonResponse(listedAgents)
+    );
+    vi.stubGlobal('fetch', routedFetch);
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reads the whole answer off the agent list', async () => {
+    // The policy is on the list response now, so the probe costs `/auth/me`
+    // plus `/agents` and nothing per agent — however many the user owns
+    // (CHOO-2137).
+    listedAgents = Array.from({ length: 20 }, (_, i) =>
+      listedAgent({
+        id: `a${i}`,
+        owner_id: 'u1',
+        addressing_policy: ownerOnlyPolicy([]),
+      })
+    );
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(true);
+    expect(routedFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('ignores an owner-restricted agent belonging to somebody else', async () => {
+    listedAgents = [
+      listedAgent({ id: 'theirs', owner_id: 'u2', addressing_policy: ownerOnlyPolicy([]) }),
+    ];
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(false);
+  });
+
+  it('ignores an agent of the user’s that anyone may address', async () => {
+    listedAgents = [
+      listedAgent({ id: 'open', owner_id: 'u1', addressing_policy: null }),
+      listedAgent({ id: 'rule-less', owner_id: 'u1', addressing_policy: { rules: [] } }),
+    ];
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(false);
+  });
+
+  it('counts a hand-built policy that names the owner, not just the shortcut', async () => {
+    // A rule set the chooser calls `custom` still leans on owner recognition,
+    // so an unlinked account costs the user just as much there.
+    listedAgents = [
+      listedAgent({
+        id: 'scoped',
+        owner_id: 'u1',
+        addressing_policy: {
+          rules: [
+            { rooms: ['room-1'], room_groups: '*', users: [], agents: [], owner: true },
+            { rooms: '*', room_groups: '*', users: ['u9'], agents: [], owner: false },
+          ],
+        },
+      }),
+    ];
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(true);
+  });
+
+  it('stays quiet against a server that does not report policies on the list', async () => {
+    // Older switch-core carries `addressing_policy` only on `GET /agents/{id}`.
+    // Absent has to read as "nothing to warn about" rather than warn on a guess.
+    listedAgents = [listedAgent({ id: 'unknown-policy', owner_id: 'u1' })];
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(false);
+  });
+
+  it('propagates a failed list read instead of answering false', async () => {
+    // The caller turns a rejection into a log line and no warning; a false here
+    // would be indistinguishable from a real "you own nothing restricted".
+    routedFetch.mockImplementation(async (url: string) =>
+      url.endsWith('/auth/me') ? okMeResponse() : errorResponse(503, 'gateway down')
+    );
+
+    await expect(ownsOwnerAddressedAgent(SERVER)).rejects.toMatchObject({ status: 503 });
   });
 });

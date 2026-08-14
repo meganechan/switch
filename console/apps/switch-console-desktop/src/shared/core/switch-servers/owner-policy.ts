@@ -4,7 +4,26 @@ import type { AddressingPolicy } from '@shared/core/switch-servers/switch-server
  * The addressing policy a newly created agent starts on, the reverse reading
  * the "allow these agents" picker works from, and the mapping between a policy
  * and the three choices the UI offers for it (CHOO-2137).
+ *
+ * Shared rather than renderer-local because the main process reads policies
+ * too — the owner-recognition probe in `gateway-client.ts` asks the same
+ * question of a policy the chooser does, and one reading of `owner: true` that
+ * both sides use is the point.
  */
+
+/**
+ * Whether any rule admits the agent's owner. Such a policy leans on the owner
+ * having claimed a messaging identity, so it is the question both the rule
+ * editor's warning and the messaging-apps warning are really asking.
+ *
+ * Any rule carrying `owner: true` counts, not just the {@link addressingModeOf}
+ * `owner` shape: a hand-built rule set that names the owner depends on owner
+ * recognition exactly as much as the shortcut does. A null policy is open, and
+ * an open agent answers everyone regardless of who they are recognised as.
+ */
+export function policyNamesOwner(policy: AddressingPolicy | null): boolean {
+  return policy !== null && policy.rules.some((rule) => rule.owner === true);
+}
 
 /**
  * What the "Who can send instructions" chooser offers.

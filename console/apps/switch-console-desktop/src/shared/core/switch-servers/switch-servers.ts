@@ -178,8 +178,17 @@ export type RemoteAgentSummary = {
   name: string;
   description: string;
   connectorType: string;
+  /** Switch user id of the agent's owner, or null for an agent registered
+   * before ownership was tracked. The id rather than the name is what an
+   * "is this mine" check can be made against. */
+  ownerId: string | null;
   ownerName: string | null;
   knownAgentType: string | null;
+  /** Who may address the agent, or null when it is open to everyone. On the
+   * summary as well as the detail, so "which of these agents answers only its
+   * owner" is one list read rather than a read per agent. Null also for a
+   * server older than the field, which reads the same as open. */
+  addressingPolicy: AddressingPolicy | null;
   createdAt: string;
 };
 

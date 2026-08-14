@@ -59,12 +59,6 @@ export function policyHasDeadRule(policy: AddressingPolicy | null): boolean {
   return policy !== null && policy.rules.some((r) => deadRuleReason(r) !== null);
 }
 
-/** Whether any rule admits the agent's owner. Such a policy leans on the owner
- * having claimed a messaging identity, which is what the warning below checks. */
-export function policyNamesOwner(policy: AddressingPolicy | null): boolean {
-  return policy !== null && policy.rules.some((r) => r.owner === true);
-}
-
 /**
  * Controlled editor for the rule list of an agent's scoped addressing policy
  * (CHOO-1585). Rendered only behind the "Custom rules" choice in

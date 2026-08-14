@@ -1,12 +1,5 @@
 import { CircleAlert, X } from 'lucide-react';
 import { useState } from 'react';
-import {
-  type AddressingMode,
-  addressingModeOf,
-  ownerOnlyPolicy,
-  ownerRuleAgentIds,
-  policyForMode,
-} from '@renderer/features/locations/components/add-agent-modal/owner-policy';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import {
@@ -16,12 +9,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
-import type { AddressingPolicy, LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
 import {
-  AddressingPolicyEditor,
-  type OptionItem,
+  type AddressingMode,
+  addressingModeOf,
+  ownerOnlyPolicy,
+  ownerRuleAgentIds,
+  policyForMode,
   policyNamesOwner,
-} from './addressing-policy-editor';
+} from '@shared/core/switch-servers/owner-policy';
+import type { AddressingPolicy, LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
+import { AddressingPolicyEditor, type OptionItem } from './addressing-policy-editor';
 
 const MODE_LABELS: Record<AddressingMode, string> = {
   owner: 'Only me (default)',

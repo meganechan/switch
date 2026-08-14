@@ -77,6 +77,7 @@ import {
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
+  ownsOwnerAddressedAgent,
   releaseBridgeIdentity,
   removeRoomAgent,
   updateAddressingPolicy,
@@ -349,6 +350,12 @@ export const switchServersController = createRPCController({
   /** The messaging accounts the signed-in user has claimed on this server. */
   listMyIdentities: async (serverId: string): Promise<LinkedIdentity[]> =>
     fetchMyIdentities(await requireServer(serverId)),
+
+  /** Whether the signed-in user owns an agent here that is set to answer its
+   * owner, which is what makes an unlinked messaging account worth warning
+   * about. One agent-list read, so callers need not ration it. */
+  ownsOwnerAddressedAgent: async (serverId: string): Promise<boolean> =>
+    ownsOwnerAddressedAgent(await requireServer(serverId)),
 
   getAddressingPolicy: async (params: {
     serverId: string;
