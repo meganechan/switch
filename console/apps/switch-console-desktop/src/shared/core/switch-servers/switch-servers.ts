@@ -342,6 +342,82 @@ export type RemoteExternalUser = {
 };
 
 /**
+ * Someone found in a messaging platform's own user directory (mirrors the
+ * gateway `DirectoryUserSummary`).
+ *
+ * Switch only records a person once they have spoken, so a freshly connected
+ * workspace has nobody to pick from. The directory is the platform's, which is
+ * what lets a user claim their account before ever posting.
+ */
+export type BridgeDirectoryUser = {
+  /** The platform's own id (a Slack `U…`, a Mattermost user id). */
+  externalUserId: string;
+  username: string;
+  displayName: string;
+  email: string | null;
+  /** The `ExternalUser` row id when Switch has already seen this person, else
+   * null. Present rows are reused on claim rather than duplicated. */
+  knownExternalUserId: string | null;
+  claimedByUserId: string | null;
+  claimedByUserName: string | null;
+};
+
+/**
+ * Outcome of searching a bridge's user directory.
+ *
+ * `unsupported` is its own case rather than an empty list: a platform with no
+ * searchable directory (Telegram) answers 501, and the only way forward is to
+ * post a message so Switch learns the account exists. Showing "no matches"
+ * there would send the user searching harder for something that can never
+ * appear.
+ */
+export type BridgeDirectorySearchResult =
+  | { kind: 'results'; users: BridgeDirectoryUser[] }
+  | { kind: 'unsupported'; message: string }
+  | { kind: 'bridge-unavailable'; message: string }
+  | { kind: 'unauthenticated' }
+  | { kind: 'error'; message: string };
+
+/** Claim a platform identity for the signed-in Switch user (CHOO-2137). */
+export type ClaimIdentityParams = {
+  serverId: string;
+  bridgeId: string;
+  /** The platform's own id, not an `ExternalUser` row id — the row may not
+   * exist yet, and the server creates it on demand. */
+  externalUserId: string;
+  username: string;
+};
+
+/**
+ * Outcome of claiming an identity. `conflict` is the one failure a user can
+ * reason about: someone else already holds that account, so this is not a
+ * silent takeover.
+ */
+export type ClaimIdentityResult =
+  | { kind: 'claimed'; identity: LinkedIdentity }
+  | { kind: 'conflict'; message: string }
+  | { kind: 'unauthenticated' }
+  | { kind: 'error'; message: string };
+
+/**
+ * One messaging account the signed-in user has claimed (mirrors the gateway
+ * `LinkedIdentity`).
+ *
+ * An agent whose addressing policy names its owner is only reachable by that
+ * owner over a bridge that appears in this list — which is why the app reads it
+ * to warn before a policy seals an agent off from everybody.
+ */
+export type LinkedIdentity = {
+  /** The `ExternalUser` row id; what unclaiming addresses. */
+  id: string;
+  bridgeId: string;
+  bridgeDisplayName: string;
+  bridgeType: string;
+  externalUserId: string;
+  externalUsername: string;
+};
+
+/**
  * Scoped agent-addressing permissions (CHOO-1585). Each dimension is "*" (any)
  * or an explicit id list ([] = none). A policy with no rules — or a null policy
  * on the agent — means it is open to anyone. `users` ids are ExternalUser ids;
@@ -354,6 +430,17 @@ export type AddressingRule = {
   room_groups: AddressingDimension;
   users: AddressingDimension;
   agents: AddressingDimension;
+  /**
+   * Admit the agent's owner, resolved when the message arrives rather than
+   * frozen into the `users` list (CHOO-2137). It survives connecting a new
+   * workspace, recreating a bridge, or the agent changing hands — but it can
+   * only recognise an owner who has claimed their messaging account, so a rule
+   * that names the owner on a platform where they have not admits nobody.
+   *
+   * Optional because a policy written before the field exists carries no
+   * `owner` key; absent reads as false, as it does server-side.
+   */
+  owner?: boolean;
 };
 
 export type AddressingPolicy = {

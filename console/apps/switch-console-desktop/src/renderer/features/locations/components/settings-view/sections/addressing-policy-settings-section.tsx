@@ -6,7 +6,9 @@ import {
   type OptionItem,
   policyHasDeadRule,
 } from '@renderer/features/switch-servers/addressing-policy-editor';
+import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
+import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Field, FieldDescription, FieldTitle } from '@renderer/lib/ui/field';
 import { log } from '@renderer/utils/logger';
@@ -76,6 +78,8 @@ function AddressingPolicyRow({
   showName: boolean;
 }) {
   const queryClient = useQueryClient();
+  const showClaimIdentity = useShowModal('claimIdentityModal');
+  const { identities, refresh: refreshIdentities } = useMyIdentities(serverId);
   const [draft, setDraft] = useState<AddressingPolicy | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -145,6 +149,10 @@ function AddressingPolicyRow({
         roomGroups={groupOptions}
         users={userOptions}
         agents={agentOptions}
+        linkedIdentities={identities}
+        onClaimIdentity={() =>
+          showClaimIdentity({ serverId, onSuccess: () => refreshIdentities() })
+        }
         disabled={mutation.isPending}
       />
       {error && <span className="text-destructive text-xs">{error}</span>}

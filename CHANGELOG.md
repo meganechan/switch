@@ -428,6 +428,38 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+
+- **You can tell Switch which messaging-app account is yours.** A new dialog
+  searches the workspace's own user directory — Slack, Mattermost — and links
+  the account you pick to your Switch login. It searches the platform rather
+  than Switch's record of who has spoken, so you can find yourself in a
+  workspace you have never posted in, and it shows the display name, handle and
+  email so you can tell two similar accounts apart. Accounts already claimed are
+  marked with who holds them and cannot be taken over. A platform with no
+  searchable directory says so — and says a message has to arrive first —
+  instead of showing an empty list (CHOO-2137).
+- The dialog is offered as step 2 of connecting a messaging app, straight after
+  the connection succeeds, because that is the one moment the workspace is on
+  your mind. It is skippable; the server page has a **Your messaging accounts**
+  card that reopens it, lists what you have linked, and unlinks any of it.
+- **A new agent now answers only its owner.** Agents used to be created open to
+  everyone in every room; the add-agent dialog now defaults to an owner-only
+  rule and offers an agent picker for the manager/orchestrator case, where
+  another agent — not a person — needs to delegate to it. The rule names the
+  owner rather than a list of identities, so it survives connecting a new
+  workspace or the agent changing hands. Existing agents are untouched.
+
+#### Changed
+
+- An addressing rule can admit **the agent's owner** as a sender kind of its
+  own, next to the users and agents lists, and says so in the collapsed rule
+  summary.
+- An owner rule can only recognise an owner who has linked their messaging
+  account, so the addressing editor warns — with a button into the linking
+  dialog — when the signed-in user has linked none. A privacy control that
+  silently admits nobody is the failure this exists to prevent.
+
 ### [0.23.0] - 2026-08-14
 
 #### Added

@@ -8,6 +8,8 @@ import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
   AddressingPolicy,
   BridgeConfigField,
+  BridgeDirectoryUser,
+  LinkedIdentity,
   RemoteAgentRoom,
   RemoteAgentSummary,
   RemoteBridge,
@@ -655,6 +657,16 @@ export async function createBridge(
   };
 }
 
+/** The gateway `ExternalUserSummary` wire shape. */
+type ExternalUserSummaryJson = {
+  id: string;
+  bridge_id: string;
+  external_user_id: string;
+  external_username: string;
+  user_id?: string | null;
+  user_name?: string | null;
+};
+
 /**
  * Union of external (bridged human) users across every bridge on the server
  * (`GET /collaborations`, then each bridge's `/users`). The addressing policy's
@@ -669,10 +681,116 @@ export async function fetchAllExternalUsers(server: SwitchServer): Promise<Remot
       `/collaborations/${encodeURIComponent(bridge.id)}/users`,
       { authenticated: true }
     );
-    const users = (await res.json()) as Array<{ id: string; external_username: string }>;
+    const users = (await res.json()) as ExternalUserSummaryJson[];
     for (const u of users) byId.set(u.id, { id: u.id, username: u.external_username });
   }
   return [...byId.values()];
+}
+
+/**
+ * Search one bridge's own user directory (`GET /collaborations/{id}/directory`).
+ *
+ * This asks the messaging platform rather than Switch's record of who has
+ * spoken, which is what lets someone claim their account in a workspace they
+ * have never posted in. A platform with no searchable directory answers 501 and
+ * a stopped bridge 409; both surface as a `GatewayError` the caller maps onto
+ * something it can say out loud rather than an empty result list.
+ */
+export async function searchBridgeDirectory(
+  server: SwitchServer,
+  bridgeId: string,
+  query: string
+): Promise<BridgeDirectoryUser[]> {
+  const res = await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/directory?query=${encodeURIComponent(query)}`,
+    { authenticated: true }
+  );
+  const json = (await res.json()) as Array<{
+    external_user_id: string;
+    username: string;
+    display_name: string;
+    email?: string | null;
+    known_external_user_id?: string | null;
+    claimed_by_user_id?: string | null;
+    claimed_by_user_name?: string | null;
+  }>;
+  return json.map((u) => ({
+    externalUserId: u.external_user_id,
+    username: u.username,
+    displayName: u.display_name,
+    email: u.email ?? null,
+    knownExternalUserId: u.known_external_user_id ?? null,
+    claimedByUserId: u.claimed_by_user_id ?? null,
+    claimedByUserName: u.claimed_by_user_name ?? null,
+  }));
+}
+
+/**
+ * Claim a platform identity for the signed-in user
+ * (`POST /collaborations/{id}/identities`). `user_id` is deliberately omitted:
+ * Switch Console only ever claims on behalf of whoever is signed in, and
+ * claiming for someone else is an admin action that belongs in the operator
+ * dashboard. A 409 (already held by a different user) surfaces as a
+ * `GatewayError` with that status.
+ */
+export async function claimBridgeIdentity(
+  server: SwitchServer,
+  bridgeId: string,
+  params: { externalUserId: string; username: string }
+): Promise<ExternalUserSummaryJson> {
+  const res = await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/identities`,
+    {
+      authenticated: true,
+      method: 'POST',
+      body: { external_user_id: params.externalUserId, username: params.username },
+    }
+  );
+  return (await res.json()) as ExternalUserSummaryJson;
+}
+
+/**
+ * Release a claimed identity (`DELETE /collaborations/{id}/identities/{rowId}`).
+ * `externalUserRowId` is the `ExternalUser` row id, not the platform's id.
+ */
+export async function releaseBridgeIdentity(
+  server: SwitchServer,
+  bridgeId: string,
+  externalUserRowId: string
+): Promise<void> {
+  await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/identities/${encodeURIComponent(externalUserRowId)}`,
+    { authenticated: true, method: 'DELETE' }
+  );
+}
+
+/**
+ * The messaging accounts the signed-in user has claimed
+ * (`GET /auth/me/identities`). An agent whose policy names its owner is
+ * unreachable by that owner on any bridge missing from this list, so this is
+ * what the addressing UI checks before letting a policy seal an agent off.
+ */
+export async function fetchMyIdentities(server: SwitchServer): Promise<LinkedIdentity[]> {
+  const res = await gatewayFetch(server, '/auth/me/identities', { authenticated: true });
+  const json = (await res.json()) as Array<{
+    id: string;
+    bridge_id: string;
+    bridge_display_name: string;
+    bridge_type: string;
+    external_user_id: string;
+    external_username: string;
+  }>;
+  return json.map((i) => ({
+    id: i.id,
+    bridgeId: i.bridge_id,
+    bridgeDisplayName: i.bridge_display_name,
+    bridgeType: i.bridge_type,
+    externalUserId: i.external_user_id,
+    externalUsername: i.external_username,
+  }));
 }
 
 /** A subagent registered via the bulk endpoint. `apiKey` is a secret — keep it

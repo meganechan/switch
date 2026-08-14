@@ -31,6 +31,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
 }) {
   const queryClient = useQueryClient();
   const showConnectMessagingApp = useShowModal('connectMessagingAppModal');
+  const showClaimIdentity = useShowModal('claimIdentityModal');
   const isAdmin = switchServersStore.statusFor(serverId)?.user?.role === 'admin';
   // Only a stack Switch Console runs has a chat whose credentials it generated and
   // can therefore show; anyone else's Mattermost is their own to hand out.
@@ -58,11 +59,16 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
             onClick={() =>
               showConnectMessagingApp({
                 serverId,
-                onSuccess: () => {
+                onSuccess: ({ bridgeId }) => {
                   // Refresh the bridge list everywhere it is consumed — this
                   // card and the room-creation picker share the query key.
                   void queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] });
                   void switchRoomsStore.refreshRoomState();
+                  // Step 2 of connecting a workspace: say which account in it
+                  // is yours (CHOO-2137). Offered here because this is the one
+                  // moment the workspace is on the user's mind, and it is
+                  // skippable — the card below reopens it whenever they want.
+                  showClaimIdentity({ serverId, bridgeId });
                 },
               })
             }

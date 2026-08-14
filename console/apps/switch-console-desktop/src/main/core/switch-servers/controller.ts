@@ -25,11 +25,15 @@ import type {
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  BridgeDirectorySearchResult,
   BundledChatSignIn,
+  ClaimIdentityParams,
+  ClaimIdentityResult,
   CreateBridgeParams,
   CreateBridgeResult,
   CreateRoomParams,
   CreateRoomResult,
+  LinkedIdentity,
   PasswordLoginParams,
   ProvisionAgentParams,
   ProvisionAgentResult,
@@ -67,15 +71,18 @@ import {
   fetchBridges,
   fetchBridgeTypes,
   fetchMe,
+  fetchMyIdentities,
   fetchRoomAgentIds,
   fetchRoomGroups,
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
+  releaseBridgeIdentity,
   removeRoomAgent,
   updateAddressingPolicy,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
+import { claimIdentityOnServer, searchDirectoryOnServer } from './identities';
 import {
   addServer,
   deleteSessionCookie,
@@ -296,6 +303,47 @@ export const switchServersController = createRPCController({
 
   listRemoteExternalUsers: async (serverId: string): Promise<RemoteExternalUser[]> =>
     fetchAllExternalUsers(await requireServer(serverId)),
+
+  /**
+   * Search a bridge's own user directory so the signed-in user can find
+   * themselves before they have ever posted in the workspace (CHOO-2137).
+   */
+  searchBridgeDirectory: async (params: {
+    serverId: string;
+    bridgeId: string;
+    query: string;
+  }): Promise<BridgeDirectorySearchResult> =>
+    searchDirectoryOnServer(
+      await requireReachableServer(params.serverId),
+      params.bridgeId,
+      params.query
+    ),
+
+  /** Claim a messaging-app account as the signed-in Switch user's own. */
+  claimBridgeIdentity: async (params: ClaimIdentityParams): Promise<ClaimIdentityResult> =>
+    claimIdentityOnServer(await requireReachableServer(params.serverId), {
+      bridgeId: params.bridgeId,
+      externalUserId: params.externalUserId,
+      username: params.username,
+    }),
+
+  /** Give up a claimed identity. Failures propagate: unclaiming is a deliberate
+   * act, and reporting success for one that did not happen would leave the user
+   * thinking an agent is no longer reachable by them when it still is. */
+  releaseBridgeIdentity: async (params: {
+    serverId: string;
+    bridgeId: string;
+    identityId: string;
+  }): Promise<void> =>
+    releaseBridgeIdentity(
+      await requireReachableServer(params.serverId),
+      params.bridgeId,
+      params.identityId
+    ),
+
+  /** The messaging accounts the signed-in user has claimed on this server. */
+  listMyIdentities: async (serverId: string): Promise<LinkedIdentity[]> =>
+    fetchMyIdentities(await requireServer(serverId)),
 
   getAddressingPolicy: async (params: {
     serverId: string;

@@ -4,6 +4,7 @@ import { rpc } from '@renderer/lib/ipc';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 import { basenameFromAnyPath } from '@shared/path-name';
+import { ownerOnlyPolicy, ownerRuleAgentIds } from './owner-policy';
 
 /** Switch agent-name charset, enforced server-side too: lowercase letters,
  * digits, `.`, `-`, `_`, starting with a letter or digit. */
@@ -65,9 +66,11 @@ export function useConfigureAgentForm(
   const [descriptionTouched, setDescriptionTouched] = useState(false);
   const [autoSession, setAutoSession] = useState(true);
   const [autoApprove, setAutoApprove] = useState(defaultAutoApprove);
-  // Scoped addressing policy (CHOO-1585). null = open (default); set to restrict
-  // who can address the new agent. Applied via a follow-up PUT after creation.
-  const [addressingPolicy, setAddressingPolicy] = useState<AddressingPolicy | null>(null);
+  // Scoped addressing policy (CHOO-1585). null = open; a new agent starts
+  // owner-only (CHOO-2137). Applied via a follow-up PUT after creation.
+  const [addressingPolicy, setAddressingPolicy] = useState<AddressingPolicy | null>(() =>
+    ownerOnlyPolicy([])
+  );
 
   const trimmedDir = dir.trim();
   // suggestAgentDefaults derives name/description from the directory basename and
@@ -113,6 +116,10 @@ export function useConfigureAgentForm(
     setAutoApprove,
     addressingPolicy,
     setAddressingPolicy,
+    /** Agents granted alongside the owner, or null once the policy no longer
+     * has the owner-only shape the picker edits. */
+    allowedAgentIds: ownerRuleAgentIds(addressingPolicy),
+    setAllowedAgentIds: (ids: string[]) => setAddressingPolicy(ownerOnlyPolicy(ids)),
     isValid,
   };
 }

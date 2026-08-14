@@ -1,7 +1,8 @@
-import { Trash2, X } from 'lucide-react';
+import { CircleAlert, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
+import { Checkbox } from '@renderer/lib/ui/checkbox';
 import { Input } from '@renderer/lib/ui/input';
 import {
   Select,
@@ -14,13 +15,20 @@ import type {
   AddressingDimension,
   AddressingPolicy,
   AddressingRule,
+  LinkedIdentity,
 } from '@shared/core/switch-servers/switch-servers';
 
 export type OptionItem = { id: string; label: string };
 
 type DimKey = 'rooms' | 'room_groups' | 'users' | 'agents';
 
-const EMPTY_RULE: AddressingRule = { rooms: '*', room_groups: '*', users: '*', agents: '*' };
+const EMPTY_RULE: AddressingRule = {
+  rooms: '*',
+  room_groups: '*',
+  users: '*',
+  agents: '*',
+  owner: false,
+};
 
 /** A "Specific" dimension with an empty list matches nobody. */
 function matchesNobody(dim: AddressingDimension): boolean {
@@ -31,14 +39,16 @@ function matchesNobody(dim: AddressingDimension): boolean {
  * Why a rule can never match (so it would silently never apply), or null when it
  * is effective. A context dimension (rooms / room groups) that matches nobody
  * kills the rule outright; the sender is dead only when BOTH users and agents
- * match nobody (an empty list on just one kind is the intentional "none").
+ * match nobody AND the rule does not admit the owner (an empty list on just one
+ * kind is the intentional "none", and owner-only is the whole point of the
+ * default policy).
  */
 function deadRuleReason(rule: AddressingRule): string | null {
   if (matchesNobody(rule.rooms)) return 'Rooms is Specific but empty — this rule never applies.';
   if (matchesNobody(rule.room_groups)) {
     return 'Room groups is Specific but empty — this rule never applies.';
   }
-  if (matchesNobody(rule.users) && matchesNobody(rule.agents)) {
+  if (rule.owner !== true && matchesNobody(rule.users) && matchesNobody(rule.agents)) {
     return 'Both Users and Agents are empty — no sender can match, so this rule never applies.';
   }
   return null;
@@ -48,6 +58,12 @@ function deadRuleReason(rule: AddressingRule): string | null {
  * so an inert rule can't be persisted silently. */
 export function policyHasDeadRule(policy: AddressingPolicy | null): boolean {
   return policy !== null && policy.rules.some((r) => deadRuleReason(r) !== null);
+}
+
+/** Whether any rule admits the agent's owner. Such a policy leans on the owner
+ * having claimed a messaging identity, which is what the warning below checks. */
+export function policyNamesOwner(policy: AddressingPolicy | null): boolean {
+  return policy !== null && policy.rules.some((r) => r.owner === true);
 }
 
 /**
@@ -64,6 +80,8 @@ export function AddressingPolicyEditor({
   roomGroups,
   users,
   agents,
+  linkedIdentities,
+  onClaimIdentity,
   disabled = false,
 }: {
   value: AddressingPolicy | null;
@@ -72,6 +90,15 @@ export function AddressingPolicyEditor({
   roomGroups: OptionItem[];
   users: OptionItem[];
   agents: OptionItem[];
+  /** Messaging accounts the signed-in user has claimed on this server. An
+   * owner rule resolves through these, so an empty list means such a rule
+   * admits nobody. Null while unknown — no warning is drawn from a list that
+   * has not arrived. */
+  linkedIdentities: LinkedIdentity[] | null;
+  /** Opens the claim-your-identity modal. Null where a modal cannot be opened
+   * over the current one (the add-agent dialog), which turns the warning into
+   * a statement rather than an action that would discard the form. */
+  onClaimIdentity: (() => void) | null;
   disabled?: boolean;
 }) {
   const restricted = value !== null;
@@ -119,6 +146,10 @@ export function AddressingPolicyEditor({
         </SelectContent>
       </Select>
 
+      {restricted && policyNamesOwner(value) && linkedIdentities?.length === 0 && (
+        <OwnerUnreachableWarning onClaimIdentity={onClaimIdentity} />
+      )}
+
       {restricted && (
         <div className="flex flex-col gap-3">
           {rules.length === 0 && (
@@ -162,6 +193,24 @@ export function AddressingPolicyEditor({
                   disabled={disabled}
                   onChange={(room_groups) => updateRule(index, { ...rule, room_groups })}
                 />
+                <label className="flex cursor-pointer items-start gap-2 pl-1">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={rule.owner === true}
+                    disabled={disabled}
+                    onCheckedChange={(checked) =>
+                      updateRule(index, { ...rule, owner: checked === true })
+                    }
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-xs font-medium">The agent&apos;s owner</span>
+                    <span className="text-xs text-foreground-muted">
+                      Resolved when the message arrives, so it survives connecting a new workspace
+                      or the agent changing hands. Needs the owner to have linked their messaging
+                      account.
+                    </span>
+                  </span>
+                </label>
                 <DimensionRow
                   label="Users"
                   value={rule.users}
@@ -226,6 +275,36 @@ export function AddressingPolicyEditor({
   );
 }
 
+/**
+ * Shown when a rule admits the agent's owner but the signed-in user has claimed
+ * no messaging account, which is exactly the case where a privacy control ends
+ * up admitting nobody. Silence here would look like a working restriction right
+ * up until someone wonders why the agent never answers.
+ */
+function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => void) | null }) {
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <span>
+          This rule admits the agent&apos;s owner, but you have not linked a messaging account on
+          this server — so Switch cannot tell that a message from you is from you, and the agent
+          will answer nobody.
+        </span>
+        {onClaimIdentity === null ? (
+          <span className="text-foreground-muted">
+            Link your account from the server page, under “Your messaging accounts”.
+          </span>
+        ) : (
+          <Button variant="outline" size="sm" className="self-start" onClick={onClaimIdentity}>
+            Link my messaging account
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Human-readable summary of one dimension for the collapsed rule view. */
 function dimLabel(dim: AddressingDimension, options: OptionItem[]): string {
   if (dim === '*') return 'any';
@@ -268,6 +347,9 @@ function RuleSummary({
           <span>
             <span className="font-medium">Room groups:</span>{' '}
             {dimLabel(rule.room_groups, roomGroups)}
+          </span>
+          <span>
+            <span className="font-medium">Owner:</span> {rule.owner === true ? 'admitted' : 'no'}
           </span>
           <span>
             <span className="font-medium">Users:</span> {dimLabel(rule.users, users)}

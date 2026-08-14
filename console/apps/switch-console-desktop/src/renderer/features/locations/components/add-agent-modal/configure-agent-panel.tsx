@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useId } from 'react';
 import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
@@ -8,10 +8,19 @@ import {
   type OptionItem,
 } from '@renderer/features/switch-servers/addressing-policy-editor';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
+import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@renderer/lib/ui/select';
 import { Switch } from '@renderer/lib/ui/switch';
 import type { ConfigureAgentFormState } from './modes';
 
@@ -78,6 +87,10 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
     id: a.id,
     label: a.name,
   }));
+
+  // Read here rather than inside the editor so the owner-only default can be
+  // questioned before the agent exists, not after it has gone quiet.
+  const { identities } = useMyIdentities(serverId);
 
   if (servers.length === 0) {
     return (
@@ -188,13 +201,20 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
             Who can address this agent
             <InfoTooltip
               label="More info about addressing"
-              content="Addressing means an @mention, a targeted message, or a delegated task. Open allows any room participant; restricted permits only senders matching a rule. You can change this later from the agent's settings."
+              content="Addressing means an @mention, a targeted message, or a delegated task. A new agent answers only you; grant other agents to let them delegate to it. You can change this later from the agent's settings."
             />
           </span>
         </FieldLabel>
         <span className="text-xs text-foreground-muted">
-          Open to everyone, or restricted to matching senders.
+          New agents answer only their owner. Grant other agents below, or open it up in the rules.
         </span>
+        {form.allowedAgentIds !== null && (
+          <AllowedAgentsPicker
+            options={agentOptions}
+            selected={form.allowedAgentIds}
+            onChange={form.setAllowedAgentIds}
+          />
+        )}
         <AddressingPolicyEditor
           value={form.addressingPolicy}
           onChange={form.setAddressingPolicy}
@@ -202,8 +222,82 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
           roomGroups={groupOptions}
           users={userOptions}
           agents={agentOptions}
+          linkedIdentities={identities}
+          // No claim button: this panel is inside a modal, and the app shows one
+          // at a time — opening the claim dialog here would throw away the form
+          // the user is halfway through. The warning names where to go instead.
+          onClaimIdentity={null}
         />
       </Field>
     </FieldGroup>
   );
 });
+
+/**
+ * Agents allowed to address the new agent alongside its owner — the
+ * manager/orchestrator case, where one agent delegates to another and no human
+ * is in the loop.
+ *
+ * Deliberately narrower than the rule editor below it: the common grant is "let
+ * these agents talk to it", and expressing that through four dimensions is a
+ * lot of form for one idea.
+ */
+function AllowedAgentsPicker({
+  options,
+  selected,
+  onChange,
+}: {
+  options: OptionItem[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const remaining = options.filter((o) => !selected.includes(o.id));
+  const labelFor = (id: string) => options.find((o) => o.id === id)?.label ?? id;
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+      <span className="text-xs font-medium text-foreground-muted">Also allow these agents</span>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {selected.map((id) => (
+            <Badge key={id} variant="secondary" className="gap-1 pr-1">
+              <span className="max-w-[180px] truncate">{labelFor(id)}</span>
+              <button
+                type="button"
+                aria-label={`Remove ${labelFor(id)}`}
+                className="hover:bg-muted rounded-sm"
+                onClick={() => onChange(selected.filter((x) => x !== id))}
+              >
+                <X className="size-3" />
+              </button>
+            </Badge>
+          ))}
+        </div>
+      )}
+      <Select
+        value=""
+        disabled={remaining.length === 0}
+        onValueChange={(next) => {
+          if (typeof next === 'string' && next) onChange([...selected, next]);
+        }}
+      >
+        <SelectTrigger className="h-7 w-full">
+          <SelectValue
+            placeholder={
+              remaining.length === 0
+                ? 'No other agents on this server'
+                : 'Add an agent that may address it…'
+            }
+          />
+        </SelectTrigger>
+        <SelectContent>
+          {remaining.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
