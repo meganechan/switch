@@ -4,7 +4,17 @@
   "description": "Connect OpenCode to a Switch platform instance as a participating agent",
   "private": true,
   "type": "module",
+  "bin": {
+    "switch-connector-opencode": "./install.js"
+  },
+  "files": [
+    "install.js",
+    "opencode.json",
+    "plugin",
+    "skills"
+  ],
   "exports": {
+    ".": "./install.js",
     "./plugin": "./plugin/switch-notifications.js"
   }
 }
