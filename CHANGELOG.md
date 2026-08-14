@@ -396,6 +396,11 @@ version of their own to them without also giving them a release of their own.
   and search as well as the dialog that adds it. The sidebar and search each
   chose the icon themselves; they now share one rule, so the next change lands
   in all three at once.
+- The local server's setup log now fills as the work happens rather than all at
+  once at the end. Every line Docker printed was applied to the screen on its
+  own, and a pull narrates faster than the UI can redraw — so the renderer spent
+  the whole install rebuilding the list instead of painting it. Lines are
+  applied in batches now. The same fix covers a remote host's setup.
 - Setting up the local server no longer looks stalled before Docker says
   anything. The output panel appeared only once the first line arrived, so the
   seconds Docker spends resolving the registry showed as an empty dialog; the
