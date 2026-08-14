@@ -123,9 +123,11 @@ export const CreateRoomModal = observer(function CreateRoomModal({
       // appear with nothing under it until the next reconcile.
       await refreshSidebarRoomState(true);
 
-      // Open what was just created: expanded in the tree, and shown in the main
-      // panel. Creating a room and being left where you were reads as if
-      // nothing happened.
+      // Open what was just created: listed in the sidebar, expanded in the
+      // tree, and shown in the main panel. Creating a room and being left where
+      // you were reads as if nothing happened — and the agent grouping does not
+      // list rooms at all, so the new room would be nowhere on screen.
+      sidebarStore.setGrouping('room');
       sidebarStore.ensureRoomExpanded(result.room.id);
       openRoomView(result.room.id);
 

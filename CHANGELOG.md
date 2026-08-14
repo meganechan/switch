@@ -387,6 +387,24 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Fixed
+- Search results no longer read as though agents, sessions and commands were
+  servers. Those three had no heading of their own, so they were drawn after the
+  last group on screen — usually "Servers" — and appeared to belong to it. Every
+  result now sits under a heading that names it.
+- The server running on this computer shows a laptop everywhere — the sidebar
+  and search as well as the dialog that adds it. The sidebar and search each
+  chose the icon themselves; they now share one rule, so the next change lands
+  in all three at once.
+- Installing the local server shows its progress as it happens rather than in
+  occasional bursts. Compose was left to repaint a progress block, which off a
+  terminal means long silences during the first, slowest run; it is now asked
+  for plain output, which arrives a line at a time.
+- Creating a room switches the sidebar to its Rooms list and selects the new
+  room. It was already opened in the main panel, but the sidebar stayed on
+  Agents, which does not list rooms — so the room you had just made was nowhere
+  in it.
+
 ### [0.23.0] - 2026-08-14
 
 #### Added

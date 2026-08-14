@@ -5,7 +5,6 @@ import {
   Bot,
   DoorOpen,
   Globe,
-  HardDrive,
   type LucideIcon,
   MessageSquare,
   Server,
@@ -16,6 +15,7 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/views/remote-hosts-view';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
 import { agentExpandKey } from '@renderer/features/sidebar/sidebar-store';
+import { serverIcon } from '@renderer/features/switch-servers/server-icon';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { commandRegistry } from '@renderer/lib/commands/registry';
@@ -37,7 +37,13 @@ import { PALETTE_ITEM_CLASS } from './palette-item-styles';
 import { PaletteNotificationsGroup } from './palette-notifications-group';
 import { PaletteSessionItem } from './palette-session-item';
 import { ResourceMonitorView } from './resource-monitor-view';
-import { applyContextAffinity, matchHosts, matchRooms, matchServers } from './search-utils';
+import {
+  applyContextAffinity,
+  matchHosts,
+  matchRooms,
+  matchServers,
+  sectionResults,
+} from './search-utils';
 
 interface CommandPaletteProps {
   locationId?: string;
@@ -85,12 +91,8 @@ const PaletteKindIcon = observer(function PaletteKindIcon({ item }: { item: Sear
     }
     case 'server': {
       const server = switchServersStore.servers.find((s) => s.id === item.id);
-      if (server?.managementKind === 'remote') return <Server className={MUTED_ICON} />;
-      return server?.managed ? (
-        <HardDrive className={MUTED_ICON} />
-      ) : (
-        <Globe className={MUTED_ICON} />
-      );
+      const Icon = server ? serverIcon(server) : Globe;
+      return <Icon className={MUTED_ICON} />;
     }
     case 'host':
       return <Server className={MUTED_ICON} />;
@@ -311,6 +313,33 @@ export function CommandPaletteModal({
       : null;
   const sessionResults = rankedDb.filter((r): r is SearchItem => r.kind === 'session');
 
+  // Sectioned only when the items actually answer the query. Under any other
+  // status they are recents or nothing, and rendering them as results is what
+  // made a too-short query look like a result set.
+  const indexed = sectionResults(searchResult.status === 'ok' ? rankedDb : []);
+
+  /** Indexed commands still registered and visible, paired with the live entry
+   *  that executes them. Built here so the group knows whether it has rows
+   *  before it renders a heading over none. */
+  const commandItems = indexed.command.flatMap((item) => {
+    const live = commandRegistry.findById(item.id);
+    if (!live || live.enabled === false || live.hideFromPalette) return [];
+    const def = ALL_COMMAND_DEFS.find((d) => d.id === item.id) as CommandDef | undefined;
+    const display: PaletteAction = {
+      kind: 'action',
+      id: item.id,
+      title: live.label,
+      subtitle: live.description,
+      shortcut: def?.shortcutKey ? getEffectiveHotkey(def.shortcutKey) : null,
+      icon: getCommandIcon(def?.iconKey),
+      execute: () => {
+        handleClose();
+        live.execute();
+      },
+    };
+    return [{ item: display, live }];
+  });
+
   const handleNavigateToSession = (item: SearchItem) => {
     if (!item.locationId) return;
     const locationId = item.locationId;
@@ -361,6 +390,30 @@ export function CommandPaletteModal({
     if (item.kind === 'room') return handleNavigateToRoom(item);
     if (item.kind === 'server') return handleNavigateToServer(item);
     if (item.kind === 'host') return handleNavigateToHost(item);
+  };
+
+  /** A session row, rendered from its live store when there is one so it carries
+   *  the same status as the sidebar; otherwise as a plain result. */
+  const renderSessionResult = (item: SearchItem) => {
+    const store = item.locationId ? getSessionStore(item.locationId, item.id) : null;
+    if (!store) {
+      return (
+        <PaletteItem
+          key={`session:${item.id}`}
+          value={`session:${item.id}`}
+          item={item}
+          onSelect={() => handleSelect(item)}
+        />
+      );
+    }
+    return (
+      <PaletteSessionItem
+        key={`session:${item.id}`}
+        sessionStore={store}
+        value={`session:${item.id}`}
+        onSelect={() => handleNavigateToSession(item)}
+      />
+    );
   };
 
   const handleResourceMonitorBack = useCallback(() => {
@@ -428,85 +481,52 @@ export function CommandPaletteModal({
               </div>
             )}
             <PaletteResultGroup
+              heading="Agents"
+              items={indexed.agent}
+              onSelect={handleNavigateToAgent}
+            />
+            {indexed.session.length > 0 && (
+              <Command.Group heading="Sessions" className={GROUP_CLASS}>
+                {indexed.session.map(renderSessionResult)}
+              </Command.Group>
+            )}
+            <PaletteResultGroup
               heading="Rooms"
-              items={roomResults}
+              items={[...roomResults, ...indexed.room]}
               onSelect={handleNavigateToRoom}
             />
             <PaletteResultGroup
               heading="Servers"
-              items={serverResults}
+              items={[...serverResults, ...indexed.server]}
               onSelect={handleNavigateToServer}
             />
             <PaletteResultGroup
               heading="Remote hosts"
-              items={hostResults}
+              items={[...hostResults, ...indexed.host]}
               onSelect={handleNavigateToHost}
             />
-            {matchedResourceMonitor && (
-              <PaletteItem
-                value={matchedResourceMonitor.id}
-                item={matchedResourceMonitor}
-                onSelect={matchedResourceMonitor.execute}
-              />
-            )}
-            {/* Only when the items actually answer the query. Under any other
-                status they are recents or nothing, and rendering them here is
-                what made a too-short query look like a result set. */}
-            {searchResult.status === 'ok' &&
-              rankedDb.map((item) => {
-                if (item.kind === 'command') {
-                  const live = commandRegistry.findById(item.id);
-                  if (!live || live.enabled === false || live.hideFromPalette) return null;
-                  const def = ALL_COMMAND_DEFS.find((d) => d.id === item.id) as
-                    | CommandDef
-                    | undefined;
-                  const shortcut = def?.shortcutKey ? getEffectiveHotkey(def.shortcutKey) : null;
-                  const displayItem: PaletteAction = {
-                    kind: 'action',
-                    id: item.id,
-                    title: live.label,
-                    subtitle: live.description,
-                    shortcut,
-                    icon: getCommandIcon(def?.iconKey),
-                    execute: () => {
+            {(matchedResourceMonitor || commandItems.length > 0) && (
+              <Command.Group heading="Commands" className={GROUP_CLASS}>
+                {matchedResourceMonitor && (
+                  <PaletteItem
+                    value={matchedResourceMonitor.id}
+                    item={matchedResourceMonitor}
+                    onSelect={matchedResourceMonitor.execute}
+                  />
+                )}
+                {commandItems.map(({ item, live }) => (
+                  <PaletteItem
+                    key={item.id}
+                    value={item.id}
+                    item={item}
+                    onSelect={() => {
                       handleClose();
                       live.execute();
-                    },
-                  };
-                  return (
-                    <PaletteItem
-                      key={item.id}
-                      value={item.id}
-                      item={displayItem}
-                      onSelect={() => {
-                        handleClose();
-                        live.execute();
-                      }}
-                    />
-                  );
-                }
-                if (item.kind === 'session' && item.locationId) {
-                  const store = getSessionStore(item.locationId, item.id);
-                  if (store) {
-                    return (
-                      <PaletteSessionItem
-                        key={`session:${item.id}`}
-                        sessionStore={store}
-                        value={`session:${item.id}`}
-                        onSelect={() => handleNavigateToSession(item)}
-                      />
-                    );
-                  }
-                }
-                return (
-                  <PaletteItem
-                    key={`${item.kind}:${item.id}`}
-                    value={`${item.kind}:${item.id}`}
-                    item={item}
-                    onSelect={() => handleSelect(item)}
+                    }}
                   />
-                );
-              })}
+                ))}
+              </Command.Group>
+            )}
           </>
         ) : (
           <>
