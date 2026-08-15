@@ -14,7 +14,6 @@ import { type GuardResult, type ViewDefinition } from '@renderer/app/view-regist
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { HostUnreachablePanel } from '@renderer/features/remote-hosts/host-unreachable-panel';
-import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
@@ -38,14 +37,9 @@ import { MessagingAppsCard } from './MessagingAppsCard';
 import { remoteServerStore } from './remote-server-store';
 import { RemoteServerControls } from './RemoteServerControls';
 import { serverIcon } from './server-icon';
-import {
-  ServerAvatar,
-  ServerStatusDot,
-  serverDrift,
-  serverPlacementLabel,
-  serverStatusLabel,
-} from './server-presentation';
+import { ServerAvatar, serverDrift, serverPlacementLabel } from './server-presentation';
 import { ServerResetSection } from './server-reset-section';
+import { ServerSectionTitlebar } from './server-section-titlebar';
 import { ServerStatTiles } from './server-stat-tiles';
 import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
@@ -81,36 +75,8 @@ function useServerId(): string {
   return useParams('server').params.serverId;
 }
 
-/**
- * The server's page is the workspace's Home, so the titlebar names the path to
- * it — which server, then which of its sections — rather than the server alone.
- * The state pill repeats what the switcher says about the active server, for
- * the same reason a breadcrumb repeats where you are.
- */
 const ServerTitlebar = observer(function ServerTitlebar() {
-  const serverId = useServerId();
-  const server = switchServersStore.servers.find((s) => s.id === serverId);
-  return (
-    <Titlebar
-      leftSlot={
-        <div className="flex min-w-0 items-center gap-1.5 px-2 text-sm">
-          {server && <ServerAvatar server={server} size="sm" />}
-          <span className="truncate text-foreground-muted">{server?.name ?? 'Server'}</span>
-          <span className="text-foreground-passive">/</span>
-          <House className="size-3.5 shrink-0 text-foreground" />
-          <span className="text-foreground">Home</span>
-        </div>
-      }
-      rightSlot={
-        server && (
-          <span className="mr-1 flex items-center gap-1.5 rounded-full bg-background-tertiary px-2 py-0.5 text-xs text-foreground-muted">
-            <ServerStatusDot server={server} />
-            {serverStatusLabel(server)}
-          </span>
-        )
-      }
-    />
-  );
+  return <ServerSectionTitlebar serverId={useServerId()} icon={House} label="Home" />;
 });
 
 const ServerMainPanel = observer(function ServerMainPanel() {

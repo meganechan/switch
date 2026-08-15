@@ -636,6 +636,13 @@ version of their own to them without also giving them a release of their own.
   and Stop (CHOO-2158).
 - The Mattermost sign-in details Switch Console generates open in a dialog from
   the app's row, rather than expanding underneath it (CHOO-2158).
+- **A server's agents and rooms each have a page.** Under the switcher, next to
+  Home, **Your Agents** lists every agent registered on the server with the
+  provider it runs, where that is, and how many of the server's rooms it is in;
+  **Your Rooms** lists the rooms with the messaging app each is bridged to and
+  how many agents are in it. Both start a session or add a member from the row,
+  and carry the same actions the sidebar rows do. Until now the only way to see
+  either as a list was to scroll the sidebar tree (CHOO-2158).
 
 #### Fixed
 
