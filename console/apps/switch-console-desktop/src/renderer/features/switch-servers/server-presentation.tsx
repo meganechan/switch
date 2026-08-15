@@ -90,14 +90,26 @@ export function serverDrift(server: SwitchServer): SwitchVersionDrift | null {
   return localServerStore.drift;
 }
 
-export function ServerAvatar({ server, size }: { server: SwitchServer; size: 'sm' | 'md' }) {
+const AVATAR_SIZE = {
+  sm: 'size-6 text-xs',
+  md: 'size-7 text-sm',
+  lg: 'size-9 rounded-lg text-lg',
+} as const;
+
+export function ServerAvatar({
+  server,
+  size,
+}: {
+  server: SwitchServer;
+  size: keyof typeof AVATAR_SIZE;
+}) {
   const initial = server.name.trim().charAt(0).toUpperCase() || '?';
   return (
     <span
       aria-hidden
       className={cn(
         'flex shrink-0 items-center justify-center rounded-md bg-foreground font-medium text-background',
-        size === 'md' ? 'size-7 text-sm' : 'size-6 text-xs'
+        AVATAR_SIZE[size]
       )}
     >
       {initial}

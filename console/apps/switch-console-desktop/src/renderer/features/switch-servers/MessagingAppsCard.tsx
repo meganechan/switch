@@ -2,12 +2,14 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import {
   CircleAlert,
   ExternalLink,
+  Info,
   Link2,
   MessageSquare,
   MoreVertical,
   Plus,
   Trash2,
   Unlink,
+  X,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
@@ -20,13 +22,14 @@ import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { Switch } from '@renderer/lib/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { log } from '@renderer/utils/logger';
 import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import { BundledChatSignIn } from './BundledChatSignIn';
@@ -159,7 +162,6 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
         </div>
         {isAdmin && (
           <Button
-            variant="outline"
             size="sm"
             onClick={() =>
               showConnectMessagingApp({
@@ -194,10 +196,6 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
         )}
       </div>
 
-      <p className="mt-1 text-xs text-foreground-muted">
-        Which account is you in each app, so your agents can recognise you.
-      </p>
-
       {/* Same shape as the addressing editor's owner warning, so the two
         readings of one problem look like one problem. */}
       {unrecognisedIn.length > 0 && (
@@ -228,43 +226,82 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
             : 'No messaging app is connected. An admin on this server can connect one.'}
         </p>
       ) : (
-        <ul className="mt-2 divide-y divide-border">
-          {bridges.map((bridge) => (
-            <MessagingAppRow
-              key={bridge.id}
-              serverId={serverId}
-              bridge={bridge}
-              /* Nothing is drawn in the identity column until the list
-                arrives: "not linked" and "not known yet" look identical, and
-                offering to link an account the user already has is the more
-                confusing of the two. */
-              identities={identities}
-              currentUserId={currentUserId}
-              onReleased={refreshIdentities}
-              showBundledSignIn={isManaged && bridge.type === 'mattermost'}
-              isAdmin={isAdmin}
-              savingChannelCreation={savingBridgeId === bridge.id}
-              onToggleChannelCreation={(enabled) =>
-                void handleToggleChannelCreation(bridge, enabled)
-              }
-              onDisconnect={() =>
-                showDisconnectMessagingApp({
-                  serverId,
-                  bridgeId: bridge.id,
-                  bridgeDisplayName: bridge.displayName,
-                  onSuccess: () => {
-                    void queryClient.invalidateQueries({
-                      queryKey: ['remote-bridges', serverId],
-                    });
-                    // The rooms on that bridge went with it, so the sidebar is
-                    // stale in a way the bridge list alone does not repair.
-                    void switchRoomsStore.refreshRoomState();
-                  },
-                })
-              }
-            />
-          ))}
-        </ul>
+        <div className="mt-2 overflow-hidden rounded-lg border border-border">
+          <table className="w-full table-fixed border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border bg-background-secondary text-xs text-foreground-muted">
+                <th scope="col" className="px-3 py-2 text-left font-normal">
+                  App
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-normal">
+                  <span className="inline-flex items-center gap-1">
+                    Your account
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <span
+                            tabIndex={0}
+                            aria-label="Which account is you in each app, so your agents can recognise you."
+                            className="inline-flex"
+                          >
+                            <Info className="size-3.5" />
+                          </span>
+                        }
+                      />
+                      <TooltipContent>
+                        Which account is you in each app, so your agents can recognise you.
+                      </TooltipContent>
+                    </Tooltip>
+                  </span>
+                </th>
+                <th scope="col" className="w-32 px-3 py-2 text-left font-normal">
+                  Channels
+                </th>
+                <th scope="col" className="w-28 px-3 py-2 text-right font-normal">
+                  Actions
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {bridges.map((bridge) => (
+                <MessagingAppRow
+                  key={bridge.id}
+                  serverId={serverId}
+                  bridge={bridge}
+                  /* Nothing is drawn in the identity column until the list
+                    arrives: "not linked" and "not known yet" look identical,
+                    and offering to link an account the user already has is the
+                    more confusing of the two. */
+                  identities={identities}
+                  currentUserId={currentUserId}
+                  onReleased={refreshIdentities}
+                  showBundledSignIn={isManaged && bridge.type === 'mattermost'}
+                  isAdmin={isAdmin}
+                  savingChannelCreation={savingBridgeId === bridge.id}
+                  onToggleChannelCreation={(enabled) =>
+                    void handleToggleChannelCreation(bridge, enabled)
+                  }
+                  onDisconnect={() =>
+                    showDisconnectMessagingApp({
+                      serverId,
+                      bridgeId: bridge.id,
+                      bridgeDisplayName: bridge.displayName,
+                      onSuccess: () => {
+                        void queryClient.invalidateQueries({
+                          queryKey: ['remote-bridges', serverId],
+                        });
+                        // The rooms on that bridge went with it, so the sidebar
+                        // is stale in a way the bridge list alone does not
+                        // repair.
+                        void switchRoomsStore.refreshRoomState();
+                      },
+                    })
+                  }
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {toggleError && <p className="text-destructive mt-2 text-xs">{toggleError}</p>}
     </div>
@@ -272,15 +309,13 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
 });
 
 /**
- * One app: its name, which account on it is the signed-in user, and a menu of
- * everything else.
+ * One app: its name, which account on it is the signed-in user, whether Switch
+ * may open channels on it, and a menu of everything else.
  *
- * The row states one fact — which account here is you — and offers the one
- * action that changes it. Everything rarer or more dangerous (unlinking,
- * channel creation, disconnecting the app) sits behind the menu, so the common
- * reading is not competing with five controls. The identity column is a fixed
- * width and the trailing controls always occupy their slot, so several apps
- * line up as columns rather than as differently ragged lines.
+ * Unlinking and channel creation are read far more often than they are changed,
+ * so they are columns rather than menu items — the menu keeps the rarer and the
+ * destructive. The trailing controls always occupy their slot so several apps
+ * keep a straight right edge.
  */
 export function MessagingAppRow({
   serverId,
@@ -332,12 +367,21 @@ export function MessagingAppRow({
     }
   };
 
+  // Why the switch cannot be moved, when it cannot. Said in a tooltip rather
+  // than left to a greyed control, because "off" and "this platform cannot do
+  // it at all" are different claims and look identical otherwise.
+  const channelsLockedReason = !bridge.channelCreationSupported
+    ? `${platform} cannot create channels from Switch. Make the chat in the app and add the bot to it.`
+    : !isAdmin
+      ? 'Only an admin on this server can change this.'
+      : null;
+
   return (
-    <li className="py-1 text-sm">
-      <div className="flex items-center gap-2">
-        {/* The badges belong to the name, so they travel with it rather than
-          drifting into the middle of the row on a wide card. */}
-        <div className="flex min-w-0 flex-1 items-center gap-2">
+    <tr className="text-sm">
+      {/* The badges belong to the name, so they travel with it rather than
+        drifting into the middle of the row on a wide table. */}
+      <td className="px-3 py-2">
+        <div className="flex min-w-0 items-center gap-2">
           {hasBridgeIcon(bridge.type) ? (
             <BridgeIcon bridgeType={bridge.type} size={16} />
           ) : (
@@ -350,111 +394,131 @@ export function MessagingAppRow({
             this is where that becomes visible. */}
           {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
         </div>
+      </td>
 
-        {/* One control in both states, so the column reads as a column: the
-          handle when there is one, the invitation to supply it when not. */}
-        <div className="flex w-40 shrink-0 items-center justify-end">
-          {identities === null ? null : identity === null ? (
-            <Button variant="outline" size="xs" onClick={claim}>
-              <Link2 className="size-3" />
-              Link
-            </Button>
-          ) : (
+      {/* One control in both states, so the column reads as a column: the
+        handle when there is one, the invitation to supply it when not. */}
+      <td className="px-3 py-2">
+        {identities === null ? null : identity === null ? (
+          <Button variant="outline" size="xs" onClick={claim}>
+            <Link2 className="size-3" />
+            Link
+          </Button>
+        ) : (
+          <div className="flex min-w-0 items-center gap-1">
             <Button
               variant="ghost"
               size="xs"
-              className="min-w-0 text-foreground-muted"
+              className="min-w-0 font-mono text-foreground-muted"
               title={`Change which ${bridge.displayName} account is you`}
               onClick={claim}
             >
               <span className="truncate">{handleOf(identity)}</span>
             </Button>
-          )}
-        </div>
-
-        {/* Offered only when the link resolves — an older server, or a bridge
-          that is down, reports none, and a button that cannot do anything is
-          worse than no button. The slot is held either way so the rows keep a
-          straight right edge. */}
-        {bridge.homeUrl ? (
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Open ${platform}`}
-            title={`Open ${platform}`}
-            onClick={() =>
-              void openExternalUrl(bridge.homeUrl as string, `Could not open ${platform}`)
-            }
-          >
-            <ExternalLink className="size-3" />
-          </Button>
-        ) : (
-          <span aria-hidden className="size-6 shrink-0" />
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              disabled={releasing}
+              aria-label={`Unlink ${handleOf(identity)}`}
+              title={`Unlink ${handleOf(identity)}`}
+              onClick={() => void release(identity.id)}
+            >
+              {releasing ? <Spinner className="size-3" /> : <X className="size-3" />}
+            </Button>
+          </div>
         )}
+        {releaseError !== null && <p className="text-destructive mt-0.5 text-xs">{releaseError}</p>}
+      </td>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger
+      <td className="px-3 py-2">
+        <Tooltip>
+          <TooltipTrigger
             render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`${bridge.displayName} actions`}
-                disabled={releasing}
-              >
-                {releasing ? <Spinner className="size-3" /> : <MoreVertical className="size-3" />}
-              </Button>
+              <div className="flex w-fit items-center gap-2">
+                <Switch
+                  checked={bridge.canCreateChannels}
+                  disabled={channelsLockedReason !== null || savingChannelCreation}
+                  onCheckedChange={(next) => onToggleChannelCreation(next)}
+                  aria-label={`Let Switch create channels on ${bridge.displayName}`}
+                />
+                <span className="text-xs text-foreground-muted">
+                  {bridge.canCreateChannels ? 'On' : 'Off'}
+                </span>
+              </div>
             }
           />
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={claim}>
-              <Link2 className="size-4" />
-              {identity === null ? 'Link my account…' : 'Change my account…'}
-            </DropdownMenuItem>
-            {identity !== null && (
-              <DropdownMenuItem onClick={() => void release(identity.id)}>
-                <Unlink className="size-4" />
-                Unlink {handleOf(identity)}
-              </DropdownMenuItem>
-            )}
+          <TooltipContent>
+            {channelsLockedReason ??
+              `Whether Switch may create a channel on ${platform} when you make a room.`}
+          </TooltipContent>
+        </Tooltip>
+      </td>
 
-            <DropdownMenuSeparator />
-            <DropdownMenuCheckboxItem
-              checked={bridge.canCreateChannels}
-              disabled={!isAdmin || !bridge.channelCreationSupported || savingChannelCreation}
-              onCheckedChange={(next) => onToggleChannelCreation(next)}
+      <td className="px-3 py-2">
+        <div className="flex items-center justify-end">
+          {showBundledSignIn && (
+            <BundledChatSignIn serverId={serverId} bridgeDisplayName={bridge.displayName} />
+          )}
+
+          {/* Offered only when the link resolves — an older server, or a bridge
+            that is down, reports none, and a button that cannot do anything is
+            worse than no button. The slot is held either way so the rows keep a
+            straight right edge. */}
+          {bridge.homeUrl ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Open ${platform}`}
+              title={`Open ${platform}`}
+              onClick={() =>
+                void openExternalUrl(bridge.homeUrl as string, `Could not open ${platform}`)
+              }
             >
-              Can create channels
-            </DropdownMenuCheckboxItem>
-            {/* A disabled empty tick reads as "off", which is a different
-              claim from "this platform cannot do it at all". Plain text rather
-              than a menu label: a label is a heading for a group of items, and
-              Base UI requires one to sit inside a group — this is a caption
-              for the item above it. */}
-            {!bridge.channelCreationSupported && (
-              <p className="max-w-56 px-2 py-1 text-xs text-foreground-muted">
-                {platform} cannot create channels from Switch. Make the chat in the app and add the
-                bot to it.
-              </p>
-            )}
+              <ExternalLink className="size-3" />
+            </Button>
+          ) : (
+            <span aria-hidden className="size-6 shrink-0" />
+          )}
 
-            {isAdmin && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem variant="destructive" onClick={onDisconnect}>
-                  <Trash2 className="size-4" />
-                  Disconnect app…
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={`${bridge.displayName} actions`}
+                  disabled={releasing}
+                >
+                  <MoreVertical className="size-3" />
+                </Button>
+              }
+            />
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={claim}>
+                <Link2 className="size-4" />
+                {identity === null ? 'Link my account…' : 'Change my account…'}
+              </DropdownMenuItem>
+              {identity !== null && (
+                <DropdownMenuItem onClick={() => void release(identity.id)}>
+                  <Unlink className="size-4" />
+                  Unlink {handleOf(identity)}
                 </DropdownMenuItem>
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
+              )}
 
-      {releaseError !== null && (
-        <p className="text-destructive mt-0.5 ml-6 text-xs">{releaseError}</p>
-      )}
-      {showBundledSignIn && <BundledChatSignIn serverId={serverId} />}
-    </li>
+              {isAdmin && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem variant="destructive" onClick={onDisconnect}>
+                    <Trash2 className="size-4" />
+                    Disconnect app…
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </td>
+    </tr>
   );
 }
 

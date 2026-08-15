@@ -135,14 +135,20 @@ export class SwitchRoomsStore {
     const serverIds = activeServerId
       ? [activeServerId]
       : [...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()])];
-    const listed = serverIds.flatMap((serverId) => {
-      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
-      return (
-        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
-        []
-      );
-    });
+    const listed = serverIds.flatMap((serverId) => this.listedRoomsOnServer(serverId));
     return listed.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The rooms one server contributes to the lists above, under the same scope
+   * rule. Named separately so a page about a single server asks for that
+   * server rather than for whichever one happens to be active.
+   */
+  listedRoomsOnServer(serverId: string): RemoteRoomSummary[] {
+    const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
+    return (
+      (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ?? []
+    );
   }
 
   /**
@@ -159,13 +165,7 @@ export class SwitchRoomsStore {
     const serverIds = [
       ...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()]),
     ];
-    const listed = serverIds.flatMap((serverId) => {
-      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
-      return (
-        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
-        []
-      );
-    });
+    const listed = serverIds.flatMap((serverId) => this.listedRoomsOnServer(serverId));
     return listed.sort((a, b) => a.name.localeCompare(b.name));
   }
 

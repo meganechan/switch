@@ -620,6 +620,22 @@ version of their own to them without also giving them a release of their own.
   well as from the Switch mark at the bottom of the sidebar. With no servers
   added, the sidebar is just **Add a server** over the setup checklist
   (CHOO-2158).
+- **A server's Home page reads as a dashboard rather than a stack of cards.**
+  It opens with the server, where it runs and who you are signed in as, then
+  how many agents, rooms and messaging apps are on it, and gives the rest of
+  the page over to the things you act on (CHOO-2158).
+- **Messaging apps are a table.** Which account is you, whether Switch may
+  create channels there, and the app's actions are columns you can read down
+  rather than facts to be opened one row at a time. Unlinking an account and
+  turning channel creation on or off are now in the row instead of behind its
+  menu (CHOO-2158).
+- The managed stack has a section of its own with a **Restart**, and shows its
+  live output, which until now was only visible while adding a server. An
+  available switch-core update is announced at the top of the page rather than
+  inside that section, and **Reset** sits alone at the bottom, away from Start
+  and Stop (CHOO-2158).
+- The Mattermost sign-in details Switch Console generates open in a dialog from
+  the app's row, rather than expanding underneath it (CHOO-2158).
 
 #### Fixed
 
