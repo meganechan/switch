@@ -20,7 +20,12 @@ from nio import (
 )
 from sqlalchemy import func, select
 
-from switch_core.addressing import can_address, parse_policy
+from switch_core.addressing import (
+    AddressingPolicy,
+    can_address,
+    owner_only_policy,
+    parse_policy,
+)
 from switch_core.aliases import check_alias_collisions, validate_alias_format
 from switch_core.authz import Action, Principal, require, require_manage
 from switch_core.bridges.agent.protocol.agent_detail import (
@@ -191,6 +196,8 @@ class ProtocolService:
         parent_agent_id: str | None = None,
         oauth_client_id: str | None = None,
         overwrite: bool = False,
+        addressable_by_agent_ids: list[str] | None = None,
+        owner_only: bool = True,
     ) -> RegistrationResult:
         """Register or re-register an agent.
 
@@ -200,6 +207,13 @@ class ProtocolService:
         ``parent_agent_id`` links this agent as a child of another (a Claude
         Code subagent registered under the user's main agent); None for an
         ordinary top-level agent.
+
+        New agents start **owner-only** (CHOO-2137): only the owner may address
+        them, from any room, and no other agent may unless named in
+        ``addressable_by_agent_ids`` — which is how a dispatcher (a manager or
+        orchestrator agent) is let in. Pass ``owner_only=False`` to create an
+        agent anyone may address, the pre-CHOO-2137 default. Re-registration
+        leaves an existing agent's policy alone either way.
 
         If an agent with this name already exists, the call fails with
         ``AgentExistsError`` unless ``overwrite=True`` is passed. Re-registering
@@ -269,6 +283,11 @@ class ProtocolService:
                     encrypted_key=encrypted_key,
                     tools=tool_specs,
                     models=model_specs,
+                    addressing_policy=(
+                        owner_only_policy(addressable_by_agent_ids or [])
+                        if owner_only
+                        else None
+                    ),
                 )
                 logger.info("Registered agent: %s (%s)", name, agent_id)
 
@@ -292,6 +311,8 @@ class ProtocolService:
         models: list[ModelSpec] | None = None,
         metadata: dict[str, Any] | None = None,
         overwrite: bool = False,
+        addressable_by_agent_ids: list[str] | None = None,
+        owner_only: bool = True,
     ) -> RegistrationResult:
         """Resolve a registration token to its owner, then register the agent.
 
@@ -314,6 +335,8 @@ class ProtocolService:
             metadata=metadata,
             owner_id=key.user_id,
             overwrite=overwrite,
+            addressable_by_agent_ids=addressable_by_agent_ids,
+            owner_only=owner_only,
         )
 
     async def _create_agent(
@@ -333,6 +356,7 @@ class ProtocolService:
         encrypted_key: str,
         tools: list[ToolSpec],
         models: list[ModelSpec],
+        addressing_policy: AddressingPolicy | None,
     ) -> str:
         api_key_record = ApiKey(
             type="agent",
@@ -360,6 +384,11 @@ class ProtocolService:
             parent_agent_id=parent_agent_id,
             oauth_client_id=oauth_client_id,
             metadata_=metadata,
+            addressing_policy=(
+                addressing_policy.model_dump()
+                if addressing_policy is not None
+                else None
+            ),
         )
         await self.agent_store.create(session, agent)
 
@@ -917,6 +946,64 @@ class ProtocolService:
             "attachments": posted,
         }
 
+    async def _require_can_address(
+        self,
+        target: Agent,
+        *,
+        room_id: str,
+        group_id: str | None,
+        sender_agent_id: str,
+    ) -> None:
+        """Raise unless `sender_agent_id` may address `target` in this room.
+
+        For delegation, which creates a row someone is expected to work. A
+        message the target can decline in the room is checked with
+        :meth:`_can_address` and reported instead.
+        """
+        if await self._can_address(
+            target,
+            room_id=room_id,
+            group_id=group_id,
+            sender_agent_id=sender_agent_id,
+        ):
+            return
+        raise PermissionError(
+            f"Agent {sender_agent_id} is not permitted to address "
+            f"{target.name} in this room."
+        )
+
+    async def _can_address(
+        self,
+        target: Agent,
+        *,
+        room_id: str,
+        group_id: str | None,
+        sender_agent_id: str,
+    ) -> bool:
+        """Whether `sender_agent_id` may address `target` in this room.
+
+        An agent sender is never the target's *owner* — owner rules admit the
+        human, not the programs acting for them — so an agent gets in through
+        the `agents` dimension, or through an `owner_agents` rule when both are
+        owned by the same person. The sender is looked up only once the target
+        is actually restricted, so the open case stays a single read.
+        """
+        policy = parse_policy(target.addressing_policy)
+        if policy.is_open():
+            return True
+        async with self.session_factory() as session:
+            sender = await self.agent_store.get(session, sender_agent_id)
+        return can_address(
+            policy,
+            room_id=room_id,
+            group_id=group_id,
+            sender_kind="agent",
+            sender_id=sender_agent_id,
+            sender_user_ids=[],
+            sender_owner_user_id=sender.owner_id if sender is not None else None,
+            owner_user_id=target.owner_id,
+        )
+
     async def send_targeted_message(
         self,
         agent_id: str,
@@ -993,6 +1080,38 @@ class ProtocolService:
                         if holder is not None:
                             role_holder_names.add(holder.name)
 
+        # A target whose policy does not admit this sender is reported, not
+        # refused. The message goes to the room either way and the target
+        # declines it there, in the open, where whoever is reading can see that
+        # it was asked and why it will not act — which is the same thing that
+        # happens to an `@name` in a plain message. Refusing here would make
+        # the same request succeed or fail depending on which tool sent it, and
+        # would leave the sender's account of it the only one on record.
+        # Delegation is the exception, and raises: a task is a row someone is
+        # expected to work, not something a room can decline.
+        async with self.session_factory() as session:
+            room_row = await self.room_store.get(session, room_id)
+        group_id = room_row.group_id if room_row is not None else None
+        addressed_agent_names = {
+            name for name in target_names if participant_by_name[name].type == "agent"
+        } | role_holder_names
+        refused: set[str] = set()
+        async with self.session_factory() as session:
+            for name in sorted(addressed_agent_names):
+                participant = participant_by_name.get(name)
+                if participant is None:
+                    continue
+                target_agent = await self.agent_store.get(session, participant.id)
+                if target_agent is None:
+                    continue
+                if not await self._can_address(
+                    target_agent,
+                    room_id=room_id,
+                    group_id=group_id,
+                    sender_agent_id=agent_id,
+                ):
+                    refused.add(name)
+
         mention_tokens = [f"@{name}" for name in target_names]
         mention_tokens += [f"@{role}" for role in roles]
         body = f"{' '.join(mention_tokens)} {content}"
@@ -1006,11 +1125,19 @@ class ProtocolService:
             and participant_by_name[name].type == "agent"
         }
         status_names |= role_holder_names
+        # A refused target reports why rather than how reachable it is. Both
+        # matter to the sender, but only one of them explains a reply that says
+        # no — and "live" for an agent that will decline is the reading that
+        # sends someone looking for a bug.
         target_statuses = {
-            name: participant_by_name[name].status
+            name: (
+                AgentStatus.NOT_PERMITTED
+                if name in refused
+                else participant_by_name[name].status
+            )
             for name in status_names
             if name in participant_by_name
-            and participant_by_name[name].status is not None
+            and (name in refused or participant_by_name[name].status is not None)
         }
         return SendTargetedResult(event_id=event_id, target_statuses=target_statuses)
 
@@ -1111,6 +1238,7 @@ class ProtocolService:
             agent = await self.agent_store.get(session, agent_id)
             if agent is None:
                 raise ValueError(f"Agent not found: {agent_id}")
+            room_row = await self.room_store.get(session, room.id)
             await self.agent_runtime_state_store.upsert(
                 session,
                 agent_id,
@@ -1127,7 +1255,9 @@ class ProtocolService:
             matrix_room_id=room.matrix_room_id,
             room_id=room.id,
             state=state,
-            notify_user=self._notify_user_for(agent),
+            mention_handle=await self._mention_handle_for(
+                agent, room_row.bridge_id if room_row is not None else None
+            ),
             thread_id=thread_id,
             deeplink_url=deeplink_url,
             detail=detail,
@@ -1142,7 +1272,7 @@ class ProtocolService:
         matrix_room_id: str,
         room_id: str,
         state: str,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -1162,7 +1292,7 @@ class ProtocolService:
                 "agent_name": agent_name,
                 "room_id": room_id,
                 "state": state,
-                "notify_user": notify_user,
+                "mention_handle": mention_handle,
                 "thread_id": thread_id,
                 "deeplink_url": deeplink_url,
                 "detail": detail,
@@ -1213,25 +1343,38 @@ class ProtocolService:
                 matrix_room_id=room.matrix_room_id,
                 room_id=room.id,
                 state=RUNTIME_STATE_IDLE,
-                notify_user=self._notify_user_for(agent),
+                mention_handle=await self._mention_handle_for(agent, room.bridge_id),
                 thread_id=None,
             )
 
-    @staticmethod
-    def _notify_user_for(agent: Agent) -> str | None:
-        """Read the configured operator handle from the agent's known options.
+    async def _mention_handle_for(
+        self, agent: Agent, bridge_id: str | None
+    ) -> str | None:
+        """The handle to @-mention when this agent needs its operator, on the
+        platform the room is bridged to.
 
-        Bare username (Slack/Mattermost handle or Switch user) the bridge
-        @-mentions when the agent is awaiting input. Read straight from
-        metadata to avoid importing the gateway layer here.
+        Resolved from the agent's owner and the messaging account that owner
+        has claimed on this bridge (CHOO-2137), rather than from a handle typed
+        into the agent's config. A handle is per-platform — the same person is
+        one name on Slack and another on Telegram — so a single configured
+        string could only ever be right on one of them, and was silently plain
+        text everywhere else.
+
+        None when the agent has no owner, the room has no bridge, or the owner
+        has claimed nothing here. Callers disclose that rather than dropping
+        the notification quietly.
         """
-        md = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
-        opts = md.get("known_agent_options")
-        if isinstance(opts, dict):
-            value = opts.get("notify_user")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return None
+        if agent.owner_id is None or bridge_id is None:
+            return None
+        async with self.session_factory() as session:
+            claimed = await self.external_user_store.get_by_user(
+                session, agent.owner_id
+            )
+        # Claiming is not exclusive and one person may hold several accounts on
+        # a bridge. Sorted so a second account cannot change who gets pinged
+        # from one call to the next.
+        here = sorted(u.external_username for u in claimed if u.bridge_id == bridge_id)
+        return here[0] if here else None
 
     @staticmethod
     def _message_dict(event: Any) -> dict[str, Any]:
@@ -1701,22 +1844,16 @@ class ProtocolService:
 
         await self.require_room_member(performer_id, room_id)
 
-        # Scoped addressing policy (CHOO-1585): delegating a task addresses the
-        # performer, so it is subject to the same allow-list as a message. Unlike
-        # the message path (which demotes to unaddressed) a task is explicit, so a
+        # Scoped addressing policy: delegating a task addresses the performer,
+        # so it is subject to the same allow-list as a message. Unlike the
+        # message path (which demotes to unaddressed) a task is explicit, so a
         # denied delegation fails loud rather than silently vanishing.
-        performer_policy = parse_policy(performer.addressing_policy)
-        if not performer_policy.is_open() and not can_address(
-            performer_policy,
+        await self._require_can_address(
+            performer,
             room_id=room.id,
             group_id=room_row.group_id if room_row is not None else None,
-            sender_kind="agent",
-            sender_id=requester_id,
-        ):
-            raise PermissionError(
-                f"Agent {requester_id} is not permitted to address "
-                f"{performer.name} in this room."
-            )
+            sender_agent_id=requester_id,
+        )
 
         async with self.session_factory() as session:
             task = Task(

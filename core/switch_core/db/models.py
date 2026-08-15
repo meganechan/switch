@@ -568,6 +568,36 @@ class ExternalUser(Base):
     )
 
 
+class ExternalUserClaim(Base):
+    """A Switch user's claim that a platform account is theirs (CHOO-2137).
+
+    Deliberately many-to-many rather than a single owner per account: an
+    exclusive claim would let whoever claimed first keep everyone else from
+    ever being recognised on that account, which is a quiet way to break
+    someone. Several Switch users may claim the same account, and an
+    owner-scoped rule is satisfied when the agent's owner is among them.
+
+    An account with no claim at all satisfies no owner rule — unclaimed is
+    not "trusted by default".
+    """
+
+    __tablename__ = "external_user_claims"
+
+    external_user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("external_users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[str] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 # ── Agent Sessions ────────────────────────────────────────────────────────────
 
 

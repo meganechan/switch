@@ -201,7 +201,7 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
       <FieldDescription className="text-foreground-muted">
         The agent&apos;s model, reasoning effort, tools, and system prompt. The agent name is fixed.
       </FieldDescription>
-      <div className="flex flex-col gap-4 rounded-md border border-border px-3 py-3">
+      <div className="flex flex-col gap-4">
         {fields.map((field) => {
           const catalogueState = fieldCatalogueState(field, form, catalogue);
           const rendered = fieldWithCatalogue(field, catalogueState);

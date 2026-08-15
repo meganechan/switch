@@ -25,11 +25,17 @@ import type {
   AddServerParams,
   AgentDefaults,
   AgentVerifyResult,
+  BridgeDirectorySearchResult,
   BundledChatSignIn,
+  ClaimIdentityParams,
+  ClaimIdentityResult,
   CreateBridgeParams,
   CreateBridgeResult,
   CreateRoomParams,
   CreateRoomResult,
+  DeleteBridgeParams,
+  DeleteBridgeResult,
+  LinkedIdentity,
   PasswordLoginParams,
   ProvisionAgentParams,
   ProvisionAgentResult,
@@ -60,6 +66,7 @@ import { createRoomOnServer } from './create-room';
 import {
   addRoomAgents,
   agentExistsOnServer,
+  deleteBridge,
   fetchAddressingPolicy,
   fetchAgentDetail,
   fetchAgentRooms,
@@ -69,15 +76,19 @@ import {
   fetchBridges,
   fetchBridgeTypes,
   fetchMe,
+  fetchMyIdentities,
   fetchRoomAgentIds,
   fetchRoomGroups,
   fetchRoomRoles,
   fetchRooms,
   GatewayError,
+  ownsOwnerAddressedAgent,
+  releaseBridgeIdentity,
   removeRoomAgent,
   updateAddressingPolicy,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
+import { claimIdentityOnServer, searchDirectoryOnServer } from './identities';
 import {
   addServer,
   deleteSessionCookie,
@@ -261,6 +272,15 @@ export const switchServersController = createRPCController({
   },
 
   /**
+   * Disconnect a messaging app from the chosen server. Admin-only, and the
+   * gateway deletes every Switch room on the bridge on the way — see
+   * `deleteBridge`. The renderer owns the confirmation; by the time this runs
+   * the rooms are being given up deliberately.
+   */
+  deleteBridge: async (params: DeleteBridgeParams): Promise<DeleteBridgeResult> =>
+    deleteBridge(await requireReachableServer(params.serverId), params.bridgeId),
+
+  /**
    * Create a room on the chosen server, owned by the signed-in user. Room
    * provisioning stays server-side (`POST /gateway/rooms`); this only maps
    * recoverable failures onto a typed result the modal can act on.
@@ -313,6 +333,58 @@ export const switchServersController = createRPCController({
 
   listRemoteExternalUsers: async (serverId: string): Promise<RemoteExternalUser[]> =>
     fetchAllExternalUsers(await requireServer(serverId)),
+
+  /**
+   * Search a bridge's own user directory so the signed-in user can find
+   * themselves before they have ever posted in the workspace (CHOO-2137).
+   */
+  searchBridgeDirectory: async (params: {
+    serverId: string;
+    bridgeId: string;
+    query: string;
+  }): Promise<BridgeDirectorySearchResult> =>
+    searchDirectoryOnServer(
+      await requireReachableServer(params.serverId),
+      params.bridgeId,
+      params.query
+    ),
+
+  /** Claim a messaging-app account as the signed-in Switch user's own. */
+  claimBridgeIdentity: async (params: ClaimIdentityParams): Promise<ClaimIdentityResult> =>
+    claimIdentityOnServer(await requireReachableServer(params.serverId), {
+      bridgeId: params.bridgeId,
+      externalUserId: params.externalUserId,
+      username: params.username,
+    }),
+
+  /** Give up a claim on a messaging-app account, leaving any other user's claim
+   * on it in place. `userId` is whose claim to drop — null for the signed-in
+   * user, which is the only one this app offers. Failures propagate: unclaiming
+   * is a deliberate act, and reporting success for one that did not happen
+   * would leave the user thinking an agent is no longer reachable by them when
+   * it still is. */
+  releaseBridgeIdentity: async (params: {
+    serverId: string;
+    bridgeId: string;
+    identityId: string;
+    userId: string | null;
+  }): Promise<void> =>
+    releaseBridgeIdentity(
+      await requireReachableServer(params.serverId),
+      params.bridgeId,
+      params.identityId,
+      params.userId
+    ),
+
+  /** The messaging accounts the signed-in user has claimed on this server. */
+  listMyIdentities: async (serverId: string): Promise<LinkedIdentity[]> =>
+    fetchMyIdentities(await requireServer(serverId)),
+
+  /** Whether the signed-in user owns an agent here that is set to answer its
+   * owner, which is what makes an unlinked messaging account worth warning
+   * about. One agent-list read, so callers need not ration it. */
+  ownsOwnerAddressedAgent: async (serverId: string): Promise<boolean> =>
+    ownsOwnerAddressedAgent(await requireServer(serverId)),
 
   getAddressingPolicy: async (params: {
     serverId: string;

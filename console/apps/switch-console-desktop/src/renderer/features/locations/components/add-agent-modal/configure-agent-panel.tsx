@@ -3,11 +3,10 @@ import { CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useId } from 'react';
 import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
-import {
-  AddressingPolicyEditor,
-  type OptionItem,
-} from '@renderer/features/switch-servers/addressing-policy-editor';
+import { AddressingPolicyControl } from '@renderer/features/switch-servers/addressing-policy-control';
+import type { OptionItem } from '@renderer/features/switch-servers/addressing-policy-editor';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
@@ -78,6 +77,10 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
     id: a.id,
     label: a.name,
   }));
+
+  // Read here rather than inside the editor so the owner-only default can be
+  // questioned before the agent exists, not after it has gone quiet.
+  const { identities } = useMyIdentities(serverId);
 
   if (servers.length === 0) {
     return (
@@ -185,23 +188,25 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
       <Field>
         <FieldLabel>
           <span className="flex items-center gap-1.5">
-            Who can address this agent
+            Who can send instructions
             <InfoTooltip
               label="More info about addressing"
-              content="Addressing means an @mention, a targeted message, or a delegated task. Open allows any room participant; restricted permits only senders matching a rule. You can change this later from the agent's settings."
+              content="Sending instructions means an @mention, a targeted message, or a delegated task. A new agent answers only you; grant other agents to let them delegate to it. You can change this later from the agent's settings."
             />
           </span>
         </FieldLabel>
-        <span className="text-xs text-foreground-muted">
-          Open to everyone, or restricted to matching senders.
-        </span>
-        <AddressingPolicyEditor
+        <AddressingPolicyControl
           value={form.addressingPolicy}
           onChange={form.setAddressingPolicy}
           rooms={roomOptions}
           roomGroups={groupOptions}
           users={userOptions}
           agents={agentOptions}
+          linkedIdentities={identities}
+          // No claim button: this panel is inside a modal, and the app shows one
+          // at a time — opening the claim dialog here would throw away the form
+          // the user is halfway through. The warning names where to go instead.
+          onClaimIdentity={null}
         />
       </Field>
     </FieldGroup>

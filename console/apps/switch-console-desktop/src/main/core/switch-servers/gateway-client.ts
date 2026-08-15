@@ -5,9 +5,13 @@ import {
 } from '@main/core/managed-switch-server/managed-server-status';
 import { ManagedServerStoppedError } from '@shared/core/managed-switch-server/managed-switch-server';
 import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
+import { policyNamesOwner } from '@shared/core/switch-servers/owner-policy';
 import type {
   AddressingPolicy,
   BridgeConfigField,
+  BridgeDirectoryUser,
+  DeleteBridgeResult,
+  LinkedIdentity,
   RemoteAgentRoom,
   RemoteAgentSummary,
   RemoteBridge,
@@ -279,7 +283,6 @@ export async function fetchMe(server: SwitchServer): Promise<SwitchUser> {
 export type RegisterKnownAgentOptions = {
   channels_enabled: boolean;
   repo_dir?: string;
-  notify_user?: string;
   /** When true, the agent registers with the `auto_session` connection model:
    * Switch Console watches its rooms and auto-spawns a session on notification. */
   auto_session?: boolean;
@@ -333,8 +336,10 @@ export async function fetchAgents(server: SwitchServer): Promise<RemoteAgentSumm
     name: string;
     description: string;
     connector_type: string;
+    owner_id?: string | null;
     owner_name: string | null;
     known_agent_type: string | null;
+    addressing_policy?: AddressingPolicy | null;
     created_at: string;
   }>;
   return json.map((a) => ({
@@ -342,8 +347,10 @@ export async function fetchAgents(server: SwitchServer): Promise<RemoteAgentSumm
     name: a.name,
     description: a.description,
     connectorType: a.connector_type,
+    ownerId: a.owner_id ?? null,
     ownerName: a.owner_name,
     knownAgentType: a.known_agent_type,
+    addressingPolicy: a.addressing_policy ?? null,
     createdAt: a.created_at,
   }));
 }
@@ -366,8 +373,10 @@ export async function fetchAgentDetail(
     name: string;
     description: string;
     connector_type: string;
+    owner_id?: string | null;
     owner_name: string | null;
     known_agent_type: string | null;
+    addressing_policy?: AddressingPolicy | null;
     created_at: string;
   };
   return {
@@ -375,8 +384,10 @@ export async function fetchAgentDetail(
     name: json.name,
     description: json.description,
     connectorType: json.connector_type,
+    ownerId: json.owner_id ?? null,
     ownerName: json.owner_name,
     knownAgentType: json.known_agent_type,
+    addressingPolicy: json.addressing_policy ?? null,
     createdAt: json.created_at,
   };
 }
@@ -503,6 +514,26 @@ export async function fetchAddressingPolicy(
 }
 
 /**
+ * Whether the signed-in user owns an agent here whose addressing policy admits
+ * its owner — the only case in which having claimed no messaging account costs
+ * them anything (CHOO-2137).
+ *
+ * Both halves of the answer are on the agent list — `GET /agents` carries each
+ * agent's `owner_id` and its policy — so this costs that list and `/auth/me`,
+ * however many agents the user owns.
+ *
+ * A server too old to report the policy on the list leaves every agent reading
+ * as open, so the warning stays quiet. That is the same answer as owning no
+ * restricted agent, and the safe direction for a warning to be wrong in.
+ */
+export async function ownsOwnerAddressedAgent(server: SwitchServer): Promise<boolean> {
+  const [me, agents] = await Promise.all([fetchMe(server), fetchAgents(server)]);
+  return agents.some(
+    (agent) => agent.ownerId === me.id && policyNamesOwner(agent.addressingPolicy)
+  );
+}
+
+/**
  * Set (or clear, with `policy = null`) an agent's addressing policy
  * (`PUT /agents/{id}/addressing-policy`). Only the agent's owner (or an admin)
  * may change it; a non-owner request surfaces as a `GatewayError`.
@@ -542,6 +573,8 @@ type BridgeJson = {
   // could be asked to create a channel, and none had it withheld.
   channel_creation_supported?: boolean;
   channel_creation_enabled?: boolean;
+  // Absent on a server predating Telegram, where every bridge had a directory.
+  directory_search_supported?: boolean;
 };
 
 function mapBridge(b: BridgeJson): RemoteBridge {
@@ -556,6 +589,7 @@ function mapBridge(b: BridgeJson): RemoteBridge {
     homeUrl: b.home_url ?? null,
     channelCreationSupported,
     canCreateChannels: channelCreationSupported && channelCreationEnabled,
+    directorySearchSupported: b.directory_search_supported ?? true,
   };
 }
 
@@ -620,6 +654,7 @@ export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBrid
     key: string;
     config_schema: BridgeConfigSchema;
     channel_creation_supported?: boolean;
+    directory_search_supported?: boolean;
   }>;
   return json.map((t) => ({
     key: t.key,
@@ -627,6 +662,7 @@ export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBrid
     // Absent on a server predating the capability — every platform could be
     // registered to create channels before it existed, so default true.
     channelCreationSupported: t.channel_creation_supported ?? true,
+    directorySearchSupported: t.directory_search_supported ?? true,
   }));
 }
 
@@ -692,6 +728,57 @@ export async function updateBridge(
 }
 
 /**
+ * Disconnect a collaboration bridge from `server` (admin-only
+ * `DELETE /collaborations/{id}`).
+ *
+ * **This deletes every Switch room on the bridge before removing it**, along
+ * with the conversations in them. It is the most destructive call on the
+ * gateway's collaboration router, not a pause that can be undone by attaching
+ * the platform again, and the caller is responsible for saying so before it is
+ * made.
+ *
+ * Recoverable failures are mapped so the caller can name them: a non-admin gets
+ * `forbidden`, and a bridge that is already gone gets `not-found` rather than a
+ * success. Anything else — a rejected adapter shutdown, an unexpected 500 —
+ * still throws, so a delete that did not happen can never read as one that did.
+ */
+export async function deleteBridge(
+  server: SwitchServer,
+  bridgeId: string
+): Promise<DeleteBridgeResult> {
+  try {
+    await gatewayFetch(server, `/collaborations/${encodeURIComponent(bridgeId)}`, {
+      authenticated: true,
+      method: 'DELETE',
+    });
+    return { kind: 'deleted' };
+  } catch (cause) {
+    if (cause instanceof GatewayError) {
+      if (cause.kind === 'unauthorized') return { kind: 'unauthenticated' };
+      if (cause.kind === 'http' && cause.status === 403) return { kind: 'forbidden' };
+      if (cause.kind === 'http' && cause.status === 404) return { kind: 'not-found' };
+      if (cause.kind === 'network') return { kind: 'error', message: cause.message };
+    }
+    throw cause;
+  }
+}
+
+/** The gateway `IdentityClaimant` wire shape. */
+type IdentityClaimantJson = {
+  user_id: string;
+  user_name: string;
+};
+
+/** The gateway `ExternalUserSummary` wire shape. */
+type ExternalUserSummaryJson = {
+  id: string;
+  bridge_id: string;
+  external_user_id: string;
+  external_username: string;
+  claimed_by?: IdentityClaimantJson[];
+};
+
+/**
  * Union of external (bridged human) users across every bridge on the server
  * (`GET /collaborations`, then each bridge's `/users`). The addressing policy's
  * `users` dimension keys off these ExternalUser ids.
@@ -705,10 +792,135 @@ export async function fetchAllExternalUsers(server: SwitchServer): Promise<Remot
       `/collaborations/${encodeURIComponent(bridge.id)}/users`,
       { authenticated: true }
     );
-    const users = (await res.json()) as Array<{ id: string; external_username: string }>;
+    const users = (await res.json()) as ExternalUserSummaryJson[];
     for (const u of users) byId.set(u.id, { id: u.id, username: u.external_username });
   }
   return [...byId.values()];
+}
+
+/**
+ * Search one bridge's own user directory (`GET /collaborations/{id}/directory`).
+ *
+ * This asks the messaging platform rather than Switch's record of who has
+ * spoken, which is what lets someone claim their account in a workspace they
+ * have never posted in. A platform with no searchable directory answers 501 and
+ * a stopped bridge 409; both surface as a `GatewayError` the caller maps onto
+ * something it can say out loud rather than an empty result list.
+ */
+export async function searchBridgeDirectory(
+  server: SwitchServer,
+  bridgeId: string,
+  query: string
+): Promise<{ users: BridgeDirectoryUser[]; note: string | null }> {
+  const res = await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/directory?query=${encodeURIComponent(query)}`,
+    { authenticated: true }
+  );
+  type DirectoryUserJson = {
+    external_user_id: string;
+    username: string;
+    display_name: string;
+    email?: string | null;
+    known_external_user_id?: string | null;
+    claimed_by?: IdentityClaimantJson[];
+  };
+  // A switch-core predating the known-accounts fallback returns the bare array
+  // and refuses the search outright when the platform has no directory. Both
+  // shapes read the same here; the older one simply never carries a note.
+  const json = (await res.json()) as
+    | DirectoryUserJson[]
+    | { source?: string; note?: string | null; users?: DirectoryUserJson[] };
+  const rows = Array.isArray(json) ? json : (json.users ?? []);
+  return {
+    note: Array.isArray(json) ? null : (json.note ?? null),
+    users: rows.map((u) => ({
+      externalUserId: u.external_user_id,
+      username: u.username,
+      displayName: u.display_name,
+      email: u.email ?? null,
+      knownExternalUserId: u.known_external_user_id ?? null,
+      claimedBy: (u.claimed_by ?? []).map((c) => ({ userId: c.user_id, userName: c.user_name })),
+    })),
+  };
+}
+
+/**
+ * Claim a platform identity for the signed-in user
+ * (`POST /collaborations/{id}/identities`). `user_id` is deliberately omitted:
+ * Switch Console only ever claims on behalf of whoever is signed in, and
+ * claiming for someone else is an admin action that belongs in the operator
+ * dashboard. Claims are not exclusive, so an account someone else has already
+ * claimed is claimed normally; a 409 means only that the bridge is stopped and
+ * an unseen account cannot be provisioned, and surfaces as a `GatewayError`
+ * with that status.
+ */
+export async function claimBridgeIdentity(
+  server: SwitchServer,
+  bridgeId: string,
+  params: { externalUserId: string; username: string }
+): Promise<ExternalUserSummaryJson> {
+  const res = await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/identities`,
+    {
+      authenticated: true,
+      method: 'POST',
+      body: { external_user_id: params.externalUserId, username: params.username },
+    }
+  );
+  return (await res.json()) as ExternalUserSummaryJson;
+}
+
+/**
+ * Drop one claim on a platform account
+ * (`DELETE /collaborations/{id}/identities/{rowId}`). `externalUserRowId` is
+ * the `ExternalUser` row id, not the platform's id.
+ *
+ * Several users can hold a claim on the same account, so `userId` says whose
+ * to drop; anyone else's is left standing. Null falls back to the server's
+ * default — the caller — which is what the app wants when the signed-in user's
+ * id has not been read from the server yet. Releasing someone else's claim is
+ * admin-only server-side.
+ */
+export async function releaseBridgeIdentity(
+  server: SwitchServer,
+  bridgeId: string,
+  externalUserRowId: string,
+  userId: string | null
+): Promise<void> {
+  const query = userId === null ? '' : `?user_id=${encodeURIComponent(userId)}`;
+  await gatewayFetch(
+    server,
+    `/collaborations/${encodeURIComponent(bridgeId)}/identities/${encodeURIComponent(externalUserRowId)}${query}`,
+    { authenticated: true, method: 'DELETE' }
+  );
+}
+
+/**
+ * The messaging accounts the signed-in user has claimed
+ * (`GET /auth/me/identities`). An agent whose policy names its owner is
+ * unreachable by that owner on any bridge missing from this list, so this is
+ * what the addressing UI checks before letting a policy seal an agent off.
+ */
+export async function fetchMyIdentities(server: SwitchServer): Promise<LinkedIdentity[]> {
+  const res = await gatewayFetch(server, '/auth/me/identities', { authenticated: true });
+  const json = (await res.json()) as Array<{
+    id: string;
+    bridge_id: string;
+    bridge_display_name: string;
+    bridge_type: string;
+    external_user_id: string;
+    external_username: string;
+  }>;
+  return json.map((i) => ({
+    id: i.id,
+    bridgeId: i.bridge_id,
+    bridgeDisplayName: i.bridge_display_name,
+    bridgeType: i.bridge_type,
+    externalUserId: i.external_user_id,
+    externalUsername: i.external_username,
+  }));
 }
 
 /** A subagent registered via the bulk endpoint. `apiKey` is a secret — keep it

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -231,6 +231,12 @@ class AgentSummary(BaseModel):
     # they let the UI render an "edit options" form against the spec's schema.
     known_agent_type: str | None = None
     known_agent_options: dict[str, Any] | None = None
+    # Scoped agent-addressing permissions. null → open (anyone may address the
+    # agent); otherwise the allow-list that governs who can. On the summary,
+    # not just the detail, so a caller can tell which of someone's agents are
+    # owner-restricted without fetching each one — the console warns about
+    # exactly that, and per-agent reads would make it a request storm.
+    addressing_policy: AddressingPolicy | None = None
 
 
 class AgentToolSummary(BaseModel):
@@ -287,9 +293,6 @@ class AgentDetail(AgentSummary):
     rooms: list[AgentRoomMembership]
     sessions: list[AgentSessionDetail]
     children: list[AgentSummary]
-    # Scoped agent-addressing permissions (CHOO-1585). null → open (anyone may
-    # address the agent); otherwise the allow-list that governs who can.
-    addressing_policy: AddressingPolicy | None = None
 
 
 class UpdateAddressingPolicyRequest(BaseModel):
@@ -333,8 +336,8 @@ class RegisterKnownSubagentsRequest(BaseModel):
     Session-authed counterpart of the agent-bridge `register-known-bulk`
     endpoint: the caller must own the parent. `options` is the shared base
     applied to every subagent (the per-subagent `subagent_name` is merged on
-    top); when omitted, each subagent inherits the parent's `channels_enabled`,
-    `repo_dir`, and `notify_user`.
+    top); when omitted, each subagent inherits the parent's `channels_enabled`
+    and `repo_dir`.
     """
 
     agent_type: str
@@ -436,6 +439,12 @@ class BridgeDetail(BaseModel):
     # switch you can flip, the second a disabled switch with a reason.
     channel_creation_supported: bool = True
     channel_creation_enabled: bool = True
+    # Whether the platform has a user directory Switch can search. False where
+    # the only people Switch can name are those who have spoken to it, which
+    # makes "pick yourself from the directory" an empty list on a connection
+    # nobody has used yet — a question worth not asking rather than asking
+    # badly.
+    directory_search_supported: bool = True
 
 
 class BridgeUpdateRequest(BaseModel):
@@ -453,6 +462,10 @@ class BridgeTypeInfo(BaseModel):
     # class, so it is answerable before any connection of this type exists —
     # which is exactly when the registration form needs it.
     channel_creation_supported: bool = True
+    # Likewise for its user directory: read here because the connect flow has
+    # to decide whether to offer the "which account is you" step for a
+    # connection that does not exist yet.
+    directory_search_supported: bool = True
 
 
 class BridgeCreateRequest(BaseModel):
@@ -469,9 +482,78 @@ class BridgeCreateRequest(BaseModel):
     channel_creation_enabled: bool = True
 
 
+class IdentityClaimant(BaseModel):
+    """A Switch user who says a platform account is theirs."""
+
+    user_id: str
+    user_name: str
+
+
 class ExternalUserSummary(BaseModel):
     id: str
     bridge_id: str
+    external_user_id: str
+    external_username: str
+    # Everyone who has claimed this platform account. A list, not one user:
+    # claiming is not exclusive, so an account shared by several Switch users
+    # satisfies an owner rule for any of them.
+    claimed_by: list[IdentityClaimant] = []
+
+
+class DirectoryUserSummary(BaseModel):
+    """Someone found in the messaging platform's own directory, and whether
+    Switch already knows them."""
+
+    external_user_id: str
+    username: str
+    display_name: str
+    email: str | None = None
+    # Set when this person has already spoken on the bridge and so has an
+    # ExternalUser row; claiming reuses it rather than creating a duplicate.
+    known_external_user_id: str | None = None
+    # Who has already claimed this account. Shown so a picker can say the
+    # account is spoken for, not to stop anyone else claiming it too.
+    claimed_by: list[IdentityClaimant] = []
+
+
+class DirectorySearchResponse(BaseModel):
+    """Who a search turned up, and which of the two possible sources answered.
+
+    `source` is not decoration. A platform whose directory cannot be searched
+    falls back to the accounts Switch has already seen, which is a genuinely
+    narrower answer: someone who has never spoken is absent from it, and a
+    caller that presented it as a whole-workspace search would be telling the
+    user that person does not exist. `note` carries the platform's own
+    explanation, for showing alongside the results rather than instead of them.
+    """
+
+    source: Literal["directory", "known"]
+    note: str | None = None
+    users: list[DirectoryUserSummary] = []
+
+
+class ClaimIdentityRequest(BaseModel):
+    """Claim a platform identity for a Switch user.
+
+    `external_user_id` is the platform's own id (a Slack `U…`, a Mattermost
+    user id), not an `ExternalUser.id` — that row may not exist yet for
+    someone who has never posted, and is created on demand.
+    """
+
+    external_user_id: str
+    username: str
+    # Omitted means "claim it for me"; only an admin may claim on behalf of
+    # someone else.
+    user_id: str | None = None
+
+
+class LinkedIdentity(BaseModel):
+    """One platform identity claimed by a Switch user."""
+
+    id: str
+    bridge_id: str
+    bridge_display_name: str
+    bridge_type: str
     external_user_id: str
     external_username: str
 

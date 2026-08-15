@@ -48,6 +48,23 @@ class AttachmentFailure(BaseModel):
     reason: str
 
 
+class DirectoryUser(BaseModel):
+    """A person as the messaging platform's own directory describes them.
+
+    Distinct from an `ExternalUser`: that record only exists once Switch has
+    seen someone speak, whereas this comes straight from the platform, so a
+    user who has never posted can still be found and claimed (CHOO-2137).
+    `email` is whatever the platform exposes — absent on platforms that do not
+    carry one — and is offered to help a person recognise themselves in the
+    list, never as proof of identity.
+    """
+
+    external_user_id: str
+    username: str
+    display_name: str
+    email: str | None = None
+
+
 class InboundMessage(BaseModel):
     channel_id: str
     channel_type: ChannelType

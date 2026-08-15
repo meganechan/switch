@@ -11,6 +11,7 @@ from switch_core.bridges.collaboration.models import (
     BridgeInstallLink,
     ChannelCreationUnsupported,
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -53,6 +54,18 @@ class CollaborationAdapter(ABC):
     #: while it is stopped — the operator asks "can this platform do it?" at
     #: exactly those moments.
     supports_channel_creation: ClassVar[bool] = True
+
+    #: Whether this platform has a user directory Switch can search.
+    #:
+    #: False where the only people Switch can name are the ones who have
+    #: spoken to it — a Telegram bot cannot enumerate anyone else. That is not
+    #: a smaller directory, it is a different question: on a freshly connected
+    #: connection of such a type the answer is always "nobody", so asking a
+    #: user to pick themselves from it is asking them to pick from an empty
+    #: list. Declared on the class for the same reason as
+    #: `supports_channel_creation` — the answer is needed before a connection
+    #: exists and while one is stopped.
+    supports_directory_search: ClassVar[bool] = True
 
     #: Whether this platform renders a link whose scheme is not http(s).
     #:
@@ -261,7 +274,7 @@ class CollaborationAdapter(ABC):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -273,7 +286,7 @@ class CollaborationAdapter(ABC):
                 channel_id,
                 agent_name,
                 state,
-                notify_user=notify_user,
+                mention_handle=mention_handle,
                 thread_root_id=thread_root_id,
                 deeplink_url=deeplink_url,
                 detail=detail,
@@ -294,7 +307,7 @@ class CollaborationAdapter(ABC):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -323,7 +336,7 @@ class CollaborationAdapter(ABC):
         elif state == "awaiting-input":
             await self.send_typing(channel_id, agent_name, True)
             await self._ping_operator(
-                channel_id, agent_name, notify_user, thread_root_id, deeplink_url
+                channel_id, agent_name, mention_handle, thread_root_id, deeplink_url
             )
         else:
             await self.send_typing(channel_id, agent_name, False)
@@ -417,19 +430,29 @@ class CollaborationAdapter(ABC):
         self,
         channel_id: str,
         agent_name: str,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
     ) -> str | None:
         """Post a message nudging the operator that the agent needs input.
 
+        `mention_handle` is the agent owner's account on this platform, or None
+        when there is nobody to reach — no owner, or an owner who has not said
+        which account here is theirs. That case says so instead of posting a
+        line nobody is notified about: a nudge that reaches no one looks
+        identical to an agent that never asked.
+
         Returns the posted message ref so callers that can remove it (Slack,
         Mattermost) track it for cleanup when the turn ends."""
-        mention = f"@{notify_user} " if notify_user else ""
-        body = self.translate_outbound(
-            f"{mention}**{agent_name}** needs your input."
-            + self._deeplink_suffix(deeplink_url)
-        )
+        if mention_handle:
+            text = f"@{mention_handle} **{agent_name}** needs your input."
+        else:
+            text = (
+                f"**{agent_name}** needs your input — but nobody here is linked "
+                f"to its owner, so this pings no one. Link your "
+                f"{self.platform_name} account in Switch Console to be notified."
+            )
+        body = self.translate_outbound(text + self._deeplink_suffix(deeplink_url))
         return await self.send_message(channel_id, agent_name, body, thread_root_id)
 
     @abstractmethod
@@ -455,8 +478,31 @@ class CollaborationAdapter(ABC):
         where DMs can only be initiated by the user — and so cannot be created
         from Switch — raise instead of pretending to succeed."""
         raise ChannelCreationUnsupported(
-            f"{type(self).__name__} cannot create DM channels — on this platform "
+            f"{self.platform_name} cannot create DM channels — on this platform "
             "DMs are initiated by the user from the messaging client"
+        )
+
+    @property
+    def platform_name(self) -> str:
+        """The platform as a person would name it, for messages that reach a
+        user. The class name is the fallback rather than the source: "Telegram"
+        belongs in a dialog, "TelegramAdapter" does not."""
+        return type(self).__name__.removesuffix("Adapter")
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Search the platform's own user directory (CHOO-2137).
+
+        Lets someone claim their platform identity before Switch has ever seen
+        them speak — `ExternalUser` rows are only created on first message, so
+        without this a freshly connected workspace offers nobody to pick from.
+
+        Platforms with no searchable directory raise instead of returning an
+        empty list, so the caller can say "you must post once first" rather
+        than showing an empty picker that looks broken.
+        """
+        raise NotImplementedError(
+            f"{self.platform_name} has no searchable user directory — on this "
+            "platform someone must send a message before Switch knows them"
         )
 
     async def channel_deeplink(self, external_channel_id: str) -> str | None:

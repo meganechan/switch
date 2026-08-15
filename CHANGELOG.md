@@ -44,6 +44,97 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+
+- A Switch user can claim their messaging-app account as their own, linking a
+  Slack / Mattermost / Teams / Discord identity to their Switch login
+  (`external_user_claims`). Claiming searches the platform's own user
+  directory, so someone can be recognised before they have ever posted —
+  previously Switch only learned of a person when they first spoke, which left
+  a freshly connected workspace with nobody to pick. Each platform is searched
+  in its own way: Slack filters a paged listing, Mattermost and Discord have
+  server-side search, and Teams queries the directory through Graph. Telegram
+  has no directory a bot may search at all, so there the list falls back to the
+  accounts Switch has already seen and says why it is narrower — a smaller
+  answer rather than a refusal, since refusing would leave owner-only
+  addressing unusable on the platform for people Switch already knows. Claims
+  are not exclusive: several Switch users may claim the same account, so nobody
+  can keep the real person from being recognised by claiming it first
+  (CHOO-2137).
+- An addressing rule can name the agent's **owner**, or **any agent that owner
+  runs**, rather than a list of identities. Both resolve when the message
+  arrives, so they survive connecting a new workspace, recreating a bridge,
+  registering another agent, or the agent changing hands. The second is what
+  lets one person's manager agent keep dispatching their own workers under an
+  owner-scoped policy — that is the owner acting through a program, where
+  someone else's agent is not (CHOO-2137).
+- `GET /agents` reports each agent's `addressing_policy`, which until now was
+  only on `GET /agents/{id}`. So "which of these agents answers only its owner"
+  is one list read rather than a read per agent — the shape a client needs to
+  ask that at all, instead of a request storm (CHOO-2137).
+
+#### Changed
+
+- A messaging app declares **whether its user directory can be searched**
+  (`directory_search_supported`, beside `channel_creation_supported`). False
+  for Telegram, where a bot can only name people who have messaged it. Read
+  from the adapter class, so it is answerable before a connection of that type
+  exists — which is when a client has to decide whether asking someone to pick
+  themselves out of a directory is a question worth putting (CHOO-2137).
+- **Disconnecting a messaging app now removes the identities Switch made for
+  it** — the app's own Matrix client and the puppet behind every person Switch
+  saw on it. They were left behind, and the app's own client is not merely
+  untidy: its Matrix name was derived from the app's type and display name, so
+  disconnecting an app and connecting one named the same failed outright on the
+  leftover (`duplicate key value violates unique constraint
+  "clients_matrix_user_id_key"`). The name now carries a random tail as well,
+  because deleting the row is necessary but not sufficient: the homeserver has
+  no call for removing an account, so the old Matrix user is still there, and
+  adopting it would mean logging in with a password Switch no longer holds —
+  shared-secret registration reports an existing user as success without
+  applying the new one, which reads as a working connection that can never
+  connect. Abandoned homeserver accounts are logged on removal rather than
+  passed over in silence (CHOO-2137).
+- **An agent pings its owner, not a handle typed into its config.** The
+  per-agent `notify_user` option is gone; who to @-mention when an agent needs
+  input is now the agent's owner, resolved through the messaging account that
+  person has claimed on the platform the room is bridged to. A handle only ever
+  means something on one platform — the same person is one name on Slack and
+  another on Telegram — so a single configured string was at best right in one
+  room, and on Discord and Teams it went out as plain text that notified nobody
+  while looking like it had. An agent with no owner, or an owner who has linked
+  no account there, now **says so in the nudge** instead of posting a line with
+  the mention silently missing: a ping that reaches no one and an agent that
+  never asked look identical otherwise. Existing `notify_user` values are
+  ignored rather than migrated, and drop out of an agent's options the next
+  time they are written (CHOO-2137).
+- **Newly created agents are owner-only by default**: only their owner may
+  address them, from any room, and no agent unless the owner says so. The
+  default is applied where every registration path converges, so it holds
+  for Switch Console, the gateway, the agent bridge, the configure skill and
+  bulk subagent registration alike. Existing agents are left open — the default
+  is not applied retroactively, since that would mute every agent whose owner
+  has not yet claimed an identity. Server-side connector agents opt out: they
+  are services a deployment offers everyone, not one person's assistant
+  (CHOO-2137).
+- In-room commands are subject to the addressing policy, not just messages —
+  `!reset`, `!interrupt` and `!compact` drive an agent as surely as a mention
+  does, and previously reached a restricted agent from anyone in the room. A
+  command naming the agent draws the same one-line refusal; a room-wide command
+  is declined quietly rather than producing a refusal from every restricted
+  agent present (CHOO-2137).
+- `send_targeted_message` reports a target whose policy forbids the sender as
+  `not_permitted`, rather than as "live" for a message that will never move it.
+  The message is still sent and the target still declines it in the room: a
+  refusal belongs where the request was made, not only in the sender's account
+  of it, and the same request should not succeed or fail depending on which
+  tool carried it — a plain `@name` was never blocked. `delegate_task` remains
+  the exception and fails at the sender, because a task is a row somebody is
+  expected to work rather than something a room can decline (CHOO-2137).
+- An agent that refuses a sender because its owner cannot be identified says
+  so, and points at linking the account in Switch Console — rather than giving
+  the owner the generic refusal from their own agent (CHOO-2137).
+
 ### [0.15.0] - 2026-08-14
 
 #### Added
@@ -509,6 +600,106 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+#### Added
+
+- **You can tell Switch which messaging-app account is yours.** A new dialog
+  searches the workspace's own user directory — Slack, Mattermost — and links
+  the account you pick to your Switch login. It searches the platform rather
+  than Switch's record of who has spoken, so you can find yourself in a
+  workspace you have never posted in, and it shows the display name, handle and
+  email so you can tell two similar accounts apart. An account someone else has
+  already linked says who — linking is not exclusive, so that is information
+  about who else is recognised on it rather than a lock — and one you have
+  linked yourself offers to unlink instead of linking it twice. A platform with
+  no searchable directory says so — and says a message has to arrive first —
+  instead of showing an empty list (CHOO-2137).
+- The dialog is offered as step 2 of connecting a messaging app, straight after
+  the connection succeeds, because that is the one moment the workspace is on
+  your mind — **except on an app whose directory cannot be searched**, where it
+  is not offered at all. On Telegram, Switch can only name people who have
+  messaged it, and nobody has messaged a connection made a second ago: the
+  search was guaranteed to come back empty, which reads as "you are not in your
+  own workspace" rather than "not yet". Linking waits for the server page,
+  where the warning that you own an agent nobody can reach is what prompts it,
+  and by then someone has messaged the app and there is a name to pick. The
+  search prompt no longer promises a "workspace directory" on a platform that
+  has neither. It is skippable, and linking lives on the server page for later:
+  **Messaging apps** lists one row per app — the app, the account on it that is
+  you, and what you can do with it — where your handle is the button that
+  changes it and a Link button stands in when there is none, opening the
+  dialog already pointed at that app. So you can see at a glance where you
+  are recognised and where you are not, without a separate list to reconcile
+  against. Linking is not an admin action: a member of the server sees the same
+  card and can link on any app in it, and only the Connect button is withheld.
+- **Each messaging app carries its own menu**, holding the actions that are rare
+  or destructive: unlinking your account, whether the app may create channels,
+  and disconnecting it. The row itself is left saying one thing — which account
+  here is you — in one control whether or not there is one. Unlinking in
+  particular is off the row: it used to be a bare cross sitting beside the
+  handle, one mis-click from the button you press to *change* an account, with
+  no confirmation between. The **Default** badge also sits against the app's
+  name now rather than drifting into the middle of a wide row.
+- **The server page warns when an owner-only agent cannot recognise you**, and
+  only then. One line at the top of **Messaging apps** names the apps you have
+  not linked — shown when you own an agent on that server whose rule admits its
+  owner, and never otherwise. Link everywhere, or own no such agent, and there
+  is nothing to see: a warning shown to everybody teaches people to ignore it.
+- **A new agent now answers only its owner.** Agents used to be created open to
+  everyone in every room; the add-agent dialog now defaults to *Only me*. The
+  rule names the owner rather than a list of identities, so it survives
+  connecting a new workspace or the agent changing hands. *Only me and my
+  agents* is one step away when an agent of yours has to hand this one work.
+  Existing agents are untouched.
+- **A messaging app can be disconnected from the server page**, by an admin, on
+  the same **Messaging apps** row that connects one. It is not a pause: the
+  server deletes every Switch room on that app before removing it, so the rooms
+  and their conversations go with it, and an app another admin has already
+  removed says so rather than reporting a disconnect that never happened
+  (CHOO-2137).
+
+#### Changed
+
+- **Who can send instructions to an agent is one question with four answers** —
+  *Only me (default)*, *Only me and my agents*, *Anyone*, or *Custom rules* —
+  rather than an open / restricted switch above a rule builder. The two
+  owner-scoped answers differ in one thing: whether agents you own may hand this
+  one work. Anyone drops the policy entirely; Custom rules opens the rule
+  editor, seeded from whichever answer the agent was on, so nothing has to be
+  rebuilt to add one exception. Rules built by hand are kept while the chooser
+  is on a shortcut, and a policy too specific for any of them reads back as
+  Custom rules rather than being flattened into one. The same control is on the
+  add-agent dialog and on the agent's Settings tab, so a policy is changed the
+  way it was set. The box shows the answer that was picked, rather than the
+  word stored behind it.
+- **The add-agent dialog offered "Advanced configuration" twice** for Claude
+  Code. A provider keeps its per-agent settings in one place — a repo-agent
+  definition or a launch profile — and the agent's Settings tab picks between
+  them by asking which; the creation form rendered both sections instead, and
+  the launch-profile one reads a "the fields, from wherever they live" call
+  that falls back to the definition fields. So the same settings appeared in
+  two identical boxes writing to two different places. It now picks the same
+  way the Settings tab does.
+- An agent's Settings tab no longer boxes **Advanced configuration** and **Who
+  can send instructions** in borders of their own. Every section on the page is
+  already a section; drawing two of them again was one frame too many.
+
+- **You and your agents appear in the rule editor's own pickers**, as *Me* in
+  the Users list and *My agents* in the Agents list, rather than as a checkbox
+  off to the side. They read as what they are — two more senders to admit —
+  and they compose: "me and Alice" is one rule. Setting either list to *Any* or
+  *None* clears the matching entry, so a rule cannot say "no humans" and "the
+  owner may" at once.
+- An owner rule can only recognise an owner who has linked their messaging
+  account, so the addressing editor warns — with a button into the linking
+  dialog — when the signed-in user has linked none. A privacy control that
+  silently admits nobody is the failure this exists to prevent.
+- The linking dialog is opened on one workspace rather than asking which. It is
+  titled for the platform it is linking on — "Link your Discord user account" —
+  and its search names the workspace, not the platform, since two workspaces on
+  the same platform can be connected and only the name tells them apart.
+
+### [0.23.0] - 2026-08-14
 
 #### Removed
 
@@ -1579,6 +1770,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
+
 ### [0.9.3] - 2026-08-14
 
 #### Changed
@@ -1671,6 +1869,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
 
 ### [0.3.4] - 2026-08-14
 
@@ -1772,6 +1977,13 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+#### Changed
+
+- The room-workflow skill describes owner-only addressing — the new default for
+  agents created in Switch Console — and states that `send_targeted_message`
+  now fails outright for a disallowed sender, and that in-room commands are
+  covered by the policy too (CHOO-2137).
 
 ### [0.1.1] - 2026-08-14
 

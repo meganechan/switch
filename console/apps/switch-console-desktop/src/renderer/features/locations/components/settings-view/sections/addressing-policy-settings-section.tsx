@@ -1,14 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
+import { AddressingPolicyControl } from '@renderer/features/switch-servers/addressing-policy-control';
 import {
-  AddressingPolicyEditor,
   type OptionItem,
   policyHasDeadRule,
 } from '@renderer/features/switch-servers/addressing-policy-editor';
+import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
+import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
-import { Field, FieldDescription, FieldTitle } from '@renderer/lib/ui/field';
+import { Field, FieldTitle } from '@renderer/lib/ui/field';
 import { log } from '@renderer/utils/logger';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 
@@ -39,16 +41,13 @@ export function AddressingPolicySettingsSection({
     <Field>
       <FieldTitle>
         <span className="flex items-center gap-1.5">
-          Who can address this agent
+          Who can send instructions
           <InfoTooltip
             label="More info about addressing"
-            content="Addressing means an @mention, a targeted message, or a delegated task. Open allows any room participant; restricted permits only senders matching a rule."
+            content="Sending instructions means an @mention, a targeted message, or a delegated task. Only you, anyone in the agent's rooms, or whoever a rule admits."
           />
         </span>
       </FieldTitle>
-      <FieldDescription className="text-foreground-muted">
-        Open to everyone, or restricted to matching senders.
-      </FieldDescription>
       <div className="flex flex-col gap-4">
         {switchAgents.map((agent) => (
           <AddressingPolicyRow
@@ -76,6 +75,8 @@ function AddressingPolicyRow({
   showName: boolean;
 }) {
   const queryClient = useQueryClient();
+  const showClaimIdentity = useShowModal('claimIdentityModal');
+  const { identities, refresh: refreshIdentities } = useMyIdentities(serverId);
   const [draft, setDraft] = useState<AddressingPolicy | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -101,6 +102,15 @@ function AddressingPolicyRow({
     queryKey: ['remote-agents', serverId],
     queryFn: () => rpc.switchServers.listRemoteAgents(serverId),
   });
+  const bridges = useQuery({
+    queryKey: ['remote-bridges', serverId],
+    queryFn: () => rpc.switchServers.listRemoteBridges(serverId),
+  });
+  // Which workspace the "link my account" button opens on. The claim modal is
+  // per-bridge, so one has to be named: the default bridge is where this
+  // server's rooms land, and the rest are reachable from the server page.
+  const claimBridge =
+    (bridges.data ?? []).find((b) => b.isDefault) ?? (bridges.data ?? [])[0] ?? null;
 
   // Until the user edits, show the saved policy; once dirty, show the draft.
   const value = dirty ? draft : (saved ?? null);
@@ -133,9 +143,9 @@ function AddressingPolicyRow({
   const displayName = agentOptions.find((o) => o.id === agentId)?.label ?? agentName;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+    <div className="flex flex-col gap-2">
       {showName && <span className="text-sm font-medium">{displayName}</span>}
-      <AddressingPolicyEditor
+      <AddressingPolicyControl
         value={value}
         onChange={(next) => {
           setDraft(next);
@@ -145,6 +155,17 @@ function AddressingPolicyRow({
         roomGroups={groupOptions}
         users={userOptions}
         agents={agentOptions}
+        linkedIdentities={identities}
+        onClaimIdentity={
+          claimBridge === null
+            ? null
+            : () =>
+                showClaimIdentity({
+                  serverId,
+                  bridgeId: claimBridge.id,
+                  onSuccess: () => refreshIdentities(),
+                })
+        }
         disabled={mutation.isPending}
       />
       {error && <span className="text-destructive text-xs">{error}</span>}

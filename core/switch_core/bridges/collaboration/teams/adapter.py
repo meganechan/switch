@@ -23,6 +23,7 @@ from switch_core.bridges.collaboration.adapter import (
 from switch_core.bridges.collaboration.models import (
     BridgeConnectionConfig,
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -538,7 +539,7 @@ class TeamsAdapter(CollaborationAdapter):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -573,7 +574,7 @@ class TeamsAdapter(CollaborationAdapter):
                 )
         elif state == "awaiting-input":
             ref = await self._ping_operator(
-                channel_id, agent_name, notify_user, thread_root_id, deeplink_url
+                channel_id, agent_name, mention_handle, thread_root_id, deeplink_url
             )
             if ref is not None:
                 self._input_pings.setdefault(key, []).append(ref)
@@ -680,6 +681,34 @@ class TeamsAdapter(CollaborationAdapter):
         )
         self._channel_type[channel_id] = resolved
         return resolved
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Search the AAD directory for people to claim as an identity.
+
+        Teams identifies a message sender by AAD object id where one is
+        available, which is what Graph returns here, so a claim made from this
+        list matches what arrives on the inbound path.
+        """
+        if self._graph is None:
+            raise RuntimeError("Teams adapter not started")
+        term = query.strip()
+        if not term:
+            return []
+        users = await self._graph.search_users(query=term)
+        results = [
+            DirectoryUser(
+                external_user_id=str(user.get("id")),
+                username=str(user.get("userPrincipalName") or user.get("id") or ""),
+                display_name=str(
+                    user.get("displayName") or user.get("userPrincipalName") or ""
+                ),
+                email=user.get("mail") or user.get("userPrincipalName") or None,
+            )
+            for user in users
+            if user.get("id")
+        ]
+        results.sort(key=lambda u: u.display_name.lower())
+        return results
 
     async def channel_deeplink(self, external_channel_id: str) -> str | None:
         """`https://teams.microsoft.com/l/channel/...` opening the channel in the

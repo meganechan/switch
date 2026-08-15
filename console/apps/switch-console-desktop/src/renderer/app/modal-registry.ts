@@ -9,9 +9,11 @@ import { RenameSessionModal } from '@renderer/features/sessions/rename-session-m
 import { AddAgentsToRoomModal } from '@renderer/features/switch-rooms/AddAgentsToRoomModal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
+import { ClaimIdentityModal } from '@renderer/features/switch-servers/ClaimIdentityModal';
 import { ConnectMessagingAppModal } from '@renderer/features/switch-servers/ConnectMessagingAppModal';
 import { CreateRoomModal } from '@renderer/features/switch-servers/CreateRoomModal';
 import { DeleteServerModal } from '@renderer/features/switch-servers/DeleteServerModal';
+import { DisconnectMessagingAppModal } from '@renderer/features/switch-servers/DisconnectMessagingAppModal';
 import { RenameServerModal } from '@renderer/features/switch-servers/RenameServerModal';
 import { ConfirmActionDialog } from '@renderer/lib/components/confirm-action-dialog';
 import { ExternalLinkChoiceDialog } from '@renderer/lib/components/external-link-choice-dialog';
@@ -66,6 +68,14 @@ export const modalRegistry = {
   createRoomModal: createModal(CreateRoomModal, { size: 'md', dismissOnOutsideClick: false }),
   connectMessagingAppModal: createModal(ConnectMessagingAppModal, {
     size: 'md',
+    dismissOnOutsideClick: false,
+  }),
+  claimIdentityModal: createModal(ClaimIdentityModal, {
+    size: 'md',
+    dismissOnOutsideClick: false,
+  }),
+  disconnectMessagingAppModal: createModal(DisconnectMessagingAppModal, {
+    size: 'sm',
     dismissOnOutsideClick: false,
   }),
   addAgentsToRoomModal: createModal(AddAgentsToRoomModal, {

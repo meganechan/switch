@@ -276,8 +276,8 @@ async def register_known_agents_bulk_endpoint(
         )
 
     # Subagents inherit the parent's operational settings unless the caller
-    # overrides them: they should page the same operator (`notify_user`), run
-    # in the same channels mode, and use the same repo dir as their parent.
+    # overrides them: they should run in the same channels mode and use the
+    # same repo dir as their parent.
     # The bridge exposes no GET-profile endpoint, so inheriting here means the
     # caller (the configure skill) doesn't have to recover these from the
     # parent — passing just `parent_agent_id` is enough.
@@ -285,7 +285,7 @@ async def register_known_agents_bulk_endpoint(
     parent_opts = parent_md.get("known_agent_options")
     inherited: dict[str, Any] = {}
     if isinstance(parent_opts, dict):
-        for key in ("channels_enabled", "repo_dir", "notify_user"):
+        for key in ("channels_enabled", "repo_dir"):
             if parent_opts.get(key) is not None:
                 inherited[key] = parent_opts[key]
 

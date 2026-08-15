@@ -30,6 +30,7 @@ from switch_core.bridges.collaboration.models import (
     AttachmentFailure,
     BridgeConnectionConfig,
     ChannelType,
+    DirectoryUser,
     InboundAgentJoin,
     InboundAppJoin,
     InboundCommand,
@@ -574,7 +575,7 @@ class DiscordAdapter(CollaborationAdapter):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -610,7 +611,7 @@ class DiscordAdapter(CollaborationAdapter):
                 )
         elif state == "awaiting-input":
             ref = await self._ping_operator(
-                channel_id, agent_name, notify_user, thread_root_id, deeplink_url
+                channel_id, agent_name, mention_handle, thread_root_id, deeplink_url
             )
             if ref is not None:
                 self._input_pings.setdefault(key, []).append(ref)
@@ -653,6 +654,48 @@ class DiscordAdapter(CollaborationAdapter):
             ),
         )
         return str(channel.id)
+
+    async def search_directory_users(self, query: str) -> list[DirectoryUser]:
+        """Find guild members whose username or nickname starts with `query`.
+
+        Asks Discord to do the matching rather than pulling the member list
+        and filtering here, so a large guild costs one request either way.
+        Discord matches on a prefix, so this searches by prefix — unlike the
+        Slack adapter, which has no server-side search and filters a full
+        listing on substrings.
+
+        Discord's bot API never exposes a member's email, so `email` is always
+        absent here — which is fine, since claiming an account identifies it
+        rather than proving who owns it.
+        """
+        term = query.strip()
+        if not term:
+            return []
+
+        guild = await self._get_guild()
+        try:
+            members = await guild.query_members(query=term, limit=100)
+        except (discord.HTTPException, discord.ClientException) as e:
+            raise RuntimeError(f"Discord member search failed: {e}") from e
+        except TimeoutError as e:
+            # A gateway query that never comes back would otherwise hang the
+            # request; surfacing it as a bridge failure gets the caller a 502.
+            raise RuntimeError("Discord member search timed out") from e
+
+        results = [
+            DirectoryUser(
+                external_user_id=str(member.id),
+                # `member.name` is what the inbound path records as the sender,
+                # so a claim made from this list matches messages that arrive.
+                username=str(member.name),
+                display_name=str(getattr(member, "display_name", None) or member.name),
+                email=None,
+            )
+            for member in members
+            if not getattr(member, "bot", False)
+        ]
+        results.sort(key=lambda u: u.display_name.lower())
+        return results
 
     async def create_dm_channel(
         self,

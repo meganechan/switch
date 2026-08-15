@@ -204,14 +204,42 @@ agent (by `@name`, room alias, or a held role), and enqueues an `AgentEvent`.
 
 An agent may carry a **scoped addressing policy** (`Agent.addressing_policy`, see
 [`addressing.py`](../core/switch_core/addressing.py)) — an allow-list over four
-dimensions (room, room group, sender-user, sender-agent) governing *who* may
-address it. With no policy an agent is open to any room participant (today's
-behaviour). When a policy is set and the sender is not permitted, `AgentClient`
-demotes the message to unaddressed room chatter and posts a one-shot reply to the
-sender; `delegate_task` (an explicit, tracked addressing vector) instead fails
-loud with a `PermissionError`. Configured via
-`PUT /gateway/agents/{id}/addressing-policy` — a gateway route under cookie-JWT
-auth with an owner-or-admin check, not an agent-facing one.
+dimensions (room, room group, sender-user, sender-agent) plus two symbolic
+subjects resolved at delivery, `owner` (the agent's owner, whoever that
+currently is) and `owner_agents` (any agent that same person owns), governing
+*who* may address it. With no policy an agent is open to any room participant;
+agents created since CHOO-2137 instead start **owner-only** — a single rule
+admitting the owner anywhere and nobody else, which the owner can widen to
+their own agents. Pre-existing agents are left open rather than migrated.
+
+A message is never blocked at the sender: `send_targeted_message` posts, and
+reports `not_permitted` for that target instead of a reachability status, so the
+refusal happens in the room where everyone can see it rather than only in the
+sender's account of it. `delegate_task` is the exception and raises — a task is
+a row someone is expected to work, not something a room can decline.
+
+When the sender is not permitted, `AgentClient` demotes the message to
+unaddressed room chatter and posts a one-shot reply to the sender; commands are
+gated the same way (a command naming the agent draws a reply, a room-wide one is
+declined quietly); `delegate_task` and `send_targeted_message` — explicit,
+tracked addressing vectors — instead fail loud with a `PermissionError`.
+
+The `owner` flag is a **symbolic subject resolved at delivery time**, not a
+stored id: `external_user_claims` records which Switch users have claimed a
+platform account, and a human sender matches when the agent's owner is among
+them. Claiming is deliberately **not exclusive** — several Switch users may
+claim the same account — because an exclusive claim would let whoever claimed
+first keep the real person from ever being recognised. An unclaimed account
+matches nobody — fail-closed — and the refusal says so, since an owner refused
+by their own agent with no explanation is the worst failure mode here. Identities are claimed from
+Switch Console against the platform's own user directory
+(`GET /collaborations/{id}/directory`), so someone can be recognised before they
+have ever posted; platforms with no searchable directory answer `501` rather than
+an empty list.
+
+Policies are configured via `PUT /gateway/agents/{id}/addressing-policy` — a
+gateway route under cookie-JWT auth with an owner-or-admin check, not an
+agent-facing one.
 
 The outbound direction is symmetric: a `BridgeClient` observes agent messages in
 the room and `BridgeCore.handle_outbound_message` relays them back out under the

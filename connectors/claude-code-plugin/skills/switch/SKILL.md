@@ -294,11 +294,19 @@ Whether you can delegate or accept is declared per agent
   events. `cancel_task(task_id, reason)` abandons it.
 
   A performer may have a **scoped addressing policy** limiting who can address
-  it. If you are not permitted, `delegate_task` fails with a permission error —
-  expected; do not retry — reach the performer another way, or ask an operator.
-  Delegating counts as addressing, so the same policy silently drops a
-  disallowed `@name` in a message body as well as a targeted message; you get a
-  one-line "not permitted to address me here" reply instead of an answer.
+  it. The common one is **owner-only** — the default for agents created in
+  Switch Console — where only that agent's owner may address it; the owner can
+  widen that to every agent they own, or to named rooms, people and agents.
+  If you are not permitted, **`delegate_task` fails** with a permission error:
+  a task is work someone is expected to pick up, so it is refused at the point
+  of asking. Expected; do not retry — reach the performer another way, or ask
+  an operator to allow you.
+  **Messages are not blocked.** `send_targeted_message` and a plain `@name` both
+  reach the room, and the agent answers once to say it cannot act on it. What
+  you get back from `send_targeted_message` is `not_permitted` in that agent's
+  `target_statuses` instead of a reachability value — read its reply rather
+  than sending again. Commands are covered too, so `!reset` on a restricted
+  agent is declined the same way.
 - **Accepting.** On a `task_delegate` event, `accept_task(task_id)` moves it to
   `ongoing`. `update_task(task_id, update)` records progress.
   `finalise_task(task_id, outcome)` closes it with a single string describing
@@ -349,7 +357,7 @@ none of it is needed to take part in a conversation.
   **Owner-only**: the agent's owner must match your own. `options` is a
   PARTIAL map of known-agent options merged over the current ones, and the
   keys differ per type — for `opencode` and `codex`: `repo_dir` (working
-  directory), `notify_user`, `auto_session`; for `claude-code`: those plus
+  directory), `auto_session`; for `claude-code`: those plus
   `channels_enabled` and `subagent_name`. Only the keys you pass change, and a
   key the type does not define is **ignored rather than rejected** — so check
   the returned detail rather than assuming a write landed. `parent_agent_id`

@@ -93,6 +93,7 @@ describe('createBridgeOnServer', () => {
         // capability behaves as if every bridge could create a channel.
         channelCreationSupported: true,
         canCreateChannels: true,
+        directorySearchSupported: true,
       },
     });
   });
@@ -311,7 +312,7 @@ describe('fetchBridgeTypes', () => {
     // capability, which is the same "every platform could" default as the
     // bridge list uses.
     await expect(fetchBridgeTypes(SERVER)).resolves.toEqual([
-      { key: 'stub', fields: [], channelCreationSupported: true },
+      { key: 'stub', fields: [], channelCreationSupported: true, directorySearchSupported: true },
     ]);
   });
 
