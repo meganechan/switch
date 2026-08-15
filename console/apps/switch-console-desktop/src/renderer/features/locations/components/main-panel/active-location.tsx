@@ -1,4 +1,5 @@
 import { observer } from 'mobx-react-lite';
+import { AgentPageHeader } from '@renderer/features/locations/components/main-panel/agent-page-header';
 import { SessionList } from '@renderer/features/locations/components/session-view/session-list';
 import { SettingsPanel } from '@renderer/features/locations/components/settings-view/settings-panel';
 import { SidecarPanel } from '@renderer/features/locations/components/settings-view/sidecar-panel';
@@ -20,7 +21,7 @@ function LocationViewNav({
   onChange: (view: LocationView) => void;
 }) {
   return (
-    <div className="py-10">
+    <div>
       <nav className="flex min-h-0 w-52 flex-col gap-0.5 overflow-y-auto" aria-label="Location">
         {items.map((item) => {
           const isActive = item.id === activeView;
@@ -72,6 +73,7 @@ export const ActiveLocation = observer(function ActiveLocation() {
   return (
     <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1060px] flex-col gap-6 px-8">
+        <AgentPageHeader />
         <div className="grid min-h-0 flex-1 grid-cols-[13rem_minmax(0,1fr)] gap-8 overflow-hidden">
           <LocationViewNav
             items={items}
@@ -79,7 +81,7 @@ export const ActiveLocation = observer(function ActiveLocation() {
             onChange={(view) => store.view.setLocationView(view)}
           />
           <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-            <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col px-1 py-10">
+            <div className="mx-auto flex h-full min-h-0 w-full max-w-4xl flex-col px-1 pb-10">
               {activeView === 'sessions' && <SessionList />}
               {activeView === 'settings' && <SettingsPanel />}
               {activeView === 'sidecar' && <SidecarPanel />}

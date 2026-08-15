@@ -21,6 +21,7 @@ import {
 } from '@renderer/lib/ui/dropdown-menu';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import type { Agent } from '@shared/core/agents/agents';
+import { providerDisplayName } from '@shared/core/providers/agent-provider-registry';
 import { ServerPage, ServerTable, ServerTableEmpty } from './server-page';
 import { ServerSectionTitlebar } from './server-section-titlebar';
 import { switchRoomsStore } from './switch-rooms-store';
@@ -96,6 +97,7 @@ const AgentRow = observer(function AgentRow({
   const location = getLocationStore(agent.locationId);
   const sshHost = location?.data?.sshHost ?? null;
   const label = agent.name || 'Unnamed agent';
+  const provider = providerDisplayName(agent.providerId);
 
   const gatewayUrl =
     agent.switchAgentId && switchRoomsStore.gatewayAgentUrl(serverId, agent.switchAgentId);
@@ -118,7 +120,7 @@ const AgentRow = observer(function AgentRow({
       </td>
 
       <td className="truncate px-3 py-2 text-foreground-muted">
-        {agent.providerId ? `${agent.providerId} · ` : ''}
+        {provider ? `${provider} · ` : ''}
         {sshHost ?? 'this computer'}
       </td>
 

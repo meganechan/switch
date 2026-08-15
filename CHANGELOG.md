@@ -643,12 +643,32 @@ version of their own to them without also giving them a release of their own.
   how many agents are in it. Both start a session or add a member from the row,
   and carry the same actions the sidebar rows do. Until now the only way to see
   either as a list was to scroll the sidebar tree (CHOO-2158).
+- **An agent's page opens with the agent.** Its mark, its name, the server it is
+  registered on and what it runs, with **Create Session** alongside — where the
+  page used to begin at a list of sessions, with the agent named only in the
+  titlebar. Sessions are framed as a list, each saying which room it is talking
+  in, or that it is in none (CHOO-2158).
+- **The titlebar says where you are, in full.** A session now reads
+  agent / room / session rather than naming its directory and itself, and a room
+  is its own heading with its messaging app's mark. An agent's page carries the
+  same connection status and actions menu its server's pages do (CHOO-2158).
+- Agents are described by their provider's name — **Claude Code**, **Codex** —
+  rather than the `claude` and `codex` they are keyed by (CHOO-2158).
 
 #### Fixed
 
 - **Adding your first server left the app with no workspace selected.** Nothing
   chose it, so the sidebar stayed on "Add a server" until the next launch
   (CHOO-2158).
+- **Removing the server you were in could leave the app with no workspace at
+  all** — no switcher, no destinations, no sidebar tree — because the remembered
+  server was still named as the active one. A remembered server that no longer
+  exists now counts as no choice, and the app picks one (CHOO-2158).
+- Removing an agent from its own page removed the first agent in that directory,
+  which is a different agent whenever a directory holds more than one
+  (CHOO-2158).
+- The empty session list offered to "spawn a claude session" whatever the agent
+  actually runs (CHOO-2158).
 
 ### [0.25.0] - 2026-08-15
 

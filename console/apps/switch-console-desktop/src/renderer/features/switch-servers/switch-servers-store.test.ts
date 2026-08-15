@@ -294,6 +294,21 @@ describe('keeping a server active', () => {
     expect(store.activeServerId).toBe('srv-b');
   });
 
+  it('re-selects when the stored server no longer exists', async () => {
+    // Removing the active server and adding another leaves the stored id
+    // naming the removed one. Reading that as a selection left the app with no
+    // workspace at all — no switcher, no destinations, no sidebar tree — while
+    // a perfectly good server sat in the list.
+    listServers.mockResolvedValue([server('srv-b')]);
+    getActiveServerId.mockResolvedValue('srv-gone');
+    const store = new SwitchServersStore();
+
+    await store.init();
+
+    expect(store.activeServerId).toBe('srv-b');
+    expect(store.activeServer?.id).toBe('srv-b');
+  });
+
   it('activates the first server added, which nothing else does', async () => {
     // Adding a server does not set it active on the main side, so without this
     // the very first one left the app with no workspace to show — the sidebar

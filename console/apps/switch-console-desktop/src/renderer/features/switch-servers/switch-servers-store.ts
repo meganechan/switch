@@ -104,9 +104,14 @@ export class SwitchServersStore {
    * it all read the active one, so one must be selected whenever any server
    * exists. Nothing on the main side picks it — adding the first server leaves
    * the active id null — so every path that changes the list ends here.
+   *
+   * A stored id that no longer names a server counts as no selection. It is not
+   * hypothetical: removing the active server and adding another leaves the id
+   * pointing at the removed one, and treating that as a selection left the app
+   * with no workspace at all — no switcher, no sidebar tree, no way back.
    */
   private async ensureActiveServer(): Promise<void> {
-    if (this.activeServerId) return;
+    if (this.activeServerId && this.servers.some((s) => s.id === this.activeServerId)) return;
     const first = this.servers[0];
     if (first) await this.setActive(first.id);
   }

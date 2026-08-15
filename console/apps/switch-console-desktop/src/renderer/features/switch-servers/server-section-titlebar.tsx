@@ -1,7 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
-import { ServerAvatar, ServerStatusDot, serverStatusLabel } from './server-presentation';
+import { TitlebarBreadcrumb } from '@renderer/lib/components/titlebar/titlebar-breadcrumb';
+import { ServerAvatar, ServerStatusPill } from './server-presentation';
 import { switchServersStore } from './switch-servers-store';
 
 /**
@@ -25,20 +26,27 @@ export const ServerSectionTitlebar = observer(function ServerSectionTitlebar({
   return (
     <Titlebar
       leftSlot={
-        <div className="flex min-w-0 items-center gap-1.5 px-2 text-sm">
-          {server && <ServerAvatar server={server} size="sm" />}
-          <span className="truncate text-foreground-muted">{server?.name ?? 'Server'}</span>
-          <span className="text-foreground-passive">/</span>
-          <SectionIcon className="size-3.5 shrink-0 text-foreground" />
-          <span className="text-foreground">{label}</span>
-        </div>
+        <TitlebarBreadcrumb
+          crumbs={[
+            {
+              key: 'server',
+              icon: server && <ServerAvatar server={server} size="sm" />,
+              label: server?.name ?? 'Server',
+              maxWidthClassName: 'max-w-40',
+            },
+            {
+              key: 'section',
+              icon: <SectionIcon className="size-3.5 shrink-0" />,
+              label,
+            },
+          ]}
+        />
       }
       rightSlot={
         server && (
-          <span className="mr-1 flex items-center gap-1.5 rounded-full bg-background-tertiary px-2 py-0.5 text-xs text-foreground-muted">
-            <ServerStatusDot server={server} />
-            {serverStatusLabel(server)}
-          </span>
+          <div className="mr-1 flex items-center gap-1.5">
+            <ServerStatusPill server={server} />
+          </div>
         )
       }
     />

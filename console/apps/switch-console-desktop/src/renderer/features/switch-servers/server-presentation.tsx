@@ -144,6 +144,25 @@ export const ServerStatusDot = observer(function ServerStatusDot({
 });
 
 /**
+ * The connection state as a titlebar reads it. Every page that belongs to a
+ * server carries it, including an agent's own page — an agent is unreachable
+ * for exactly as long as its server is, and that is worth saying where you are
+ * about to start a session rather than only on the server's pages.
+ */
+export const ServerStatusPill = observer(function ServerStatusPill({
+  server,
+}: {
+  server: SwitchServer;
+}) {
+  return (
+    <span className="flex items-center gap-1.5 rounded-full bg-background-tertiary px-2 py-0.5 text-xs text-foreground-muted">
+      <ServerStatusDot server={server} />
+      {serverStatusLabel(server)}
+    </span>
+  );
+});
+
+/**
  * Flags a managed server whose switch-core no longer matches the version this
  * build pins (CHOO-1736), so an available update is visible from the switcher
  * rather than only on the server's own page.
