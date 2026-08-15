@@ -55,9 +55,14 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
       <SidebarContainer className="min-h-0 w-full flex-1 border-r-0">
         <SidebarContent className="flex flex-col">
           <SidebarPinnedSessionList />
-          <WorkspaceSwitcher />
-          <WorkspaceNav />
-          <SidebarGroup className="mb-0 flex min-h-0 flex-1 flex-col">
+          {/* The sidebar reads as three blocks — which server, that server's
+              pages, then its sessions — so the vertical rhythm between them
+              lives here rather than as padding each block sets for itself. */}
+          <div className="flex flex-col gap-3">
+            <WorkspaceSwitcher />
+            <WorkspaceNav />
+          </div>
+          <SidebarGroup className="mt-5 mb-0 flex min-h-0 flex-1 flex-col">
             <SessionsSectionHeader />
             <SidebarGroupContent className="flex min-h-0 flex-1 flex-col">
               <SidebarMenu className="flex min-h-0 flex-1 flex-col">

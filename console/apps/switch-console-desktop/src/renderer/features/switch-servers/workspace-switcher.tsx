@@ -63,7 +63,7 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
 
   if (!active) {
     return (
-      <div className="px-2 pt-1 pb-2">
+      <div className="px-2">
         <LocalServerPendingButton />
         {localServerStore.phase === 'stopped' && (
           <button
@@ -83,7 +83,7 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
   const drift = serverDrift(active);
 
   return (
-    <div className="px-2 pt-1 pb-2">
+    <div className="px-2">
       <DropdownMenu>
         <DropdownMenuTrigger
           render={
@@ -93,11 +93,11 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
               className="flex w-full items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-left hover:bg-background-tertiary-1"
             >
               <ServerAvatar server={active} size="md" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-foreground">
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-[13px] font-medium text-foreground">
                   {active.name}
                 </span>
-                <span className="flex items-center gap-1.5 text-xs text-foreground-muted">
+                <span className="flex items-center gap-1.5 text-[11px] text-foreground-muted">
                   <ActiveIcon className="size-3 shrink-0" />
                   <span className="truncate">{serverSubtitleLabel(active)}</span>
                   <ServerStatusDot server={active} />
@@ -110,7 +110,7 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
         />
         <DropdownMenuContent align="start" className="min-w-72">
           <DropdownMenuGroup>
-            <DropdownMenuLabel className="text-xs font-normal tracking-wide text-foreground-passive uppercase">
+            <DropdownMenuLabel className="text-[11px] font-medium tracking-wider text-foreground-passive uppercase">
               Servers
             </DropdownMenuLabel>
             {store.servers.map((server) => (

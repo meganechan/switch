@@ -1,4 +1,12 @@
-import { ExternalLink, MoreVertical, Pencil, PlugZap, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  ExternalLink,
+  House,
+  MoreVertical,
+  Pencil,
+  PlugZap,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { type GuardResult, type ViewDefinition } from '@renderer/app/view-registry';
@@ -27,7 +35,7 @@ import { LocalServerControls } from './LocalServerControls';
 import { MessagingAppsCard } from './MessagingAppsCard';
 import { remoteServerStore } from './remote-server-store';
 import { RemoteServerControls } from './RemoteServerControls';
-import { ServerStatusDot, serverStatusLabel } from './server-presentation';
+import { ServerAvatar, ServerStatusDot, serverStatusLabel } from './server-presentation';
 import { switchServersStore } from './switch-servers-store';
 
 /** Short badge label for where a server lives (see CHOO-1432 terminology). */
@@ -65,8 +73,10 @@ const ServerTitlebar = observer(function ServerTitlebar() {
     <Titlebar
       leftSlot={
         <div className="flex min-w-0 items-center gap-1.5 px-2 text-sm">
+          {server && <ServerAvatar server={server} size="sm" />}
           <span className="truncate text-foreground-muted">{server?.name ?? 'Server'}</span>
           <span className="text-foreground-passive">/</span>
+          <House className="size-3.5 shrink-0 text-foreground" />
           <span className="text-foreground">Home</span>
         </div>
       }

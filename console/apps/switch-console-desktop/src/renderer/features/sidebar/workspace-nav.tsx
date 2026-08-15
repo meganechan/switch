@@ -22,10 +22,11 @@ export const WorkspaceNav = observer(function WorkspaceNav() {
   const onHome = isCurrentView(currentView, 'server') && params?.serverId === active.id;
 
   return (
-    <SidebarMenu className="px-2 pb-1">
+    <SidebarMenu className="px-2">
       <SidebarMenuButton
         isActive={onHome}
         onClick={() => navigate('server', { serverId: active.id })}
+        className="h-7 px-2.5"
       >
         <House className="size-4 shrink-0" />
         Home

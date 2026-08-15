@@ -1,6 +1,5 @@
-import { DoorOpen, Filter, Laptop, ListFilter, Plus, Server, UserPlus, Users } from 'lucide-react';
+import { ArrowUpDown, DoorOpen, Filter, Laptop, Plus, Server, UserPlus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import type { ComponentType } from 'react';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
@@ -19,7 +18,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { MicroLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -32,25 +30,25 @@ const CONNECTION_LABEL: Record<AgentConnectionKind, string> = {
   remote: 'Remote',
 };
 
-const GROUPING_OPTIONS: {
-  value: SidebarGrouping;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-}[] = [
-  { value: 'agent', label: 'By Agent', icon: Users },
-  { value: 'room', label: 'By Room', icon: DoorOpen },
+const GROUPING_OPTIONS: { value: SidebarGrouping; label: string }[] = [
+  { value: 'agent', label: 'By Agent' },
+  { value: 'room', label: 'By Room' },
 ];
 
 /**
  * View switcher for the grouped sidebar — a segmented control that shows both
- * groupings (Agents / Rooms) side by side, with the active one highlighted, so
- * the choice is discoverable at a glance rather than hidden behind an icon menu.
+ * groupings side by side, with the active one highlighted, so the choice is
+ * discoverable at a glance rather than hidden behind an icon menu.
+ *
+ * The labels carry no icon. "By Agent" and "By Room" already say it, and two
+ * glyphs inside a control this small crowd it without adding meaning.
  * Observer-wrapped so the active selection updates reactively.
  */
 const ViewGroupingToggle = observer(function ViewGroupingToggle() {
   return (
     <ToggleGroup
       size="sm"
+      spacing={1}
       multiple={false}
       value={[sidebarStore.grouping]}
       onValueChange={([value]) => {
@@ -58,16 +56,18 @@ const ViewGroupingToggle = observer(function ViewGroupingToggle() {
         if (opt) sidebarStore.setGrouping(opt.value);
       }}
       aria-label="Group sidebar by"
+      className="h-7 border-transparent bg-background-tertiary-2 p-0.5"
     >
-      {GROUPING_OPTIONS.map((opt) => {
-        const OptIcon = opt.icon;
-        return (
-          <ToggleGroupItem key={opt.value} value={opt.value} aria-label={opt.label}>
-            <OptIcon className="mr-1 h-3.5 w-3.5" />
-            {opt.label}
-          </ToggleGroupItem>
-        );
-      })}
+      {GROUPING_OPTIONS.map((opt) => (
+        <ToggleGroupItem
+          key={opt.value}
+          value={opt.value}
+          aria-label={opt.label}
+          className="rounded-md px-2.5 hover:bg-transparent aria-pressed:bg-background data-pressed:bg-background data-[state=on]:bg-background"
+        >
+          {opt.label}
+        </ToggleGroupItem>
+      ))}
     </ToggleGroup>
   );
 });
@@ -258,11 +258,13 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
 
   return (
     <>
-      <div className="flex h-[28px] items-center justify-between pr-2.5 pl-2.5">
-        <MicroLabel className="text-foreground-tertiary-passive">Sessions</MicroLabel>
-        <span className="text-xs text-foreground-passive">Group by</span>
+      <div className="flex h-[22px] items-center justify-between pr-2.5 pl-2.5">
+        <span className="text-[11px] font-medium tracking-wider text-foreground-passive uppercase">
+          Sessions
+        </span>
+        <span className="text-[11px] text-foreground-passive">Group by</span>
       </div>
-      <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
+      <div className="flex h-[36px] items-center justify-between pr-2.5 pl-2.5">
         <ViewGroupingToggle />
         <div className="flex items-center gap-1">
           <DropdownMenu>
@@ -281,7 +283,7 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                             'hover:bg-transparent text-foreground-muted hover:text-foreground',
                         })}
                       >
-                        <ListFilter />
+                        <ArrowUpDown />
                       </button>
                     }
                   />
