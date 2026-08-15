@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
+import { MicroLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -36,8 +37,8 @@ const GROUPING_OPTIONS: {
   label: string;
   icon: ComponentType<{ className?: string }>;
 }[] = [
-  { value: 'agent', label: 'Agents', icon: Users },
-  { value: 'room', label: 'Rooms', icon: DoorOpen },
+  { value: 'agent', label: 'By Agent', icon: Users },
+  { value: 'room', label: 'By Room', icon: DoorOpen },
 ];
 
 /**
@@ -241,7 +242,12 @@ const FilterDropdown = observer(function FilterDropdown() {
   );
 });
 
-export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
+/**
+ * The Sessions section's header: what the list below is, then how it is
+ * arranged. The grouping toggle used to sit alone on a single row, where it
+ * read as the sidebar's whole navigation rather than as one list's setting.
+ */
+export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
   const showAddLocationModal = useShowModal('addAgentModal');
   const showCreateRoomModal = useShowModal('createRoomModal');
   // The add button offers both actions rather than the one matching the current
@@ -251,116 +257,122 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
   const roomMode = sidebarStore.grouping === 'room';
 
   return (
-    <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
-      <ViewGroupingToggle />
-      <div className="flex items-center gap-1">
-        <DropdownMenu>
-          <Tooltip>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={roomMode ? 'Sort rooms' : 'Sort agents'}
-                      className={buttonVariants({
-                        size: 'icon-xs',
-                        variant: 'ghost',
-                        className:
-                          'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                      })}
-                    >
-                      <ListFilter />
-                    </button>
-                  }
-                />
-              }
-            />
-            <TooltipContent>Sort by</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="min-w-48">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-              {roomMode ? (
-                // Rooms are places, so they order by their own properties, and
-                // separately from the session sort — switching view must not
-                // silently re-order the other one.
-                <DropdownMenuRadioGroup value={sidebarStore.roomSortBy}>
-                  <DropdownMenuRadioItem
-                    value="name"
-                    onClick={() => sidebarStore.setRoomSortBy('name')}
-                  >
-                    Name
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="created-at"
-                    onClick={() => sidebarStore.setRoomSortBy('created-at')}
-                  >
-                    Created
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="updated-at"
-                    onClick={() => sidebarStore.setRoomSortBy('updated-at')}
-                  >
-                    Last active
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              ) : (
-                <DropdownMenuRadioGroup value={sidebarStore.sessionSortBy}>
-                  <DropdownMenuRadioItem
-                    value="created-at"
-                    onClick={() => sidebarStore.applySort('created-at')}
-                  >
-                    Created at
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="updated-at"
-                    onClick={() => sidebarStore.applySort('updated-at')}
-                  >
-                    Last used
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              )}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <FilterDropdown />
-        <DropdownMenu>
-          <Tooltip>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label="Add"
-                      className={buttonVariants({
-                        size: 'icon-xs',
-                        variant: 'ghost',
-                        className:
-                          'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                      })}
-                    >
-                      <Plus />
-                    </button>
-                  }
-                />
-              }
-            />
-            <TooltipContent>Add</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="min-w-48" align="start">
-            <DropdownMenuItem onClick={() => showAddLocationModal({})}>
-              <UserPlus className="mr-1.5 h-4 w-4" />
-              Add an agent
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
-              <DoorOpen className="mr-1.5 h-4 w-4" />
-              Create a room
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <>
+      <div className="flex h-[28px] items-center justify-between pr-2.5 pl-2.5">
+        <MicroLabel className="text-foreground-tertiary-passive">Sessions</MicroLabel>
+        <span className="text-xs text-foreground-passive">Group by</span>
       </div>
-    </div>
+      <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
+        <ViewGroupingToggle />
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <Tooltip>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={roomMode ? 'Sort rooms' : 'Sort agents'}
+                        className={buttonVariants({
+                          size: 'icon-xs',
+                          variant: 'ghost',
+                          className:
+                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
+                        })}
+                      >
+                        <ListFilter />
+                      </button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>Sort by</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="min-w-48">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                {roomMode ? (
+                  // Rooms are places, so they order by their own properties, and
+                  // separately from the session sort — switching view must not
+                  // silently re-order the other one.
+                  <DropdownMenuRadioGroup value={sidebarStore.roomSortBy}>
+                    <DropdownMenuRadioItem
+                      value="name"
+                      onClick={() => sidebarStore.setRoomSortBy('name')}
+                    >
+                      Name
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="created-at"
+                      onClick={() => sidebarStore.setRoomSortBy('created-at')}
+                    >
+                      Created
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="updated-at"
+                      onClick={() => sidebarStore.setRoomSortBy('updated-at')}
+                    >
+                      Last active
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                ) : (
+                  <DropdownMenuRadioGroup value={sidebarStore.sessionSortBy}>
+                    <DropdownMenuRadioItem
+                      value="created-at"
+                      onClick={() => sidebarStore.applySort('created-at')}
+                    >
+                      Created at
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="updated-at"
+                      onClick={() => sidebarStore.applySort('updated-at')}
+                    >
+                      Last used
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                )}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <FilterDropdown />
+          <DropdownMenu>
+            <Tooltip>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label="Add"
+                        className={buttonVariants({
+                          size: 'icon-xs',
+                          variant: 'ghost',
+                          className:
+                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
+                        })}
+                      >
+                        <Plus />
+                      </button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>Add</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="min-w-48" align="start">
+              <DropdownMenuItem onClick={() => showAddLocationModal({})}>
+                <UserPlus className="mr-1.5 h-4 w-4" />
+                Add an agent
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
+                <DoorOpen className="mr-1.5 h-4 w-4" />
+                Create a room
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </>
   );
 });

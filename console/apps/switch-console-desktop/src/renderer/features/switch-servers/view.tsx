@@ -27,6 +27,7 @@ import { LocalServerControls } from './LocalServerControls';
 import { MessagingAppsCard } from './MessagingAppsCard';
 import { remoteServerStore } from './remote-server-store';
 import { RemoteServerControls } from './RemoteServerControls';
+import { ServerStatusDot, serverStatusLabel } from './server-presentation';
 import { switchServersStore } from './switch-servers-store';
 
 /** Short badge label for where a server lives (see CHOO-1432 terminology). */
@@ -51,15 +52,31 @@ function useServerId(): string {
   return useParams('server').params.serverId;
 }
 
+/**
+ * The server's page is the workspace's Home, so the titlebar names the path to
+ * it — which server, then which of its sections — rather than the server alone.
+ * The state pill repeats what the switcher says about the active server, for
+ * the same reason a breadcrumb repeats where you are.
+ */
 const ServerTitlebar = observer(function ServerTitlebar() {
   const serverId = useServerId();
   const server = switchServersStore.servers.find((s) => s.id === serverId);
   return (
     <Titlebar
       leftSlot={
-        <div className="flex items-center px-2">
-          <span className="text-sm text-foreground-muted">{server?.name ?? 'Server'}</span>
+        <div className="flex min-w-0 items-center gap-1.5 px-2 text-sm">
+          <span className="truncate text-foreground-muted">{server?.name ?? 'Server'}</span>
+          <span className="text-foreground-passive">/</span>
+          <span className="text-foreground">Home</span>
         </div>
+      }
+      rightSlot={
+        server && (
+          <span className="mr-1 flex items-center gap-1.5 rounded-full bg-background-tertiary px-2 py-0.5 text-xs text-foreground-muted">
+            <ServerStatusDot server={server} />
+            {serverStatusLabel(server)}
+          </span>
+        )
       }
     />
   );

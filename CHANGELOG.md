@@ -603,6 +603,30 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Changed
+
+- **A server is now a workspace, and you switch between them.** The list of
+  servers that sat in the sidebar has been replaced by a switcher at the top,
+  showing the one you are in and opening onto the rest — each with where it
+  runs and whether it is reachable. Everything below it already belonged to
+  that server; now the sidebar says so. Under the switcher is that server's
+  Home, which is the page you used to reach by clicking the server in the
+  list, and the titlebar names the path to it (CHOO-2158).
+- The session list is a section of its own, headed **Sessions**, with the
+  grouping control labelled as what it is — group by **By Agent** or **By
+  Room** — rather than sitting alone at the top of the tree where it read as
+  the sidebar's whole navigation (CHOO-2158).
+- The welcome screen is reachable from the switcher as **About Switch**, as
+  well as from the Switch mark at the bottom of the sidebar. With no servers
+  added, the sidebar is just **Add a server** over the setup checklist
+  (CHOO-2158).
+
+#### Fixed
+
+- **Adding your first server left the app with no workspace selected.** Nothing
+  chose it, so the sidebar stayed on "Add a server" until the next launch
+  (CHOO-2158).
+
 ### [0.25.0] - 2026-08-15
 
 #### Added
