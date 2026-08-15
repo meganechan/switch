@@ -541,6 +541,15 @@ export type AddressingRule = {
    * `owner` key; absent reads as false, as it does server-side.
    */
   owner?: boolean;
+  /**
+   * Admit any agent owned by the same person, resolved on arrival like
+   * {@link owner} (CHOO-2137). The owner's manager agent handing work to their
+   * worker is the owner acting through a program; naming each one in `agents`
+   * would go stale the next time they register one.
+   *
+   * Optional for the same reason as `owner`: absent reads as false.
+   */
+  owner_agents?: boolean;
 };
 
 export type AddressingPolicy = {

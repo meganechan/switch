@@ -168,6 +168,18 @@ _ADDRESSING_UNCLAIMED_MESSAGE = (
 )
 
 
+class _SenderPrincipal(NamedTuple):
+    """Who a Matrix sender turned out to be, in the terms a policy is written
+    in. `user_ids` and `owner_user_id` are the two ways a symbolic subject
+    resolves, and are mutually exclusive: a human has claimants, an agent has
+    an owner."""
+
+    kind: SenderKind
+    id: str
+    user_ids: list[str]
+    owner_user_id: str | None
+
+
 class _AddressingDecision(NamedTuple):
     """The outcome of checking a sender against an agent's addressing policy,
     carrying the wording to reply with so the caller need not re-derive why."""
@@ -1094,7 +1106,7 @@ class AgentClient(ClientBase[ClientConfig]):
 
     async def _resolve_sender_principal(
         self, session: AsyncSession, matrix_user_id: str
-    ) -> tuple[SenderKind, str, list[str]] | None:
+    ) -> _SenderPrincipal | None:
         """Resolve a Matrix sender to an addressing principal.
 
         Maps the sender's mxid to its Client, then to either an Agent (an
@@ -1102,17 +1114,18 @@ class AgentClient(ClientBase[ClientConfig]):
         Returns ``None`` when the sender has no such record — an
         unresolvable identity that a restricted agent should not trust.
 
-        The third element is the set of Switch users who have claimed a human
-        sender's platform account, which is what an owner-scoped rule matches
-        against. It is empty when nobody has claimed it, and always empty for
-        an agent sender: an agent is never its owner, even its owner's own.
+        The two symbolic subjects resolve from different fields, and only one
+        applies to any given sender: ``user_ids`` are the Switch users who have
+        claimed a human's platform account (empty for an agent — an agent is
+        never its owner, even its owner's own), and ``owner_user_id`` is who
+        owns an agent sender (None for a human).
         """
         client = await self.client_store.get_by_matrix_user_id(session, matrix_user_id)
         if client is None:
             return None
         agent = await self._agent_store.get_by_client_id(session, client.id)
         if agent is not None:
-            return ("agent", agent.id, [])
+            return _SenderPrincipal("agent", agent.id, [], agent.owner_id)
         external_user = await self._external_user_store.get_by_client_id(
             session, client.id
         )
@@ -1120,7 +1133,7 @@ class AgentClient(ClientBase[ClientConfig]):
             claimants = await self._external_user_store.claimant_ids(
                 session, external_user.id
             )
-            return ("user", external_user.id, claimants)
+            return _SenderPrincipal("user", external_user.id, claimants, None)
         return None
 
     async def _addressing_allowed(
@@ -1152,7 +1165,11 @@ class AgentClient(ClientBase[ClientConfig]):
             return _AddressingDecision(
                 allowed=False, refusal=_ADDRESSING_DENIED_MESSAGE
             )
-        sender_kind, sender_id, sender_user_ids = principal
+        sender_kind, sender_id, sender_user_ids = (
+            principal.kind,
+            principal.id,
+            principal.user_ids,
+        )
         group_id = room.group_id if room is not None else None
         allowed = can_address(
             policy,
@@ -1161,6 +1178,7 @@ class AgentClient(ClientBase[ClientConfig]):
             sender_kind=sender_kind,
             sender_id=sender_id,
             sender_user_ids=sender_user_ids,
+            sender_owner_user_id=principal.owner_user_id,
             owner_user_id=agent.owner_id,
         )
         if allowed:

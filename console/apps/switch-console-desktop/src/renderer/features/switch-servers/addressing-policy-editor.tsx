@@ -2,7 +2,6 @@ import { Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
-import { Checkbox } from '@renderer/lib/ui/checkbox';
 import { Input } from '@renderer/lib/ui/input';
 import {
   Select,
@@ -27,7 +26,58 @@ const EMPTY_RULE: AddressingRule = {
   users: '*',
   agents: '*',
   owner: false,
+  owner_agents: false,
 };
+
+/**
+ * The two symbolic subjects, as ids that sit in the Users and Agents pickers
+ * beside real ones.
+ *
+ * They are booleans on the rule, not members of those lists — but to the person
+ * filling the form they answer the same question ("who counts as a sender
+ * here?"), so they are offered in the same place and mapped on the way in and
+ * out. That also keeps them composable: "me and Alice" is one rule, which a
+ * separate checkbox made possible but a separate dropdown mode would not.
+ *
+ * The `@` prefix is what keeps them from colliding with a real id — the picker
+ * accepts free text, and neither Switch ids nor platform handles start with one
+ * here.
+ */
+const ME = '@me';
+const MY_AGENTS = '@my-agents';
+
+const ME_OPTION: OptionItem = { id: ME, label: 'Me (the agent’s owner)' };
+const MY_AGENTS_OPTION: OptionItem = { id: MY_AGENTS, label: 'My agents (anyone I own)' };
+
+/** The Users dimension as the picker sees it: the owner reads as one more
+ * entry in the list. `Any` already includes them, so it stays `*`. */
+function usersOf(rule: AddressingRule): AddressingDimension {
+  if (rule.users === '*') return '*';
+  return rule.owner === true ? [ME, ...rule.users] : rule.users;
+}
+
+function agentsOf(rule: AddressingRule): AddressingDimension {
+  if (rule.agents === '*') return '*';
+  return rule.owner_agents === true ? [MY_AGENTS, ...rule.agents] : rule.agents;
+}
+
+/** Split a picked Users list back into stored ids and the symbolic flag. Any
+ * and None both clear the flag: "anyone" already covers the owner, and "none"
+ * means no human at all — leaving it set would contradict the choice just
+ * made. */
+function withUsers(rule: AddressingRule, next: AddressingDimension): AddressingRule {
+  if (next === '*') return { ...rule, users: '*', owner: false };
+  return { ...rule, users: next.filter((id) => id !== ME), owner: next.includes(ME) };
+}
+
+function withAgents(rule: AddressingRule, next: AddressingDimension): AddressingRule {
+  if (next === '*') return { ...rule, agents: '*', owner_agents: false };
+  return {
+    ...rule,
+    agents: next.filter((id) => id !== MY_AGENTS),
+    owner_agents: next.includes(MY_AGENTS),
+  };
+}
 
 /** A "Specific" dimension with an empty list matches nobody. */
 function matchesNobody(dim: AddressingDimension): boolean {
@@ -38,16 +88,16 @@ function matchesNobody(dim: AddressingDimension): boolean {
  * Why a rule can never match (so it would silently never apply), or null when it
  * is effective. A context dimension (rooms / room groups) that matches nobody
  * kills the rule outright; the sender is dead only when BOTH users and agents
- * match nobody AND the rule does not admit the owner (an empty list on just one
- * kind is the intentional "none", and owner-only is the whole point of the
- * default policy).
+ * match nobody, symbolic entries included (an empty list on just one kind is
+ * the intentional "none", and owner-only is the whole point of the default
+ * policy).
  */
 function deadRuleReason(rule: AddressingRule): string | null {
   if (matchesNobody(rule.rooms)) return 'Rooms is Specific but empty — this rule never applies.';
   if (matchesNobody(rule.room_groups)) {
     return 'Room groups is Specific but empty — this rule never applies.';
   }
-  if (rule.owner !== true && matchesNobody(rule.users) && matchesNobody(rule.agents)) {
+  if (matchesNobody(usersOf(rule)) && matchesNobody(agentsOf(rule))) {
     return 'Both Users and Agents are empty — no sender can match, so this rule never applies.';
   }
   return null;
@@ -93,8 +143,10 @@ export function AddressingPolicyEditor({
   const optionsFor = (key: DimKey): OptionItem[] => {
     if (key === 'rooms') return rooms;
     if (key === 'room_groups') return roomGroups;
-    if (key === 'users') return users;
-    return agents;
+    // The symbolic entry leads its list: it is the one most rules want, and it
+    // is the only entry that stays correct as people and agents come and go.
+    if (key === 'users') return [ME_OPTION, ...users];
+    return [MY_AGENTS_OPTION, ...agents];
   };
 
   const setRules = (next: AddressingRule[]) => onChange({ rules: next });
@@ -155,38 +207,21 @@ export function AddressingPolicyEditor({
               disabled={disabled}
               onChange={(room_groups) => updateRule(index, { ...rule, room_groups })}
             />
-            <label className="flex cursor-pointer items-start gap-2 pl-1">
-              <Checkbox
-                className="mt-0.5"
-                checked={rule.owner === true}
-                disabled={disabled}
-                onCheckedChange={(checked) =>
-                  updateRule(index, { ...rule, owner: checked === true })
-                }
-              />
-              <span className="flex flex-col gap-0.5">
-                <span className="text-xs font-medium">The agent&apos;s owner</span>
-                <span className="text-xs text-foreground-muted">
-                  Resolved when the message arrives, so it survives connecting a new workspace or
-                  the agent changing hands. Needs the owner to have linked their messaging account.
-                </span>
-              </span>
-            </label>
             <DimensionRow
               label="Users"
-              value={rule.users}
+              value={usersOf(rule)}
               options={optionsFor('users')}
               allowNone
               disabled={disabled}
-              onChange={(users) => updateRule(index, { ...rule, users })}
+              onChange={(users) => updateRule(index, withUsers(rule, users))}
             />
             <DimensionRow
               label="Agents"
-              value={rule.agents}
+              value={agentsOf(rule)}
               options={optionsFor('agents')}
               allowNone
               disabled={disabled}
-              onChange={(agents) => updateRule(index, { ...rule, agents })}
+              onChange={(agents) => updateRule(index, withAgents(rule, agents))}
             />
             {deadRuleReason(rule) !== null && (
               <p className="text-destructive text-xs">{deadRuleReason(rule)}</p>
@@ -273,13 +308,12 @@ function RuleSummary({
             {dimLabel(rule.room_groups, roomGroups)}
           </span>
           <span>
-            <span className="font-medium">Owner:</span> {rule.owner === true ? 'admitted' : 'no'}
+            <span className="font-medium">Users:</span>{' '}
+            {dimLabel(usersOf(rule), [ME_OPTION, ...users])}
           </span>
           <span>
-            <span className="font-medium">Users:</span> {dimLabel(rule.users, users)}
-          </span>
-          <span>
-            <span className="font-medium">Agents:</span> {dimLabel(rule.agents, agents)}
+            <span className="font-medium">Agents:</span>{' '}
+            {dimLabel(agentsOf(rule), [MY_AGENTS_OPTION, ...agents])}
           </span>
         </div>
         {dead !== null && <span className="text-destructive text-xs">{dead}</span>}

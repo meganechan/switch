@@ -7,6 +7,7 @@ from switch_core.addressing import (
     AddressingPolicy,
     AddressingRule,
     can_address,
+    owner_and_owner_agents_policy,
     owner_only_policy,
     parse_policy,
 )
@@ -19,6 +20,7 @@ def _allows(policy: AddressingPolicy, **kw: object) -> bool:
         sender_kind="user",
         sender_id="u1",
         sender_user_ids=[],
+        sender_owner_user_id=None,
         owner_user_id=None,
     )
     defaults.update(kw)
@@ -284,8 +286,189 @@ class TestOwnerRule:
         )
 
 
+class TestOwnerAgentsRule:
+    """`owner_agents`: any agent the target's owner also owns (CHOO-2137).
+
+    The counterpart to `owner` on the other side of the sender split. It exists
+    because an owner's orchestration is the owner acting: a manager agent
+    handing work to a worker both belong to the same person, and listing each
+    one by id goes stale the next time they register one.
+    """
+
+    OWNED = AddressingPolicy(
+        rules=[AddressingRule(users=[], agents=[], owner_agents=True)]
+    )
+
+    def test_an_agent_of_the_same_owner_is_admitted(self) -> None:
+        assert (
+            _allows(
+                self.OWNED,
+                sender_kind="agent",
+                sender_id="manager",
+                sender_owner_user_id="user-1",
+                owner_user_id="user-1",
+            )
+            is True
+        )
+
+    def test_somebody_elses_agent_is_not(self) -> None:
+        assert (
+            _allows(
+                self.OWNED,
+                sender_kind="agent",
+                sender_id="their-manager",
+                sender_owner_user_id="user-2",
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+    def test_an_unowned_sender_does_not_inherit_the_fleet(self) -> None:
+        # Ownerless is not a wildcard. An agent registered without an owner
+        # must not slip into every owner-scoped policy at once.
+        assert (
+            _allows(
+                self.OWNED,
+                sender_kind="agent",
+                sender_id="orphan",
+                sender_owner_user_id=None,
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+    def test_an_unowned_target_admits_nobody_this_way(self) -> None:
+        # Two ownerless agents are not each other's, and matching None to None
+        # would make them so.
+        assert (
+            _allows(
+                self.OWNED,
+                sender_kind="agent",
+                sender_id="orphan",
+                sender_owner_user_id=None,
+                owner_user_id=None,
+            )
+            is False
+        )
+
+    def test_it_does_not_let_the_owner_in_as_a_human(self) -> None:
+        # The two subjects are separate on purpose: "my agents may" is not
+        # "I may". Only `owner` admits the person.
+        assert (
+            _allows(
+                self.OWNED,
+                sender_kind="user",
+                sender_id="ext-3",
+                sender_user_ids=["user-1"],
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+    def test_it_is_still_scoped_by_room(self) -> None:
+        policy = AddressingPolicy(
+            rules=[
+                AddressingRule(rooms=["r1"], users=[], agents=[], owner_agents=True)
+            ]
+        )
+        for room, expected in (("r1", True), ("r2", False)):
+            assert (
+                _allows(
+                    policy,
+                    room_id=room,
+                    sender_kind="agent",
+                    sender_id="manager",
+                    sender_owner_user_id="user-1",
+                    owner_user_id="user-1",
+                )
+                is expected
+            )
+
+    def test_off_by_default_for_a_policy_written_before_it_existed(self) -> None:
+        # Stored policies carry no `owner_agents` key. Reading absence as true
+        # would quietly widen every existing owner-only agent.
+        policy = parse_policy(
+            {"rules": [{"users": [], "agents": [], "owner": True}]}
+        )
+        assert policy.rules[0].owner_agents is False
+        assert (
+            _allows(
+                policy,
+                sender_kind="agent",
+                sender_id="manager",
+                sender_owner_user_id="user-1",
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+
+class TestOwnerAndOwnerAgentsPolicy:
+    """The shape a Switch Console agent is created on."""
+
+    def test_admits_the_owner_and_their_agents(self) -> None:
+        policy = owner_and_owner_agents_policy()
+        assert (
+            _allows(
+                policy,
+                sender_kind="user",
+                sender_id="ext-3",
+                sender_user_ids=["user-1"],
+                owner_user_id="user-1",
+            )
+            is True
+        )
+        assert (
+            _allows(
+                policy,
+                sender_kind="agent",
+                sender_id="manager",
+                sender_owner_user_id="user-1",
+                owner_user_id="user-1",
+            )
+            is True
+        )
+
+    def test_and_nobody_else(self) -> None:
+        policy = owner_and_owner_agents_policy()
+        assert (
+            _allows(
+                policy,
+                sender_kind="user",
+                sender_id="ext-9",
+                sender_user_ids=["user-2"],
+                owner_user_id="user-1",
+            )
+            is False
+        )
+        assert (
+            _allows(
+                policy,
+                sender_kind="agent",
+                sender_id="their-agent",
+                sender_owner_user_id="user-2",
+                owner_user_id="user-1",
+            )
+            is False
+        )
+
+    def test_shape(self) -> None:
+        assert owner_and_owner_agents_policy().model_dump() == {
+            "rules": [
+                {
+                    "rooms": "*",
+                    "room_groups": "*",
+                    "users": [],
+                    "agents": [],
+                    "owner": True,
+                    "owner_agents": True,
+                }
+            ]
+        }
+
+
 class TestOwnerOnlyPolicy:
-    """The default policy for a newly created agent."""
+    """Strictly the owner: the narrower of the two shortcuts."""
 
     def test_admits_only_the_owner(self) -> None:
         policy = owner_only_policy([])
@@ -398,6 +581,7 @@ class TestOwnerOnlyPolicy:
                     "users": [],
                     "agents": ["a1"],
                     "owner": True,
+                    "owner_agents": False,
                 }
             ]
         }

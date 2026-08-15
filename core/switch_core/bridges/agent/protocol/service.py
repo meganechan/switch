@@ -956,13 +956,17 @@ class ProtocolService:
     ) -> None:
         """Raise unless `sender_agent_id` may address `target` in this room.
 
-        An agent sender is never the target's owner — owner-scoped rules admit
-        the human, not the agents acting for them — so an agent gets in only
-        through the policy's `agents` dimension.
+        An agent sender is never the target's *owner* — owner rules admit the
+        human, not the programs acting for them — so an agent gets in through
+        the `agents` dimension, or through an `owner_agents` rule when both are
+        owned by the same person. The sender is looked up only once the target
+        is actually restricted, so the open case stays a single read.
         """
         policy = parse_policy(target.addressing_policy)
         if policy.is_open():
             return
+        async with self.session_factory() as session:
+            sender = await self.agent_store.get(session, sender_agent_id)
         if can_address(
             policy,
             room_id=room_id,
@@ -970,6 +974,7 @@ class ProtocolService:
             sender_kind="agent",
             sender_id=sender_agent_id,
             sender_user_ids=[],
+            sender_owner_user_id=sender.owner_id if sender is not None else None,
             owner_user_id=target.owner_id,
         ):
             return

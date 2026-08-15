@@ -119,6 +119,7 @@ class TestRegistrationDefaultPolicy:
                 sender_kind="user",
                 sender_id="ext-3",
                 sender_user_ids=[owner_id],
+                sender_owner_user_id=None,
                 owner_user_id=owner_id,
             )
             is True
@@ -130,6 +131,7 @@ class TestRegistrationDefaultPolicy:
                 sender_kind="agent",
                 sender_id="other-agent",
                 sender_user_ids=[],
+                sender_owner_user_id=None,
                 owner_user_id=owner_id,
             )
             is False
@@ -152,6 +154,7 @@ class TestRegistrationDefaultPolicy:
                 sender_kind="agent",
                 sender_id="dispatcher",
                 sender_user_ids=[],
+                sender_owner_user_id=None,
                 owner_user_id=owner_id,
             )
             is True
@@ -163,6 +166,7 @@ class TestRegistrationDefaultPolicy:
                 sender_kind="agent",
                 sender_id="stranger",
                 sender_user_ids=[],
+                sender_owner_user_id=None,
                 owner_user_id=owner_id,
             )
             is False

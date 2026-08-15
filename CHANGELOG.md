@@ -61,9 +61,13 @@ version of their own to them without also giving them a release of their own.
   are not exclusive: several Switch users may claim the same account, so nobody
   can keep the real person from being recognised by claiming it first
   (CHOO-2137).
-- An addressing rule can name the agent's **owner** rather than a list of
-  identities. It resolves when the message arrives, so it survives connecting a
-  new workspace, recreating a bridge, or the agent changing hands (CHOO-2137).
+- An addressing rule can name the agent's **owner**, or **any agent that owner
+  runs**, rather than a list of identities. Both resolve when the message
+  arrives, so they survive connecting a new workspace, recreating a bridge,
+  registering another agent, or the agent changing hands. The second is what
+  lets one person's manager agent keep dispatching their own workers under an
+  owner-scoped policy — that is the owner acting through a program, where
+  someone else's agent is not (CHOO-2137).
 - `GET /agents` reports each agent's `addressing_policy`, which until now was
   only on `GET /agents/{id}`. So "which of these agents answers only its owner"
   is one list read rather than a read per agent — the shape a client needs to
@@ -71,11 +75,14 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
-- **Newly created agents are owner-only by default**: only their owner may
-  address them, from any room, and no other agent unless explicitly allowed.
-  The default is applied where every registration path converges, so it holds
-  for Switch Console, the gateway, the agent bridge, the configure skill and
-  bulk subagent registration alike. Existing agents are left open — the default
+- **Newly created agents are owner-scoped by default**: only their owner and
+  that owner's own agents may address them, from any room. An agent created
+  from Switch Console starts on **only me and my agents**; a registration that
+  chooses nothing at all gets the stricter **only me**, since nobody was there
+  to widen it. The default is applied where every registration path converges,
+  so it holds for Switch Console, the gateway, the agent bridge, the configure
+  skill and bulk subagent registration alike. Existing agents are left open —
+  the default
   is not applied retroactively, since that would mute every agent whose owner
   has not yet claimed an identity. Server-side connector agents opt out: they
   are services a deployment offers everyone, not one person's assistant
@@ -595,12 +602,14 @@ version of their own to them without also giving them a release of their own.
   not linked — shown when you own an agent on that server whose rule admits its
   owner, and never otherwise. Link everywhere, or own no such agent, and there
   is nothing to see: a warning shown to everybody teaches people to ignore it.
-- **A new agent now answers only its owner.** Agents used to be created open to
-  everyone in every room; the add-agent dialog now defaults to an owner-only
-  rule and offers an agent picker for the manager/orchestrator case, where
-  another agent — not a person — needs to delegate to it. The rule names the
-  owner rather than a list of identities, so it survives connecting a new
-  workspace or the agent changing hands. Existing agents are untouched.
+- **A new agent now answers only you and your own agents.** Agents used to be
+  created open to everyone in every room; the add-agent dialog now defaults to
+  *Only me and my agents*. Both halves are named symbolically rather than as
+  lists of identities, so the rule survives connecting a new workspace,
+  registering another agent, or the agent changing hands. Your own agents are
+  in by default because an agent that refuses its owner's own orchestration
+  reads as broken rather than private — *Only me* is a step away for anyone who
+  wants it. Existing agents are untouched.
 - **A messaging app can be disconnected from the server page**, by an admin, on
   the same **Messaging apps** row that connects one. It is not a pause: the
   server deletes every Switch room on that app before removing it, so the rooms
@@ -610,20 +619,27 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
-- **Who can send instructions to an agent is one question with three answers** —
-  *Only me (default)*, *Anyone*, or *Custom rules* — rather than an open /
-  restricted switch above a rule builder. Only me keeps the "also allow these
-  agents" picker, which is the case it exists for; Anyone drops the policy
-  entirely; Custom rules opens the rule editor, seeded from whichever of the two
-  the agent was on, so nothing has to be rebuilt to add one exception. Rules
-  built by hand are kept while the chooser is on one of the shortcuts, and a
-  policy too specific for either reads back as Custom rules rather than being
-  flattened into one of them. The same control is on the add-agent dialog and on
-  the agent's Settings tab, so a policy is changed the way it was set.
+- **Who can send instructions to an agent is one question with four answers** —
+  *Only me and my agents (default)*, *Only me*, *Anyone*, or *Custom rules* —
+  rather than an open / restricted switch above a rule builder. The two
+  owner-scoped answers differ in one thing: whether agents you own may hand this
+  one work. Anyone drops the policy entirely; Custom rules opens the rule
+  editor, seeded from whichever answer the agent was on, so nothing has to be
+  rebuilt to add one exception. Rules built by hand are kept while the chooser
+  is on a shortcut, and a policy too specific for any of them reads back as
+  Custom rules rather than being flattened into one. The same control is on the
+  add-agent dialog and on the agent's Settings tab, so a policy is changed the
+  way it was set.
+- An agent's Settings tab no longer boxes **Advanced configuration** and **Who
+  can send instructions** in borders of their own. Every section on the page is
+  already a section; drawing two of them again was one frame too many.
 
-- An addressing rule can admit **the agent's owner** as a sender kind of its
-  own, next to the users and agents lists, and says so in the collapsed rule
-  summary.
+- **You and your agents appear in the rule editor's own pickers**, as *Me* in
+  the Users list and *My agents* in the Agents list, rather than as a checkbox
+  off to the side. They read as what they are — two more senders to admit —
+  and they compose: "me and Alice" is one rule. Setting either list to *Any* or
+  *None* clears the matching entry, so a rule cannot say "no humans" and "the
+  owner may" at once.
 - An owner rule can only recognise an owner who has linked their messaging
   account, so the addressing editor warns — with a button into the linking
   dialog — when the signed-in user has linked none. A privacy control that

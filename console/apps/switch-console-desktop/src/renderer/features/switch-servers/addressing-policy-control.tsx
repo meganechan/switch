@@ -1,6 +1,5 @@
-import { CircleAlert, X } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
-import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import {
   Select,
@@ -12,33 +11,36 @@ import {
 import {
   type AddressingMode,
   addressingModeOf,
-  ownerOnlyPolicy,
-  ownerRuleAgentIds,
   policyForMode,
   policyNamesOwner,
 } from '@shared/core/switch-servers/owner-policy';
 import type { AddressingPolicy, LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
 import { AddressingPolicyEditor, type OptionItem } from './addressing-policy-editor';
 
+const MODE_ORDER: AddressingMode[] = ['ownerAndAgents', 'owner', 'anyone', 'custom'];
+
 const MODE_LABELS: Record<AddressingMode, string> = {
-  owner: 'Only me (default)',
+  ownerAndAgents: 'Only me and my agents (default)',
+  owner: 'Only me',
   anyone: 'Anyone',
   custom: 'Custom rules',
 };
 
 const MODE_HINTS: Record<AddressingMode, string> = {
-  owner: 'Only you can send this agent instructions, plus any agents you allow below.',
+  ownerAndAgents:
+    'You, and any agent you own — so one of your agents can hand this one work. Nobody else.',
+  owner: 'Only you, in person. Agents cannot send it instructions, including your own.',
   anyone: 'Anyone in this agent’s rooms can send it instructions.',
   custom: 'Rules say exactly who can send instructions, and in which rooms.',
 };
 
 /**
- * Who may address an agent, as one choice out of three (CHOO-2137).
+ * Who may address an agent, as one choice out of four (CHOO-2137).
  *
- * The two answers people actually want — only me, or anyone — are each a
- * policy shape rather than a form to fill in; the rule editor stays available
- * behind the third choice for everything else. Shared by the creation modal and
- * the agent's settings page so a policy is changed the same way it was set.
+ * The three answers people actually want are each a policy shape rather than a
+ * form to fill in; the rule editor stays available behind the fourth for
+ * everything else. Shared by the creation modal and the agent's settings page
+ * so a policy is changed the same way it was set.
  */
 export function AddressingPolicyControl({
   value,
@@ -79,7 +81,6 @@ export function AddressingPolicyControl({
   const [customDraft, setCustomDraft] = useState<AddressingPolicy | null>(null);
 
   const mode: AddressingMode = customChosen ? 'custom' : addressingModeOf(value);
-  const allowedAgentIds = ownerRuleAgentIds(value) ?? [];
 
   const selectMode = (next: AddressingMode) => {
     if (next === mode) return;
@@ -99,9 +100,11 @@ export function AddressingPolicyControl({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="owner">{MODE_LABELS.owner}</SelectItem>
-          <SelectItem value="anyone">{MODE_LABELS.anyone}</SelectItem>
-          <SelectItem value="custom">{MODE_LABELS.custom}</SelectItem>
+          {MODE_ORDER.map((option) => (
+            <SelectItem key={option} value={option}>
+              {MODE_LABELS[option]}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
@@ -109,15 +112,6 @@ export function AddressingPolicyControl({
 
       {policyNamesOwner(value) && linkedIdentities?.length === 0 && (
         <OwnerUnreachableWarning onClaimIdentity={onClaimIdentity} />
-      )}
-
-      {mode === 'owner' && (
-        <AllowedAgentsPicker
-          options={agents}
-          selected={allowedAgentIds}
-          disabled={disabled}
-          onChange={(ids) => onChange(ownerOnlyPolicy(ids))}
-        />
       )}
 
       {mode === 'custom' && value !== null && (
@@ -161,79 +155,6 @@ function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => 
           </Button>
         )}
       </div>
-    </div>
-  );
-}
-
-/**
- * Agents allowed to address this agent alongside its owner — the
- * manager/orchestrator case, where one agent delegates to another and no human
- * is in the loop.
- *
- * Deliberately narrower than the rule editor: the common grant is "let these
- * agents talk to it", and expressing that through four dimensions is a lot of
- * form for one idea.
- */
-function AllowedAgentsPicker({
-  options,
-  selected,
-  disabled,
-  onChange,
-}: {
-  options: OptionItem[];
-  selected: string[];
-  disabled: boolean;
-  onChange: (next: string[]) => void;
-}) {
-  const remaining = options.filter((o) => !selected.includes(o.id));
-  const labelFor = (id: string) => options.find((o) => o.id === id)?.label ?? id;
-
-  return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
-      <span className="text-xs font-medium text-foreground-muted">Also allow these agents</span>
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {selected.map((id) => (
-            <Badge key={id} variant="secondary" className="gap-1 pr-1">
-              <span className="max-w-[180px] truncate">{labelFor(id)}</span>
-              {!disabled && (
-                <button
-                  type="button"
-                  aria-label={`Remove ${labelFor(id)}`}
-                  className="hover:bg-muted rounded-sm"
-                  onClick={() => onChange(selected.filter((x) => x !== id))}
-                >
-                  <X className="size-3" />
-                </button>
-              )}
-            </Badge>
-          ))}
-        </div>
-      )}
-      <Select
-        value=""
-        disabled={disabled || remaining.length === 0}
-        onValueChange={(next) => {
-          if (typeof next === 'string' && next) onChange([...selected, next]);
-        }}
-      >
-        <SelectTrigger className="h-7 w-full">
-          <SelectValue
-            placeholder={
-              remaining.length === 0
-                ? 'No other agents on this server'
-                : 'Add an agent that may address it…'
-            }
-          />
-        </SelectTrigger>
-        <SelectContent>
-          {remaining.map((option) => (
-            <SelectItem key={option.id} value={option.id}>
-              {option.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
     </div>
   );
 }

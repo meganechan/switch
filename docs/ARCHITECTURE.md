@@ -204,11 +204,13 @@ agent (by `@name`, room alias, or a held role), and enqueues an `AgentEvent`.
 
 An agent may carry a **scoped addressing policy** (`Agent.addressing_policy`, see
 [`addressing.py`](../core/switch_core/addressing.py)) — an allow-list over four
-dimensions (room, room group, sender-user, sender-agent) plus an `owner` flag,
-governing *who* may address it. With no policy an agent is open to any room
-participant; agents created since CHOO-2137 instead start **owner-only** — a
-single rule admitting the owner anywhere, no other human, and only explicitly
-granted agents. Pre-existing agents are left open rather than migrated.
+dimensions (room, room group, sender-user, sender-agent) plus two symbolic
+subjects resolved at delivery, `owner` (the agent's owner, whoever that
+currently is) and `owner_agents` (any agent that same person owns), governing
+*who* may address it. With no policy an agent is open to any room participant;
+agents created since CHOO-2137 instead start **owner-scoped** — a single rule
+admitting the owner and the owner's own agents anywhere, and nobody else.
+Pre-existing agents are left open rather than migrated.
 
 When the sender is not permitted, `AgentClient` demotes the message to
 unaddressed room chatter and posts a one-shot reply to the sender; commands are

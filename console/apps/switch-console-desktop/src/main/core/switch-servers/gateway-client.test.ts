@@ -561,7 +561,7 @@ describe('ownsOwnerAddressedAgent', () => {
       listedAgent({
         id: `a${i}`,
         owner_id: 'u1',
-        addressing_policy: ownerOnlyPolicy([]),
+        addressing_policy: ownerOnlyPolicy(),
       })
     );
 
@@ -571,7 +571,7 @@ describe('ownsOwnerAddressedAgent', () => {
 
   it('ignores an owner-restricted agent belonging to somebody else', async () => {
     listedAgents = [
-      listedAgent({ id: 'theirs', owner_id: 'u2', addressing_policy: ownerOnlyPolicy([]) }),
+      listedAgent({ id: 'theirs', owner_id: 'u2', addressing_policy: ownerOnlyPolicy() }),
     ];
 
     await expect(ownsOwnerAddressedAgent(SERVER)).resolves.toBe(false);

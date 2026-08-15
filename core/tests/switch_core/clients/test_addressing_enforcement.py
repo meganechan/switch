@@ -9,6 +9,7 @@ from switch_core.clients.agent_client import (
     AUTO_REPLY_FLAG,
     AgentClient,
     _AddressingDecision,
+    _SenderPrincipal,
 )
 
 
@@ -71,7 +72,7 @@ class TestResolveSenderPrincipal:
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@a:switch.local"
         )
-        assert result == ("agent", "agent-7", [])
+        assert result == ("agent", "agent-7", [], "user-1")
 
     async def test_human_sender_claimed(self) -> None:
         client = self._client(
@@ -83,7 +84,7 @@ class TestResolveSenderPrincipal:
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@u:switch.local"
         )
-        assert result == ("user", "ext-3", ["user-1"])
+        assert result == ("user", "ext-3", ["user-1"], None)
 
     async def test_human_sender_claimed_by_several(self) -> None:
         # Claiming is not exclusive, so the principal carries every claimant
@@ -97,7 +98,7 @@ class TestResolveSenderPrincipal:
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@u:switch.local"
         )
-        assert result == ("user", "ext-3", ["user-1", "user-2"])
+        assert result == ("user", "ext-3", ["user-1", "user-2"], None)
 
     async def test_human_sender_unclaimed(self) -> None:
         # Nobody has linked this platform identity to a Switch user.
@@ -109,7 +110,7 @@ class TestResolveSenderPrincipal:
         result = await AgentClient._resolve_sender_principal(
             client, object(), "@u:switch.local"
         )
-        assert result == ("user", "ext-3", [])
+        assert result == ("user", "ext-3", [], None)
 
     async def test_unknown_client_is_none(self) -> None:
         client = self._client(client=None, agent=None, external_user=None)
@@ -134,12 +135,13 @@ def _allowed_client(
     *,
     policy: dict | None,
     principal: tuple[str, str, list[str]] | None,
+    sender_owner_id: str | None = None,
     group_id: str | None = None,
     owner_id: str | None = None,
 ) -> SimpleNamespace:
     """Fake client for _addressing_allowed: the agent carries `policy` and is
-    owned by `owner_id`, the sender resolves to `principal`, and the room has
-    `group_id`."""
+    owned by `owner_id`, the sender resolves to `principal` (kind, id,
+    claimants) owned by `sender_owner_id`, and the room has `group_id`."""
 
     agent = SimpleNamespace(name="fixer", addressing_policy=policy, owner_id=owner_id)
 
@@ -147,7 +149,10 @@ def _allowed_client(
         return agent
 
     async def _resolve(_session, _mxid):  # type: ignore[no-untyped-def]
-        return principal
+        if principal is None:
+            return None
+        kind, sender_id, claimants = principal
+        return _SenderPrincipal(kind, sender_id, claimants, sender_owner_id)  # type: ignore[arg-type]
 
     async def _get_room(_session, _room_id):  # type: ignore[no-untyped-def]
         return SimpleNamespace(group_id=group_id)
@@ -302,6 +307,59 @@ class TestOwnerAddressing:
             owner_id="user-1",
         )
         assert (await _decide(client)).allowed is True
+
+
+class TestOwnerAgentsAddressing:
+    """`owner_agents` on the room-message path (CHOO-2137)."""
+
+    _POLICY = {"rules": [{"users": [], "agents": [], "owner_agents": True}]}
+
+    async def test_an_agent_of_the_same_owner_is_let_in(self) -> None:
+        client = _allowed_client(
+            policy=self._POLICY,
+            principal=("agent", "manager", []),
+            sender_owner_id="user-1",
+            owner_id="user-1",
+        )
+        assert (await _decide(client)).allowed is True
+
+    async def test_somebody_elses_agent_is_refused(self) -> None:
+        client = _allowed_client(
+            policy=self._POLICY,
+            principal=("agent", "their-manager", []),
+            sender_owner_id="user-2",
+            owner_id="user-1",
+        )
+        decision = await _decide(client)
+        assert decision.allowed is False
+        assert decision.refusal == _ADDRESSING_DENIED_MESSAGE
+
+    async def test_the_owner_in_person_is_not_covered_by_it(self) -> None:
+        # Only `owner` admits the human. A rule that says "my agents may" and
+        # silently also meant "I may" would make the two shortcuts identical.
+        client = _allowed_client(
+            policy=self._POLICY,
+            principal=("user", "ext-3", ["user-1"]),
+            owner_id="user-1",
+        )
+        assert (await _decide(client)).allowed is False
+
+    async def test_the_refusal_does_not_tell_an_agent_to_link_an_account(
+        self,
+    ) -> None:
+        # The unclaimed-identity wording is for a human whose chat account
+        # nobody has claimed. An agent has none to link, so pointing it at that
+        # would send whoever reads the room down the wrong path.
+        policy = {
+            "rules": [{"users": [], "agents": [], "owner": True, "owner_agents": True}]
+        }
+        client = _allowed_client(
+            policy=policy,
+            principal=("agent", "stranger", []),
+            sender_owner_id="user-2",
+            owner_id="user-1",
+        )
+        assert (await _decide(client)).refusal == _ADDRESSING_DENIED_MESSAGE
 
 
 def _gate_client(*, allowed: bool, refusal: str = _ADDRESSING_DENIED_MESSAGE):  # type: ignore[no-untyped-def]

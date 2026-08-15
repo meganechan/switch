@@ -3,67 +3,46 @@ import type { AddressingPolicy } from '@shared/core/switch-servers/switch-server
 import {
   type AddressingMode,
   addressingModeOf,
-  policyNamesOwner,
+  ownerAndMyAgentsPolicy,
   ownerOnlyPolicy,
-  ownerRuleAgentIds,
   policyForMode,
+  policyNamesOwner,
 } from './owner-policy';
 
-describe('ownerOnlyPolicy', () => {
-  it('admits the owner and nobody else by default', () => {
-    expect(ownerOnlyPolicy([])).toEqual({
-      rules: [{ rooms: '*', room_groups: '*', users: [], agents: [], owner: true }],
+describe('the two owner-scoped shapes', () => {
+  it('admits the owner and nobody else', () => {
+    expect(ownerOnlyPolicy()).toEqual({
+      rules: [
+        {
+          rooms: '*',
+          room_groups: '*',
+          users: [],
+          agents: [],
+          owner: true,
+          owner_agents: false,
+        },
+      ],
     });
   });
 
-  it('grants the named agents alongside the owner', () => {
-    expect(ownerOnlyPolicy(['agent-a', 'agent-b']).rules[0].agents).toEqual(['agent-a', 'agent-b']);
+  it('adds the owner’s own agents, and only theirs', () => {
+    // Symbolic rather than a list of ids: registering another agent must not
+    // require going back and editing every policy that should include it.
+    expect(ownerAndMyAgentsPolicy().rules[0]).toMatchObject({
+      owner: true,
+      owner_agents: true,
+      agents: [],
+    });
+  });
+
+  it('differ only in whether the owner’s agents are admitted', () => {
+    const [strict] = ownerOnlyPolicy().rules;
+    const [withAgents] = ownerAndMyAgentsPolicy().rules;
+    expect({ ...strict, owner_agents: true }).toEqual(withAgents);
   });
 });
 
-describe('ownerRuleAgentIds', () => {
-  it('reads back the agents granted by the default policy', () => {
-    expect(ownerRuleAgentIds(ownerOnlyPolicy(['agent-a']))).toEqual(['agent-a']);
-  });
-
-  it('steps aside for an open policy', () => {
-    expect(ownerRuleAgentIds(null)).toBeNull();
-  });
-
-  it('steps aside once a second rule exists', () => {
-    const policy: AddressingPolicy = {
-      rules: [
-        ...ownerOnlyPolicy([]).rules,
-        { rooms: '*', room_groups: '*', users: '*', agents: [] },
-      ],
-    };
-    expect(ownerRuleAgentIds(policy)).toBeNull();
-  });
-
-  it('steps aside when the rule no longer names the owner', () => {
-    const policy: AddressingPolicy = {
-      rules: [{ rooms: '*', room_groups: '*', users: [], agents: [], owner: false }],
-    };
-    expect(ownerRuleAgentIds(policy)).toBeNull();
-  });
-
-  it('steps aside when the rule has been widened beyond the picker', () => {
-    const scopedRooms: AddressingPolicy = {
-      rules: [{ rooms: ['room-1'], room_groups: '*', users: [], agents: [], owner: true }],
-    };
-    const namedUsers: AddressingPolicy = {
-      rules: [{ rooms: '*', room_groups: '*', users: ['user-1'], agents: [], owner: true }],
-    };
-    const anyAgent: AddressingPolicy = {
-      rules: [{ rooms: '*', room_groups: '*', users: [], agents: '*', owner: true }],
-    };
-    expect(ownerRuleAgentIds(scopedRooms)).toBeNull();
-    expect(ownerRuleAgentIds(namedUsers)).toBeNull();
-    expect(ownerRuleAgentIds(anyAgent)).toBeNull();
-  });
-});
-
-/** A rule set the two shortcuts cannot express, so it can only be "Custom rules". */
+/** A rule set no shortcut can express, so it can only be "Custom rules". */
 const HAND_BUILT: AddressingPolicy = {
   rules: [
     { rooms: ['room-1'], room_groups: '*', users: ['user-1'], agents: [], owner: true },
@@ -77,9 +56,9 @@ describe('policyNamesOwner', () => {
     expect(policyNamesOwner({ rules: [] })).toBe(false);
   });
 
-  it('is true for the owner-only shortcut', () => {
-    expect(policyNamesOwner(ownerOnlyPolicy([]))).toBe(true);
-    expect(policyNamesOwner(ownerOnlyPolicy(['agent-a']))).toBe(true);
+  it('is true for both owner-scoped shortcuts', () => {
+    expect(policyNamesOwner(ownerOnlyPolicy())).toBe(true);
+    expect(policyNamesOwner(ownerAndMyAgentsPolicy())).toBe(true);
   });
 
   it('is true for a hand-built rule set that names the owner', () => {
@@ -87,6 +66,17 @@ describe('policyNamesOwner', () => {
     // agent has to recognise its owner at all, and this one does.
     expect(addressingModeOf(HAND_BUILT)).toBe('custom');
     expect(policyNamesOwner(HAND_BUILT)).toBe(true);
+  });
+
+  it('is false for a rule that admits only the owner’s agents', () => {
+    // This one needs no linked messaging account: an agent sender is
+    // recognised by its agent id. Warning about an unlinked account here would
+    // be a warning nobody can act on.
+    expect(
+      policyNamesOwner({
+        rules: [{ rooms: '*', room_groups: '*', users: [], agents: [], owner_agents: true }],
+      })
+    ).toBe(false);
   });
 
   it('is false for rules that name people rather than the owner', () => {
@@ -110,9 +100,31 @@ describe('addressingModeOf', () => {
     expect(addressingModeOf({ rules: [] })).toBe('anyone');
   });
 
-  it('reads the owner-only shape as only-me, granted agents included', () => {
-    expect(addressingModeOf(ownerOnlyPolicy([]))).toBe('owner');
-    expect(addressingModeOf(ownerOnlyPolicy(['agent-a']))).toBe('owner');
+  it('tells the two owner-scoped shapes apart', () => {
+    expect(addressingModeOf(ownerOnlyPolicy())).toBe('owner');
+    expect(addressingModeOf(ownerAndMyAgentsPolicy())).toBe('ownerAndAgents');
+  });
+
+  it('reads a policy stored before owner_agents existed as only-me', () => {
+    // An absent key is false server-side. Reading it as the wider choice would
+    // silently widen every agent created before this shipped.
+    expect(
+      addressingModeOf({
+        rules: [{ rooms: '*', room_groups: '*', users: [], agents: [], owner: true }],
+      })
+    ).toBe('owner');
+  });
+
+  it('reads owner-plus-named-agents as custom rather than flattening it', () => {
+    // The shape earlier builds wrote, now that the shortcut no longer has an
+    // agent picker. Calling it "Only me" would drop the names on the next save.
+    expect(
+      addressingModeOf({
+        rules: [
+          { rooms: '*', room_groups: '*', users: [], agents: ['agent-a'], owner: true },
+        ],
+      })
+    ).toBe('custom');
   });
 
   it('reads a hand-edited policy as custom', () => {
@@ -121,7 +133,7 @@ describe('addressingModeOf', () => {
 });
 
 describe('policyForMode', () => {
-  const modes: AddressingMode[] = ['owner', 'anyone', 'custom'];
+  const modes: AddressingMode[] = ['ownerAndAgents', 'owner', 'anyone', 'custom'];
 
   it('round-trips every mode back to itself', () => {
     for (const mode of modes) {
@@ -138,25 +150,32 @@ describe('policyForMode', () => {
     expect(policyForMode('anyone', HAND_BUILT)).toBeNull();
   });
 
-  it('replaces a hand-built policy when only-me is chosen', () => {
-    expect(policyForMode('owner', HAND_BUILT)).toEqual(ownerOnlyPolicy([]));
+  it('replaces a hand-built policy when a shortcut is chosen', () => {
+    expect(policyForMode('owner', HAND_BUILT)).toEqual(ownerOnlyPolicy());
+    expect(policyForMode('ownerAndAgents', HAND_BUILT)).toEqual(ownerAndMyAgentsPolicy());
   });
 
-  it('keeps the granted agents when only-me is re-chosen', () => {
-    expect(policyForMode('owner', ownerOnlyPolicy(['agent-a']))).toEqual(
-      ownerOnlyPolicy(['agent-a'])
-    );
+  it('narrows when only-me is chosen from only-me-and-my-agents', () => {
+    expect(policyForMode('owner', ownerAndMyAgentsPolicy())).toEqual(ownerOnlyPolicy());
   });
 
-  it('seeds custom rules from what only-me expressed', () => {
-    const seeded = policyForMode('custom', ownerOnlyPolicy(['agent-a']));
-    expect(seeded).toEqual(ownerOnlyPolicy(['agent-a']));
+  it('seeds custom rules from what the shortcut expressed', () => {
+    expect(policyForMode('custom', ownerAndMyAgentsPolicy())).toEqual(ownerAndMyAgentsPolicy());
   });
 
   it('seeds custom rules from what anyone expressed, rather than from nothing', () => {
     const seeded = policyForMode('custom', null);
     expect(seeded).toEqual({
-      rules: [{ rooms: '*', room_groups: '*', users: '*', agents: '*', owner: false }],
+      rules: [
+        {
+          rooms: '*',
+          room_groups: '*',
+          users: '*',
+          agents: '*',
+          owner: false,
+          owner_agents: false,
+        },
+      ],
     });
     expect(addressingModeOf(seeded)).toBe('custom');
   });

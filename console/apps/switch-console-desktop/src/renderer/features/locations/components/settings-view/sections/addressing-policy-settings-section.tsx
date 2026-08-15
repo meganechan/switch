@@ -143,7 +143,7 @@ function AddressingPolicyRow({
   const displayName = agentOptions.find((o) => o.id === agentId)?.label ?? agentName;
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border p-3">
+    <div className="flex flex-col gap-2">
       {showName && <span className="text-sm font-medium">{displayName}</span>}
       <AddressingPolicyControl
         value={value}
