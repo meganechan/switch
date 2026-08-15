@@ -10,6 +10,7 @@ import type {
   AddressingPolicy,
   BridgeConfigField,
   BridgeDirectoryUser,
+  DeleteBridgeResult,
   LinkedIdentity,
   RemoteAgentRoom,
   RemoteAgentSummary,
@@ -720,6 +721,42 @@ export async function updateBridge(
     body: { channel_creation_enabled: params.channelCreationEnabled },
   });
   return mapBridge((await res.json()) as BridgeJson);
+}
+
+/**
+ * Disconnect a collaboration bridge from `server` (admin-only
+ * `DELETE /collaborations/{id}`).
+ *
+ * **This deletes every Switch room on the bridge before removing it**, along
+ * with the conversations in them. It is the most destructive call on the
+ * gateway's collaboration router, not a pause that can be undone by attaching
+ * the platform again, and the caller is responsible for saying so before it is
+ * made.
+ *
+ * Recoverable failures are mapped so the caller can name them: a non-admin gets
+ * `forbidden`, and a bridge that is already gone gets `not-found` rather than a
+ * success. Anything else — a rejected adapter shutdown, an unexpected 500 —
+ * still throws, so a delete that did not happen can never read as one that did.
+ */
+export async function deleteBridge(
+  server: SwitchServer,
+  bridgeId: string
+): Promise<DeleteBridgeResult> {
+  try {
+    await gatewayFetch(server, `/collaborations/${encodeURIComponent(bridgeId)}`, {
+      authenticated: true,
+      method: 'DELETE',
+    });
+    return { kind: 'deleted' };
+  } catch (cause) {
+    if (cause instanceof GatewayError) {
+      if (cause.kind === 'unauthorized') return { kind: 'unauthenticated' };
+      if (cause.kind === 'http' && cause.status === 403) return { kind: 'forbidden' };
+      if (cause.kind === 'http' && cause.status === 404) return { kind: 'not-found' };
+      if (cause.kind === 'network') return { kind: 'error', message: cause.message };
+    }
+    throw cause;
+  }
 }
 
 /** The gateway `IdentityClaimant` wire shape. */

@@ -390,6 +390,31 @@ export type UpdateBridgeResult =
   | { kind: 'invalid'; message: string }
   | { kind: 'error'; message: string };
 
+/** Parameters for disconnecting a bridge from a server
+ * (`DELETE /collaborations/{id}`). */
+export type DeleteBridgeParams = {
+  serverId: string;
+  bridgeId: string;
+};
+
+/**
+ * Outcome of disconnecting a bridge.
+ *
+ * `deleted` means the bridge *and every Switch room that lived on it* are gone
+ * — the gateway deletes the rooms first — so this is not the inverse of
+ * attaching one, and a caller must have said so before asking.
+ *
+ * `not-found` is its own case rather than a success: a bridge that is already
+ * absent is usually another operator's deletion, and reporting it as done hides
+ * a mistyped id just as effectively.
+ */
+export type DeleteBridgeResult =
+  | { kind: 'deleted' }
+  | { kind: 'unauthenticated' }
+  | { kind: 'forbidden' }
+  | { kind: 'not-found' }
+  | { kind: 'error'; message: string };
+
 /** A bridged (external) human identity on a server. The `users` dimension of an
  * addressing policy keys off these ids. */
 export type RemoteExternalUser = {

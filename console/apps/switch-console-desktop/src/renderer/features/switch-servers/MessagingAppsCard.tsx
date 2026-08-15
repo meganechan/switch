@@ -1,5 +1,14 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { CircleAlert, ExternalLink, Link2, MessageSquare, Plus, X } from 'lucide-react';
+import {
+  CircleAlert,
+  ExternalLink,
+  Link2,
+  MessageSquare,
+  MoreVertical,
+  Plus,
+  Trash2,
+  Unlink,
+} from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
@@ -9,9 +18,16 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { openExternalUrl } from '@renderer/lib/open-external';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@renderer/lib/ui/dropdown-menu';
 import { Spinner } from '@renderer/lib/ui/spinner';
-import { Switch } from '@renderer/lib/ui/switch';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { log } from '@renderer/utils/logger';
 import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import { BundledChatSignIn } from './BundledChatSignIn';
@@ -50,6 +66,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
   const queryClient = useQueryClient();
   const showConnectMessagingApp = useShowModal('connectMessagingAppModal');
   const showClaimIdentity = useShowModal('claimIdentityModal');
+  const showDisconnectMessagingApp = useShowModal('disconnectMessagingAppModal');
   const isAdmin = switchServersStore.statusFor(serverId)?.user?.role === 'admin';
   // Only a stack Switch Console runs has a chat whose credentials it generated and
   // can therefore show; anyone else's Mattermost is their own to hand out.
@@ -220,6 +237,21 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
               onToggleChannelCreation={(enabled) =>
                 void handleToggleChannelCreation(bridge, enabled)
               }
+              onDisconnect={() =>
+                showDisconnectMessagingApp({
+                  serverId,
+                  bridgeId: bridge.id,
+                  bridgeDisplayName: bridge.displayName,
+                  onSuccess: () => {
+                    void queryClient.invalidateQueries({
+                      queryKey: ['remote-bridges', serverId],
+                    });
+                    // The rooms on that bridge went with it, so the sidebar is
+                    // stale in a way the bridge list alone does not repair.
+                    void switchRoomsStore.refreshRoomState();
+                  },
+                })
+              }
             />
           ))}
         </ul>
@@ -230,14 +262,17 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
 });
 
 /**
- * One app: its name, which account on it is the signed-in user, and what can be
- * done with the app itself.
+ * One app: its name, which account on it is the signed-in user, and a menu of
+ * everything else.
  *
- * The identity column is a fixed width and the trailing controls always occupy
- * their slot, so five apps line up as columns rather than as five differently
- * ragged lines.
+ * The row states one fact — which account here is you — and offers the one
+ * action that changes it. Everything rarer or more dangerous (unlinking,
+ * channel creation, disconnecting the app) sits behind the menu, so the common
+ * reading is not competing with five controls. The identity column is a fixed
+ * width and the trailing controls always occupy their slot, so several apps
+ * line up as columns rather than as differently ragged lines.
  */
-function MessagingAppRow({
+export function MessagingAppRow({
   serverId,
   bridge,
   identities,
@@ -247,6 +282,7 @@ function MessagingAppRow({
   isAdmin,
   savingChannelCreation,
   onToggleChannelCreation,
+  onDisconnect,
 }: {
   serverId: string;
   bridge: RemoteBridge;
@@ -258,6 +294,7 @@ function MessagingAppRow({
   isAdmin: boolean;
   savingChannelCreation: boolean;
   onToggleChannelCreation: (enabled: boolean) => void;
+  onDisconnect: () => void;
 }) {
   const showClaimIdentity = useShowModal('claimIdentityModal');
   const [releasing, setReleasing] = useState(false);
@@ -265,6 +302,7 @@ function MessagingAppRow({
 
   const identity = identities?.find((i) => i.bridgeId === bridge.id) ?? null;
   const platform = bridgePlatformLabel(bridge.type);
+  const claim = () => showClaimIdentity({ serverId, bridgeId: bridge.id });
 
   const release = async (identityId: string) => {
     setReleasing(true);
@@ -287,75 +325,40 @@ function MessagingAppRow({
   return (
     <li className="py-1 text-sm">
       <div className="flex items-center gap-2">
-        {hasBridgeIcon(bridge.type) ? (
-          <BridgeIcon bridgeType={bridge.type} size={16} />
-        ) : (
-          <MessageSquare className="size-4 text-foreground-muted" />
-        )}
-        <span className="min-w-0 flex-1 truncate text-foreground">{bridge.displayName}</span>
-        {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
-        {/* Surfaced only when it is NOT active: a bridge that is down cannot
-          back a new room, and the room-creation picker silently omits it, so
-          this is where that becomes visible. */}
-        {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+        {/* The badges belong to the name, so they travel with it rather than
+          drifting into the middle of the row on a wide card. */}
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          {hasBridgeIcon(bridge.type) ? (
+            <BridgeIcon bridgeType={bridge.type} size={16} />
+          ) : (
+            <MessageSquare className="size-4 text-foreground-muted" />
+          )}
+          <span className="truncate text-foreground">{bridge.displayName}</span>
+          {bridge.isDefault && <Badge variant="secondary">Default</Badge>}
+          {/* Surfaced only when it is NOT active: a bridge that is down cannot
+            back a new room, and the room-creation picker silently omits it, so
+            this is where that becomes visible. */}
+          {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+        </div>
 
-        <TooltipProvider delay={150}>
-          <Tooltip>
-            <TooltipTrigger>
-              <span className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted">
-                Channels
-                <Switch
-                  size="sm"
-                  checked={bridge.canCreateChannels}
-                  disabled={
-                    !isAdmin || !bridge.channelCreationSupported || savingChannelCreation
-                  }
-                  onCheckedChange={(next) => onToggleChannelCreation(next)}
-                  aria-label={`${bridge.canCreateChannels ? 'Disallow' : 'Allow'} ${platform} creating channels from Switch`}
-                />
-              </span>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-56 text-xs">
-              {!bridge.channelCreationSupported
-                ? `${platform} cannot create channels from Switch — create the chat in the app and add the bot to it instead.`
-                : bridge.canCreateChannels
-                  ? 'Can create a channel here for a new room. Turn off to only ever adopt channels made in the app.'
-                  : 'Channel creation is turned off for this connection — a new room can only adopt a channel made in the app.'}
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-
-        <div className="flex w-44 shrink-0 items-center justify-end gap-0.5">
+        {/* One control in both states, so the column reads as a column: the
+          handle when there is one, the invitation to supply it when not. */}
+        <div className="flex w-40 shrink-0 items-center justify-end">
           {identities === null ? null : identity === null ? (
-            <Button
-              variant="outline"
-              size="xs"
-              onClick={() => showClaimIdentity({ serverId, bridgeId: bridge.id })}
-            >
+            <Button variant="outline" size="xs" onClick={claim}>
               <Link2 className="size-3" />
               Link
             </Button>
           ) : (
-            <>
-              <Button
-                variant="ghost"
-                size="xs"
-                className="min-w-0 shrink text-foreground"
-                title={`Change which ${bridge.displayName} account is you`}
-                onClick={() => showClaimIdentity({ serverId, bridgeId: bridge.id })}
-              >
-                <span className="truncate">{handleOf(identity)}</span>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                disabled={releasing}
-                aria-label={`Unlink ${handleOf(identity)} from ${bridge.displayName}`}
-                onClick={() => void release(identity.id)}
-              >
-                {releasing ? <Spinner className="size-3" /> : <X className="size-3" />}
-              </Button>
-            </>
+            <Button
+              variant="ghost"
+              size="xs"
+              className="min-w-0 text-foreground-muted"
+              title={`Change which ${bridge.displayName} account is you`}
+              onClick={claim}
+            >
+              <span className="truncate">{handleOf(identity)}</span>
+            </Button>
           )}
         </div>
 
@@ -378,6 +381,60 @@ function MessagingAppRow({
         ) : (
           <span aria-hidden className="size-6 shrink-0" />
         )}
+
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`${bridge.displayName} actions`}
+                disabled={releasing}
+              >
+                {releasing ? <Spinner className="size-3" /> : <MoreVertical className="size-3" />}
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={claim}>
+              <Link2 className="size-4" />
+              {identity === null ? 'Link my account…' : 'Change my account…'}
+            </DropdownMenuItem>
+            {identity !== null && (
+              <DropdownMenuItem onClick={() => void release(identity.id)}>
+                <Unlink className="size-4" />
+                Unlink {handleOf(identity)}
+              </DropdownMenuItem>
+            )}
+
+            <DropdownMenuSeparator />
+            <DropdownMenuCheckboxItem
+              checked={bridge.canCreateChannels}
+              disabled={!isAdmin || !bridge.channelCreationSupported || savingChannelCreation}
+              onCheckedChange={(next) => onToggleChannelCreation(next)}
+            >
+              Can create channels
+            </DropdownMenuCheckboxItem>
+            {/* A disabled empty tick reads as "off", which is a different
+              claim from "this platform cannot do it at all". */}
+            {!bridge.channelCreationSupported && (
+              <DropdownMenuLabel className="max-w-56 text-xs font-normal text-foreground-muted">
+                {platform} cannot create channels from Switch. Make the chat in the app and add the
+                bot to it.
+              </DropdownMenuLabel>
+            )}
+
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onClick={onDisconnect}>
+                  <Trash2 className="size-4" />
+                  Disconnect app…
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {releaseError !== null && (

@@ -33,6 +33,8 @@ import type {
   CreateBridgeResult,
   CreateRoomParams,
   CreateRoomResult,
+  DeleteBridgeParams,
+  DeleteBridgeResult,
   LinkedIdentity,
   PasswordLoginParams,
   ProvisionAgentParams,
@@ -64,6 +66,7 @@ import { createRoomOnServer } from './create-room';
 import {
   addRoomAgents,
   agentExistsOnServer,
+  deleteBridge,
   fetchAddressingPolicy,
   fetchAgentDetail,
   fetchAgentRooms,
@@ -267,6 +270,15 @@ export const switchServersController = createRPCController({
       channelCreationEnabled: params.channelCreationEnabled,
     });
   },
+
+  /**
+   * Disconnect a messaging app from the chosen server. Admin-only, and the
+   * gateway deletes every Switch room on the bridge on the way — see
+   * `deleteBridge`. The renderer owns the confirmation; by the time this runs
+   * the rooms are being given up deliberately.
+   */
+  deleteBridge: async (params: DeleteBridgeParams): Promise<DeleteBridgeResult> =>
+    deleteBridge(await requireReachableServer(params.serverId), params.bridgeId),
 
   /**
    * Create a room on the chosen server, owned by the signed-in user. Room

@@ -579,6 +579,14 @@ version of their own to them without also giving them a release of their own.
   are recognised and where you are not, without a separate list to reconcile
   against. Linking is not an admin action: a member of the server sees the same
   card and can link on any app in it, and only the Connect button is withheld.
+- **Each messaging app carries its own menu**, holding the actions that are rare
+  or destructive: unlinking your account, whether the app may create channels,
+  and disconnecting it. The row itself is left saying one thing — which account
+  here is you — in one control whether or not there is one. Unlinking in
+  particular is off the row: it used to be a bare cross sitting beside the
+  handle, one mis-click from the button you press to *change* an account, with
+  no confirmation between. The **Default** badge also sits against the app's
+  name now rather than drifting into the middle of a wide row.
 - **The server page warns when an owner-only agent cannot recognise you**, and
   only then. One line at the top of **Messaging apps** names the apps you have
   not linked — shown when you own an agent on that server whose rule admits its
@@ -590,6 +598,12 @@ version of their own to them without also giving them a release of their own.
   another agent — not a person — needs to delegate to it. The rule names the
   owner rather than a list of identities, so it survives connecting a new
   workspace or the agent changing hands. Existing agents are untouched.
+- **A messaging app can be disconnected from the server page**, by an admin, on
+  the same **Messaging apps** row that connects one. It is not a pause: the
+  server deletes every Switch room on that app before removing it, so the rooms
+  and their conversations go with it, and an app another admin has already
+  removed says so rather than reporting a disconnect that never happened
+  (CHOO-2137).
 
 #### Changed
 

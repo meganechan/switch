@@ -29,6 +29,7 @@ vi.mock('./auth', () => ({ refreshSession, reauthenticateManagedServer }));
 
 const {
   createRoom,
+  deleteBridge,
   fetchBridges,
   fetchMe,
   ownsOwnerAddressedAgent,
@@ -672,5 +673,62 @@ describe('updateBridge', () => {
 
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
     expect(JSON.parse(init.body)).toEqual({});
+  });
+});
+
+describe('deleteBridge', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    getSessionCookie.mockResolvedValue(makeJwt(24 * 60 * 60));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('DELETEs the bridge and reports it deleted', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }) as never);
+
+    await expect(deleteBridge(SERVER, 'b1')).resolves.toEqual({ kind: 'deleted' });
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, { method: string }];
+    expect(url).toBe('https://switch.example.com/gateway/collaborations/b1');
+    expect(init.method).toBe('DELETE');
+  });
+
+  it('escapes the bridge id into the path', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true }) as never);
+
+    await deleteBridge(SERVER, 'b/1 2');
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toBe('https://switch.example.com/gateway/collaborations/b%2F1%202');
+  });
+
+  it('reports a non-admin as forbidden', async () => {
+    fetchMock.mockResolvedValue(errorResponse(403, '{"detail":"Admin only"}') as never);
+
+    await expect(deleteBridge(SERVER, 'b1')).resolves.toEqual({ kind: 'forbidden' });
+  });
+
+  it('reports an unknown bridge as not-found rather than deleted', async () => {
+    // Somebody else's deletion, or a stale list — either way the rooms this
+    // call would have taken with it were not this call's to take.
+    fetchMock.mockResolvedValue(errorResponse(404, '{"detail":"Bridge not found"}') as never);
+
+    await expect(deleteBridge(SERVER, 'gone')).resolves.toEqual({ kind: 'not-found' });
+  });
+
+  it('reports an expired session as unauthenticated', async () => {
+    fetchMock.mockResolvedValue(unauthorizedResponse() as never);
+
+    await expect(deleteBridge(SERVER, 'b1')).resolves.toEqual({ kind: 'unauthenticated' });
+  });
+
+  it('propagates a failure it has no case for instead of claiming success', async () => {
+    fetchMock.mockResolvedValue(errorResponse(500, 'adapter shutdown failed') as never);
+
+    await expect(deleteBridge(SERVER, 'b1')).rejects.toMatchObject({ status: 500 });
   });
 });
