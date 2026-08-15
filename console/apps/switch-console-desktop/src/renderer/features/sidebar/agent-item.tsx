@@ -230,6 +230,7 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
               type="button"
               aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
               aria-expanded={expanded}
+              className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 toggle();

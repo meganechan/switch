@@ -153,6 +153,7 @@ export const RoomAgentRow = observer(function RoomAgentRow({
               type="button"
               aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
               aria-expanded={expanded}
+              className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100 focus-visible:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 sidebarStore.toggleGroupExpanded(expandKey);

@@ -110,7 +110,7 @@ export function groupByRoom(
  */
 export function RoomRow({
   label,
-  count,
+  hasChildren,
   expanded,
   onToggle,
   onOpenGateway,
@@ -120,23 +120,18 @@ export function RoomRow({
   isActive = false,
   depth = 0,
   bridgeType = null,
-  undrawableCount = null,
   nameKnown = true,
   nameBlockedBySignIn = false,
 }: {
   label: string;
-  count: number;
+  /** Whether there is anything under this room to unfold. */
+  hasChildren: boolean;
   /** False when `label` is a stand-in because the room's name has not loaded.
    * Rendered as visibly provisional rather than as the room's name. */
   nameKnown?: boolean;
   /** True when the name is missing because the room's server is signed out —
    * something to act on, not to wait for. */
   nameBlockedBySignIn?: boolean;
-  /** Members the server counts that this install cannot draw — agents
-   * registered on another Switch Console, plus any whose membership failed to load.
-   * Disclosed next to the count so a member that exists but cannot be shown is
-   * not read as a member that is not there. Null when unknown. */
-  undrawableCount?: number | null;
   expanded: boolean;
   onToggle: () => void;
   onOpenGateway: () => void;
@@ -250,25 +245,12 @@ export function RoomRow({
         />
         <TooltipContent>Open in gateway</TooltipContent>
       </Tooltip>
-      <span className="shrink-0 text-xs text-foreground-tertiary-passive">{count}</span>
-      {undrawableCount !== null && undrawableCount > 0 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="shrink-0 text-xs text-foreground-muted">+{undrawableCount}</span>
-            }
-          />
-          <TooltipContent>
-            {undrawableCount} more {undrawableCount === 1 ? 'member is' : 'members are'} in this
-            room but not on this copy of Switch Console, so they cannot be shown here
-          </TooltipContent>
-        </Tooltip>
-      )}
-      {count > 0 && (
+      {hasChildren && (
         <SidebarItemMiniButton
           type="button"
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
           aria-expanded={expanded}
+          className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100 focus-visible:opacity-100"
           onClick={(e) => {
             e.stopPropagation();
             onToggle();

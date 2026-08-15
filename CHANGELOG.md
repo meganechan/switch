@@ -660,11 +660,16 @@ version of their own to them without also giving them a release of their own.
   menus are built from one list, so an action cannot arrive on one and be
   missing from the other (CHOO-2158).
 - **Expanding a row in the sidebar is now the chevron's job alone**, and the
-  chevron has moved to the end of the row. Opening an agent or a room no longer
-  unfolds it, so reading one thing does not rearrange the tree around it, and
-  the agent's provider mark stays visible instead of turning into a chevron
-  under the pointer. A row with nothing beneath it has no chevron at all
-  (CHOO-2158).
+  chevron has moved to the end of the row, appearing on hover with that row's
+  other actions. Opening an agent or a room no longer unfolds it, so reading one
+  thing does not rearrange the tree around it, and the agent's provider mark
+  stays visible instead of turning into a chevron under the pointer. A row with
+  nothing beneath it has no chevron at all (CHOO-2158).
+- **A room in the sidebar no longer carries a member count.** The pair of
+  numbers on the row — agents here, agents elsewhere — was read as an expand
+  control and told you little. A room whose members are all on other computers
+  now opens and says so in a line, rather than counting them at you on the row
+  or presenting itself as empty (CHOO-2158).
 - **Anything you can click now says so under the pointer.** Buttons, sidebar
   rows, menu entries and tabs show the hand cursor; Tailwind's reset had left
   them all on the arrow (CHOO-2158).
