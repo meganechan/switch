@@ -212,6 +212,12 @@ agents created since CHOO-2137 instead start **owner-only** — a single rule
 admitting the owner anywhere and nobody else, which the owner can widen to
 their own agents. Pre-existing agents are left open rather than migrated.
 
+A message is never blocked at the sender: `send_targeted_message` posts, and
+reports `not_permitted` for that target instead of a reachability status, so the
+refusal happens in the room where everyone can see it rather than only in the
+sender's account of it. `delegate_task` is the exception and raises — a task is
+a row someone is expected to work, not something a room can decline.
+
 When the sender is not permitted, `AgentClient` demotes the message to
 unaddressed room chatter and posts a one-shot reply to the sender; commands are
 gated the same way (a command naming the agent draws a reply, a room-wide one is

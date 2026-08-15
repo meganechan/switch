@@ -90,9 +90,14 @@ version of their own to them without also giving them a release of their own.
   command naming the agent draws the same one-line refusal; a room-wide command
   is declined quietly rather than producing a refusal from every restricted
   agent present (CHOO-2137).
-- `send_targeted_message` fails for the sender when the target's policy
-  forbids it, instead of returning an event id and a "live" status for a
-  message that would never trigger anyone (CHOO-2137).
+- `send_targeted_message` reports a target whose policy forbids the sender as
+  `not_permitted`, rather than as "live" for a message that will never move it.
+  The message is still sent and the target still declines it in the room: a
+  refusal belongs where the request was made, not only in the sender's account
+  of it, and the same request should not succeed or fail depending on which
+  tool carried it — a plain `@name` was never blocked. `delegate_task` remains
+  the exception and fails at the sender, because a task is a row somebody is
+  expected to work rather than something a room can decline (CHOO-2137).
 - An agent that refuses a sender because its owner cannot be identified says
   so, and points at linking the account in Switch Console — rather than giving
   the owner the generic refusal from their own agent (CHOO-2137).

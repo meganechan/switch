@@ -709,6 +709,12 @@ async def send_targeted_message(
         message until they reconnect). User targets are omitted — their
         reachability is the collaboration bridge's concern. A role with no live
         holder contributes no entries.
+
+        `not_permitted` is the one status that is not about reachability: that
+        agent's addressing policy does not admit you. The message is still
+        sent, and it will answer in the room saying it cannot act on it — so
+        read its reply rather than treating this as a failed send. Reaching it
+        another way is a matter for whoever owns it, not for a retry.
     """
     agent_id = get_agent_id()
     room_id = await require_connected_room()

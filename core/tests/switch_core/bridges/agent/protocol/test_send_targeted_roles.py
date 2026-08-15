@@ -186,15 +186,23 @@ class TestSendTargetedRoles:
 
 
 class TestSendTargetedAddressingGate:
-    """Targeting an agent by name is subject to its addressing policy, and the
-    SENDER is told — rather than being handed an event_id for a message the
-    receiver would silently demote."""
+    """Targeting an agent whose policy does not admit you is reported, not
+    refused (CHOO-2137).
+
+    The message goes to the room and the target declines it there, the same as
+    an `@name` in an ordinary message — so the refusal is on the record in the
+    room rather than only in the sender's account of it. What the sender gets
+    back is `not_permitted` in place of a reachability status, because "live"
+    for an agent that is about to say no is the reading that sends someone
+    looking for a bug. Delegation still raises; a task is a row someone is
+    expected to work.
+    """
 
     def _restricted(self) -> dict:
         """Admits one specific other agent, so `sender` is not permitted."""
         return {"rules": [{"agents": ["someone-else"], "users": []}]}
 
-    async def test_restricted_name_target_raises(self) -> None:
+    async def test_a_restricted_target_still_receives_the_message(self) -> None:
         svc, bodies = _build_service(
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
             roles=[],
@@ -202,10 +210,28 @@ class TestSendTargetedAddressingGate:
             agents={"a-alice": _agent("alice", self._restricted())},
         )
 
-        with pytest.raises(PermissionError, match="not permitted to address"):
-            await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        result = await svc.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
 
-        assert bodies == []  # nothing posted
+        assert bodies == ["@alice ping"]
+        assert result.event_id
+
+    async def test_and_the_sender_is_told_it_will_be_declined(self) -> None:
+        # Without this the sender reads "live" and has no way to tell a refusal
+        # apart from an agent that simply had nothing to say.
+        svc, _bodies = _build_service(
+            participants=[_participant("alice", "agent", AgentStatus.LIVE)],
+            roles=[],
+            holders={},
+            agents={"a-alice": _agent("alice", self._restricted())},
+        )
+
+        result = await svc.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
+
+        assert result.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}
 
     async def test_permitted_name_target_posts(self) -> None:
         svc, bodies = _build_service(
@@ -219,8 +245,11 @@ class TestSendTargetedAddressingGate:
             },
         )
 
-        await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
+        result = await svc.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
         assert bodies == ["@alice ping"]
+        assert result.target_statuses == {"alice": AgentStatus.LIVE}
 
     async def test_owner_rule_does_not_admit_an_agent_sender(self) -> None:
         # The sender agent shares alice's owner, but an owner rule admits the
@@ -237,13 +266,15 @@ class TestSendTargetedAddressingGate:
             },
         )
 
-        with pytest.raises(PermissionError, match="not permitted to address"):
-            await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
-        assert bodies == []
+        result = await svc.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
+        assert result.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}
 
-    async def test_restricted_role_holder_raises(self) -> None:
+    async def test_a_restricted_role_holder_is_reported_too(self) -> None:
         # Role targets are resolved to their live holders and checked the same
-        # way, so a role mention can't be used to route around the policy.
+        # way, so a role mention cannot be used to make the answer look better
+        # than naming the agent would.
         role = SimpleNamespace(id="r-mgr", name="manager")
         svc, bodies = _build_service(
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
@@ -252,11 +283,12 @@ class TestSendTargetedAddressingGate:
             agents={"a-alice": _agent("alice", self._restricted())},
         )
 
-        with pytest.raises(PermissionError, match="not permitted to address"):
-            await svc.send_targeted_message(
-                "sender", "room-1", [], "standup", target_roles=["manager"]
-            )
-        assert bodies == []
+        result = await svc.send_targeted_message(
+            "sender", "room-1", [], "standup", target_roles=["manager"]
+        )
+
+        assert bodies == ["@manager standup"]
+        assert result.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}
 
     async def test_user_target_is_not_gated(self) -> None:
         # The policy governs addressing an AGENT; a human target is the
@@ -273,23 +305,26 @@ class TestSendTargetedAddressingGate:
 
     async def test_group_scoped_policy_uses_the_rooms_group(self) -> None:
         policy = {"rules": [{"room_groups": ["g1"], "agents": ["sender"], "users": []}]}
-        allowed, bodies = _build_service(
+        allowed, _bodies = _build_service(
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
             roles=[],
             holders={},
             agents={"a-alice": _agent("alice", policy)},
             group_id="g1",
         )
-        await allowed.send_targeted_message("sender", "room-1", ["alice"], "ping")
-        assert bodies == ["@alice ping"]
+        in_group = await allowed.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
+        assert in_group.target_statuses == {"alice": AgentStatus.LIVE}
 
-        denied, denied_bodies = _build_service(
+        denied, _denied_bodies = _build_service(
             participants=[_participant("alice", "agent", AgentStatus.LIVE)],
             roles=[],
             holders={},
             agents={"a-alice": _agent("alice", policy)},
             group_id="g2",
         )
-        with pytest.raises(PermissionError, match="not permitted to address"):
-            await denied.send_targeted_message("sender", "room-1", ["alice"], "ping")
-        assert denied_bodies == []
+        out_of_group = await denied.send_targeted_message(
+            "sender", "room-1", ["alice"], "ping"
+        )
+        assert out_of_group.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}

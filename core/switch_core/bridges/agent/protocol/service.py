@@ -956,6 +956,32 @@ class ProtocolService:
     ) -> None:
         """Raise unless `sender_agent_id` may address `target` in this room.
 
+        For delegation, which creates a row someone is expected to work. A
+        message the target can decline in the room is checked with
+        :meth:`_can_address` and reported instead.
+        """
+        if await self._can_address(
+            target,
+            room_id=room_id,
+            group_id=group_id,
+            sender_agent_id=sender_agent_id,
+        ):
+            return
+        raise PermissionError(
+            f"Agent {sender_agent_id} is not permitted to address "
+            f"{target.name} in this room."
+        )
+
+    async def _can_address(
+        self,
+        target: Agent,
+        *,
+        room_id: str,
+        group_id: str | None,
+        sender_agent_id: str,
+    ) -> bool:
+        """Whether `sender_agent_id` may address `target` in this room.
+
         An agent sender is never the target's *owner* — owner rules admit the
         human, not the programs acting for them — so an agent gets in through
         the `agents` dimension, or through an `owner_agents` rule when both are
@@ -964,10 +990,10 @@ class ProtocolService:
         """
         policy = parse_policy(target.addressing_policy)
         if policy.is_open():
-            return
+            return True
         async with self.session_factory() as session:
             sender = await self.agent_store.get(session, sender_agent_id)
-        if can_address(
+        return can_address(
             policy,
             room_id=room_id,
             group_id=group_id,
@@ -976,11 +1002,6 @@ class ProtocolService:
             sender_user_ids=[],
             sender_owner_user_id=sender.owner_id if sender is not None else None,
             owner_user_id=target.owner_id,
-        ):
-            return
-        raise PermissionError(
-            f"Agent {sender_agent_id} is not permitted to address "
-            f"{target.name} in this room."
         )
 
     async def send_targeted_message(
@@ -1059,18 +1080,22 @@ class ProtocolService:
                         if holder is not None:
                             role_holder_names.add(holder.name)
 
-        # Addressing an agent by name is subject to its policy just as a task
-        # delegation is. The receiving agent would demote the message anyway;
-        # failing here instead means the sender is told, rather than being
-        # handed an event_id and a "live" status for a message that will never
-        # trigger anyone. Role targets are resolved to their live holders and
-        # checked the same way.
+        # A target whose policy does not admit this sender is reported, not
+        # refused. The message goes to the room either way and the target
+        # declines it there, in the open, where whoever is reading can see that
+        # it was asked and why it will not act — which is the same thing that
+        # happens to an `@name` in a plain message. Refusing here would make
+        # the same request succeed or fail depending on which tool sent it, and
+        # would leave the sender's account of it the only one on record.
+        # Delegation is the exception, and raises: a task is a row someone is
+        # expected to work, not something a room can decline.
         async with self.session_factory() as session:
             room_row = await self.room_store.get(session, room_id)
         group_id = room_row.group_id if room_row is not None else None
         addressed_agent_names = {
             name for name in target_names if participant_by_name[name].type == "agent"
         } | role_holder_names
+        refused: set[str] = set()
         async with self.session_factory() as session:
             for name in sorted(addressed_agent_names):
                 participant = participant_by_name.get(name)
@@ -1079,12 +1104,13 @@ class ProtocolService:
                 target_agent = await self.agent_store.get(session, participant.id)
                 if target_agent is None:
                     continue
-                await self._require_can_address(
+                if not await self._can_address(
                     target_agent,
                     room_id=room_id,
                     group_id=group_id,
                     sender_agent_id=agent_id,
-                )
+                ):
+                    refused.add(name)
 
         mention_tokens = [f"@{name}" for name in target_names]
         mention_tokens += [f"@{role}" for role in roles]
@@ -1099,11 +1125,19 @@ class ProtocolService:
             and participant_by_name[name].type == "agent"
         }
         status_names |= role_holder_names
+        # A refused target reports why rather than how reachable it is. Both
+        # matter to the sender, but only one of them explains a reply that says
+        # no — and "live" for an agent that will decline is the reading that
+        # sends someone looking for a bug.
         target_statuses = {
-            name: participant_by_name[name].status
+            name: (
+                AgentStatus.NOT_PERMITTED
+                if name in refused
+                else participant_by_name[name].status
+            )
             for name in status_names
             if name in participant_by_name
-            and participant_by_name[name].status is not None
+            and (name in refused or participant_by_name[name].status is not None)
         }
         return SendTargetedResult(event_id=event_id, target_statuses=target_statuses)
 

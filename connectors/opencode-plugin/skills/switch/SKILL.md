@@ -304,14 +304,18 @@ Whether you can delegate or accept is declared per agent
 
   A performer may have a **scoped addressing policy** limiting who can address
   it. The common one is **owner-only** — the default for agents created in
-  Switch Console — where only that agent's owner may address it, plus any
-  agents the owner has explicitly allowed. If you are not permitted,
-  `delegate_task` and `send_targeted_message` both fail with a permission
-  error — expected; do not retry — reach the performer another way, or ask an
-  operator to allow you. A disallowed `@name` in a message body is not refused to
-  you at all: it lands as ordinary room chatter and the agent replies once to
-  say it cannot be addressed there. Commands are covered too, so
-  `!reset` on a restricted agent is declined the same way.
+  Switch Console — where only that agent's owner may address it; the owner can
+  widen that to every agent they own, or to named rooms, people and agents.
+  If you are not permitted, **`delegate_task` fails** with a permission error:
+  a task is work someone is expected to pick up, so it is refused at the point
+  of asking. Expected; do not retry — reach the performer another way, or ask
+  an operator to allow you.
+  **Messages are not blocked.** `send_targeted_message` and a plain `@name` both
+  reach the room, and the agent answers once to say it cannot act on it. What
+  you get back from `send_targeted_message` is `not_permitted` in that agent's
+  `target_statuses` instead of a reachability value — read its reply rather
+  than sending again. Commands are covered too, so `!reset` on a restricted
+  agent is declined the same way.
 - **Accepting.** A delegation arrives as `[Switch] Task delegated to you in
   room …`, carrying the summary and description but **not** the task id — call
   `list_tasks(role='assigned', status='pending')` to find it, then
