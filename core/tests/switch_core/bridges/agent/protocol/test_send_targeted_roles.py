@@ -210,9 +210,7 @@ class TestSendTargetedAddressingGate:
             agents={"a-alice": _agent("alice", self._restricted())},
         )
 
-        result = await svc.send_targeted_message(
-            "sender", "room-1", ["alice"], "ping"
-        )
+        result = await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
 
         assert bodies == ["@alice ping"]
         assert result.event_id
@@ -227,9 +225,7 @@ class TestSendTargetedAddressingGate:
             agents={"a-alice": _agent("alice", self._restricted())},
         )
 
-        result = await svc.send_targeted_message(
-            "sender", "room-1", ["alice"], "ping"
-        )
+        result = await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
 
         assert result.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}
 
@@ -245,9 +241,7 @@ class TestSendTargetedAddressingGate:
             },
         )
 
-        result = await svc.send_targeted_message(
-            "sender", "room-1", ["alice"], "ping"
-        )
+        result = await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
         assert bodies == ["@alice ping"]
         assert result.target_statuses == {"alice": AgentStatus.LIVE}
 
@@ -266,9 +260,7 @@ class TestSendTargetedAddressingGate:
             },
         )
 
-        result = await svc.send_targeted_message(
-            "sender", "room-1", ["alice"], "ping"
-        )
+        result = await svc.send_targeted_message("sender", "room-1", ["alice"], "ping")
         assert result.target_statuses == {"alice": AgentStatus.NOT_PERMITTED}
 
     async def test_a_restricted_role_holder_is_reported_too(self) -> None:

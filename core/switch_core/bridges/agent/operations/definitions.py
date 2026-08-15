@@ -1605,7 +1605,7 @@ async def update_agent_detail(
         - `options`: a PARTIAL map of the agent's known-agent options to
           change — only the keys you pass are updated; the rest are left as-is.
           For a claude-code agent the options are `repo_dir` (the working
-          directory), `channels_enabled`, `notify_user`, and `subagent_name`.
+          directory), `channels_enabled`, and `subagent_name`.
           The merged options are validated against the agent type's schema and
           its integration profile is rebuilt to match.
         - `parent_agent_id`: set the agent's parent (e.g. to make it a subagent

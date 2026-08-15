@@ -59,8 +59,8 @@ class BulkSubagentSpec(BaseModel):
 class RegisterKnownAgentBulkRequest(BaseModel):
     """Register many subagents under one parent agent in a single call.
 
-    `options` is the shared base (e.g. `channels_enabled`, `repo_dir`,
-    `notify_user`) applied to every subagent; the per-subagent `subagent_name`
+    `options` is the shared base (e.g. `channels_enabled`, `repo_dir`) applied
+    to every subagent; the per-subagent `subagent_name`
     is merged in on top. Used by the configure skill to bring a user's
     existing `.claude/agents/*.md` subagents into Switch in one step.
     """

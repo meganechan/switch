@@ -593,8 +593,6 @@ export type ProvisionAgentParams = {
   name: string;
   description: string;
   providerKind: AgentProviderKind;
-  /** Bridge handle to @-mention in offline-session notices; omit to skip. */
-  notifyUser?: string;
   /** Register with the `auto_session` connection model: Switch Console watches the
    * agent's rooms and auto-spawns a session on notification. Defaults to off. */
   autoSession?: boolean;
@@ -616,8 +614,6 @@ export type ProvisionRemoteAgentParams = {
   name: string;
   description: string;
   providerKind: AgentProviderKind;
-  /** Bridge handle to @-mention in offline-session notices; omit to skip. */
-  notifyUser?: string;
   /** Register with the `auto_session` connection model. Defaults to off. */
   autoSession?: boolean;
 };

@@ -75,6 +75,19 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
+- **An agent pings its owner, not a handle typed into its config.** The
+  per-agent `notify_user` option is gone; who to @-mention when an agent needs
+  input is now the agent's owner, resolved through the messaging account that
+  person has claimed on the platform the room is bridged to. A handle only ever
+  means something on one platform — the same person is one name on Slack and
+  another on Telegram — so a single configured string was at best right in one
+  room, and on Discord and Teams it went out as plain text that notified nobody
+  while looking like it had. An agent with no owner, or an owner who has linked
+  no account there, now **says so in the nudge** instead of posting a line with
+  the mention silently missing: a ping that reaches no one and an agent that
+  never asked look identical otherwise. Existing `notify_user` values are
+  ignored rather than migrated, and drop out of an agent's options the next
+  time they are written (CHOO-2137).
 - **Newly created agents are owner-only by default**: only their owner may
   address them, from any room, and no agent unless the owner says so. The
   default is applied where every registration path converges, so it holds

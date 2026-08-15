@@ -283,7 +283,6 @@ export async function fetchMe(server: SwitchServer): Promise<SwitchUser> {
 export type RegisterKnownAgentOptions = {
   channels_enabled: boolean;
   repo_dir?: string;
-  notify_user?: string;
   /** When true, the agent registers with the `auto_session` connection model:
    * Switch Console watches its rooms and auto-spawns a session on notification. */
   auto_session?: boolean;

@@ -336,8 +336,8 @@ class RegisterKnownSubagentsRequest(BaseModel):
     Session-authed counterpart of the agent-bridge `register-known-bulk`
     endpoint: the caller must own the parent. `options` is the shared base
     applied to every subagent (the per-subagent `subagent_name` is merged on
-    top); when omitted, each subagent inherits the parent's `channels_enabled`,
-    `repo_dir`, and `notify_user`.
+    top); when omitted, each subagent inherits the parent's `channels_enabled`
+    and `repo_dir`.
     """
 
     agent_type: str

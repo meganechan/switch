@@ -1238,6 +1238,7 @@ class ProtocolService:
             agent = await self.agent_store.get(session, agent_id)
             if agent is None:
                 raise ValueError(f"Agent not found: {agent_id}")
+            room_row = await self.room_store.get(session, room.id)
             await self.agent_runtime_state_store.upsert(
                 session,
                 agent_id,
@@ -1254,7 +1255,9 @@ class ProtocolService:
             matrix_room_id=room.matrix_room_id,
             room_id=room.id,
             state=state,
-            notify_user=self._notify_user_for(agent),
+            notify_user=await self._notify_user_for(
+                agent, room_row.bridge_id if room_row is not None else None
+            ),
             thread_id=thread_id,
             deeplink_url=deeplink_url,
             detail=detail,
@@ -1340,25 +1343,36 @@ class ProtocolService:
                 matrix_room_id=room.matrix_room_id,
                 room_id=room.id,
                 state=RUNTIME_STATE_IDLE,
-                notify_user=self._notify_user_for(agent),
+                notify_user=await self._notify_user_for(agent, room.bridge_id),
                 thread_id=None,
             )
 
-    @staticmethod
-    def _notify_user_for(agent: Agent) -> str | None:
-        """Read the configured operator handle from the agent's known options.
+    async def _notify_user_for(self, agent: Agent, bridge_id: str | None) -> str | None:
+        """The handle to @-mention when this agent needs its operator, on the
+        platform the room is bridged to.
 
-        Bare username (Slack/Mattermost handle or Switch user) the bridge
-        @-mentions when the agent is awaiting input. Read straight from
-        metadata to avoid importing the gateway layer here.
+        Resolved from the agent's owner and the messaging account that owner
+        has claimed on this bridge (CHOO-2137), rather than from a handle typed
+        into the agent's config. A handle is per-platform — the same person is
+        one name on Slack and another on Telegram — so a single configured
+        string could only ever be right on one of them, and was silently plain
+        text everywhere else.
+
+        None when the agent has no owner, the room has no bridge, or the owner
+        has claimed nothing here. Callers disclose that rather than dropping
+        the notification quietly.
         """
-        md = agent.metadata_ if isinstance(agent.metadata_, dict) else {}
-        opts = md.get("known_agent_options")
-        if isinstance(opts, dict):
-            value = opts.get("notify_user")
-            if isinstance(value, str) and value.strip():
-                return value.strip()
-        return None
+        if agent.owner_id is None or bridge_id is None:
+            return None
+        async with self.session_factory() as session:
+            claimed = await self.external_user_store.get_by_user(
+                session, agent.owner_id
+            )
+        # Claiming is not exclusive and one person may hold several accounts on
+        # a bridge. Sorted so a second account cannot change who gets pinged
+        # from one call to the next.
+        here = sorted(u.external_username for u in claimed if u.bridge_id == bridge_id)
+        return here[0] if here else None
 
     @staticmethod
     def _message_dict(event: Any) -> dict[str, Any]:

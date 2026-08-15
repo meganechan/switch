@@ -424,13 +424,23 @@ class CollaborationAdapter(ABC):
     ) -> str | None:
         """Post a message nudging the operator that the agent needs input.
 
+        `notify_user` is the agent owner's account on this platform, or None
+        when there is nobody to reach — no owner, or an owner who has not said
+        which account here is theirs. That case says so instead of posting a
+        line nobody is notified about: a nudge that reaches no one looks
+        identical to an agent that never asked.
+
         Returns the posted message ref so callers that can remove it (Slack,
         Mattermost) track it for cleanup when the turn ends."""
-        mention = f"@{notify_user} " if notify_user else ""
-        body = self.translate_outbound(
-            f"{mention}**{agent_name}** needs your input."
-            + self._deeplink_suffix(deeplink_url)
-        )
+        if notify_user:
+            text = f"@{notify_user} **{agent_name}** needs your input."
+        else:
+            text = (
+                f"**{agent_name}** needs your input — but nobody here is linked "
+                f"to its owner, so this pings no one. Link your "
+                f"{self.platform_name} account in Switch Console to be notified."
+            )
+        body = self.translate_outbound(text + self._deeplink_suffix(deeplink_url))
         return await self.send_message(channel_id, agent_name, body, thread_root_id)
 
     @abstractmethod

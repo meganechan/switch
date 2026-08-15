@@ -143,6 +143,10 @@ class AgentRuntimeStateEvent(SwitchEvent):
     room_id: str
     # "working" | "awaiting-input" | "idle"
     state: str
+    # The agent owner's account on the platform this room is bridged to, for
+    # @-mentioning them when the state is "awaiting-input" (CHOO-2137). None
+    # when the agent has no owner or that owner has claimed no account here —
+    # the bridge says so rather than posting a nudge that reaches nobody.
     notify_user: str | None = None
     thread_id: str | None = None
     # A `switchdash://session?…` deeplink the reporting client (Switch Console)

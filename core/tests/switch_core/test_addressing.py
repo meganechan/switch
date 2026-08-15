@@ -367,9 +367,7 @@ class TestOwnerAgentsRule:
 
     def test_it_is_still_scoped_by_room(self) -> None:
         policy = AddressingPolicy(
-            rules=[
-                AddressingRule(rooms=["r1"], users=[], agents=[], owner_agents=True)
-            ]
+            rules=[AddressingRule(rooms=["r1"], users=[], agents=[], owner_agents=True)]
         )
         for room, expected in (("r1", True), ("r2", False)):
             assert (
@@ -387,9 +385,7 @@ class TestOwnerAgentsRule:
     def test_off_by_default_for_a_policy_written_before_it_existed(self) -> None:
         # Stored policies carry no `owner_agents` key. Reading absence as true
         # would quietly widen every existing owner-only agent.
-        policy = parse_policy(
-            {"rules": [{"users": [], "agents": [], "owner": True}]}
-        )
+        policy = parse_policy({"rules": [{"users": [], "agents": [], "owner": True}]})
         assert policy.rules[0].owner_agents is False
         assert (
             _allows(

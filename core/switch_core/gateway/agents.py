@@ -192,8 +192,8 @@ async def register_known_subagents(
     endpoint: the signed-in user must own the parent. Each child's Switch name
     is derived as ``<parent-name>.<subagent_name>``; a name clash fails the whole
     batch up front rather than leaving a partial set registered. Subagents
-    inherit the parent's `channels_enabled` / `repo_dir` / `notify_user` unless
-    overridden in `options`.
+    inherit the parent's `channels_enabled` / `repo_dir` unless overridden in
+    `options`.
     """
     spec = KNOWN_AGENTS.get(req.agent_type)
     if spec is None:

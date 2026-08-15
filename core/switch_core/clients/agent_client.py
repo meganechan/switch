@@ -833,23 +833,45 @@ class AgentClient(ClientBase[ClientConfig]):
             # No role lease here, just sessions elsewhere: prefer the
             # known-agent reply so the operator gets the paste-ready
             # connect command alongside the "ask me there" alternative.
-            return await self._unavailable_reply(
-                meta.name, agent, other_room_names=names
-            )
+            return await self._unavailable_reply(meta, agent, other_room_names=names)
 
         # No live session in a distinct room. A session_addressable agent bound
         # to THIS room but not live here was most likely launched without live
         # channels: say a session is connected-but-not-live rather than imply
         # there is none.
         if connection_model == "session_addressable" and bound_here:
-            return await self._unavailable_reply(
-                meta.name, agent, connected_not_live=True
+            return await self._unavailable_reply(meta, agent, connected_not_live=True)
+        return await self._unavailable_reply(meta, agent)
+
+    async def owner_handle_in(self, agent: Agent, bridge_id: str | None) -> str | None:
+        """The agent owner's account on the platform this room is bridged to,
+        for @-mentioning them (CHOO-2137).
+
+        Resolved from who owns the agent and which account that person has
+        claimed on this bridge, rather than from a handle configured on the
+        agent. A handle only means anything on one platform — the same person
+        is one name on Slack and another on Telegram — so a single stored
+        string was at best right in one room and inert everywhere else.
+
+        None when the agent has no owner, the room has no bridge, or the owner
+        has claimed nothing on it. That is a message with no mention, not a
+        message withheld.
+        """
+        if agent.owner_id is None or bridge_id is None:
+            return None
+        async with self.session_factory() as session:
+            claimed = await self._external_user_store.get_by_user(
+                session, agent.owner_id
             )
-        return await self._unavailable_reply(meta.name, agent)
+        # Claiming is not exclusive and one person may hold several accounts on
+        # a bridge. Sorted so a second account cannot change who gets mentioned
+        # between one message and the next.
+        here = sorted(u.external_username for u in claimed if u.bridge_id == bridge_id)
+        return here[0] if here else None
 
     async def _unavailable_reply(
         self,
-        room_name: str,
+        meta: RoomMeta,
         agent: Agent,
         other_room_names: list[str] | None = None,
         connected_not_live: bool = False,
@@ -873,7 +895,8 @@ class AgentClient(ClientBase[ClientConfig]):
             msg = spec.start_session_instructions(
                 options,
                 agent,
-                room_name,
+                meta.name,
+                await self.owner_handle_in(agent, meta.bridge_id),
                 other_room_names=other_room_names,
                 connected_not_live=connected_not_live,
             )

@@ -377,7 +377,7 @@ none of it is needed to take part in a conversation.
   **Owner-only**: the agent's owner must match your own. \`options\` is a
   PARTIAL map of known-agent options merged over the current ones, and the
   keys differ per type — for \`opencode\` and \`codex\`: \`repo_dir\` (working
-  directory), \`notify_user\`, \`auto_session\`; for \`claude-code\`: those plus
+  directory), \`auto_session\`; for \`claude-code\`: those plus
   \`channels_enabled\` and \`subagent_name\`. Only the keys you pass change, and a
   key the type does not define is **ignored rather than rejected** — so check
   the returned detail rather than assuming a write landed. \`parent_agent_id\`
