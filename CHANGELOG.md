@@ -672,6 +672,14 @@ version of their own to them without also giving them a release of their own.
   add-agent dialog and on the agent's Settings tab, so a policy is changed the
   way it was set. The box shows the answer that was picked, rather than the
   word stored behind it.
+- **The add-agent dialog offered "Advanced configuration" twice** for Claude
+  Code. A provider keeps its per-agent settings in one place — a repo-agent
+  definition or a launch profile — and the agent's Settings tab picks between
+  them by asking which; the creation form rendered both sections instead, and
+  the launch-profile one reads a "the fields, from wherever they live" call
+  that falls back to the definition fields. So the same settings appeared in
+  two identical boxes writing to two different places. It now picks the same
+  way the Settings tab does.
 - An agent's Settings tab no longer boxes **Advanced configuration** and **Who
   can send instructions** in borders of their own. Every section on the page is
   already a section; drawing two of them again was one frame too many.

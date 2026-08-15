@@ -47,12 +47,30 @@ export function LaunchProfileConfig({
 }) {
   const [open, setOpen] = useState(false);
 
+  // Which surface this provider actually keeps its settings in. `advancedFields`
+  // below answers "the fields, from wherever they live" and falls back to the
+  // definition fields for a provider that has those — which is the same list
+  // `AgentAdvancedConfig` renders beside this, so Claude Code showed two
+  // identical "Advanced configuration" sections. Only one of the two surfaces
+  // exists per provider; this is how the agent's Settings tab picks, and the
+  // creation form has to pick the same way or the two disagree about what an
+  // agent even has.
+  const { data: surface } = useQuery({
+    queryKey: ['agentAdvancedSurface', providerId],
+    queryFn: () =>
+      providerId ? rpc.agents.advancedSurface({ providerId }) : Promise.resolve('none' as const),
+    enabled: !!providerId,
+  });
+
   const { data } = useQuery({
     queryKey: ['agentAdvancedFields', providerId],
     queryFn: () => (providerId ? rpc.agents.advancedFields({ providerId }) : Promise.resolve([])),
     enabled: !!providerId,
   });
-  const fields = useMemo(() => data ?? [], [data]);
+  const fields = useMemo(
+    () => (surface === 'launch-profile' ? (data ?? []) : []),
+    [data, surface]
+  );
 
   // The models that host offers, for the fields bound to it. Asked of the host
   // the agent will run on, since that is what decides the answer — and only once
