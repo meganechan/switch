@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query';
 import {
   ExternalLink,
   House,
@@ -10,6 +11,7 @@ import {
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import { type GuardResult, type ViewDefinition } from '@renderer/app/view-registry';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { hostReachabilityStore } from '@renderer/features/remote-hosts/host-reachability-store';
 import { HostUnreachablePanel } from '@renderer/features/remote-hosts/host-unreachable-panel';
 import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
@@ -45,7 +47,9 @@ import {
 } from './server-presentation';
 import { ServerResetSection } from './server-reset-section';
 import { ServerStatTiles } from './server-stat-tiles';
+import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
+import { myIdentitiesQueryKey } from './use-my-identities';
 import { VersionDriftNotice } from './VersionDriftNotice';
 
 /** Whether a managed server's stack is currently running (via the store that
@@ -68,6 +72,10 @@ function restartStack(server: SwitchServer): void {
 }
 
 const card = 'rounded-lg border border-border bg-card p-4';
+
+/** How long Refresh keeps spinning at minimum. Long enough to be seen as a
+ * response to the click, short enough not to feel like waiting. */
+const MIN_REFRESH_FEEDBACK_MS = 600;
 
 function useServerId(): string {
   return useParams('server').params.serverId;
@@ -113,6 +121,38 @@ const ServerMainPanel = observer(function ServerMainPanel() {
   const showRenameServerModal = useShowModal('renameServerModal');
   const showDeleteServerModal = useShowModal('deleteServerModal');
   const { navigate } = useNavigate();
+  const queryClient = useQueryClient();
+
+  const [refreshingPage, setRefreshingPage] = useState(false);
+
+  /**
+   * Everything the page is showing, re-read.
+   *
+   * The button sits in the page header, so its scope has to be the page: the
+   * connection alone would leave the counts, the messaging apps and the rooms
+   * exactly as stale as they were, under a control that claims to have
+   * refreshed them.
+   *
+   * Held on screen for a moment even when the reads come back instantly. A
+   * spinner that appears and vanishes inside one frame reads as a button that
+   * did nothing, which is the opposite of what it did.
+   */
+  const refreshEverything = async (): Promise<void> => {
+    setRefreshingPage(true);
+    try {
+      await Promise.all([
+        store.refreshServer(serverId),
+        queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] }),
+        queryClient.invalidateQueries({ queryKey: myIdentitiesQueryKey(serverId) }),
+        queryClient.invalidateQueries({ queryKey: ['owns-owner-addressed-agent', serverId] }),
+        switchRoomsStore.refreshRoomState(),
+        agentsStore.load(),
+        new Promise((resolve) => setTimeout(resolve, MIN_REFRESH_FEEDBACK_MS)),
+      ]);
+    } finally {
+      setRefreshingPage(false);
+    }
+  };
 
   // A managed server that isn't running has no gateway to reach — its
   // connection status, sign-in, and web-app links are meaningless until it's up,
@@ -161,7 +201,9 @@ const ServerMainPanel = observer(function ServerMainPanel() {
 
   const status = store.statusFor(serverId);
   const connected = status?.connected ?? false;
-  const refreshing = store.refreshing.has(serverId);
+  // A background status poll spins the button too: it is the same reading the
+  // button asks for, so the page should not look idle while one is in flight.
+  const busy = refreshingPage || store.refreshing.has(serverId);
   const unreachable = store.isUnreachable(serverId);
   const PlacementIcon = serverIcon(server);
   const drift = serverDrift(server);
@@ -190,10 +232,10 @@ const ServerMainPanel = observer(function ServerMainPanel() {
               <Button
                 variant="outline"
                 size="sm"
-                disabled={refreshing}
-                onClick={() => void store.refreshServer(serverId)}
+                disabled={busy}
+                onClick={() => void refreshEverything()}
               >
-                {refreshing ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}
+                {busy ? <Spinner className="size-4" /> : <RefreshCw className="size-4" />}
                 Refresh
               </Button>
             )}

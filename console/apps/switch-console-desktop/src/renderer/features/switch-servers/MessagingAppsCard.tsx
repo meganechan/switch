@@ -12,7 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
@@ -33,6 +33,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/toolti
 import { log } from '@renderer/utils/logger';
 import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import { BundledChatSignIn } from './BundledChatSignIn';
+import { orderBridges } from './messaging-apps-order';
 import {
   hasUnlinkedMessagingApp,
   shouldOfferIdentityLinkOnConnect,
@@ -81,7 +82,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
     enabled: !!serverId,
   });
 
-  const bridges = bridgesQuery.data ?? [];
+  const bridges = useMemo(() => orderBridges(bridgesQuery.data ?? []), [bridgesQuery.data]);
 
   const {
     identities,
