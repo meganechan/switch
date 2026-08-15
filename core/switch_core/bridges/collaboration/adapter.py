@@ -55,6 +55,18 @@ class CollaborationAdapter(ABC):
     #: exactly those moments.
     supports_channel_creation: ClassVar[bool] = True
 
+    #: Whether this platform has a user directory Switch can search.
+    #:
+    #: False where the only people Switch can name are the ones who have
+    #: spoken to it — a Telegram bot cannot enumerate anyone else. That is not
+    #: a smaller directory, it is a different question: on a freshly connected
+    #: connection of such a type the answer is always "nobody", so asking a
+    #: user to pick themselves from it is asking them to pick from an empty
+    #: list. Declared on the class for the same reason as
+    #: `supports_channel_creation` — the answer is needed before a connection
+    #: exists and while one is stopped.
+    supports_directory_search: ClassVar[bool] = True
+
     #: Whether this platform renders a link whose scheme is not http(s).
     #:
     #: False for platforms that linkify only the web schemes. It matters

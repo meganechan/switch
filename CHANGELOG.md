@@ -75,6 +75,20 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
+- **Disconnecting a messaging app now removes the identities Switch made for
+  it** — the app's own Matrix client and the puppet behind every person Switch
+  saw on it. They were left behind, and the app's own client is not merely
+  untidy: its Matrix name was derived from the app's type and display name, so
+  disconnecting an app and connecting one named the same failed outright on the
+  leftover (`duplicate key value violates unique constraint
+  "clients_matrix_user_id_key"`). The name now carries a random tail as well,
+  because deleting the row is necessary but not sufficient: the homeserver has
+  no call for removing an account, so the old Matrix user is still there, and
+  adopting it would mean logging in with a password Switch no longer holds —
+  shared-secret registration reports an existing user as success without
+  applying the new one, which reads as a working connection that can never
+  connect. Abandoned homeserver accounts are logged on removal rather than
+  passed over in silence (CHOO-2137).
 - **An agent pings its owner, not a handle typed into its config.** The
   per-agent `notify_user` option is gone; who to @-mention when an agent needs
   input is now the agent's owner, resolved through the messaging account that
