@@ -17,7 +17,7 @@ function bridge(id: string, displayName: string): RemoteBridge {
     homeUrl: null,
     channelCreationSupported: true,
     canCreateChannels: true,
-  directorySearchSupported: true,
+    directorySearchSupported: true,
   };
 }
 

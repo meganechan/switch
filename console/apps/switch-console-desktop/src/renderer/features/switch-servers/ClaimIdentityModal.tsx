@@ -356,46 +356,46 @@ function DirectoryResults({
     <div className="flex flex-col gap-2">
       {narrowed}
       <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-      {result.users.map((person) => {
-        const linkedToMe = person.claimedBy.some((c) => c.userId === currentUserId);
-        const others = person.claimedBy.filter((c) => c.userId !== currentUserId);
-        return (
-          <li
-            key={person.externalUserId}
-            className="flex items-center justify-between gap-3 rounded-md border border-border p-2"
-          >
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-sm text-foreground">{person.displayName}</span>
-              <span className="truncate text-xs text-foreground-muted">
-                @{person.username}
-                {person.email ? ` · ${person.email}` : ''}
-              </span>
-              {others.length > 0 && (
+        {result.users.map((person) => {
+          const linkedToMe = person.claimedBy.some((c) => c.userId === currentUserId);
+          const others = person.claimedBy.filter((c) => c.userId !== currentUserId);
+          return (
+            <li
+              key={person.externalUserId}
+              className="flex items-center justify-between gap-3 rounded-md border border-border p-2"
+            >
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-sm text-foreground">{person.displayName}</span>
                 <span className="truncate text-xs text-foreground-muted">
-                  Also linked to {others.map((c) => c.userName).join(', ')}
+                  @{person.username}
+                  {person.email ? ` · ${person.email}` : ''}
                 </span>
-              )}
-            </div>
-            {linkedToMe ? (
-              <span className="flex shrink-0 items-center gap-2">
-                <Badge variant="secondary">Linked to you</Badge>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pending || person.knownExternalUserId === null}
-                  onClick={() => onRelease(person)}
-                >
-                  {releasingId === person.externalUserId ? 'Unlinking…' : 'Unlink'}
+                {others.length > 0 && (
+                  <span className="truncate text-xs text-foreground-muted">
+                    Also linked to {others.map((c) => c.userName).join(', ')}
+                  </span>
+                )}
+              </div>
+              {linkedToMe ? (
+                <span className="flex shrink-0 items-center gap-2">
+                  <Badge variant="secondary">Linked to you</Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pending || person.knownExternalUserId === null}
+                    onClick={() => onRelease(person)}
+                  >
+                    {releasingId === person.externalUserId ? 'Unlinking…' : 'Unlink'}
+                  </Button>
+                </span>
+              ) : (
+                <Button size="sm" disabled={pending} onClick={() => onClaim(person)}>
+                  {claimingId === person.externalUserId ? 'Linking…' : 'This is me'}
                 </Button>
-              </span>
-            ) : (
-              <Button size="sm" disabled={pending} onClick={() => onClaim(person)}>
-                {claimingId === person.externalUserId ? 'Linking…' : 'This is me'}
-              </Button>
-            )}
-          </li>
-        );
-      })}
+              )}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

@@ -120,9 +120,7 @@ describe('addressingModeOf', () => {
     // agent picker. Calling it "Only me" would drop the names on the next save.
     expect(
       addressingModeOf({
-        rules: [
-          { rooms: '*', room_groups: '*', users: [], agents: ['agent-a'], owner: true },
-        ],
+        rules: [{ rooms: '*', room_groups: '*', users: [], agents: ['agent-a'], owner: true }],
       })
     ).toBe('custom');
   });

@@ -19,7 +19,7 @@ function bridge(overrides: Partial<RemoteBridge>): RemoteBridge {
     homeUrl: null,
     channelCreationSupported: true,
     canCreateChannels: true,
-  directorySearchSupported: true,
+    directorySearchSupported: true,
     ...overrides,
   };
 }

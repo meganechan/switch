@@ -67,10 +67,7 @@ export function LaunchProfileConfig({
     queryFn: () => (providerId ? rpc.agents.advancedFields({ providerId }) : Promise.resolve([])),
     enabled: !!providerId,
   });
-  const fields = useMemo(
-    () => (surface === 'launch-profile' ? (data ?? []) : []),
-    [data, surface]
-  );
+  const fields = useMemo(() => (surface === 'launch-profile' ? (data ?? []) : []), [data, surface]);
 
   // The models that host offers, for the fields bound to it. Asked of the host
   // the agent will run on, since that is what decides the answer — and only once
