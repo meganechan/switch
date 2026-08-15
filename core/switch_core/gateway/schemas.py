@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -504,6 +504,22 @@ class DirectoryUserSummary(BaseModel):
     # Who has already claimed this account. Shown so a picker can say the
     # account is spoken for, not to stop anyone else claiming it too.
     claimed_by: list[IdentityClaimant] = []
+
+
+class DirectorySearchResponse(BaseModel):
+    """Who a search turned up, and which of the two possible sources answered.
+
+    `source` is not decoration. A platform whose directory cannot be searched
+    falls back to the accounts Switch has already seen, which is a genuinely
+    narrower answer: someone who has never spoken is absent from it, and a
+    caller that presented it as a whole-workspace search would be telling the
+    user that person does not exist. `note` carries the platform's own
+    explanation, for showing alongside the results rather than instead of them.
+    """
+
+    source: Literal["directory", "known"]
+    note: str | None = None
+    users: list[DirectoryUserSummary] = []
 
 
 class ClaimIdentityRequest(BaseModel):

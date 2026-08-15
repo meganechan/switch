@@ -456,9 +456,16 @@ class CollaborationAdapter(ABC):
         where DMs can only be initiated by the user — and so cannot be created
         from Switch — raise instead of pretending to succeed."""
         raise ChannelCreationUnsupported(
-            f"{type(self).__name__} cannot create DM channels — on this platform "
+            f"{self.platform_name} cannot create DM channels — on this platform "
             "DMs are initiated by the user from the messaging client"
         )
+
+    @property
+    def platform_name(self) -> str:
+        """The platform as a person would name it, for messages that reach a
+        user. The class name is the fallback rather than the source: "Telegram"
+        belongs in a dialog, "TelegramAdapter" does not."""
+        return type(self).__name__.removesuffix("Adapter")
 
     async def search_directory_users(self, query: str) -> list[DirectoryUser]:
         """Search the platform's own user directory (CHOO-2137).
@@ -472,7 +479,7 @@ class CollaborationAdapter(ABC):
         than showing an empty picker that looks broken.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} has no searchable user directory — on this "
+            f"{self.platform_name} has no searchable user directory — on this "
             "platform someone must send a message before Switch knows them"
         )
 

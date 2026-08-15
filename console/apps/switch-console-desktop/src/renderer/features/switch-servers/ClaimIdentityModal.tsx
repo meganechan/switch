@@ -310,9 +310,27 @@ function DirectoryResults({
   if (result.kind === 'error') {
     return <p className="text-destructive text-xs">{result.message}</p>;
   }
+  // Set when the platform has no directory and the server answered from the
+  // accounts it has already seen. The list is real but cannot be complete, so
+  // it is captioned rather than replaced — replacing it is what left Telegram
+  // with a warning and no way forward.
+  const narrowed = result.note !== null && (
+    <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
+      <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+      <span>{result.note}</span>
+    </div>
+  );
+
   if (result.users.length === 0) {
     return (
-      <p className="text-xs text-foreground-muted">Nobody in this workspace matches “{query}”.</p>
+      <div className="flex flex-col gap-2">
+        {narrowed}
+        <p className="text-xs text-foreground-muted">
+          {result.note === null
+            ? `Nobody in this workspace matches “${query}”.`
+            : `Nobody Switch has seen here matches “${query}”.`}
+        </p>
+      </div>
     );
   }
 
@@ -321,7 +339,9 @@ function DirectoryResults({
   // so a shared or misidentified account is visible rather than silent.
   const pending = claimingId !== null || releasingId !== null;
   return (
-    <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+    <div className="flex flex-col gap-2">
+      {narrowed}
+      <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
       {result.users.map((person) => {
         const linkedToMe = person.claimedBy.some((c) => c.userId === currentUserId);
         const others = person.claimedBy.filter((c) => c.userId !== currentUserId);
@@ -362,7 +382,8 @@ function DirectoryResults({
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </div>
   );
 }
 

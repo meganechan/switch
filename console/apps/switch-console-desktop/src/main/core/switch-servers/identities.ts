@@ -17,8 +17,10 @@ import type {
  *
  * The mapping matters more here than elsewhere: a platform with no searchable
  * directory and a platform where nobody matched are the same empty screen
- * unless the 501 is carried through as its own case, and the server's own
- * wording is the only thing that tells the user what to do instead.
+ * unless the difference is carried through, and the server's own wording is
+ * the only thing that tells the user what to do instead. Current servers
+ * narrow such a search to the accounts they have already seen and say so in a
+ * note; only an older one refuses it outright.
  */
 
 /**
@@ -32,7 +34,8 @@ export async function searchDirectoryOnServer(
   query: string
 ): Promise<BridgeDirectorySearchResult> {
   try {
-    return { kind: 'results', users: await searchBridgeDirectory(server, bridgeId, query) };
+    const { users, note } = await searchBridgeDirectory(server, bridgeId, query);
+    return { kind: 'results', users, note };
   } catch (cause) {
     if (cause instanceof GatewayError) {
       if (cause.kind === 'unauthorized') return { kind: 'unauthenticated' };

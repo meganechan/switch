@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from collections.abc import Iterable
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import ValidationError
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from switch_core.bridges.collaboration.lifecycle_service import (
     CollaborationBridgeLifecycleService,
 )
-from switch_core.bridges.collaboration.models import BridgeInstallLink
+from switch_core.bridges.collaboration.models import BridgeInstallLink, DirectoryUser
 from switch_core.db.models import CollaborationBridge, ExternalUser, User
 from switch_core.db.stores.collaboration_bridge_store import CollaborationBridgeStore
 from switch_core.db.stores.external_user_store import ExternalUserStore
@@ -32,6 +33,7 @@ from switch_core.gateway.schemas import (
     BridgeTypeInfo,
     BridgeUpdateRequest,
     ClaimIdentityRequest,
+    DirectorySearchResponse,
     DirectoryUserSummary,
     ExternalUserSummary,
     IdentityClaimant,
@@ -339,16 +341,21 @@ async def search_bridge_directory(
         CollaborationBridgeLifecycleService, Depends(get_collab_lifecycle)
     ],
     _user: Annotated[User, Depends(get_current_user)],
-) -> list[DirectoryUserSummary]:
-    """Search the messaging platform's own user directory.
+) -> DirectorySearchResponse:
+    """Find someone on a messaging platform so they can be claimed.
 
     Switch only records someone as an `ExternalUser` once they have spoken, so
-    a freshly connected workspace has nobody to pick from. This asks the
-    platform instead, which is what makes claiming an identity possible before
-    you have ever posted.
+    a freshly connected workspace has nobody to pick from. Asking the platform
+    instead is what makes claiming an identity possible before you have ever
+    posted.
 
-    Platforms with no searchable directory answer 501 rather than an empty
-    list, so the caller can explain that a message must come first.
+    Platforms with no searchable directory — Telegram, where a bot can only see
+    who has spoken to it — fall back to exactly that: the accounts Switch has
+    already seen on this bridge. The response says which of the two answered, so
+    the caller can explain why the list is narrower rather than presenting a
+    partial answer as a whole one. It is a smaller list, not an error: refusing
+    outright would leave owner-only addressing unusable on those platforms even
+    for someone Switch knows perfectly well.
     """
     bridge = await bridge_store.get(session, bridge_id)
     if bridge is None:
@@ -361,40 +368,77 @@ async def search_bridge_directory(
             detail="Bridge is not running — start it before searching its directory",
         )
 
-    try:
-        found = await adapter.search_directory_users(query)
-    except NotImplementedError as e:
-        raise HTTPException(status_code=501, detail=str(e)) from e
-    except RuntimeError as e:
-        raise HTTPException(status_code=502, detail=str(e)) from e
-
     known = {
         u.external_user_id: u
         for u in await external_user_store.get_by_bridge(session, bridge_id)
     }
+
+    source: Literal["directory", "known"] = "directory"
+    note: str | None = None
+    try:
+        found = await adapter.search_directory_users(query)
+    except NotImplementedError as e:
+        source = "known"
+        note = str(e)
+        found = _known_as_directory_users(known.values(), query)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
     claims = await external_user_store.claimant_ids_for(
         session, [u.id for u in known.values()]
     )
     names = await _user_names(session, user_store, claims)
-    return [
-        DirectoryUserSummary(
-            external_user_id=person.external_user_id,
-            username=person.username,
-            display_name=person.display_name,
-            email=person.email,
-            known_external_user_id=(
-                known[person.external_user_id].id
-                if person.external_user_id in known
-                else None
-            ),
-            claimed_by=(
-                _claimants(claims.get(known[person.external_user_id].id, []), names)
-                if person.external_user_id in known
-                else []
-            ),
-        )
-        for person in found
-    ]
+    return DirectorySearchResponse(
+        source=source,
+        note=note,
+        users=[
+            DirectoryUserSummary(
+                external_user_id=person.external_user_id,
+                username=person.username,
+                display_name=person.display_name,
+                email=person.email,
+                known_external_user_id=(
+                    known[person.external_user_id].id
+                    if person.external_user_id in known
+                    else None
+                ),
+                claimed_by=(
+                    _claimants(claims.get(known[person.external_user_id].id, []), names)
+                    if person.external_user_id in known
+                    else []
+                ),
+            )
+            for person in found
+        ],
+    )
+
+
+def _known_as_directory_users(
+    known: Iterable[ExternalUser], query: str
+) -> list[DirectoryUser]:
+    """The accounts Switch has already seen, shaped like a directory answer.
+
+    Substring rather than prefix matching, because this list is what someone
+    falls back to when the platform cannot be searched, and being unable to
+    find yourself there is the end of the road. No email: an account is
+    recorded from a message, which carries no address.
+    """
+    needle = query.strip().casefold()
+    if not needle:
+        return []
+    return sorted(
+        (
+            DirectoryUser(
+                external_user_id=u.external_user_id,
+                username=u.external_username,
+                display_name=u.external_username,
+                email=None,
+            )
+            for u in known
+            if needle in u.external_username.casefold()
+        ),
+        key=lambda u: u.display_name.casefold(),
+    )
 
 
 async def _require_directory_account(
@@ -410,6 +454,11 @@ async def _require_directory_account(
     real account, deliberately. What it prevents is provisioning a Matrix
     puppet for an id that came from nowhere: the claim body is user-supplied,
     and the row it creates is permanent.
+
+    Only reached for an account Switch has never seen. One it has recorded is
+    already proof the account exists, and the caller claims it without asking
+    the platform — which is the only path open on a platform whose directory
+    cannot be searched.
     """
     adapter = collab_lifecycle.get_adapter(bridge_id)
     if adapter is None:

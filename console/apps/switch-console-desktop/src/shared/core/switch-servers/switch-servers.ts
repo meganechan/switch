@@ -464,7 +464,15 @@ export type BridgeDirectoryUser = {
  * appear.
  */
 export type BridgeDirectorySearchResult =
-  | { kind: 'results'; users: BridgeDirectoryUser[] }
+  /**
+   * `note` is set when the platform has no searchable directory and the server
+   * answered from the accounts it has already seen instead. The results are
+   * real but narrower — someone who has never spoken is not among them — so it
+   * is shown alongside them, never in their place.
+   */
+  | { kind: 'results'; users: BridgeDirectoryUser[]; note: string | null }
+  /** Only reachable against a switch-core predating the fallback above, which
+   * refused the search outright rather than narrowing it. */
   | { kind: 'unsupported'; message: string }
   | { kind: 'bridge-unavailable'; message: string }
   | { kind: 'unauthenticated' }

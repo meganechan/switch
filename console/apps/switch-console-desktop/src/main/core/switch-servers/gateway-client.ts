@@ -807,28 +807,38 @@ export async function searchBridgeDirectory(
   server: SwitchServer,
   bridgeId: string,
   query: string
-): Promise<BridgeDirectoryUser[]> {
+): Promise<{ users: BridgeDirectoryUser[]; note: string | null }> {
   const res = await gatewayFetch(
     server,
     `/collaborations/${encodeURIComponent(bridgeId)}/directory?query=${encodeURIComponent(query)}`,
     { authenticated: true }
   );
-  const json = (await res.json()) as Array<{
+  type DirectoryUserJson = {
     external_user_id: string;
     username: string;
     display_name: string;
     email?: string | null;
     known_external_user_id?: string | null;
     claimed_by?: IdentityClaimantJson[];
-  }>;
-  return json.map((u) => ({
-    externalUserId: u.external_user_id,
-    username: u.username,
-    displayName: u.display_name,
-    email: u.email ?? null,
-    knownExternalUserId: u.known_external_user_id ?? null,
-    claimedBy: (u.claimed_by ?? []).map((c) => ({ userId: c.user_id, userName: c.user_name })),
-  }));
+  };
+  // A switch-core predating the known-accounts fallback returns the bare array
+  // and refuses the search outright when the platform has no directory. Both
+  // shapes read the same here; the older one simply never carries a note.
+  const json = (await res.json()) as
+    | DirectoryUserJson[]
+    | { source?: string; note?: string | null; users?: DirectoryUserJson[] };
+  const rows = Array.isArray(json) ? json : (json.users ?? []);
+  return {
+    note: Array.isArray(json) ? null : (json.note ?? null),
+    users: rows.map((u) => ({
+      externalUserId: u.external_user_id,
+      username: u.username,
+      displayName: u.display_name,
+      email: u.email ?? null,
+      knownExternalUserId: u.known_external_user_id ?? null,
+      claimedBy: (u.claimed_by ?? []).map((c) => ({ userId: c.user_id, userName: c.user_name })),
+    })),
+  };
 }
 
 /**
