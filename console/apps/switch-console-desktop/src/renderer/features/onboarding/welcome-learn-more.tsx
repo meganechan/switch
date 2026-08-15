@@ -1,6 +1,6 @@
 import { ArrowUpRight } from 'lucide-react';
 import { openExternalUrl } from '@renderer/lib/open-external';
-import { MicroLabel } from '@renderer/lib/ui/label';
+import { SectionLabel } from '@renderer/lib/ui/label';
 import { SWITCH_CONSOLE_DOCS_URL } from '@shared/urls';
 
 /**
@@ -20,7 +20,7 @@ export function WelcomeLearnMore() {
   return (
     <div className="flex w-full flex-col gap-3 rounded-xl border border-border p-4">
       <div className="flex items-center justify-between">
-        <MicroLabel className="text-foreground-tertiary-passive">Learn more</MicroLabel>
+        <SectionLabel className="text-foreground-tertiary-passive">Learn more</SectionLabel>
         <button
           type="button"
           onClick={() => openExternalUrl(SWITCH_CONSOLE_DOCS_URL, 'Could not open documentation')}

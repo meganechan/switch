@@ -18,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
+import { SectionLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -263,10 +264,8 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
   return (
     <>
       <div className="flex h-[22px] items-center justify-between pr-2.5 pl-2.5">
-        <span className="text-[11px] font-medium tracking-wider text-foreground-passive uppercase">
-          Sessions
-        </span>
-        <span className="text-[11px] text-foreground-passive">Group by</span>
+        <SectionLabel>Sessions</SectionLabel>
+        <span className="text-xs text-foreground-passive">Group by</span>
       </div>
       <div className="flex h-[36px] items-center justify-between pr-2.5 pl-2.5">
         <ViewGroupingToggle />

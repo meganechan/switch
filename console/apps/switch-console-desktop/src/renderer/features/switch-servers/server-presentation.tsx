@@ -97,7 +97,7 @@ export function ServerAvatar({ server, size }: { server: SwitchServer; size: 'sm
       aria-hidden
       className={cn(
         'flex shrink-0 items-center justify-center rounded-md bg-foreground font-medium text-background',
-        size === 'md' ? 'size-6 text-xs' : 'size-5 text-[10px]'
+        size === 'md' ? 'size-7 text-sm' : 'size-6 text-xs'
       )}
     >
       {initial}
