@@ -194,6 +194,40 @@ describe('the row menu', () => {
     expect(await openMenu(el)).not.toContain('Disconnect app…');
   });
 
+  it('opens on a platform that cannot create channels at all', async () => {
+    // Telegram. The explanatory line under the channel toggle was a menu
+    // *label*, which Base UI requires to sit inside a group — so opening this
+    // menu threw and took the page down with it. Every other case here has a
+    // platform that supports channel creation, which is how it got through.
+    const el = await render(
+      row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
+    );
+
+    expect(await openMenu(el)).toContain('Can create channels');
+  });
+
+  it('says a platform cannot create channels rather than just showing it off', async () => {
+    // An unticked disabled box reads as "switched off", which is a different
+    // claim from "this platform has no such thing".
+    const el = await render(
+      row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
+    );
+    await openMenu(el);
+
+    const menu = document.querySelector('[role="menu"]');
+    expect(menu!.textContent).toContain('Slack cannot create channels from Switch');
+  });
+
+  it('leaves the channel toggle alone for a non-admin', async () => {
+    const el = await render(row({ isAdmin: false }));
+    await openMenu(el);
+
+    const item = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find((i) =>
+      i.textContent?.includes('Can create channels')
+    );
+    expect(item!.getAttribute('data-disabled')).not.toBeNull();
+  });
+
   it('asks before disconnecting rather than doing it on the click', async () => {
     // The server deletes every room on the bridge first, so the menu item may
     // only ever open a confirmation.

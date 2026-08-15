@@ -23,7 +23,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
@@ -416,12 +415,15 @@ export function MessagingAppRow({
               Can create channels
             </DropdownMenuCheckboxItem>
             {/* A disabled empty tick reads as "off", which is a different
-              claim from "this platform cannot do it at all". */}
+              claim from "this platform cannot do it at all". Plain text rather
+              than a menu label: a label is a heading for a group of items, and
+              Base UI requires one to sit inside a group — this is a caption
+              for the item above it. */}
             {!bridge.channelCreationSupported && (
-              <DropdownMenuLabel className="max-w-56 text-xs font-normal text-foreground-muted">
+              <p className="max-w-56 px-2 py-1 text-xs text-foreground-muted">
                 {platform} cannot create channels from Switch. Make the chat in the app and add the
                 bot to it.
-              </DropdownMenuLabel>
+              </p>
             )}
 
             {isAdmin && (
