@@ -262,7 +262,7 @@ class CollaborationAdapter(ABC):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -274,7 +274,7 @@ class CollaborationAdapter(ABC):
                 channel_id,
                 agent_name,
                 state,
-                notify_user=notify_user,
+                mention_handle=mention_handle,
                 thread_root_id=thread_root_id,
                 deeplink_url=deeplink_url,
                 detail=detail,
@@ -295,7 +295,7 @@ class CollaborationAdapter(ABC):
         agent_name: str,
         state: str,
         *,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -324,7 +324,7 @@ class CollaborationAdapter(ABC):
         elif state == "awaiting-input":
             await self.send_typing(channel_id, agent_name, True)
             await self._ping_operator(
-                channel_id, agent_name, notify_user, thread_root_id, deeplink_url
+                channel_id, agent_name, mention_handle, thread_root_id, deeplink_url
             )
         else:
             await self.send_typing(channel_id, agent_name, False)
@@ -418,13 +418,13 @@ class CollaborationAdapter(ABC):
         self,
         channel_id: str,
         agent_name: str,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_root_id: str | None,
         deeplink_url: str | None = None,
     ) -> str | None:
         """Post a message nudging the operator that the agent needs input.
 
-        `notify_user` is the agent owner's account on this platform, or None
+        `mention_handle` is the agent owner's account on this platform, or None
         when there is nobody to reach — no owner, or an owner who has not said
         which account here is theirs. That case says so instead of posting a
         line nobody is notified about: a nudge that reaches no one looks
@@ -432,8 +432,8 @@ class CollaborationAdapter(ABC):
 
         Returns the posted message ref so callers that can remove it (Slack,
         Mattermost) track it for cleanup when the turn ends."""
-        if notify_user:
-            text = f"@{notify_user} **{agent_name}** needs your input."
+        if mention_handle:
+            text = f"@{mention_handle} **{agent_name}** needs your input."
         else:
             text = (
                 f"**{agent_name}** needs your input — but nobody here is linked "

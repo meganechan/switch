@@ -1137,7 +1137,7 @@ def test_working_posts_a_status_message() -> None:
 
     _run(
         adapter.apply_runtime_state(
-            str(CHAT_ID), "scout", "working", notify_user=None, thread_root_id=None
+            str(CHAT_ID), "scout", "working", mention_handle=None, thread_root_id=None
         )
     )
 
@@ -1149,7 +1149,7 @@ def test_working_again_edits_the_status_rather_than_reposting() -> None:
     adapter = _adapter()
     _run(
         adapter.apply_runtime_state(
-            str(CHAT_ID), "scout", "working", notify_user=None, thread_root_id=None
+            str(CHAT_ID), "scout", "working", mention_handle=None, thread_root_id=None
         )
     )
 
@@ -1158,7 +1158,7 @@ def test_working_again_edits_the_status_rather_than_reposting() -> None:
             str(CHAT_ID),
             "scout",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
             detail="Editing adapter.py",
         )
@@ -1176,7 +1176,7 @@ def test_awaiting_input_pings_the_operator() -> None:
             str(CHAT_ID),
             "scout",
             "awaiting-input",
-            notify_user="alice",
+            mention_handle="alice",
             thread_root_id=None,
         )
     )
@@ -1189,7 +1189,7 @@ def test_going_idle_removes_the_status_and_the_pings() -> None:
     adapter = _adapter()
     _run(
         adapter.apply_runtime_state(
-            str(CHAT_ID), "scout", "working", notify_user=None, thread_root_id=None
+            str(CHAT_ID), "scout", "working", mention_handle=None, thread_root_id=None
         )
     )
     _run(
@@ -1197,14 +1197,14 @@ def test_going_idle_removes_the_status_and_the_pings() -> None:
             str(CHAT_ID),
             "scout",
             "awaiting-input",
-            notify_user="alice",
+            mention_handle="alice",
             thread_root_id=None,
         )
     )
 
     _run(
         adapter.apply_runtime_state(
-            str(CHAT_ID), "scout", "idle", notify_user=None, thread_root_id=None
+            str(CHAT_ID), "scout", "idle", mention_handle=None, thread_root_id=None
         )
     )
 
@@ -1219,7 +1219,7 @@ def test_the_status_message_follows_the_conversation() -> None:
     adapter = _adapter()
     _run(
         adapter.apply_runtime_state(
-            str(CHAT_ID), "scout", "working", notify_user=None, thread_root_id=None
+            str(CHAT_ID), "scout", "working", mention_handle=None, thread_root_id=None
         )
     )
     original = adapter._working_msg[(str(CHAT_ID), "scout")].message_ref

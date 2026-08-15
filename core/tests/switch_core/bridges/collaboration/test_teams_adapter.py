@@ -901,7 +901,7 @@ def test_working_posts_status_card() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -920,7 +920,7 @@ def test_working_detail_refreshes_in_place() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -929,7 +929,7 @@ def test_working_detail_refreshes_in_place() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
             detail="Editing adapter.py",
         )
@@ -952,7 +952,7 @@ def test_idle_clears_working_message() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -961,7 +961,7 @@ def test_idle_clears_working_message() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "idle",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -981,7 +981,7 @@ def test_awaiting_input_keeps_working_and_pings() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -990,7 +990,7 @@ def test_awaiting_input_keeps_working_and_pings() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "awaiting-input",
-            notify_user="louis",
+            mention_handle="louis",
             thread_root_id=None,
         )
     )
@@ -1004,7 +1004,7 @@ def test_awaiting_input_keeps_working_and_pings() -> None:
             "19:abc@thread.tacv2",
             "worker",
             "idle",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )

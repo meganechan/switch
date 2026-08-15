@@ -888,7 +888,7 @@ def test_runtime_state_working_posts_persistent_indicator() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -910,7 +910,7 @@ def test_runtime_state_detail_edits_message_in_place() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -919,7 +919,7 @@ def test_runtime_state_detail_edits_message_in_place() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
             detail="Editing adapter.py",
         )
@@ -943,13 +943,17 @@ def test_runtime_state_idle_clears_working_message() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
     _run(
         adapter.apply_runtime_state(
-            str(CHANNEL_ID), "my-agent", "idle", notify_user=None, thread_root_id=None
+            str(CHANNEL_ID),
+            "my-agent",
+            "idle",
+            mention_handle=None,
+            thread_root_id=None,
         )
     )
 
@@ -966,7 +970,7 @@ def test_runtime_state_awaiting_input_pings_and_resume_clears_pings() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -975,7 +979,7 @@ def test_runtime_state_awaiting_input_pings_and_resume_clears_pings() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "awaiting-input",
-            notify_user="louis",
+            mention_handle="louis",
             thread_root_id=None,
         )
     )
@@ -993,7 +997,7 @@ def test_runtime_state_awaiting_input_pings_and_resume_clears_pings() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "working",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )
@@ -1227,7 +1231,7 @@ def test_awaiting_input_with_nobody_linked_says_so() -> None:
             str(CHANNEL_ID),
             "my-agent",
             "awaiting-input",
-            notify_user=None,
+            mention_handle=None,
             thread_root_id=None,
         )
     )

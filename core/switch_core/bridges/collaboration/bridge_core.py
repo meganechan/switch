@@ -1462,7 +1462,7 @@ class BridgeCore:
             channel_id,
             event.agent_name,
             event.state,
-            notify_user=event.notify_user,
+            mention_handle=event.mention_handle,
             thread_root_id=thread_root_ref,
             deeplink_url=event.deeplink_url,
             detail=event.detail,

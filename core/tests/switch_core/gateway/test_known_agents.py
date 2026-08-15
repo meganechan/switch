@@ -187,7 +187,7 @@ class TestStartSessionInstructions:
         assert msg is not None
         assert "my operator @louisa" in msg
 
-    def test_passive_without_notify_user_says_my_operator(self) -> None:
+    def test_passive_without_a_linked_owner_says_my_operator(self) -> None:
         opts = ClaudeCodeOptions(channels_enabled=False, repo_dir="/x")
         msg = ClaudeCodeKnownAgent.start_session_instructions(
             opts, _agent({}), "hub", None

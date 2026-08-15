@@ -1255,7 +1255,7 @@ class ProtocolService:
             matrix_room_id=room.matrix_room_id,
             room_id=room.id,
             state=state,
-            notify_user=await self._notify_user_for(
+            mention_handle=await self._mention_handle_for(
                 agent, room_row.bridge_id if room_row is not None else None
             ),
             thread_id=thread_id,
@@ -1272,7 +1272,7 @@ class ProtocolService:
         matrix_room_id: str,
         room_id: str,
         state: str,
-        notify_user: str | None,
+        mention_handle: str | None,
         thread_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
@@ -1292,7 +1292,7 @@ class ProtocolService:
                 "agent_name": agent_name,
                 "room_id": room_id,
                 "state": state,
-                "notify_user": notify_user,
+                "mention_handle": mention_handle,
                 "thread_id": thread_id,
                 "deeplink_url": deeplink_url,
                 "detail": detail,
@@ -1343,11 +1343,13 @@ class ProtocolService:
                 matrix_room_id=room.matrix_room_id,
                 room_id=room.id,
                 state=RUNTIME_STATE_IDLE,
-                notify_user=await self._notify_user_for(agent, room.bridge_id),
+                mention_handle=await self._mention_handle_for(agent, room.bridge_id),
                 thread_id=None,
             )
 
-    async def _notify_user_for(self, agent: Agent, bridge_id: str | None) -> str | None:
+    async def _mention_handle_for(
+        self, agent: Agent, bridge_id: str | None
+    ) -> str | None:
         """The handle to @-mention when this agent needs its operator, on the
         platform the room is bridged to.
 
