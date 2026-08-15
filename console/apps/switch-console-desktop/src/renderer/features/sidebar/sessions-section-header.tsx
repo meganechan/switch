@@ -56,14 +56,18 @@ const ViewGroupingToggle = observer(function ViewGroupingToggle() {
         if (opt) sidebarStore.setGrouping(opt.value);
       }}
       aria-label="Group sidebar by"
-      className="h-7 border-transparent bg-background-tertiary-2 p-0.5"
+      // The raised option has to read as sitting *in* the track, not as a
+      // button dropped on top of a box: concentric corners (inner radius =
+      // outer radius less the padding) and only a hairline of track showing
+      // around it.
+      className="h-7 gap-px rounded-lg border-transparent bg-background-tertiary-2 p-px"
     >
       {GROUPING_OPTIONS.map((opt) => (
         <ToggleGroupItem
           key={opt.value}
           value={opt.value}
           aria-label={opt.label}
-          className="rounded-md px-2.5 hover:bg-transparent aria-pressed:bg-background data-pressed:bg-background data-[state=on]:bg-background"
+          className="rounded-[7px] px-2.5 hover:bg-transparent aria-pressed:bg-background data-pressed:bg-background data-[state=on]:bg-background"
         >
           {opt.label}
         </ToggleGroupItem>
