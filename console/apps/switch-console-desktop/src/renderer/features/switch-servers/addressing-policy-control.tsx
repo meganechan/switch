@@ -17,11 +17,11 @@ import {
 import type { AddressingPolicy, LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
 import { AddressingPolicyEditor, type OptionItem } from './addressing-policy-editor';
 
-const MODE_ORDER: AddressingMode[] = ['ownerAndAgents', 'owner', 'anyone', 'custom'];
+const MODE_ORDER: AddressingMode[] = ['owner', 'ownerAndAgents', 'anyone', 'custom'];
 
 const MODE_LABELS: Record<AddressingMode, string> = {
-  ownerAndAgents: 'Only me and my agents (default)',
-  owner: 'Only me',
+  owner: 'Only me (default)',
+  ownerAndAgents: 'Only me and my agents',
   anyone: 'Anyone',
   custom: 'Custom rules',
 };
@@ -97,7 +97,10 @@ export function AddressingPolicyControl({
         disabled={disabled}
       >
         <SelectTrigger className="w-full">
-          <SelectValue />
+          {/* The label, not the value. Left to itself the trigger renders what
+            is stored — "ownerAndAgents" — so the box contradicted the option
+            just picked from it. */}
+          <SelectValue>{MODE_LABELS[mode]}</SelectValue>
         </SelectTrigger>
         <SelectContent>
           {MODE_ORDER.map((option) => (

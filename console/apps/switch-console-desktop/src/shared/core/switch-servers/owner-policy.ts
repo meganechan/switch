@@ -35,20 +35,23 @@ export function policyNamesOwner(policy: AddressingPolicy | null): boolean {
  */
 export type AddressingMode = 'ownerAndAgents' | 'owner' | 'anyone' | 'custom';
 
-/** Its owner, and nobody and nothing else — not even the owner's own agents. */
+/**
+ * Its owner, and nobody and nothing else — not even the owner's own agents.
+ * The default for a new agent: the strictest thing on offer is what an agent
+ * running on someone's own machine should start on, and widening it is one
+ * choice away.
+ */
 export function ownerOnlyPolicy(): AddressingPolicy {
   return { rules: [ownerRule(false)] };
 }
 
 /**
- * Its owner, plus any agent that owner runs. The default for a new agent.
+ * Its owner, plus any agent that owner runs — the orchestration case, where a
+ * manager agent hands work to a worker and no human is in the loop.
  *
- * Strict owner-only is one step too strict to start everyone on: an owner's
- * manager agent handing work to their worker is still the owner acting, and an
- * agent that refuses its own owner's orchestration reads as broken rather than
- * private. Both subjects are symbolic rather than lists of ids, so the rule
- * keeps working when a new workspace is connected, another agent is
- * registered, or the agent changes hands.
+ * Both subjects are symbolic rather than lists of ids, so the rule keeps
+ * working when a new workspace is connected, another agent is registered, or
+ * the agent changes hands.
  */
 export function ownerAndMyAgentsPolicy(): AddressingPolicy {
   return { rules: [ownerRule(true)] };

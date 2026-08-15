@@ -116,18 +116,29 @@ describe('the chooser', () => {
 
     const labels = await openSelect(el.querySelector('button')!);
     expect(labels).toEqual([
-      'Only me and my agents (default)',
-      'Only me',
+      'Only me (default)',
+      'Only me and my agents',
       'Anyone',
       'Custom rules',
     ]);
+  });
+
+  it('shows the answer in the box, not the value stored behind it', async () => {
+    // Base UI renders the stored value unless the trigger is given something
+    // else, so the box read "ownerAndAgents" — a word that appears nowhere in
+    // the list it was picked from.
+    const { el } = await control({ rules: [rule({ owner: true, owner_agents: true })] });
+
+    const trigger = el.querySelector('button')!;
+    expect(trigger.textContent).toContain('Only me and my agents');
+    expect(trigger.textContent).not.toContain('ownerAndAgents');
   });
 
   it('writes the wider shape when my agents are included', async () => {
     const { el, emitted } = await control(null);
     await openSelect(el.querySelector('button')!);
 
-    await pickOption('Only me and my agents (default)');
+    await pickOption('Only me and my agents');
 
     expect(emitted()).toEqual({
       rules: [
@@ -151,7 +162,7 @@ describe('the chooser', () => {
     });
     await openSelect(el.querySelector('button')!);
 
-    await pickOption('Only me');
+    await pickOption('Only me (default)');
 
     expect((emitted() as AddressingPolicy).rules[0].owner_agents).toBe(false);
   });
@@ -190,6 +201,18 @@ describe('the rule editor', () => {
 
     expect(el.textContent).not.toContain('The agent’s owner');
     expect(el.querySelector('[role="checkbox"]')).toBeNull();
+  });
+
+  it('names each dimension’s mode rather than showing the stored word', async () => {
+    // Same defect as the chooser's, in the row below it: the boxes read "any"
+    // and "specific".
+    const { el } = await editing(rule({ users: '*', agents: '*' }));
+
+    const triggers = [...el.querySelectorAll<HTMLElement>('button')].filter((b) =>
+      b.hasAttribute('aria-haspopup')
+    );
+    // The trailing chevron is part of the trigger's text.
+    for (const trigger of triggers) expect(trigger.textContent).toContain('Any');
   });
 
   it('shows the owner as an entry in the Users list', async () => {

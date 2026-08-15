@@ -334,6 +334,14 @@ function RuleSummary({
 
 type DimMode = 'any' | 'specific' | 'none';
 
+// A Base UI select trigger renders the stored value unless it is given
+// something else, so the labels have to be readable from both ends.
+const DIM_MODE_LABELS: Record<DimMode, string> = {
+  any: 'Any',
+  specific: 'Specific',
+  none: 'None',
+};
+
 function initialMode(value: AddressingDimension, allowNone: boolean): DimMode {
   if (value === '*') return 'any';
   if (value.length === 0) return allowNone ? 'none' : 'specific';
@@ -405,12 +413,12 @@ function DimensionRow({
         <span className="w-24 text-xs font-medium text-foreground-muted">{label}</span>
         <Select value={mode} onValueChange={(m) => changeMode(m as DimMode)} disabled={disabled}>
           <SelectTrigger className="h-7 w-32">
-            <SelectValue />
+            <SelectValue>{DIM_MODE_LABELS[mode]}</SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="any">Any</SelectItem>
-            <SelectItem value="specific">Specific</SelectItem>
-            {allowNone && <SelectItem value="none">None</SelectItem>}
+            <SelectItem value="any">{DIM_MODE_LABELS.any}</SelectItem>
+            <SelectItem value="specific">{DIM_MODE_LABELS.specific}</SelectItem>
+            {allowNone && <SelectItem value="none">{DIM_MODE_LABELS.none}</SelectItem>}
           </SelectContent>
         </Select>
         {mode === 'specific' && ids.length > 0 && (

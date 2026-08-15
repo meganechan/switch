@@ -75,14 +75,11 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
-- **Newly created agents are owner-scoped by default**: only their owner and
-  that owner's own agents may address them, from any room. An agent created
-  from Switch Console starts on **only me and my agents**; a registration that
-  chooses nothing at all gets the stricter **only me**, since nobody was there
-  to widen it. The default is applied where every registration path converges,
-  so it holds for Switch Console, the gateway, the agent bridge, the configure
-  skill and bulk subagent registration alike. Existing agents are left open —
-  the default
+- **Newly created agents are owner-only by default**: only their owner may
+  address them, from any room, and no agent unless the owner says so. The
+  default is applied where every registration path converges, so it holds
+  for Switch Console, the gateway, the agent bridge, the configure skill and
+  bulk subagent registration alike. Existing agents are left open — the default
   is not applied retroactively, since that would mute every agent whose owner
   has not yet claimed an identity. Server-side connector agents opt out: they
   are services a deployment offers everyone, not one person's assistant
@@ -602,14 +599,12 @@ version of their own to them without also giving them a release of their own.
   not linked — shown when you own an agent on that server whose rule admits its
   owner, and never otherwise. Link everywhere, or own no such agent, and there
   is nothing to see: a warning shown to everybody teaches people to ignore it.
-- **A new agent now answers only you and your own agents.** Agents used to be
-  created open to everyone in every room; the add-agent dialog now defaults to
-  *Only me and my agents*. Both halves are named symbolically rather than as
-  lists of identities, so the rule survives connecting a new workspace,
-  registering another agent, or the agent changing hands. Your own agents are
-  in by default because an agent that refuses its owner's own orchestration
-  reads as broken rather than private — *Only me* is a step away for anyone who
-  wants it. Existing agents are untouched.
+- **A new agent now answers only its owner.** Agents used to be created open to
+  everyone in every room; the add-agent dialog now defaults to *Only me*. The
+  rule names the owner rather than a list of identities, so it survives
+  connecting a new workspace or the agent changing hands. *Only me and my
+  agents* is one step away when an agent of yours has to hand this one work.
+  Existing agents are untouched.
 - **A messaging app can be disconnected from the server page**, by an admin, on
   the same **Messaging apps** row that connects one. It is not a pause: the
   server deletes every Switch room on that app before removing it, so the rooms
@@ -620,7 +615,7 @@ version of their own to them without also giving them a release of their own.
 #### Changed
 
 - **Who can send instructions to an agent is one question with four answers** —
-  *Only me and my agents (default)*, *Only me*, *Anyone*, or *Custom rules* —
+  *Only me (default)*, *Only me and my agents*, *Anyone*, or *Custom rules* —
   rather than an open / restricted switch above a rule builder. The two
   owner-scoped answers differ in one thing: whether agents you own may hand this
   one work. Anyone drops the policy entirely; Custom rules opens the rule
@@ -629,7 +624,8 @@ version of their own to them without also giving them a release of their own.
   is on a shortcut, and a policy too specific for any of them reads back as
   Custom rules rather than being flattened into one. The same control is on the
   add-agent dialog and on the agent's Settings tab, so a policy is changed the
-  way it was set.
+  way it was set. The box shows the answer that was picked, rather than the
+  word stored behind it.
 - An agent's Settings tab no longer boxes **Advanced configuration** and **Who
   can send instructions** in borders of their own. Every section on the page is
   already a section; drawing two of them again was one frame too many.
