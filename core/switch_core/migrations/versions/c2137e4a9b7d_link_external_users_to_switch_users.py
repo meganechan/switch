@@ -1,7 +1,7 @@
 """link external users to switch users (CHOO-2137)
 
 Revision ID: c2137e4a9b7d
-Revises: b3f36489c258
+Revises: d1a7c3e58b40
 Create Date: 2026-08-14 00:00:00.000000
 
 """
@@ -13,7 +13,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision: str = "c2137e4a9b7d"
-down_revision: str | None = "b3f36489c258"
+down_revision: str | None = "d1a7c3e58b40"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

@@ -50,6 +50,8 @@ import type {
   ServerConnectionStatus,
   SwitchAuthConfig,
   SwitchServer,
+  UpdateBridgeParams,
+  UpdateBridgeResult,
   UpdateServerParams,
   UpdateServerResult,
 } from '@shared/core/switch-servers/switch-servers';
@@ -95,6 +97,7 @@ import {
   setActiveServerId,
   updateServer,
 } from './servers-store';
+import { updateBridgeOnServer } from './update-bridge';
 
 async function requireServer(serverId: string): Promise<SwitchServer> {
   const server = await getServer(serverId);
@@ -248,6 +251,20 @@ export const switchServersController = createRPCController({
       displayName: params.displayName,
       connectionConfig: params.connectionConfig,
       setAsDefault: params.setAsDefault,
+      channelCreationEnabled: params.channelCreationEnabled,
+    });
+  },
+
+  /**
+   * Edit a bridge's operator-controlled switches — today, only whether the
+   * connection may create channels. Admin-only, like registering one; see
+   * `updateBridgeOnServer` for the recoverable-failure mapping.
+   */
+  updateBridge: async (params: UpdateBridgeParams): Promise<UpdateBridgeResult> => {
+    const server = await requireReachableServer(params.serverId);
+    return updateBridgeOnServer(server, {
+      bridgeId: params.bridgeId,
+      channelCreationEnabled: params.channelCreationEnabled,
     });
   },
 

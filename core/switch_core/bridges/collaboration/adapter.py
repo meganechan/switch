@@ -5,8 +5,11 @@ import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
+from typing import ClassVar
 
 from switch_core.bridges.collaboration.models import (
+    BridgeInstallLink,
+    ChannelCreationUnsupported,
     ChannelType,
     DirectoryUser,
     InboundAgentJoin,
@@ -42,6 +45,26 @@ class LiveRuntimeIndicator:
 
 
 class CollaborationAdapter(ABC):
+    #: Whether this platform can create a channel from Switch at all.
+    #:
+    #: A ceiling, not a preference: an operator may withhold channel creation
+    #: from a connection whose platform allows it, but cannot grant it to one
+    #: that does not. Declared on the class rather than resolved from a running
+    #: bridge so the answer is available before a connection is registered and
+    #: while it is stopped — the operator asks "can this platform do it?" at
+    #: exactly those moments.
+    supports_channel_creation: ClassVar[bool] = True
+
+    #: Whether this platform renders a link whose scheme is not http(s).
+    #:
+    #: False for platforms that linkify only the web schemes. It matters
+    #: because the "Open in Switch Console" deeplink is a `switchdash://` URL:
+    #: where this is False that link cannot work as written, and the deployment
+    #: needs `GATEWAY_PUBLIC_URL` set so Switch can rewrite it to the https
+    #: redirect. Declared here so the lifecycle can say so once at startup
+    #: instead of each bridge discovering it in its own way.
+    renders_custom_url_schemes: ClassVar[bool] = True
+
     def __init__(self) -> None:
         self._on_message: Callable[[InboundMessage], Awaitable[None]] | None = None
         self._on_command: Callable[[InboundCommand], Awaitable[None]] | None = None
@@ -50,6 +73,9 @@ class CollaborationAdapter(ABC):
         )
         self._on_user_joined: Callable[[InboundUserJoin], Awaitable[None]] | None = None
         self._on_app_joined: Callable[[InboundAppJoin], Awaitable[None]] | None = None
+        # Set by set_channel_migration_handler. Called with (old_id, new_id)
+        # when the platform reissues a channel's id.
+        self._on_channel_migrated: Callable[[str, str], Awaitable[None]] | None = None
         # Inbound attachment size ceiling, set by the lifecycle service from
         # config.agent_media_max_bytes. Adapters check a platform-reported file
         # size against this before downloading so an oversize file is rejected
@@ -115,9 +141,20 @@ class CollaborationAdapter(ABC):
         can special-case rendering per platform; adapters that don't simply
         render the default `content`. The default implementation posts via
         `send_message` under the bridge display name; adapters whose platform
-        has a distinct bot identity should override to use it."""
+        has a distinct bot identity should override to use it.
+
+        **`content` is Switch Markdown, and this method renders it.** Unlike
+        `send_message`, whose caller translates, every caller here passes an
+        unrendered body — the notices in `bridge_core`, the adapters' own
+        notices, and the relayed admin events alike. An override must therefore
+        run `translate_outbound` itself. Splitting that responsibility between
+        callers is what once sent a body through the conversion twice, and the
+        second pass escapes the markup the first one produced."""
         return await self.send_message(
-            channel_id, self._bridge_display_name(), content, thread_root_id
+            channel_id,
+            self._bridge_display_name(),
+            self.translate_outbound(content),
+            thread_root_id,
         )
 
     def _bridge_display_name(self) -> str:
@@ -127,11 +164,12 @@ class CollaborationAdapter(ABC):
         """How to run `invite-agent` as a native slash command here, if at all.
 
         Native slash commands are per-platform: Slack declares them in its app
-        manifest and Discord registers them per guild, while Mattermost and
-        Teams have none — so the no-agents notice must not advertise a `/` form
-        on a bridge that has none to offer. The invocation differs too, since
-        Slack takes a free-text tail where Discord names each argument as its
-        own field, so each adapter spells out its own.
+        manifest, Discord registers them per guild and Telegram publishes a bot
+        command menu, while Mattermost and Teams have none — so the no-agents
+        notice must not advertise a `/` form on a bridge that has none to offer.
+        The invocation differs too, since Slack and Telegram take a free-text
+        tail where Discord names each argument as its own field, so each adapter
+        spells out its own.
 
         Returns the body of the bullet; the caller owns the list formatting.
         None means this platform has no slash commands.
@@ -417,7 +455,7 @@ class CollaborationAdapter(ABC):
         Used for outbound-created DM rooms (`channel_type="direct"`). Platforms
         where DMs can only be initiated by the user — and so cannot be created
         from Switch — raise instead of pretending to succeed."""
-        raise NotImplementedError(
+        raise ChannelCreationUnsupported(
             f"{type(self).__name__} cannot create DM channels — on this platform "
             "DMs are initiated by the user from the messaging client"
         )
@@ -457,6 +495,26 @@ class CollaborationAdapter(ABC):
         "open the messaging app" next to the bridge itself. Built from the
         connection config, which never leaves the server; only the resulting
         URL is exposed."""
+        return None
+
+    async def install_links(self) -> list[BridgeInstallLink]:
+        """One-click links that add this bridge's app to a chat, if the
+        platform has them.
+
+        Empty by default: on most platforms installation is an app-directory or
+        OAuth flow the operator runs elsewhere, and inventing a link for it
+        would be a link to nowhere. An adapter overrides this only when the
+        platform accepts a URL that selects the chat and works on every client
+        of that platform."""
+        return []
+
+    async def install_note(self) -> str | None:
+        """What the links do not cover, in the platform's own terms.
+
+        Rendered under :meth:`install_links` in the operator dashboard. Some
+        kinds of chat cannot be reached by a link at all, and the operator is
+        better told where to go instead than left to conclude a button is
+        missing. Markdown-free plain text; None when there is nothing to add."""
         return None
 
     @abstractmethod
@@ -526,3 +584,15 @@ class CollaborationAdapter(ABC):
         from inbound activities (Teams, whose Bot Connector ``serviceUrl`` is
         carried on inbound activities) override this to persist it."""
         return None
+
+    def set_channel_migration_handler(
+        self, handler: Callable[[str, str], Awaitable[None]]
+    ) -> None:
+        """Install the callback an adapter calls when the platform reissues a
+        channel's id, so the room bound to the old one follows it.
+
+        Stored for every adapter and used by those whose platform does this:
+        Telegram reissues a chat's id when a basic group becomes a supergroup.
+        The symptom without it is one-way traffic — sends still arrive, because
+        the platform forwards them, while nothing inbound matches a room again."""
+        self._on_channel_migrated = handler

@@ -91,7 +91,7 @@ def _no_agents_notice(slash_hint: str | None) -> str:
     return (
         "👋 I've linked this channel to a new Switch room, but there are no agents "
         "in it yet — so no one is here to respond to messages.\n\n"
-        "*To add an agent*, invite one by name (swap in the agent you want):\n"
+        "**To add an agent**, invite one by name (swap in the agent you want):\n"
         f"{invites}\n\n"
         "Once an agent is in the room, @-mention it here and it'll pick up the "
         "conversation."
@@ -170,6 +170,7 @@ class BridgeCore:
     async def start(self) -> None:
         await self._load_channel_map()
         await self._load_existing_puppets()
+        self._adapter.set_channel_migration_handler(self._handle_channel_migrated)
         await self._adapter.start(
             on_message=self._handle_inbound_message,
             on_command=self._handle_inbound_command,
@@ -293,7 +294,7 @@ class BridgeCore:
         content = (
             f"👋 You tagged {app_mention} directly — I'm not linked to an agent "
             "in this channel yet.\n\n"
-            f"*Agents you can tag directly:*\n{agent_list}"
+            f"**Agents you can tag directly:**\n{agent_list}"
         )
         # The `!set-alias` shortcut only makes sense when the bot handle is a
         # valid alias token. Some platforms (e.g. Teams) use a bot id containing
@@ -305,7 +306,7 @@ class BridgeCore:
             pass
         else:
             content += (
-                "\n\n*To make me an agent's entry point*, copy the line below and "
+                "\n\n**To make me an agent's entry point**, copy the line below and "
                 "swap in the agent's name — after that, tagging me here routes to "
                 f"that agent:\n!set-alias @agent_name {app_mention}"
             )
@@ -640,6 +641,67 @@ class BridgeCore:
                 channel_type=join.channel_type,
                 channel_name=join.channel_name,
             )
+
+    async def _handle_channel_migrated(self, old_id: str, new_id: str) -> None:
+        """The platform reissued a channel's id: move the room onto the new one.
+
+        Only the id changes — it is the same conversation, with the same people
+        and the same history — so the room follows it rather than a second room
+        being created beside it. Without this the room stays bound to an id
+        nothing arrives from again, while sends keep working because the
+        platform forwards them: the bridge looks alive and is deaf.
+        """
+        lock = self._channel_locks.setdefault(old_id, asyncio.Lock())
+        async with lock:
+            async with self._session_factory() as session:
+                room = await self._room_store.get_by_external_channel(
+                    session, self._bridge_id, old_id
+                )
+                if room is None:
+                    logger.info(
+                        "Channel %s migrated to %s but no room is bound to it",
+                        old_id,
+                        new_id,
+                    )
+                    return
+                occupant = await self._room_store.get_by_external_channel(
+                    session, self._bridge_id, new_id
+                )
+                if occupant is not None:
+                    # The unique index would reject the update anyway. Report it
+                    # rather than leaving both rooms looking correct: one of them
+                    # is bound to an id that is now dead.
+                    logger.error(
+                        "Channel %s migrated to %s, but room %s is already bound "
+                        "to %s. Room %s is left on the old id and will not "
+                        "receive anything from the chat",
+                        old_id,
+                        new_id,
+                        occupant.id,
+                        new_id,
+                        room.id,
+                    )
+                    return
+                await self._room_store.update_external_channel(session, room.id, new_id)
+                await session.commit()
+
+            key = (room.id, room.matrix_room_id)
+            self._channel_to_room.pop(old_id, None)
+            self._channel_to_room[new_id] = key
+            self._room_to_channel[key] = new_id
+            logger.warning(
+                "Re-pointed room %s from channel %s to %s after the platform "
+                "reissued the id",
+                room.id,
+                old_id,
+                new_id,
+            )
+
+        await self._adapter.admin_message(
+            new_id,
+            "This chat has been given a new id by the platform. Its Switch room "
+            "has been moved onto it, so messages here reach the agents again.",
+        )
 
     # ── Auto-room creation ────────────────────────────────────────────────────
 
@@ -1063,21 +1125,28 @@ class BridgeCore:
             event_content, channel_id
         )
 
-        content = self._adapter.translate_outbound(event.body)
         if admin_marker is not None:
             message_type = (
                 admin_marker.get("type") if isinstance(admin_marker, dict) else None
             )
+            # Raw, not translated: `admin_message` renders its own body, the
+            # same way the notices posted directly through it do. Translating
+            # here as well ran the body through twice, and the second pass
+            # escapes the markup the first one produced — a command reply
+            # arrived showing its own `<b>` tags.
             message_ref = await self._adapter.admin_message(
                 channel_id,
-                content,
+                event.body,
                 thread_root_ref,
                 message_type=message_type,
             )
         else:
             assert sender_name is not None  # guarded above
             message_ref = await self._adapter.send_message(
-                channel_id, sender_name, content, thread_root_id=thread_root_ref
+                channel_id,
+                sender_name,
+                self._adapter.translate_outbound(event.body),
+                thread_root_id=thread_root_ref,
             )
 
         if message_ref is not None:

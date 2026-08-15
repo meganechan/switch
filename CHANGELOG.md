@@ -90,6 +90,129 @@ version of their own to them without also giving them a release of their own.
   so, and points at linking the account in Switch Console — rather than giving
   the owner the generic refusal from their own agent (CHOO-2137).
 
+### [0.15.0] - 2026-08-14
+
+#### Added
+- Telegram collaboration bridge, at parity with Slack, Mattermost and Discord
+  (CHOO-1686). A single bot backs every agent — Telegram has no per-message
+  identity override — so an agent is named at the head of its messages, beside a
+  stable colour derived from that name, which is the closest thing to a
+  per-agent avatar Telegram allows. Inbound arrives by long polling, so no
+  public ingress is needed. Chats cannot be created by a bot, so a Telegram
+  connection declares that up front and rooms are provisioned when the bot is
+  added to a chat. Multi-file messages post as a
+  single album, and outbound Markdown is converted to Telegram's HTML subset
+  rather than its stricter MarkdownV2. See `docs/bridges/TELEGRAM_SETUP.md`.
+- One-click install links for a bridge, offered on the operator dashboard and
+  built by the adapter (`install_links`); empty for platforms installed through
+  their own admin UI. Telegram supplies one, for groups: pick the group, confirm,
+  done. It asks for **no permissions at all** — a bot posts and deletes its own
+  messages in a group as an ordinary member — so adding the bot no longer means
+  promoting it by hand. Setting a Telegram bridge up is now one BotFather setting
+  (Group Privacy off, once per bot, before the bot is added anywhere) and then a
+  link per group. Channels are added from their Administrators screen, and get no
+  link: that would need Telegram's `admin=` parameter, which not every client
+  implements, and the ones that do not open a chat with the bot instead — a link
+  that works for some people is worse than a documented step that works for all
+  of them. The dashboard's **Add to a chat** dialog says so: alongside the links,
+  a bridge can supply an `install_note` naming the chats no link reaches and the
+  route they take instead, so a missing button is never all the operator sees.
+- A bridged chat is told what the bridge can see in it, and told again whenever
+  that changes — so promoting the bot confirms itself and retracts the earlier
+  warning, and a demotion does not pass unmentioned. Visibility is settled per
+  chat rather than inferred from the bot's global privacy setting, which is what
+  made an administrator bot report a fault it did not have. A chat the bridge can
+  only see mentions in — no admin, privacy mode on — is a supported way to run
+  and is disclosed as one: a notice in the chat, and a warning naming each such
+  chat at startup. Where the answer rests on the global setting rather than on
+  admin status it is taken on trust and logged as such: Telegram reads that
+  setting when the bot joins and no API call reports which value a given chat
+  got, so a bot that predates the change is still filtered and only a re-add or a
+  promotion fixes it.
+
+- Whether a messaging-app connection may create channels is now declared rather
+  than discovered by failing, in two parts: what the platform can do at all
+  (Telegram cannot — the Bot API has no call for it) and what an operator
+  permits this connection to do, set when the app is registered and changeable
+  afterwards. The second can only narrow the first. A deployment can therefore
+  withhold channel creation from Slack or Teams as well, for a bot that holds no
+  such permission or an organisation that would rather channels were made by
+  people. The answer reaches everyone who acts on it: the room forms in the
+  dashboard and Switch Console stop offering the option and say which reason
+  applies, `list_bridges` carries `can_create_channels` so an agent can choose a
+  bridge that works, and a refused create is a `400` naming what to do instead.
+
+#### Fixed
+- Creating a room on a bridge that cannot make channels returned "Internal
+  Server Error". The adapter's explanation — make the chat on the platform, add
+  the app, Switch adopts it — was thrown away at four of the six doors into room
+  creation, because `NotImplementedError` subclasses `RuntimeError` and every
+  caller catches only `ValueError`. It is now a `ValueError` subclass, so the
+  message survives to the caller as a 4xx. Opening a DM is governed the same way.
+- Telegram admin notices reached the chat as Markdown source, `**` and backticks
+  included. They are written in Switch Markdown like every other body but were
+  handed to the API without the conversion, and everything goes out with
+  parse_mode HTML. Two notices were also written with single-asterisk emphasis,
+  which no platform's converter recognises — Slack bolded them by accident and
+  Telegram italicised them.
+- The "Open in Switch Console" link on Telegram no longer disappears, and can no
+  longer take its message with it. It is a `switchdash://` URL and Telegram
+  renders only `http(s)`/`tg:`: the client dropped the link and kept the label,
+  or the API rejected the whole message. An unsupported scheme is now posted as
+  tap-to-copy text, and the bridge warns at startup when a platform that only
+  renders web links is running without `GATEWAY_PUBLIC_URL` — which is what
+  makes the link real, in the Telegram app and on Telegram Web alike.
+- A Telegram message Telegram rejects is retried unformatted whatever the
+  reason. The retry only fired when the error contained "parse", so a rejection
+  worded any other way — "unsupported URL protocol" among them — lost the entire
+  message to a single log line.
+- A Telegram command that needs an argument is usable from the `/` menu.
+  Telegram sends a command the instant it is tapped, with no chance to type one
+  and no way for a bot to declare that one is wanted, so `/invite_agent` always
+  arrived bare — and answering with its usage line left retyping the whole
+  command by hand as the only way through, which is what the menu was for. The
+  bot now asks for what is missing, with Telegram's own reply prompt so the
+  composer opens ready, and runs the command when you answer. Giving the
+  argument up front skips it; the prompt is one-shot, so talk that continues
+  under it stays ordinary chat.
+- The no-agents notice advertises `/invite_agent` on Telegram, the only spelling
+  Telegram will register and therefore the only one its command menu offers. It
+  named the hyphenated form, which the client will not autocomplete. All three
+  forms are now listed.
+- The Telegram brand icon renders correctly in Switch Console's dark theme. The
+  plane was a hole punched through the disc rather than a white shape, so it
+  showed the background through it and came out black.
+- Bridge row action icons line up down the column again. A row carries one icon
+  or two depending on whether its platform offers an install link, and the pair
+  was not anchored to the same edge as the single, so the delete buttons sat at
+  different positions on different rows.
+- Telegram links are built from the username the Bot API reports rather than the
+  one in the bridge's config. A configured name that is not the bot's resolves to
+  whichever account does own it, so every link opened a chat with a stranger —
+  and the mismatch was already detected and then ignored, with the wrong value
+  used anyway. The bot's own name wins and the correction is logged.
+- The "add to a Telegram group" link is withheld from a bot BotFather has barred
+  from groups. Telegram answers such a link by opening a chat with the bot, which
+  from the outside is indistinguishable from a link that does nothing; the reason
+  is logged with the setting to change instead.
+- The group install link no longer asks to be an administrator, which made it
+  unusable for the groups most people have. Telegram builds that picker from
+  groups the person already administers, excluding basic groups — promoting a
+  bot in one converts it to a supergroup — so for anyone whose groups are all
+  basic it offered nothing to pick and Telegram opened a chat with the bot
+  instead, reading as a link that did nothing. Admin was only ever bought for
+  the privacy-mode exemption, and turning Group Privacy off in BotFather buys
+  the same thing once per bot rather than once per group. Promotion remains
+  documented as the repair for a single chat that was added before that setting
+  was changed, and the bot asks for it in the chat when it applies.
+- A room follows its Telegram chat when the chat is reissued a new id, which
+  Telegram does silently whenever a group becomes a supergroup. The room was
+  left bound to the old id, so nothing anyone typed reached Switch again while
+  sends kept working — Telegram forwards those — leaving a bridge that looked
+  alive and was deaf. Adapters now report the change (`CollaborationAdapter`
+  gains `set_channel_migration_handler`) and the room is re-pointed, or the
+  refusal is logged with the id to re-point it at by hand.
+
 ### [0.14.0] - 2026-08-14
 
 #### Added
@@ -495,8 +618,135 @@ version of their own to them without also giving them a release of their own.
 
 ### [0.23.0] - 2026-08-14
 
+#### Removed
+
+- The "Give Feedback" feature — modal, Help menu entry, command-palette command
+  and its event — along with the hardcoded third-party Discord webhook it posted
+  to. The webhook arrived with the initial emdash import and is already revoked
+  upstream. **Help → Report Issue** remains the way to send us something; it
+  opens an issue on this repository (CHOO-2040).
+
+#### Fixed
+
+- **A session on a remote agent now opens at the size of the pane it opens
+  into**, instead of a fraction of it that only corrected itself when the window
+  was resized or the session was switched away from and back (CHOO-2066). A
+  remote session opens its terminal over SSH, and the renderer mounts and
+  measures its pane partway through that: the measurement arrived after the
+  spawn size had been read and before there was a PTY to resize, so it was
+  discarded and the session kept the 80x24 it was spawned with. Measured
+  dimensions are now kept whether or not a PTY is live yet, and applied to the
+  PTY when it registers.
+
+### [0.24.0] - 2026-08-14
+
 #### Added
 
+- **An OpenCode agent can be configured like a Codex one.** Its model,
+  reasoning variant, temperature, top-p, step limit, web search and
+  instructions can be set when the agent is created and changed afterwards from
+  its Settings tab, and a change applies to the next session — or to a running
+  one with Restart, which resumes the conversation.
+
+  OpenCode's settings are not Codex's, so the per-agent configuration an agent
+  stores is now keyed by what its own provider offers rather than by a fixed
+  list. Existing Codex agents keep their settings; nothing needs re-entering.
+
+  Its instructions are added to OpenCode's own, the way an `AGENTS.md` is,
+  rather than replacing them.
+
+- **You can pick a model instead of remembering it.** Switch Console asks the
+  machine an OpenCode agent runs on which models it offers and lists them as you
+  type, grouped by provider and annotated with the reasoning variants each
+  accepts. Typing something not on the list still works — it is a shortcut, not
+  a restriction.
+
+- **The model and reasoning fields check themselves against the agent's own
+  host.** A model name that host does not have is flagged as you type, and
+  the reasoning variant becomes a menu of what the chosen model actually
+  accepts — greyed out, with a reason, for a model that has none, as local
+  models generally do. Both were places OpenCode would otherwise accept a value
+  and silently never apply it.
+
+  The check warns rather than blocks, since the list is a snapshot and a model
+  can appear a moment later. If the host cannot be reached, or OpenCode is not
+  installed on it, the fields say so and go back to plain text rather than
+  flagging everything as wrong.
+
+  An OpenCode agent can also be pointed at a **local model** — define the
+  provider once in your OpenCode config and set the agent's model to it. The new
+  utility-model setting is worth setting too if the point is to keep everything
+  on one machine: it is what OpenCode uses for background work like naming a
+  conversation, which otherwise goes wherever your own config sends it.
+- Telegram brand icon, platform label and setup-guide link, so Telegram-bridged
+  rooms show the "open channel" button and the attach form links the right guide
+  (CHOO-1686). Telegram bot tokens are also redacted from the diagnostic logs.
+
+#### Fixed
+- Opening a room from a deeplink expands the sidebar groups hiding it
+  (CHOO-1686). The reveal ran once, before the room a session belongs to had
+  loaded, and never again — so the view routed correctly to a row that stayed
+  collapsed. Affects any bridge, not only Telegram.
+- Two Switch Console installs sharing an agent host no longer trade the sidecar
+  back and forth when they are on the *same* release but carry different builds
+  — the everyday case for dev builds, and the half of the shared-host problem
+  that version ordering could not reach. Each install now mints a deployer
+  identity and stamps it on whatever sidecar it deploys, so an install can tell
+  its own build from another's without relying on the version string. When the
+  versions are equal and the builds differ, the install that got there first
+  keeps the sidecar.
+- The agent's Settings tab says so: the sidecar reads **Another install's
+  build**, names who deployed the running one, and offers Restart — a
+  deliberate takeover — instead of an Update that both sides would keep
+  clicking at each other. Replacement is otherwise unchanged: an older sidecar
+  is still replaced whoever deployed it, and a rebuild of your own is still
+  picked up.
+- Search results no longer read as though agents, sessions and commands were
+  servers. Those three had no heading of their own, so they were drawn after the
+  last group on screen — usually "Servers" — and appeared to belong to it. Every
+  result now sits under a heading that names it.
+- The server running on this computer shows a laptop everywhere — the sidebar
+  and search as well as the dialog that adds it. The sidebar and search each
+  chose the icon themselves; they now share one rule, so the next change lands
+  in all three at once.
+- The local server's setup log now fills as the work happens rather than all at
+  once at the end. Every line Docker printed was applied to the screen on its
+  own, and a pull narrates faster than the UI can redraw — so the renderer spent
+  the whole install rebuilding the list instead of painting it. Lines are
+  applied in batches now. The same fix covers a remote host's setup.
+- Setting up the local server no longer looks stalled before Docker says
+  anything. The output panel appeared only once the first line arrived, so the
+  seconds Docker spends resolving the registry showed as an empty dialog; the
+  panel is now there from the start and says what it is waiting for.
+- The command palette no longer opens onto a "Notifications" list of sessions
+  and rooms. It is a search field; the first thing under it should be what you
+  searched for.
+- Creating a room offers only the agents this Switch Console registered. The
+  server answers with everyone on it, including agents belonging to another
+  install — which this app cannot show under a room or drive.
+- Creating a room switches the sidebar to its Rooms list and selects the new
+  room. It was already opened in the main panel, but the sidebar stayed on
+  Agents, which does not list rooms — so the room you had just made was nowhere
+  in it.
+- Installing a Switch connector now finishes the onboarding step it belongs to.
+  The list of agent types you can onboard is cached separately from the agent's
+  own status, and the install refreshed everything but that — so the step stayed
+  unticked, and because the checklist locks each step behind the one above it,
+  the rest of onboarding stayed greyed out with nothing explaining why.
+
+#### Changed
+- An update to an agent's own CLI is no longer reported as though something were
+  wrong. It never gated anything, but an amber badge ahead of "Installed" read
+  like a fault on an agent that worked, and it was the nearest explanation for
+  onboarding appearing stuck. A newer CLI is now mentioned only on the agent's
+  own page, in plain text with the command that installs it.
+- The Switch connector's own updates keep their badge and gain a name —
+  "Connector update" rather than "Update available". That one is worth acting
+  on, and the two used to share a badge that could not say which was behind.
+
+### [0.23.0] - 2026-08-14
+
+#### Added
 - **OpenCode is now a supported Switch agent type**, locally and on remote
   hosts. An OpenCode session can be onboarded as a Switch agent, join rooms,
   take injected prompts, and be reset, compacted or interrupted from a room.
@@ -1360,6 +1610,22 @@ The remote runtime Switch Console deploys to an agent host. Versioned in
 `console/apps/switch-console-desktop/src/sidecar/sidecar-version.ts` and deployed
 by Switch Console rather than published on its own.
 
+### [Unreleased]
+
+### [1.9.3]
+
+#### Added
+- The ready file carries a `deployer` field: the identity of the Switch Console
+  install that started this sidecar, echoed from the environment it was
+  launched with. It is the one thing on the host that says *whose* build is
+  running — the content hash says only which. Purely additive, so no contract
+  revision moves: an older client ignores the field, and a client reading a
+  sidecar that omits it must treat that as unknown rather than as its own.
+- Writes an agent's launch profile on the VM and completes the home-directory
+  placeholder in its environment, so a provider that names a config file by
+  absolute path (OpenCode's `OPENCODE_CONFIG`) launches correctly on a remote
+  host. Additive — the client↔sidecar wire is unchanged, so the major stays `1`.
+
 ### [1.9.2]
 
 #### Changed
@@ -1428,13 +1694,29 @@ compatibility signal. History for those is in the git log.
   now fails outright for a disallowed sender, and that in-room commands are
   covered by the policy too (CHOO-2137).
 
+### [0.9.3] - 2026-08-14
+
+#### Changed
+- The room-workflow skill covers Telegram: attachments cross the bridge as real
+  uploads, chats cannot be created by a bot at all (so `create_room` fails there
+  for every channel type), forum topics thread natively, and formatting has no
+  tables and a 4096-character cap (CHOO-1686). It also warns that a Telegram
+  room may be mention-only, where unaddressed talk never reaches Switch at all
+  and `read_context` cannot recover it — the one place the skill's "pull the
+  rest with `read_context`" promise does not hold. The slash-command and
+  attachment platform lists now also name Discord, which had been left out of
+  both.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
+
 ### [0.9.2] - 2026-08-14
 #### Changed
 - The room-workflow skill lists `opencode` alongside `codex` and `claude-code`
   wherever it enumerates known agent types — the `list_agents` filter and the
   per-type options of `update_agent_detail` (#203). The plugin version bumps so
   installs re-download.
-
 
 ### [0.9.1] - 2026-08-12
 
@@ -1511,6 +1793,23 @@ manifest history.
   agents created in Switch Console — and states that `send_targeted_message`
   now fails outright for a disallowed sender, and that in-room commands are
   covered by the policy too (CHOO-2137).
+
+### [0.3.4] - 2026-08-14
+
+#### Changed
+- The room-workflow skill covers Telegram: attachments cross the bridge as real
+  uploads, chats cannot be created by a bot at all (so `create_room` fails there
+  for every channel type), forum topics thread natively, and formatting has no
+  tables and a 4096-character cap (CHOO-1686). It also warns that a Telegram
+  room may be mention-only, where unaddressed talk never reaches Switch at all
+  and `read_context` cannot recover it — the one place the skill's "pull the
+  rest with `read_context`" promise does not hold. The slash-command and
+  attachment platform lists now also name Discord, which had been left out of
+  both.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.3.3] - 2026-08-14
 
@@ -1602,6 +1901,21 @@ the app version that wrote it rather than a version of its own.
   agents created in Switch Console — and states that `send_targeted_message`
   now fails outright for a disallowed sender, and that in-room commands are
   covered by the policy too (CHOO-2137).
+
+### [0.1.1] - 2026-08-14
+
+#### Changed
+- The room-workflow skill covers Telegram: attachments cross the bridge as real
+  uploads, chats cannot be created by a bot at all (so `create_room` fails there
+  for every channel type), forum topics thread natively, and formatting has no
+  tables and a 4096-character cap (CHOO-1686). It also warns that a Telegram
+  room may be mention-only, where unaddressed talk never reaches Switch at all
+  and `read_context` cannot recover it. The slash-command and attachment
+  platform lists now also name Discord.
+- The room workflow adds a Mattermost-only rule: post at the root there unless
+  you were asked in a thread. Mattermost shows a threaded reply as a reply count
+  under the original post rather than in the channel, so a first-time reader can
+  take it for no answer. Threading is unchanged everywhere else.
 
 ### [0.1.0] - 2026-08-14
 

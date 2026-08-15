@@ -7,7 +7,16 @@ import {
 } from './messaging-apps-warning';
 
 function bridge(id: string, displayName: string): RemoteBridge {
-  return { id, type: 'slack', displayName, status: 'active', isDefault: false, homeUrl: null };
+  return {
+    id,
+    type: 'slack',
+    displayName,
+    status: 'active',
+    isDefault: false,
+    homeUrl: null,
+    channelCreationSupported: true,
+    canCreateChannels: true,
+  };
 }
 
 function identity(bridgeId: string): LinkedIdentity {

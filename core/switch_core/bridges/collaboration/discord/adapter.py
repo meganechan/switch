@@ -8,7 +8,7 @@ import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import replace
-from typing import Any
+from typing import Any, ClassVar
 
 import discord
 from discord import app_commands
@@ -67,6 +67,10 @@ class DiscordAdapter(CollaborationAdapter):
     Switch room is created by the bridge core on the first bridged message
     rather than eagerly for the whole guild.
     """
+
+    # Discord linkifies only http(s), so the `switchdash://` deeplink needs the
+    # https redirect (`GATEWAY_PUBLIC_URL`) to be clickable here.
+    renders_custom_url_schemes: ClassVar[bool] = False
 
     def __init__(self, *, config: DiscordConnectionConfig) -> None:
         super().__init__()
@@ -457,6 +461,10 @@ class DiscordAdapter(CollaborationAdapter):
         *,
         message_type: str | None = None,
     ) -> str | None:
+        # Renders its own body: every caller of `admin_message` passes Switch
+        # Markdown, so the conversion belongs here rather than at each of
+        # them — one of them forgetting is how a notice reached a chat with
+        # its markup showing.
         # Admin/system messages post as the bot application itself — no
         # webhook username override — so they read as the platform speaking,
         # not an agent.
@@ -478,7 +486,7 @@ class DiscordAdapter(CollaborationAdapter):
             return None
 
         return await self._send_chunked(
-            content,
+            self.translate_outbound(content),
             lambda part: target.send(part, suppress_embeds=True),
             where=f"channel {channel_id}",
         )

@@ -10,6 +10,8 @@ import { openExternalUrl } from '@renderer/lib/open-external';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { Switch } from '@renderer/lib/ui/switch';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { log } from '@renderer/utils/logger';
 import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import { BundledChatSignIn } from './BundledChatSignIn';
@@ -102,6 +104,35 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
     ownsOwnerAddressedAgent: ownerAgentsQuery.isSuccess ? ownerAgentsQuery.data : null,
   });
 
+  // Which bridge's channel-creation switch is mid-flight, so only that row
+  // disables rather than the whole list, and the surfaced error names the one
+  // connection that failed.
+  const [savingBridgeId, setSavingBridgeId] = useState<string | null>(null);
+  const [toggleError, setToggleError] = useState<string | null>(null);
+
+  const handleToggleChannelCreation = async (bridge: RemoteBridge, enabled: boolean) => {
+    setSavingBridgeId(bridge.id);
+    setToggleError(null);
+    try {
+      const result = await rpc.switchServers.updateBridge({
+        serverId,
+        bridgeId: bridge.id,
+        channelCreationEnabled: enabled,
+      });
+      if (result.kind !== 'updated') {
+        setToggleError(`Could not update ${bridge.displayName}: ${messageForUpdate(result)}`);
+        return;
+      }
+      await queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] });
+    } catch (cause) {
+      setToggleError(
+        `Could not update ${bridge.displayName}: ${cause instanceof Error ? cause.message : String(cause)}`
+      );
+    } finally {
+      setSavingBridgeId(null);
+    }
+  };
+
   return (
     <div className={className}>
       <div className="flex items-center justify-between gap-3">
@@ -184,10 +215,16 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
               currentUserId={currentUserId}
               onReleased={refreshIdentities}
               showBundledSignIn={isManaged && bridge.type === 'mattermost'}
+              isAdmin={isAdmin}
+              savingChannelCreation={savingBridgeId === bridge.id}
+              onToggleChannelCreation={(enabled) =>
+                void handleToggleChannelCreation(bridge, enabled)
+              }
             />
           ))}
         </ul>
       )}
+      {toggleError && <p className="text-destructive mt-2 text-xs">{toggleError}</p>}
     </div>
   );
 });
@@ -207,6 +244,9 @@ function MessagingAppRow({
   currentUserId,
   onReleased,
   showBundledSignIn,
+  isAdmin,
+  savingChannelCreation,
+  onToggleChannelCreation,
 }: {
   serverId: string;
   bridge: RemoteBridge;
@@ -215,6 +255,9 @@ function MessagingAppRow({
   currentUserId: string | null;
   onReleased: () => void;
   showBundledSignIn: boolean;
+  isAdmin: boolean;
+  savingChannelCreation: boolean;
+  onToggleChannelCreation: (enabled: boolean) => void;
 }) {
   const showClaimIdentity = useShowModal('claimIdentityModal');
   const [releasing, setReleasing] = useState(false);
@@ -255,6 +298,32 @@ function MessagingAppRow({
           back a new room, and the room-creation picker silently omits it, so
           this is where that becomes visible. */}
         {bridge.status !== 'active' && <Badge variant="destructive">{bridge.status}</Badge>}
+
+        <TooltipProvider delay={150}>
+          <Tooltip>
+            <TooltipTrigger>
+              <span className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted">
+                Channels
+                <Switch
+                  size="sm"
+                  checked={bridge.canCreateChannels}
+                  disabled={
+                    !isAdmin || !bridge.channelCreationSupported || savingChannelCreation
+                  }
+                  onCheckedChange={(next) => onToggleChannelCreation(next)}
+                  aria-label={`${bridge.canCreateChannels ? 'Disallow' : 'Allow'} ${platform} creating channels from Switch`}
+                />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-56 text-xs">
+              {!bridge.channelCreationSupported
+                ? `${platform} cannot create channels from Switch — create the chat in the app and add the bot to it instead.`
+                : bridge.canCreateChannels
+                  ? 'Can create a channel here for a new room. Turn off to only ever adopt channels made in the app.'
+                  : 'Channel creation is turned off for this connection — a new room can only adopt a channel made in the app.'}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
 
         <div className="flex w-44 shrink-0 items-center justify-end gap-0.5">
           {identities === null ? null : identity === null ? (
@@ -324,4 +393,16 @@ function MessagingAppRow({
 function handleOf(identity: LinkedIdentity): string {
   const username = identity.externalUsername;
   return username.startsWith('@') ? username : `@${username}`;
+}
+
+/** Turn a failed channel-creation toggle into something the user can act on. */
+function messageForUpdate(result: { kind: string; message?: string }): string {
+  switch (result.kind) {
+    case 'unauthenticated':
+      return 'Your session for this server expired. Sign in again, then retry.';
+    case 'forbidden':
+      return 'This requires an admin account on this server.';
+    default:
+      return result.message ?? 'The server rejected the change.';
+  }
 }

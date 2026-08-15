@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { ChevronDown, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { rpc } from '@renderer/lib/ipc';
@@ -78,16 +79,39 @@ export const CreateRoomModal = observer(function CreateRoomModal({
     enabled: !!serverId,
   });
 
-  // Only a running bridge can back a new room. Keeping the inactive ones out of
-  // the picker (rather than letting the create call fail) means the one thing
-  // shown is the one thing that works — and "no bridges" is stated outright.
-  const bridges = (bridgesQuery.data ?? []).filter((b) => b.status === 'active');
+  /**
+   * Only agents this install registered on the server.
+   *
+   * The server answers with everyone registered on it, including agents
+   * belonging to somebody else's Switch Console. Those cannot be shown under a
+   * room here or driven from here, so offering them in the picker promises
+   * something this app cannot deliver — the same rule the room views already
+   * follow.
+   */
+  const invitableAgents = (agentsQuery.data ?? []).filter((remote) =>
+    agentsStore.agentsOnServer(serverId).some((local) => local.switchAgentId === remote.id)
+  );
+
+  // Only a running bridge can back a new room, and creating a room here means
+  // creating a channel on it — a bridge withheld from that (an operator's
+  // switch, or a platform like Telegram that has no such call at all) is just
+  // as unusable for this form. Keeping both kinds out of the picker (rather
+  // than letting the create call fail) means the one thing shown is the one
+  // thing that works — and each reason for an empty list is stated outright,
+  // rather than collapsed into one generic "no bridges".
+  const allBridges = bridgesQuery.data ?? [];
+  const activeBridges = allBridges.filter((b) => b.status === 'active');
+  const bridges = activeBridges.filter((b) => b.canCreateChannels);
   const selectedBridge =
     bridges.find((b) => b.id === bridgeId) ??
     bridges.find((b) => b.isDefault) ??
     bridges[0] ??
     null;
-  const noBridges = !bridgesQuery.isLoading && bridges.length === 0;
+  const loaded = !bridgesQuery.isLoading;
+  const noBridgesAtAll = loaded && allBridges.length === 0;
+  const noneRunning = loaded && allBridges.length > 0 && activeBridges.length === 0;
+  const noneCanCreateChannels = loaded && activeBridges.length > 0 && bridges.length === 0;
+  const noUsableBridge = noBridgesAtAll || noneRunning || noneCanCreateChannels;
 
   const trimmedName = name.trim();
   const trimmedDescription = description.trim();
@@ -123,9 +147,11 @@ export const CreateRoomModal = observer(function CreateRoomModal({
       // appear with nothing under it until the next reconcile.
       await refreshSidebarRoomState(true);
 
-      // Open what was just created: expanded in the tree, and shown in the main
-      // panel. Creating a room and being left where you were reads as if
-      // nothing happened.
+      // Open what was just created: listed in the sidebar, expanded in the
+      // tree, and shown in the main panel. Creating a room and being left where
+      // you were reads as if nothing happened — and the agent grouping does not
+      // list rooms at all, so the new room would be nowhere on screen.
+      sidebarStore.setGrouping('room');
       sidebarStore.ensureRoomExpanded(result.room.id);
       openRoomView(result.room.id);
 
@@ -198,7 +224,7 @@ export const CreateRoomModal = observer(function CreateRoomModal({
             <Select
               value={selectedBridge?.id ?? ''}
               onValueChange={(next) => setBridgeId(next ?? null)}
-              disabled={bridgesQuery.isLoading || noBridges}
+              disabled={bridgesQuery.isLoading || noUsableBridge}
             >
               <SelectTrigger>
                 {/* Resolve the label ourselves: the trigger shows the raw value
@@ -217,10 +243,24 @@ export const CreateRoomModal = observer(function CreateRoomModal({
                 ))}
               </SelectContent>
             </Select>
-            {noBridges && (
+            {noBridgesAtAll && (
               <p className="text-destructive mt-1 text-xs">
                 This server has no messaging app connected, so a room created here would be
                 unreachable. Connect one first.
+              </p>
+            )}
+            {noneRunning && (
+              <p className="text-destructive mt-1 text-xs">
+                This server's messaging apps are not running, so a room created here would be
+                unreachable. Start one, or connect another.
+              </p>
+            )}
+            {noneCanCreateChannels && (
+              <p className="text-destructive mt-1 text-xs">
+                None of the running messaging apps can create a channel from Switch — for example, a
+                Telegram bot can't create chats on its own. Make the chat directly in the messaging
+                app instead (for Telegram, create the group and add the bot to it) and it becomes a
+                room here once it exists.
               </p>
             )}
             {bridgesQuery.isError && (
@@ -233,7 +273,7 @@ export const CreateRoomModal = observer(function CreateRoomModal({
           <Field>
             <FieldLabel>Agents</FieldLabel>
             <Combobox
-              items={(agentsQuery.data ?? []).filter((a) => !agents.some((s) => s.id === a.id))}
+              items={invitableAgents.filter((a) => !agents.some((s) => s.id === a.id))}
               value={null}
               onValueChange={(next: RemoteAgentSummary | null) => {
                 if (next) setAgents((current) => [...current, next]);

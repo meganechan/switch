@@ -16,7 +16,6 @@ import { DeleteServerModal } from '@renderer/features/switch-servers/DeleteServe
 import { RenameServerModal } from '@renderer/features/switch-servers/RenameServerModal';
 import { ConfirmActionDialog } from '@renderer/lib/components/confirm-action-dialog';
 import { ExternalLinkChoiceDialog } from '@renderer/lib/components/external-link-choice-dialog';
-import { FeedbackModal } from '@renderer/lib/components/feedback-modal/feedback-modal';
 import { UnsavedChangesDialog } from '@renderer/lib/components/unsaved-changes-dialog';
 import { type ModalComponent } from '@renderer/lib/modal/modal-provider';
 
@@ -52,7 +51,6 @@ export const modalRegistry = {
   resetAgentModal: createModal(ResetAgentModal, { size: 'sm' }),
   confirmExternalLinkModal: createModal(ExternalLinkChoiceDialog, { size: 'sm' }),
   unsavedChangesModal: createModal(UnsavedChangesDialog, { size: 'xs' }),
-  feedbackModal: createModal(FeedbackModal, { dismissOnOutsideClick: false }),
   renameSessionModal: createModal(RenameSessionModal, {
     size: 'xs',
     dismissOnOutsideClick: false,
