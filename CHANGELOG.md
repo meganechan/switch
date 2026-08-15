@@ -665,11 +665,11 @@ version of their own to them without also giving them a release of their own.
   thing does not rearrange the tree around it, and the agent's provider mark
   stays visible instead of turning into a chevron under the pointer. A row with
   nothing beneath it has no chevron at all (CHOO-2158).
-- **A room in the sidebar no longer carries a member count.** The pair of
-  numbers on the row — agents here, agents elsewhere — was read as an expand
-  control and told you little. A room whose members are all on other computers
-  now opens and says so in a line, rather than counting them at you on the row
-  or presenting itself as empty (CHOO-2158).
+- **A room in the sidebar no longer counts its agents.** The pair of numbers on
+  the row — agents this computer runs, agents it does not — sat where the expand
+  control now goes and told you little. The sidebar lists the agents it can
+  actually open; a room's full membership is a column on **Your Rooms**, which
+  is the page for reading rooms as a list (CHOO-2158).
 - **Anything you can click now says so under the pointer.** Buttons, sidebar
   rows, menu entries and tabs show the hand cursor; Tailwind's reset had left
   them all on the arrow (CHOO-2158).

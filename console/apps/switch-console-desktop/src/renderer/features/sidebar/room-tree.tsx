@@ -18,12 +18,7 @@ import {
   RoomRow,
   roomLabel,
 } from './sidebar-room-grouping';
-import {
-  depthIndent,
-  roomAgentGroupKey,
-  roomViewGroupKey,
-  UNASSIGNED_ROOM_KEY,
-} from './sidebar-store';
+import { roomAgentGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
 import {
   type AgentEntry,
   agentSessions,
@@ -131,10 +126,6 @@ export const RoomTree = observer(function RoomTree() {
         const roomViewKey = roomViewGroupKey(roomKey);
         const expanded = sidebarStore.isGroupExpanded(roomViewKey);
         const agentsInRoom = members.get(roomKey) ?? [];
-        // Members on other installs of Switch Console. This tree can list the
-        // room but not them, and saying nothing would present a room of forty
-        // as an empty one — so the room still opens, onto that fact.
-        const elsewhere = switchRoomsStore.undrawableMemberCount(roomKey) ?? 0;
         return (
           <SortableBranch
             key={roomKey}
@@ -144,7 +135,7 @@ export const RoomTree = observer(function RoomTree() {
                 label={roomLabel(roomKey)}
                 nameKnown={isRoomNameKnown(roomKey)}
                 nameBlockedBySignIn={switchRoomsStore.roomNameBlockedBySignIn(roomKey)}
-                hasChildren={agentsInRoom.length > 0 || elsewhere > 0}
+                hasChildren={agentsInRoom.length > 0}
                 expanded={expanded}
                 depth={0}
                 bridgeType={switchRoomsStore.roomBridgeTypeById(roomKey)}
@@ -189,16 +180,6 @@ export const RoomTree = observer(function RoomTree() {
                   </Fragment>
                 );
               })}
-            {expanded && elsewhere > 0 && (
-              <p
-                className="py-1 pr-2 text-xs text-foreground-passive"
-                style={depthIndent(1)}
-                title="Their sessions run on another computer, so this app cannot list them."
-              >
-                {elsewhere} {elsewhere === 1 ? 'agent is' : 'agents are'} in this room from
-                elsewhere
-              </p>
-            )}
           </SortableBranch>
         );
       })}

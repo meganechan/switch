@@ -350,8 +350,9 @@ export class SwitchRoomsStore {
    * view that wants either reads this, so the two cannot disagree.
    *
    * Scope is deliberate. This install can only act on its own agents, so those
-   * are the only members the sidebar draws (see {@link undrawableMemberCount}
-   * for how the rest are disclosed).
+   * are the only members the sidebar can draw. A room's full membership, agents
+   * on other installs included, is the server's own count and is listed on the
+   * Your Rooms page.
    */
   get localMemberIdsByRoom(): Map<string, string[]> {
     const byRoom = new Map<string, string[]>();
@@ -370,22 +371,6 @@ export class SwitchRoomsStore {
   /** The Switch agent ids of this install's agents in a room. */
   localMemberIds(roomId: string): string[] {
     return this.localMemberIdsByRoom.get(roomId) ?? [];
-  }
-
-  /**
-   * Members the server counts for a room that this install cannot draw — agents
-   * registered elsewhere, plus any whose membership failed to load. Null when
-   * the room's server list has not loaded, so the difference is unknown rather
-   * than zero.
-   *
-   * This is never rendered as the member count. The count is the length of what
-   * is drawn; this only discloses the gap, so a member that exists but cannot be
-   * shown is not mistaken for a member that is not there.
-   */
-  undrawableMemberCount(roomId: string): number | null {
-    const total = this.roomSummaryById(roomId)?.agentCount ?? null;
-    if (total === null) return null;
-    return Math.max(0, total - this.localMemberIds(roomId).length);
   }
 
   /**

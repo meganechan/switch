@@ -312,31 +312,6 @@ describe('agent memberships', () => {
     expect(store.localMemberIds('gone')).toEqual([]);
   });
 
-  it('discloses members the server counts that this install cannot draw', async () => {
-    serversStore.servers = [{ id: 'srv-a', managed: true }];
-    serversStore.activeServerId = 'srv-a';
-    listRemoteRooms.mockImplementation(async () => [
-      room('shared', 'user-of-srv-a', { agentCount: 3 }),
-    ]);
-    listAgentRooms.mockImplementation(async () => [
-      { roomId: 'shared', roomName: 'r', archived: false, status: 'live', roomRole: null },
-    ]);
-    const store = new SwitchRoomsStore();
-
-    await store.loadRoomNames();
-    await store.ensureMembershipsFor([{ serverId: 'srv-a', switchAgentId: 'agent-1' }]);
-
-    // One member is drawable here; the other two exist but belong elsewhere.
-    expect(store.localMemberIds('shared')).toEqual(['agent-1']);
-    expect(store.undrawableMemberCount('shared')).toBe(1 + 1);
-  });
-
-  it('reports the undrawable count as unknown until the room list has loaded', () => {
-    const store = new SwitchRoomsStore();
-
-    expect(store.undrawableMemberCount('never-loaded')).toBeNull();
-  });
-
   it('re-reads every tracked agent on refresh, not just the ones already cached', async () => {
     // An agent created after the sidebar mounted has no cache entry, so a
     // refresh keyed on the cache would never fetch it.
