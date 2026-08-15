@@ -44,6 +44,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.16.0] - 2026-08-15
+
 #### Added
 
 - A Switch user can claim their messaging-app account as their own, linking a
@@ -601,6 +603,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.25.0] - 2026-08-15
+
 #### Added
 
 - **You can tell Switch which messaging-app account is yours.** A new dialog
@@ -698,8 +702,6 @@ version of their own to them without also giving them a release of their own.
   titled for the platform it is linking on — "Link your Discord user account" —
   and its search names the workspace, not the platform, since two workspaces on
   the same platform can be connected and only the name tells them apart.
-
-### [0.23.0] - 2026-08-14
 
 #### Removed
 
@@ -1770,6 +1772,8 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+### [0.9.4] - 2026-08-15
+
 #### Changed
 
 - The room-workflow skill describes owner-only addressing — the new default for
@@ -1869,6 +1873,8 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.3.5] - 2026-08-15
 
 #### Changed
 
@@ -1977,6 +1983,8 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+### [0.1.2] - 2026-08-15
 
 #### Changed
 
