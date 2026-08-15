@@ -50,9 +50,13 @@ import { agentExpandKey, depthIndent } from './sidebar-store';
  */
 export const SidebarAgentItem = observer(function SidebarAgentItem({
   agent,
+  hasSessions,
   depth = 0,
 }: {
   agent: Agent;
+  /** Whether this agent has anything to show when expanded. An expand control
+   * over nothing is a promise the row cannot keep. */
+  hasSessions: boolean;
   depth?: number;
 }) {
   const { navigate } = useNavigate();
@@ -92,17 +96,14 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
   const sshHost = location.data?.sshHost ?? null;
   const hostUnreachable = hostReachabilityStore.isBlocked(sshHost);
 
-  const iconClass =
-    'absolute h-4 w-4 opacity-100 transition-opacity duration-150 group-hover/row:opacity-0';
   const gatewayUrl =
     agent.serverId && agent.switchAgentId
       ? switchRoomsStore.gatewayAgentUrl(agent.serverId, agent.switchAgentId)
       : null;
 
-  const open = () => {
-    sidebarStore.ensureGroupExpanded(agentExpandKey(agent.id));
-    navigate('location', { locationId: agent.locationId, agentName });
-  };
+  // Opening the agent does not expand it. Expanding is the chevron's job alone,
+  // so what is unfolded in the tree stays as the reader left it.
+  const open = () => navigate('location', { locationId: agent.locationId, agentName });
 
   return (
     <ContextMenu>
@@ -116,27 +117,13 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
           onClick={open}
         >
           <div className="flex min-w-0 flex-1 items-center gap-1">
-            <SidebarItemMiniButton
-              type="button"
-              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
-              className="relative"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggle();
-              }}
-            >
+            <span className="flex size-6 shrink-0 items-center justify-center">
               {agent.providerId ? (
-                <AgentIcon id={agent.providerId} size={16} className={iconClass} />
+                <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
               ) : (
-                <Bot className={iconClass} />
+                <Bot className="h-4 w-4" />
               )}
-              <ChevronRight
-                className={cn(
-                  'absolute h-4 w-4 opacity-0 transition-all duration-150 group-hover/row:opacity-100',
-                  expanded && 'rotate-90'
-                )}
-              />
-            </SidebarItemMiniButton>
+            </span>
             <SidebarMenuAction aria-label={`Open agent ${label}`} className="truncate select-none">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{label}</span>
@@ -238,6 +225,21 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
               <BoundShortcut settingsKey="newSession" variant="badge" />
             </TooltipContent>
           </Tooltip>
+          {hasSessions && (
+            <SidebarItemMiniButton
+              type="button"
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggle();
+              }}
+            >
+              <ChevronRight
+                className={cn('h-4 w-4 transition-transform duration-150', expanded && 'rotate-90')}
+              />
+            </SidebarItemMiniButton>
+          )}
         </SidebarMenuRow>
       </ContextMenuTrigger>
       <ContextMenuContent>

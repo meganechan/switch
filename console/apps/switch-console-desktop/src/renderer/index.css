@@ -799,6 +799,19 @@
     @apply bg-background text-foreground;
   }
 
+  /* Tailwind's reset gives buttons the arrow cursor, on the reasoning that a
+     native app's controls do not use a hand. This app is full of controls that
+     look like nothing until you hover them — sidebar rows, icon buttons, menu
+     entries — so the hand is the only thing distinguishing what can be clicked
+     from what is only being displayed. Sits in `base` so any `cursor-*`
+     utility on the element still wins. */
+  button:not(:disabled),
+  summary,
+  [role='button']:not([aria-disabled='true']),
+  label[for] {
+    cursor: pointer;
+  }
+
   ::selection {
     background-color: color-mix(in srgb, var(--selection) 35%, transparent);
     color: var(--selection-foreground);

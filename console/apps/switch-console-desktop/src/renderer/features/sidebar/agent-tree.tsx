@@ -102,17 +102,20 @@ export const AgentTree = observer(function AgentTree() {
     >
       {entries.map((entry) => {
         const expanded = sidebarStore.isGroupExpanded(agentExpandKey(entry.agent.id));
+        const sessions = agentSessions(entry);
         return (
           <SortableBranch
             key={entry.agent.id}
             id={makeDndId(AGENTS_CONTAINER, entry.agent.id)}
-            header={<SidebarAgentItem agent={entry.agent} depth={0} />}
+            header={
+              <SidebarAgentItem agent={entry.agent} hasSessions={sessions.length > 0} depth={0} />
+            }
           >
             {expanded && (
               <AgentSessions
                 agentId={entry.agent.id}
                 locationId={entry.agent.locationId}
-                sessions={agentSessions(entry)}
+                sessions={sessions}
                 depth={1}
               />
             )}

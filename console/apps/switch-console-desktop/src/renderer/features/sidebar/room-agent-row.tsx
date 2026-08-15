@@ -37,10 +37,14 @@ import { depthIndent, roomAgentGroupKey } from './sidebar-store';
 export const RoomAgentRow = observer(function RoomAgentRow({
   agent,
   roomId,
+  hasSessions,
   depth,
 }: {
   agent: Agent;
   roomId: string;
+  /** Whether this agent has sessions in this room. No sessions, no expand
+   * control — the row would unfold into nothing. */
+  hasSessions: boolean;
   depth: number;
 }) {
   const { navigate } = useNavigate();
@@ -70,9 +74,6 @@ export const RoomAgentRow = observer(function RoomAgentRow({
 
   if (!location) return null;
 
-  const iconClass =
-    'absolute h-4 w-4 opacity-100 transition-opacity duration-150 group-hover/row:opacity-0';
-
   const removeFromRoom = () => {
     const serverId = switchRoomsStore.roomServerId(roomId);
     if (!serverId || !agent.switchAgentId) return;
@@ -99,33 +100,18 @@ export const RoomAgentRow = observer(function RoomAgentRow({
           data-active={isActive || undefined}
           isActive={isActive}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => {
-            sidebarStore.ensureGroupExpanded(expandKey);
-            navigate('location', { locationId: agent.locationId, agentName: agent.name, roomId });
-          }}
+          onClick={() =>
+            navigate('location', { locationId: agent.locationId, agentName: agent.name, roomId })
+          }
         >
           <div className="flex min-w-0 flex-1 items-center gap-1">
-            <SidebarItemMiniButton
-              type="button"
-              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
-              className="relative"
-              onClick={(e) => {
-                e.stopPropagation();
-                sidebarStore.toggleGroupExpanded(expandKey);
-              }}
-            >
+            <span className="flex size-6 shrink-0 items-center justify-center">
               {agent.providerId ? (
-                <AgentIcon id={agent.providerId} size={16} className={iconClass} />
+                <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
               ) : (
-                <Bot className={iconClass} />
+                <Bot className="h-4 w-4" />
               )}
-              <ChevronRight
-                className={cn(
-                  'absolute h-4 w-4 opacity-0 transition-all duration-150 group-hover/row:opacity-100',
-                  expanded && 'rotate-90'
-                )}
-              />
-            </SidebarItemMiniButton>
+            </span>
             <SidebarMenuAction aria-label={`Open agent ${label}`} className="truncate select-none">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{label}</span>
@@ -162,6 +148,21 @@ export const RoomAgentRow = observer(function RoomAgentRow({
             />
             <TooltipContent>New session in this room</TooltipContent>
           </Tooltip>
+          {hasSessions && (
+            <SidebarItemMiniButton
+              type="button"
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+              aria-expanded={expanded}
+              onClick={(e) => {
+                e.stopPropagation();
+                sidebarStore.toggleGroupExpanded(expandKey);
+              }}
+            >
+              <ChevronRight
+                className={cn('h-4 w-4 transition-transform duration-150', expanded && 'rotate-90')}
+              />
+            </SidebarItemMiniButton>
+          )}
         </SidebarMenuRow>
       </ContextMenuTrigger>
       <ContextMenuContent>

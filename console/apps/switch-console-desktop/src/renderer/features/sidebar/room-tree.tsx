@@ -163,7 +163,12 @@ export const RoomTree = observer(function RoomTree() {
                 );
                 return (
                   <Fragment key={entry.agent.id}>
-                    <RoomAgentRow agent={entry.agent} roomId={roomKey} depth={1} />
+                    <RoomAgentRow
+                      agent={entry.agent}
+                      roomId={roomKey}
+                      hasSessions={sessionsHere.length > 0}
+                      depth={1}
+                    />
                     {agentExpanded &&
                       sessionsHere.map((session) => (
                         <SidebarSessionItem

@@ -654,6 +654,20 @@ version of their own to them without also giving them a release of their own.
   same connection status and actions menu its server's pages do (CHOO-2158).
 - Agents are described by their provider's name — **Claude Code**, **Codex** —
   rather than the `claude` and `codex` they are keyed by (CHOO-2158).
+- **Every session in the sidebar has an actions button.** Pin, rename, archive
+  and delete were reachable only by right-clicking, which nothing in the
+  interface said you could do; they are now on a menu in the row as well. Both
+  menus are built from one list, so an action cannot arrive on one and be
+  missing from the other (CHOO-2158).
+- **Expanding a row in the sidebar is now the chevron's job alone**, and the
+  chevron has moved to the end of the row. Opening an agent or a room no longer
+  unfolds it, so reading one thing does not rearrange the tree around it, and
+  the agent's provider mark stays visible instead of turning into a chevron
+  under the pointer. A row with nothing beneath it has no chevron at all
+  (CHOO-2158).
+- **Anything you can click now says so under the pointer.** Buttons, sidebar
+  rows, menu entries and tabs show the hand cursor; Tailwind's reset had left
+  them all on the arrow (CHOO-2158).
 
 #### Fixed
 
