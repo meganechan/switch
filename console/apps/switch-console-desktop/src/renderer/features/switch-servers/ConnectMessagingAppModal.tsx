@@ -34,7 +34,13 @@ type ConnectMessagingAppModalArgs = {
   serverId?: string;
 };
 
-type Props = BaseModalProps<{ bridgeId: string }> & ConnectMessagingAppModalArgs;
+/** What the caller needs to decide what to do next. `directorySearchSupported`
+ * says whether there is any point offering the link-your-account step: on a
+ * platform without a directory, a connection nobody has used yet knows nobody,
+ * so the search would be a form that cannot be filled in. */
+type ConnectedApp = { bridgeId: string; directorySearchSupported: boolean };
+
+type Props = BaseModalProps<ConnectedApp> & ConnectMessagingAppModalArgs;
 
 export const ConnectMessagingAppModal = observer(function ConnectMessagingAppModal({
   serverId: overrideServerId,
@@ -119,7 +125,10 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
         setError(messageFor(result));
         return;
       }
-      onSuccess({ bridgeId: result.bridge.id });
+      onSuccess({
+        bridgeId: result.bridge.id,
+        directorySearchSupported: selectedType.directorySearchSupported,
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

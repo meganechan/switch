@@ -125,6 +125,9 @@ async def _detail(
             bridge.type
         ),
         channel_creation_enabled=bridge.channel_creation_enabled,
+        directory_search_supported=collab_lifecycle.supports_directory_search(
+            bridge.type
+        ),
     )
 
 
@@ -140,6 +143,7 @@ async def list_bridge_types(
             key=t,
             config_schema=collab_lifecycle.get_config_schema(t),
             channel_creation_supported=collab_lifecycle.supports_channel_creation(t),
+            directory_search_supported=collab_lifecycle.supports_directory_search(t),
         )
         for t in collab_lifecycle.get_registered_types()
     ]

@@ -304,6 +304,10 @@ class _NoRunningBridges:
         live adapter."""
         return True
 
+    def supports_directory_search(self, bridge_type: str) -> bool:
+        """Read from the adapter class for the same reason."""
+        return True
+
 
 async def test_set_default_promotes_and_demotes(
     session_factory: async_sessionmaker[AsyncSession],

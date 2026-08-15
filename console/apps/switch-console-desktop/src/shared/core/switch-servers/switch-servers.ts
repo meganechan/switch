@@ -275,6 +275,15 @@ export type RemoteBridge = {
    * false (a platform ceiling vs. an operator's choice).
    */
   canCreateChannels: boolean;
+  /**
+   * Whether this platform has a user directory Switch can search. False where
+   * the only people it can name are the ones who have spoken to it, which is
+   * why the "which account is you" step is not offered while connecting one:
+   * on a connection nobody has used yet the answer is always nobody. Defaults
+   * to true for a server predating the field — every platform Switch bridged
+   * before Telegram had one.
+   */
+  directorySearchSupported: boolean;
 };
 
 /**
@@ -327,6 +336,10 @@ export type RemoteBridgeType = {
    * adapter class, so it is answerable before any connection of this type
    * exists, which is exactly when the attach form needs it. */
   channelCreationSupported: boolean;
+  /** Whether this platform's user directory can be searched — read from the
+   * adapter class, so the connect flow can decide whether to offer the
+   * link-your-account step for a connection that does not exist yet. */
+  directorySearchSupported: boolean;
 };
 
 /**

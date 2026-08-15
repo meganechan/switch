@@ -115,6 +115,22 @@ class CollaborationBridgeLifecycleService:
             return True
         return adapter_cls.supports_channel_creation
 
+    def supports_directory_search(self, bridge_type: str) -> bool:
+        """Whether this platform has a user directory Switch can search.
+
+        Read from the adapter class for the same reason as
+        `supports_channel_creation`: the answer decides whether to even offer
+        someone the "which account is you" step while connecting, which is
+        before any connection exists. An unknown type is reported as
+        searchable — registration rejects it by name a moment later, which is a
+        better error than a capability claim about a platform Switch does not
+        have.
+        """
+        adapter_cls = self._adapter_registry.get(bridge_type)
+        if adapter_cls is None:
+            return True
+        return adapter_cls.supports_directory_search
+
     def get_config_schema(self, bridge_type: str) -> dict[str, object]:
         config_cls = self._config_registry.get(bridge_type)
         if config_cls is None:

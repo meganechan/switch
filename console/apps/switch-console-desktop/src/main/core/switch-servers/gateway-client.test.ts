@@ -348,6 +348,7 @@ describe('room creation', () => {
         homeUrl: 'mattermost://chat.example.com/switch',
         channelCreationSupported: true,
         canCreateChannels: true,
+        directorySearchSupported: true,
       },
       {
         id: 'b2',
@@ -361,6 +362,7 @@ describe('room creation', () => {
         // where every bridge could create a channel.
         channelCreationSupported: true,
         canCreateChannels: true,
+        directorySearchSupported: true,
       },
     ]);
   });

@@ -75,6 +75,12 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
+- A messaging app declares **whether its user directory can be searched**
+  (`directory_search_supported`, beside `channel_creation_supported`). False
+  for Telegram, where a bot can only name people who have messaged it. Read
+  from the adapter class, so it is answerable before a connection of that type
+  exists — which is when a client has to decide whether asking someone to pick
+  themselves out of a directory is a question worth putting (CHOO-2137).
 - **Disconnecting a messaging app now removes the identities Switch made for
   it** — the app's own Matrix client and the puppet behind every person Switch
   saw on it. They were left behind, and the app's own client is not merely
@@ -610,7 +616,15 @@ version of their own to them without also giving them a release of their own.
   instead of showing an empty list (CHOO-2137).
 - The dialog is offered as step 2 of connecting a messaging app, straight after
   the connection succeeds, because that is the one moment the workspace is on
-  your mind. It is skippable, and linking lives on the server page for later:
+  your mind — **except on an app whose directory cannot be searched**, where it
+  is not offered at all. On Telegram, Switch can only name people who have
+  messaged it, and nobody has messaged a connection made a second ago: the
+  search was guaranteed to come back empty, which reads as "you are not in your
+  own workspace" rather than "not yet". Linking waits for the server page,
+  where the warning that you own an agent nobody can reach is what prompts it,
+  and by then someone has messaged the app and there is a name to pick. The
+  search prompt no longer promises a "workspace directory" on a platform that
+  has neither. It is skippable, and linking lives on the server page for later:
   **Messaging apps** lists one row per app — the app, the account on it that is
   you, and what you can do with it — where your handle is the button that
   changes it and a Link button stands in when there is none, opening the

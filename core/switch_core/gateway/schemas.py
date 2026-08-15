@@ -439,6 +439,12 @@ class BridgeDetail(BaseModel):
     # switch you can flip, the second a disabled switch with a reason.
     channel_creation_supported: bool = True
     channel_creation_enabled: bool = True
+    # Whether the platform has a user directory Switch can search. False where
+    # the only people Switch can name are those who have spoken to it, which
+    # makes "pick yourself from the directory" an empty list on a connection
+    # nobody has used yet — a question worth not asking rather than asking
+    # badly.
+    directory_search_supported: bool = True
 
 
 class BridgeUpdateRequest(BaseModel):
@@ -456,6 +462,10 @@ class BridgeTypeInfo(BaseModel):
     # class, so it is answerable before any connection of this type exists —
     # which is exactly when the registration form needs it.
     channel_creation_supported: bool = True
+    # Likewise for its user directory: read here because the connect flow has
+    # to decide whether to offer the "which account is you" step for a
+    # connection that does not exist yet.
+    directory_search_supported: bool = True
 
 
 class BridgeCreateRequest(BaseModel):

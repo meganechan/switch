@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/switch-servers';
 import {
   hasUnlinkedMessagingApp,
+  shouldOfferIdentityLinkOnConnect,
   unrecognisedMessagingApps,
   unrecognisedMessagingAppsMessage,
 } from './messaging-apps-warning';
@@ -16,6 +17,7 @@ function bridge(id: string, displayName: string): RemoteBridge {
     homeUrl: null,
     channelCreationSupported: true,
     canCreateChannels: true,
+  directorySearchSupported: true,
   };
 }
 
@@ -138,5 +140,19 @@ describe('unrecognisedMessagingAppsMessage', () => {
     expect(unrecognisedMessagingAppsMessage([mattermost, telegram, bridge('b-t', 'test')])).toBe(
       'Agents set to answer only you can’t recognise you in Mattermost, Telegram louis or test — link your account there.'
     );
+  });
+});
+
+describe('offering the link step after connecting an app', () => {
+  it('offers it on a platform with a directory to search', () => {
+    expect(shouldOfferIdentityLinkOnConnect({ directorySearchSupported: true })).toBe(true);
+  });
+
+  it('does not on one without, where the search cannot find anyone yet', () => {
+    // Telegram. Switch only knows people who have messaged it, and nobody has
+    // messaged a connection made a second ago — so the dialog offered a search
+    // box that was guaranteed to come back empty, which reads as "you are not
+    // in your own workspace" rather than "not yet".
+    expect(shouldOfferIdentityLinkOnConnect({ directorySearchSupported: false })).toBe(false);
   });
 });

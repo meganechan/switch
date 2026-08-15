@@ -32,6 +32,7 @@ import type { LinkedIdentity, RemoteBridge } from '@shared/core/switch-servers/s
 import { BundledChatSignIn } from './BundledChatSignIn';
 import {
   hasUnlinkedMessagingApp,
+  shouldOfferIdentityLinkOnConnect,
   unrecognisedMessagingApps,
   unrecognisedMessagingAppsMessage,
 } from './messaging-apps-warning';
@@ -163,7 +164,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
             onClick={() =>
               showConnectMessagingApp({
                 serverId,
-                onSuccess: ({ bridgeId }) => {
+                onSuccess: ({ bridgeId, directorySearchSupported }) => {
                   // Refresh the bridge list everywhere it is consumed — this
                   // card and the room-creation picker share the query key.
                   void queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] });
@@ -172,7 +173,17 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
                   // is yours (CHOO-2137). Offered here because this is the one
                   // moment the workspace is on the user's mind, and it is
                   // skippable — the new bridge's own row reopens it later.
-                  showClaimIdentity({ serverId, bridgeId });
+                  //
+                  // Not offered at all on a platform with no searchable
+                  // directory: Switch can only name people who have spoken to
+                  // it there, and nobody has spoken to a connection made a
+                  // second ago. The search would be guaranteed empty, which
+                  // teaches the user that they are not in their own workspace.
+                  // Linking waits for the server page, by which time someone
+                  // has messaged the app and there is a name to pick.
+                  if (shouldOfferIdentityLinkOnConnect({ directorySearchSupported })) {
+                    showClaimIdentity({ serverId, bridgeId });
+                  }
                 },
               })
             }

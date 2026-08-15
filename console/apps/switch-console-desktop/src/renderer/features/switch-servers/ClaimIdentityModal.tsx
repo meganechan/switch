@@ -211,6 +211,8 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
           <DirectoryResults
             query={debouncedQuery}
             searchable={searchable}
+            platform={bridgePlatformLabel(selectedBridge?.type ?? '')}
+            hasDirectory={selectedBridge?.directorySearchSupported ?? true}
             isFetching={directoryQuery.isFetching}
             result={directoryQuery.data ?? null}
             fetchError={directoryQuery.error}
@@ -243,6 +245,8 @@ export const ClaimIdentityModal = observer(function ClaimIdentityModal({
 function DirectoryResults({
   query,
   searchable,
+  platform,
+  hasDirectory,
   isFetching,
   result,
   fetchError,
@@ -254,6 +258,14 @@ function DirectoryResults({
 }: {
   query: string;
   searchable: boolean;
+  /** The platform as a person names it, for the line that says what is being
+   * searched. */
+  platform: string;
+  /** Whether the platform has a directory at all. When it does not, the only
+   * people findable are those Switch has already seen — so the prompt has to
+   * say that rather than promise a workspace directory the platform has no
+   * concept of. */
+  hasDirectory: boolean;
   isFetching: boolean;
   result: BridgeDirectorySearchResult | null;
   fetchError: unknown;
@@ -268,7 +280,9 @@ function DirectoryResults({
   if (!searchable) {
     return (
       <p className="text-xs text-foreground-muted">
-        Type at least {MIN_QUERY_LENGTH} characters to search the workspace directory.
+        {hasDirectory
+          ? `Type at least ${MIN_QUERY_LENGTH} characters to search the workspace directory.`
+          : `Type at least ${MIN_QUERY_LENGTH} characters to search the people Switch has seen on ${platform}. It has no directory to search — someone appears here once they have sent a message.`}
       </p>
     );
   }

@@ -60,3 +60,21 @@ function joinWithOr(names: string[]): string {
   if (names.length <= 1) return names.join('');
   return `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
 }
+
+/**
+ * Whether to offer "which account here is you" straight after connecting an
+ * app (CHOO-2137).
+ *
+ * No, on a platform whose user directory cannot be searched. There, Switch can
+ * only name people who have sent it a message — and nobody has sent one to a
+ * connection made a second ago, so the search is guaranteed to come back
+ * empty. That does not read as "not yet", it reads as "you are not in your own
+ * workspace". Linking waits for the server page, by which time someone has
+ * messaged the app and there is a name to pick; the warning there is what
+ * prompts it.
+ */
+export function shouldOfferIdentityLinkOnConnect(app: {
+  directorySearchSupported: boolean;
+}): boolean {
+  return app.directorySearchSupported;
+}

@@ -155,6 +155,7 @@ class TelegramAdapter(CollaborationAdapter):
     """
 
     supports_channel_creation: ClassVar[bool] = False
+    supports_directory_search: ClassVar[bool] = False
     renders_custom_url_schemes: ClassVar[bool] = False
 
     def __init__(self, *, config: TelegramConnectionConfig) -> None:

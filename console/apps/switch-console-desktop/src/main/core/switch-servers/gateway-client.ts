@@ -573,6 +573,8 @@ type BridgeJson = {
   // could be asked to create a channel, and none had it withheld.
   channel_creation_supported?: boolean;
   channel_creation_enabled?: boolean;
+  // Absent on a server predating Telegram, where every bridge had a directory.
+  directory_search_supported?: boolean;
 };
 
 function mapBridge(b: BridgeJson): RemoteBridge {
@@ -587,6 +589,7 @@ function mapBridge(b: BridgeJson): RemoteBridge {
     homeUrl: b.home_url ?? null,
     channelCreationSupported,
     canCreateChannels: channelCreationSupported && channelCreationEnabled,
+    directorySearchSupported: b.directory_search_supported ?? true,
   };
 }
 
@@ -651,6 +654,7 @@ export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBrid
     key: string;
     config_schema: BridgeConfigSchema;
     channel_creation_supported?: boolean;
+    directory_search_supported?: boolean;
   }>;
   return json.map((t) => ({
     key: t.key,
@@ -658,6 +662,7 @@ export async function fetchBridgeTypes(server: SwitchServer): Promise<RemoteBrid
     // Absent on a server predating the capability — every platform could be
     // registered to create channels before it existed, so default true.
     channelCreationSupported: t.channel_creation_supported ?? true,
+    directorySearchSupported: t.directory_search_supported ?? true,
   }));
 }
 
