@@ -291,6 +291,16 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                 Clear filters
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Show</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem
+                  checked={!sidebarStore.hideProviderMark}
+                  onCheckedChange={(checked) => sidebarStore.setHideProviderMark(!checked)}
+                >
+                  Agent type mark
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => sidebarStore.collapseAll()}>
                 <ChevronsDownUp className="mr-1.5 h-4 w-4" />
                 Collapse all

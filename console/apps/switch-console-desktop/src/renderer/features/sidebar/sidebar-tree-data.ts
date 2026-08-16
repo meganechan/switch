@@ -3,7 +3,9 @@ import type { LocationStore } from '@renderer/features/locations/stores/location
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { rpc } from '@renderer/lib/ipc';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { log } from '@renderer/utils/logger';
 import type { Agent } from '@shared/core/agents/agents';
 
 /**
@@ -117,4 +119,25 @@ export async function refreshSidebarRoomState(force: boolean): Promise<void> {
     switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force }),
     switchRoomsStore.loadRoomNames(),
   ]);
+  void giveExistingAgentsAnIcon();
+}
+
+/**
+ * Fill in the avatar of any of this user's agents registered before icons
+ * existed (CHOO-2171). The main process does it once per server per run, so
+ * calling it on every refresh costs nothing after the first.
+ *
+ * Not awaited by the caller and never allowed to throw: the sidebar must paint
+ * whether or not the gateway is reachable, and an agent without an icon still
+ * shows the avatar its name generates in the meantime.
+ */
+async function giveExistingAgentsAnIcon(): Promise<void> {
+  const serverIds = new Set(switchIdentities().map((identity) => identity.serverId));
+  for (const serverId of serverIds) {
+    try {
+      await rpc.switchServers.backfillAgentIcons(serverId);
+    } catch (cause) {
+      log.warn('could not give existing agents their icons', { serverId, cause });
+    }
+  }
 }

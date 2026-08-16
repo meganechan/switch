@@ -5,10 +5,8 @@ import { useCallback, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
-import {
-  AgentMark as SharedAgentMark,
-  agentProviderLabel,
-} from '@renderer/lib/components/agent-mark';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
+import { agentProviderLabel } from '@renderer/lib/components/agent-mark';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
@@ -332,7 +330,7 @@ export const CreateRoomModal = observer(function CreateRoomModal({
                 <ComboboxList>
                   {(item: RemoteAgentSummary) => (
                     <ComboboxItem key={item.id} value={item} showCheck={false}>
-                      <AgentMark agentId={item.id} serverId={serverId} size={16} />
+                      <AgentAvatar name={item.name} iconUrl={item.iconUrl} size={22} />
                       <span className="min-w-0 flex-1 truncate">{item.name}</span>
                       <span className="shrink-0 text-xs text-foreground-muted">
                         {providerLabelFor(item.id, serverId)}
@@ -478,7 +476,7 @@ function ChosenAgentTile({
     // dialog's own background, so a tile drawn in it was a tile nobody could
     // see.
     <div className="group relative flex flex-col gap-2 rounded-[10px] bg-[var(--fill)] p-3">
-      <AgentMark agentId={agent.id} serverId={serverId} size={22} />
+      <AgentAvatar name={agent.name} iconUrl={agent.iconUrl} size={26} />
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-sm text-foreground">{agent.name}</span>
         <span className="truncate text-xs text-foreground-muted">
@@ -494,24 +492,6 @@ function ChosenAgentTile({
         <X className="size-3.5" />
       </button>
     </div>
-  );
-}
-
-/** The mark of what an agent runs, resolved through this install's copy of it. */
-function AgentMark({
-  agentId,
-  serverId,
-  size,
-}: {
-  agentId: string;
-  serverId: string;
-  size: number;
-}) {
-  return (
-    <SharedAgentMark
-      providerId={localAgentFor(agentId, serverId)?.providerId ?? null}
-      size={size}
-    />
   );
 }
 

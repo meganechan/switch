@@ -313,6 +313,10 @@ export async function registerKnownAgent(
      * `knownAgentTypeForProvider` rather than letting a call site fall back to
      * Claude Code's shape by omission (CHOO-1436). */
     agentType: KnownAgentType;
+    /** The agent's icon, or null to leave it unset and let the fallback draw
+     * one. Required rather than optional so a create flow states which it
+     * means instead of dropping the user's choice by forgetting the field. */
+    iconUrl: string | null;
   }
 ): Promise<RegisteredAgent> {
   const res = await gatewayFetch(server, '/agents/register', {
@@ -323,6 +327,7 @@ export async function registerKnownAgent(
       name: params.name,
       description: params.description,
       options: params.options,
+      icon_url: params.iconUrl,
       overwrite: false,
     },
   });
@@ -330,30 +335,44 @@ export async function registerKnownAgent(
   return { id: json.id, apiKey: json.api_key };
 }
 
+/** The gateway's wire shape for an agent, as `AgentSummary` and the `AgentDetail`
+ * superset both send it. Fields the gateway added later are optional here so an
+ * older server still parses. */
+type AgentSummaryJson = {
+  id: string;
+  name: string;
+  description: string;
+  connector_type: string;
+  owner_id?: string | null;
+  owner_name: string | null;
+  known_agent_type: string | null;
+  addressing_policy?: AddressingPolicy | null;
+  icon_url?: string | null;
+  created_at: string;
+};
+
+/** Single place the agent wire shape becomes a `RemoteAgentSummary`. Every
+ * endpoint returning an agent goes through here, so a new field cannot reach
+ * one caller and silently miss another. */
+function toRemoteAgentSummary(json: AgentSummaryJson): RemoteAgentSummary {
+  return {
+    id: json.id,
+    name: json.name,
+    description: json.description,
+    connectorType: json.connector_type,
+    ownerId: json.owner_id ?? null,
+    ownerName: json.owner_name,
+    knownAgentType: json.known_agent_type,
+    addressingPolicy: json.addressing_policy ?? null,
+    iconUrl: json.icon_url ?? null,
+    createdAt: json.created_at,
+  };
+}
+
 export async function fetchAgents(server: SwitchServer): Promise<RemoteAgentSummary[]> {
   const res = await gatewayFetch(server, '/agents', { authenticated: true });
-  const json = (await res.json()) as Array<{
-    id: string;
-    name: string;
-    description: string;
-    connector_type: string;
-    owner_id?: string | null;
-    owner_name: string | null;
-    known_agent_type: string | null;
-    addressing_policy?: AddressingPolicy | null;
-    created_at: string;
-  }>;
-  return json.map((a) => ({
-    id: a.id,
-    name: a.name,
-    description: a.description,
-    connectorType: a.connector_type,
-    ownerId: a.owner_id ?? null,
-    ownerName: a.owner_name,
-    knownAgentType: a.known_agent_type,
-    addressingPolicy: a.addressing_policy ?? null,
-    createdAt: a.created_at,
-  }));
+  const json = (await res.json()) as AgentSummaryJson[];
+  return json.map(toRemoteAgentSummary);
 }
 
 /**
@@ -369,28 +388,7 @@ export async function fetchAgentDetail(
   const res = await gatewayFetch(server, `/agents/${encodeURIComponent(agentId)}`, {
     authenticated: true,
   });
-  const json = (await res.json()) as {
-    id: string;
-    name: string;
-    description: string;
-    connector_type: string;
-    owner_id?: string | null;
-    owner_name: string | null;
-    known_agent_type: string | null;
-    addressing_policy?: AddressingPolicy | null;
-    created_at: string;
-  };
-  return {
-    id: json.id,
-    name: json.name,
-    description: json.description,
-    connectorType: json.connector_type,
-    ownerId: json.owner_id ?? null,
-    ownerName: json.owner_name,
-    knownAgentType: json.known_agent_type,
-    addressingPolicy: json.addressing_policy ?? null,
-    createdAt: json.created_at,
-  };
+  return toRemoteAgentSummary((await res.json()) as AgentSummaryJson);
 }
 
 /**
@@ -549,6 +547,28 @@ export async function updateAddressingPolicy(
     method: 'PUT',
     body: { policy },
   });
+}
+
+/**
+ * Set (or clear, with `iconUrl = null`) an agent's icon (`PUT /agents/{id}/icon`).
+ * Only the agent's owner (or an admin) may change it; a non-owner request
+ * surfaces as a `GatewayError`, as does a URL the gateway rejects — it accepts
+ * public `https` only, so a link to a private address comes back as a 400.
+ *
+ * Returns the agent as the gateway now holds it, so a caller can refresh from
+ * the server's answer rather than assuming the value it sent was stored.
+ */
+export async function updateAgentIcon(
+  server: SwitchServer,
+  agentId: string,
+  iconUrl: string | null
+): Promise<RemoteAgentSummary> {
+  const res = await gatewayFetch(server, `/agents/${encodeURIComponent(agentId)}/icon`, {
+    authenticated: true,
+    method: 'PUT',
+    body: { icon_url: iconUrl },
+  });
+  return toRemoteAgentSummary((await res.json()) as AgentSummaryJson);
 }
 
 /** List a server's room groups (`GET /room-groups`), for the addressing-rule

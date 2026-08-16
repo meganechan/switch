@@ -7,6 +7,7 @@ import { AddressingPolicyControl } from '@renderer/features/switch-servers/addre
 import type { OptionItem } from '@renderer/features/switch-servers/addressing-policy-editor';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
+import { AgentIconPicker } from '@renderer/lib/components/agent-icon-picker';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
 import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
@@ -213,6 +214,21 @@ export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState })
   const descriptionId = useId();
   return (
     <FieldGroup>
+      {/* Above the name, because it is the first thing the finished agent is
+          recognised by — and it follows the name as it is typed, which only
+          reads as cause and effect if it is on screen while you type. */}
+      <div className="flex flex-col items-center gap-1.5 pb-1">
+        <AgentIconPicker
+          name={form.agentName}
+          iconUrl={form.iconUrl}
+          onChange={form.setIconUrl}
+          size={84}
+        />
+        <span className="text-xs text-foreground-muted">
+          {form.iconUrl === null ? 'Automatically generated' : 'Click to change'}
+        </span>
+      </div>
+
       <Field>
         <FieldLabel htmlFor={nameId}>Name</FieldLabel>
         <Input

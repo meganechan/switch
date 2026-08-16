@@ -504,6 +504,7 @@ describe('registerKnownAgent', () => {
       description: 'Codex running in repo',
       agentType: 'codex',
       options: { channels_enabled: true, repo_dir: '/repo' },
+      iconUrl: null,
     });
 
     expect(registered).toEqual({ id: 'sw-1', apiKey: 'tok-123' });
@@ -513,6 +514,7 @@ describe('registerKnownAgent', () => {
       name: 'codex-hoot',
       description: 'Codex running in repo',
       options: { channels_enabled: true, repo_dir: '/repo' },
+      icon_url: null,
       overwrite: false,
     });
   });
