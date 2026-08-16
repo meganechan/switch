@@ -21,7 +21,7 @@ export interface ContractRange {
  */
 export const ARTIFACT_VERSIONS = {
   'switch-core': '0.16.0',
-  'switch-console': '0.25.0',
+  'switch-console': '0.26.0',
   'agent-runtime': '0.3.1',
   sidecar: '1.9.3',
   gateway: '0.16.0',
