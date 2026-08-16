@@ -217,6 +217,33 @@ export type RemoteRoomSummary = {
 };
 
 /**
+ * One room read on its own (mirrors the gateway `RoomDetail`), for the room's
+ * own configuration page.
+ *
+ * The room list cannot answer this: it carries neither the instructions nor who
+ * is in the room, only how many agents there are. Both are read one room at a
+ * time because both are what that room's page is for.
+ */
+export type RemoteRoomDetail = RemoteRoomSummary & {
+  /** Room-specific system prompt shown to agents on connect; null when unset. */
+  instructions: string | null;
+  /** Switch agent ids in the room — every install's agents, not just this one's. */
+  agentIds: string[];
+  /** Display names of the people in the room, via the messaging app it is
+   * bridged to. Empty for an unbridged room, which has no people in it. */
+  connectedUserNames: string[];
+};
+
+/** The room fields Switch Console can change. Anything omitted is left alone;
+ * an empty string clears the field rather than leaving it. */
+export type UpdateRoomParams = {
+  serverId: string;
+  roomId: string;
+  description?: string;
+  instructions?: string;
+};
+
+/**
  * A room a specific agent belongs to, with that agent's presence there (mirrors
  * the gateway `AgentRoomMembership`). Drives the "connect to room" picker at
  * session start and the room-focused sidebar grouping.

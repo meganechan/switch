@@ -17,6 +17,7 @@ import type {
   RemoteBridge,
   RemoteBridgeType,
   RemoteExternalUser,
+  RemoteRoomDetail,
   RemoteRoomGroup,
   RemoteRoomRole,
   RemoteRoomSummary,
@@ -1046,18 +1047,63 @@ export async function fetchRooms(server: SwitchServer): Promise<RemoteRoomSummar
   return json.map(mapRoomSummary);
 }
 
-/**
- * Switch agent ids that are members of a room (`GET /rooms/{id}`). One call for
- * the whole room, rather than asking every candidate agent what it belongs to.
- * Connecting to a room is only meaningful for an agent already in it, so this is
- * what scopes the agent picker when starting a session from a room.
- */
-export async function fetchRoomAgentIds(server: SwitchServer, roomId: string): Promise<string[]> {
+/** The gateway `RoomDetail` wire shape — `RoomSummary` plus the fields only a
+ * single-room read carries. */
+type RoomDetailJson = RoomSummaryJson & {
+  instructions?: string | null;
+  agent_ids?: string[];
+  connected_user_names?: string[];
+};
+
+function mapRoomDetail(r: RoomDetailJson): RemoteRoomDetail {
+  return {
+    ...mapRoomSummary(r),
+    instructions: r.instructions ?? null,
+    agentIds: r.agent_ids ?? [],
+    connectedUserNames: r.connected_user_names ?? [],
+  };
+}
+
+/** One room in full (`GET /rooms/{id}`) — what its configuration page reads. */
+export async function fetchRoomDetail(
+  server: SwitchServer,
+  roomId: string
+): Promise<RemoteRoomDetail> {
   const res = await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}`, {
     authenticated: true,
   });
-  const json = (await res.json()) as { agent_ids?: string[] };
-  return json.agent_ids ?? [];
+  return mapRoomDetail((await res.json()) as RoomDetailJson);
+}
+
+/**
+ * Switch agent ids that are members of a room. One call for the whole room,
+ * rather than asking every candidate agent what it belongs to. Connecting to a
+ * room is only meaningful for an agent already in it, so this is what scopes the
+ * agent picker when starting a session from a room.
+ */
+export async function fetchRoomAgentIds(server: SwitchServer, roomId: string): Promise<string[]> {
+  return (await fetchRoomDetail(server, roomId)).agentIds;
+}
+
+/**
+ * Change a room's own settings (`PATCH /rooms/{id}`). Requires write access to
+ * the room; the gateway returns the room as it now stands, so the caller reads
+ * back what was actually stored rather than assuming its own input landed.
+ *
+ * A field left out is left alone. An empty string is a real value and clears the
+ * field — that is how a description or a set of instructions is removed.
+ */
+export async function updateRoom(
+  server: SwitchServer,
+  roomId: string,
+  changes: { description?: string; instructions?: string }
+): Promise<RemoteRoomDetail> {
+  const res = await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}`, {
+    authenticated: true,
+    method: 'PATCH',
+    body: changes,
+  });
+  return mapRoomDetail((await res.json()) as RoomDetailJson);
 }
 
 /**

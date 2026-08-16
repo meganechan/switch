@@ -5,6 +5,7 @@ import type { GuardResult, ViewDefinition } from '@renderer/app/view-registry';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { openRoom } from '@renderer/features/switch-rooms/open-room';
+import { roomTitle } from '@renderer/features/switch-rooms/room-labels';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
@@ -309,20 +310,6 @@ const RoomRow = observer(function RoomRow({
     </button>
   );
 });
-
-/**
- * A room's name as it is written where the room actually lives.
- *
- * The `#` is the channel sigil of the apps these rooms are bridged into, and
- * the rooms are listed under those apps — so it says "this is that channel"
- * rather than decorating the name. Added only when the name does not already
- * carry one, and never to a room in no app at all, where there is no channel
- * for it to name.
- */
-function roomTitle(room: RemoteRoomSummary): string {
-  if (!room.bridgeType || room.name.startsWith('#')) return room.name;
-  return `#${room.name}`;
-}
 
 export const serverRoomsView = {
   WrapView: ({ children }: { children: React.ReactNode; serverId: string }) => <>{children}</>,

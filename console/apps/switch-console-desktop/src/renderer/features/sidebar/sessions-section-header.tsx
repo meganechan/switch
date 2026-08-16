@@ -27,7 +27,7 @@ import {
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
 import { SectionLabel } from '@renderer/lib/ui/label';
-import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
+import { SegmentedControl } from '@renderer/lib/ui/segmented-control';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
 import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
@@ -55,33 +55,12 @@ const GROUPING_OPTIONS: { value: SidebarGrouping; label: string }[] = [
  */
 const ViewGroupingToggle = observer(function ViewGroupingToggle() {
   return (
-    <ToggleGroup
-      size="sm"
-      spacing={1}
-      multiple={false}
-      value={[sidebarStore.grouping]}
-      onValueChange={([value]) => {
-        const opt = GROUPING_OPTIONS.find((o) => o.value === value);
-        if (opt) sidebarStore.setGrouping(opt.value);
-      }}
-      aria-label="Group sidebar by"
-      // The raised option has to read as sitting *in* the track, not as a
-      // button dropped on top of a box: concentric corners (inner radius =
-      // outer radius less the padding) and only a hairline of track showing
-      // around it.
-      className="h-auto gap-0 rounded-[9px] border-transparent bg-[var(--segment-track)] p-[2px]"
-    >
-      {GROUPING_OPTIONS.map((opt) => (
-        <ToggleGroupItem
-          key={opt.value}
-          value={opt.value}
-          aria-label={opt.label}
-          className="h-auto rounded-[7px] px-[9px] py-[2px] text-[11.5px] font-medium text-foreground-muted hover:bg-transparent aria-pressed:bg-[var(--btn-1)] aria-pressed:text-foreground aria-pressed:shadow-[0_1px_2px_rgb(0_0_0_/_0.12)] data-pressed:bg-[var(--btn-1)] data-[state=on]:bg-[var(--btn-1)] data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgb(0_0_0_/_0.12)]"
-        >
-          {opt.label}
-        </ToggleGroupItem>
-      ))}
-    </ToggleGroup>
+    <SegmentedControl
+      value={sidebarStore.grouping}
+      onChange={(value) => sidebarStore.setGrouping(value)}
+      options={GROUPING_OPTIONS}
+      ariaLabel="Group sidebar by"
+    />
   );
 });
 

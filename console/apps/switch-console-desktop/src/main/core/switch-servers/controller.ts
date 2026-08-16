@@ -45,6 +45,7 @@ import type {
   RemoteBridge,
   RemoteBridgeType,
   RemoteExternalUser,
+  RemoteRoomDetail,
   RemoteRoomGroup,
   RemoteRoomRole,
   RemoteRoomSummary,
@@ -54,6 +55,7 @@ import type {
   SwitchServer,
   UpdateBridgeParams,
   UpdateBridgeResult,
+  UpdateRoomParams,
   UpdateServerParams,
   UpdateServerResult,
 } from '@shared/core/switch-servers/switch-servers';
@@ -78,6 +80,7 @@ import {
   fetchMe,
   fetchMyIdentities,
   fetchRoomAgentIds,
+  fetchRoomDetail,
   fetchRoomGroups,
   fetchRoomRoles,
   fetchRooms,
@@ -86,6 +89,7 @@ import {
   releaseBridgeIdentity,
   removeRoomAgent,
   updateAddressingPolicy,
+  updateRoom,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
 import { claimIdentityOnServer, searchDirectoryOnServer } from './identities';
@@ -307,6 +311,21 @@ export const switchServersController = createRPCController({
 
   listRoomAgentIds: async (params: { serverId: string; roomId: string }): Promise<string[]> =>
     fetchRoomAgentIds(await requireServer(params.serverId), params.roomId),
+
+  /** One room in full, for its configuration page. */
+  getRoomDetail: async (params: { serverId: string; roomId: string }): Promise<RemoteRoomDetail> =>
+    fetchRoomDetail(await requireServer(params.serverId), params.roomId),
+
+  /**
+   * Change a room's own settings. Failures propagate as-is — a user without
+   * write access to the room needs the gateway's refusal, not a saved-looking
+   * field holding a value the server never took.
+   */
+  updateRoom: async (params: UpdateRoomParams): Promise<RemoteRoomDetail> =>
+    updateRoom(await requireReachableServer(params.serverId), params.roomId, {
+      description: params.description,
+      instructions: params.instructions,
+    }),
 
   /**
    * Add agents to a room. Failures propagate as-is: the caller shows the
