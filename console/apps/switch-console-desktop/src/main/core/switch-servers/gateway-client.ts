@@ -1141,6 +1141,21 @@ export async function removeRoomAgent(
 }
 
 /**
+ * Delete a room outright (`DELETE /rooms/{id}`), taking its history and its
+ * bridged channel with it.
+ *
+ * The gateway decides who may: its owner, or an admin. Switch Console hides the
+ * action from anyone else, but that is a courtesy — a refusal here is the
+ * authoritative answer and is surfaced rather than swallowed.
+ */
+export async function deleteRoom(server: SwitchServer, roomId: string): Promise<void> {
+  await gatewayFetch(server, `/rooms/${encodeURIComponent(roomId)}`, {
+    authenticated: true,
+    method: 'DELETE',
+  });
+}
+
+/**
  * Create a room on `server` (session-authed `POST /gateway/rooms`), owned by the
  * signed-in user. Provisioning stays entirely server-side — this is the same
  * endpoint the operator web app posts to.

@@ -69,6 +69,7 @@ import {
   addRoomAgents,
   agentExistsOnServer,
   deleteBridge,
+  deleteRoom,
   fetchAddressingPolicy,
   fetchAgentDetail,
   fetchAgentRooms,
@@ -346,6 +347,10 @@ export const switchServersController = createRPCController({
     agentId: string;
   }): Promise<void> =>
     removeRoomAgent(await requireReachableServer(params.serverId), params.roomId, params.agentId),
+
+  /** Delete a room and everything in it. The gateway enforces who may. */
+  deleteRoom: async (params: { serverId: string; roomId: string }): Promise<void> =>
+    deleteRoom(await requireReachableServer(params.serverId), params.roomId),
 
   listRemoteRoomGroups: async (serverId: string): Promise<RemoteRoomGroup[]> =>
     fetchRoomGroups(await requireServer(serverId)),

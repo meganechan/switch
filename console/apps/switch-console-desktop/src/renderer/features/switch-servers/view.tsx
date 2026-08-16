@@ -7,6 +7,7 @@ import {
   PlugZap,
   RefreshCw,
   Trash2,
+  Unplug,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
@@ -240,14 +241,18 @@ const ServerMainPanel = observer(function ServerMainPanel() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
+                {/* Only a server Switch Console runs is one it can delete. For
+                    anyone else's, all we can do is let go of it — and a red
+                    "Delete server" on someone else's deployment reads as a
+                    threat to the deployment. */}
                 <DropdownMenuItem
-                  variant="destructive"
+                  variant={server.managed ? 'destructive' : undefined}
                   onClick={() =>
                     showDeleteServerModal({ serverId, onSuccess: () => navigate('home') })
                   }
                 >
-                  <Trash2 className="size-4" />
-                  Delete server…
+                  {server.managed ? <Trash2 className="size-4" /> : <Unplug className="size-4" />}
+                  {server.managed ? 'Delete server…' : 'Disconnect from server…'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

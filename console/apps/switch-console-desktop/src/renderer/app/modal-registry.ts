@@ -8,6 +8,7 @@ import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-m
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
 import { AddAgentsToRoomModal } from '@renderer/features/switch-rooms/AddAgentsToRoomModal';
 import { AddAgentToRoomsModal } from '@renderer/features/switch-rooms/AddAgentToRoomsModal';
+import { DeleteRoomModal } from '@renderer/features/switch-rooms/DeleteRoomModal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
 import { ClaimIdentityModal } from '@renderer/features/switch-servers/ClaimIdentityModal';
@@ -84,8 +85,11 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   addAgentToRoomModal: createModal(AddAgentToRoomsModal, {
-    size: 'sm',
+    // Wide enough for a searchable list and a grid of what you have picked —
+    // this dialog browses a whole server's rooms, not just confirms one.
+    size: 'lg',
     dismissOnOutsideClick: false,
   }),
+  deleteRoomModal: createModal(DeleteRoomModal, { size: 'sm', dismissOnOutsideClick: false }),
   // oxlint-disable-next-line typescript/no-explicit-any
 } satisfies Record<string, ModalRegistryEntry<any, any>>;

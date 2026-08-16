@@ -7,6 +7,8 @@ import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
+import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Input } from '@renderer/lib/ui/input';
 import {
@@ -89,8 +91,60 @@ export const RoomConfigurationPanel = observer(function RoomConfigurationPanel({
             text across. */}
         <GeneralSection key={room.id} serverId={serverId} room={room} />
         <ParticipantsSection serverId={serverId} room={room} />
+        <DeleteRoomSection serverId={serverId} room={room} />
       </div>
     </div>
+  );
+});
+
+/**
+ * Deleting the room, last on its page and below a rule.
+ *
+ * Absent entirely for anyone who may not delete it, rather than shown disabled:
+ * a greyed control invites you to go and find the permission, and here there is
+ * none to find — the room is someone else's.
+ */
+const DeleteRoomSection = observer(function DeleteRoomSection({
+  serverId,
+  room,
+}: {
+  serverId: string;
+  room: RemoteRoomDetail;
+}) {
+  const showDeleteRoomModal = useShowModal('deleteRoomModal');
+  const { navigate } = useNavigate();
+
+  if (!switchRoomsStore.canDeleteRoom(serverId, room)) return null;
+
+  return (
+    <section className="border-t border-border pt-6">
+      <div className="flex items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <h3 className="text-sm font-medium text-foreground">Delete room</h3>
+          <p className="text-xs text-foreground-muted">
+            Removes the room and its conversation for everyone in it
+            {room.bridgeType ? `, and its ${bridgePlatformLabel(room.bridgeType)} channel` : ''}.
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 border-red-500/40 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+          onClick={() =>
+            showDeleteRoomModal({
+              serverId,
+              roomId: room.id,
+              roomName: roomTitle(room),
+              // The page this is on is the deleted room's own, so staying would
+              // leave a settings form for something that no longer exists.
+              onSuccess: () => navigate('home'),
+            })
+          }
+        >
+          Delete room…
+        </Button>
+      </div>
+    </section>
   );
 });
 

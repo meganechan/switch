@@ -9,7 +9,6 @@ import {
   groupByRoom,
   isRoomNameKnown,
   isRoomViewActive,
-  openRoomInGateway,
   openRoomInMessagingApp,
   openRoomView,
   RoomRow,
@@ -69,7 +68,6 @@ const AgentSessions = observer(function AgentSessions({
               onToggle={() => sidebarStore.toggleGroupExpanded(groupKey)}
               onSelect={() => openRoomView(roomKey)}
               isActive={isRoomViewActive(roomKey)}
-              onOpenGateway={() => openRoomInGateway(roomKey)}
               onOpenChannel={
                 switchRoomsStore.roomChannelUrl(roomKey)
                   ? () => openRoomInMessagingApp(roomKey)

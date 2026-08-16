@@ -1,7 +1,9 @@
-import { ChevronDown, X } from 'lucide-react';
+import { Hash, Search, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
+import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
 import { type BaseModalProps, useModalContext } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
@@ -12,7 +14,6 @@ import {
   ComboboxInput,
   ComboboxItem,
   ComboboxList,
-  ComboboxTrigger,
 } from '@renderer/lib/ui/combobox';
 import { ConfirmButton } from '@renderer/lib/ui/confirm-button';
 import {
@@ -22,7 +23,6 @@ import {
   DialogTitle,
 } from '@renderer/lib/ui/dialog';
 import { Field, FieldLabel } from '@renderer/lib/ui/field';
-import { cn } from '@renderer/utils/utils';
 
 type Props = BaseModalProps<void> & {
   serverId: string;
@@ -31,7 +31,21 @@ type Props = BaseModalProps<void> & {
 };
 
 /** A room the agent can be put in: one on its own server it is not already in. */
-type Candidate = { id: string; name: string };
+type Candidate = { id: string; name: string; bridgeType: string | null };
+
+/** Where a room's conversation actually happens, for the right of its row. */
+function whereLabel(bridgeType: string | null): string {
+  return bridgeType ? bridgePlatformLabel(bridgeType) : 'Switch only';
+}
+
+/** The mark of the app a room is bridged to, or a plain channel mark when it
+ * lives on Switch alone. */
+function RoomMark({ bridgeType, size }: { bridgeType: string | null; size: number }) {
+  if (!hasBridgeIcon(bridgeType)) {
+    return <Hash className="size-4 shrink-0 text-foreground-muted" />;
+  }
+  return <BridgeIcon bridgeType={bridgeType} size={size} />;
+}
 
 /**
  * Puts one agent into rooms — the agent's side of `AddAgentsToRoomModal`, which
@@ -62,10 +76,13 @@ export const AddAgentToRoomsModal = observer(function AddAgentToRoomsModal({
   const membershipUnknown = memberships === undefined;
   const alreadyIn = new Set((memberships ?? []).map((m) => m.roomId));
 
+  // Every room the server let us see, not only the ones this user created: an
+  // agent's usefulness is mostly in rooms someone else set up, and a picker that
+  // omitted them made those rooms unreachable from here entirely.
   const candidates: Candidate[] = switchRoomsStore
-    .listedRoomsOnServer(serverId)
+    .readableRoomsOnServer(serverId)
     .filter((room) => !alreadyIn.has(room.id) && !selected.some((s) => s.id === room.id))
-    .map((room) => ({ id: room.id, name: room.name }));
+    .map((room) => ({ id: room.id, name: room.name, bridgeType: room.bridgeType }));
   const nothingToAdd = candidates.length === 0 && selected.length === 0;
 
   const handleSubmit = useCallback(async () => {
@@ -99,7 +116,27 @@ export const AddAgentToRoomsModal = observer(function AddAgentToRoomsModal({
       <DialogContentArea className="pt-0">
         <div className="flex w-full flex-col gap-4">
           <Field>
-            <FieldLabel>Rooms</FieldLabel>
+            <div className="flex items-center justify-between gap-3">
+              <FieldLabel>Rooms</FieldLabel>
+              {selected.length > 0 && (
+                <span className="text-sm text-foreground-muted">{selected.length} selected</span>
+              )}
+            </div>
+
+            {selected.length > 0 && (
+              <div className="grid grid-cols-3 gap-2.5">
+                {selected.map((room) => (
+                  <ChosenRoomTile
+                    key={room.id}
+                    room={room}
+                    onRemove={() =>
+                      setSelected((current) => current.filter((r) => r.id !== room.id))
+                    }
+                  />
+                ))}
+              </div>
+            )}
+
             <Combobox
               items={candidates}
               value={null}
@@ -113,50 +150,30 @@ export const AddAgentToRoomsModal = observer(function AddAgentToRoomsModal({
               }
               autoHighlight
             >
-              <ComboboxTrigger
+              {/* The search box is the control rather than something a button
+                  has to open: putting an agent in several rooms at once is the
+                  reason this dialog exists. */}
+              <ComboboxInput
+                showTrigger={false}
                 disabled={nothingToAdd}
-                className={cn(
-                  'flex h-9 w-full min-w-0 items-center gap-2 rounded-md border border-border bg-transparent px-2.5 py-1 text-sm outline-none',
-                  nothingToAdd && 'cursor-not-allowed opacity-60'
-                )}
-              >
-                <span className="flex-1 truncate text-left text-foreground-muted">Add a room</span>
-                <ChevronDown className="size-3.5 shrink-0 text-foreground-muted" />
-              </ComboboxTrigger>
+                placeholder="Search rooms to add..."
+                leftAddon={<Search className="size-3.5 text-foreground-muted" />}
+              />
               <ComboboxContent className="min-w-(--anchor-width)">
-                <ComboboxInput showTrigger={false} placeholder="Search rooms…" />
                 <ComboboxList>
                   {(item: Candidate) => (
-                    <ComboboxItem key={item.id} value={item}>
+                    <ComboboxItem key={item.id} value={item} showCheck={false}>
+                      <RoomMark bridgeType={item.bridgeType} size={16} />
                       <span className="min-w-0 flex-1 truncate">{item.name}</span>
+                      <span className="shrink-0 text-xs text-foreground-muted">
+                        {whereLabel(item.bridgeType)}
+                      </span>
                     </ComboboxItem>
                   )}
                 </ComboboxList>
                 <ComboboxEmpty>No rooms found</ComboboxEmpty>
               </ComboboxContent>
             </Combobox>
-            {selected.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {selected.map((room) => (
-                  <span
-                    key={room.id}
-                    className="flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs"
-                  >
-                    {room.name}
-                    <button
-                      type="button"
-                      aria-label={`Remove ${room.name}`}
-                      className="cursor-pointer text-foreground-muted hover:text-foreground"
-                      onClick={() =>
-                        setSelected((current) => current.filter((r) => r.id !== room.id))
-                      }
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
             {membershipUnknown && (
               <p className="mt-1 text-xs text-foreground-warning">
                 Which rooms {agentName} is already in could not be read, so every room on the server
@@ -165,7 +182,7 @@ export const AddAgentToRoomsModal = observer(function AddAgentToRoomsModal({
             )}
             {nothingToAdd && !membershipUnknown && (
               <p className="mt-1 text-xs text-foreground-muted">
-                {agentName} is already in every room listed on this server.
+                {agentName} is already in every room you can see on this server.
               </p>
             )}
           </Field>
@@ -187,3 +204,29 @@ export const AddAgentToRoomsModal = observer(function AddAgentToRoomsModal({
     </>
   );
 });
+
+/** A room already chosen, with the way to take it back out. */
+function ChosenRoomTile({ room, onRemove }: { room: Candidate; onRemove: () => void }) {
+  return (
+    // `--fill` rather than `--surface-2`: in dark mode that surface is the
+    // dialog's own background, so a tile drawn in it was a tile nobody could
+    // see.
+    <div className="group relative flex flex-col gap-2 rounded-[10px] bg-[var(--fill)] p-3">
+      <RoomMark bridgeType={room.bridgeType} size={22} />
+      <div className="flex min-w-0 flex-col">
+        <span className="truncate text-sm text-foreground">{room.name}</span>
+        <span className="truncate text-xs text-foreground-muted">
+          {whereLabel(room.bridgeType)}
+        </span>
+      </div>
+      <button
+        type="button"
+        aria-label={`Remove ${room.name}`}
+        onClick={onRemove}
+        className="absolute top-1.5 right-1.5 flex size-5 cursor-pointer items-center justify-center rounded-md text-foreground-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--fill-2)] hover:text-foreground focus-visible:opacity-100"
+      >
+        <X className="size-3.5" />
+      </button>
+    </div>
+  );
+}

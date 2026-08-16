@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { HostReachabilityNotice } from '@renderer/features/remote-hosts/host-reachability-notice';
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
 import { Alert, AlertDescription, AlertTitle } from '@renderer/lib/ui/alert';
 import { Button } from '@renderer/lib/ui/button';
@@ -101,6 +102,22 @@ export const AddServerModal = observer(function AddServerModal(props: Props) {
   // it. Null in edit mode and on the two managed paths, which is what
   // distinguishes the standalone edit form from step 2 of the wizard.
   const [connected, setConnected] = useState<SwitchServer | null>(null);
+  const { navigate } = useNavigate();
+
+  /**
+   * End the flow on the new server's own page.
+   *
+   * Adding a server is done in order to use it, and the dialog closing onto
+   * whatever was behind it left no sign anything had happened. A path that
+   * cannot name the server it made lands nowhere rather than guessing.
+   */
+  const finish = (serverId: string | null) => {
+    if (serverId) {
+      void switchServersStore.setActive(serverId);
+      navigate('server', { serverId });
+    }
+    props.onSuccess();
+  };
 
   if (step === 'choose') {
     return (
@@ -116,7 +133,7 @@ export const AddServerModal = observer(function AddServerModal(props: Props) {
     return (
       <LocalSetupStep
         onBack={isEdit ? undefined : () => setStep('choose')}
-        onSuccess={props.onSuccess}
+        onDone={finish}
         onClose={props.onClose}
       />
     );
@@ -125,7 +142,7 @@ export const AddServerModal = observer(function AddServerModal(props: Props) {
     return (
       <RemoteHostSetupStep
         onBack={() => setStep('choose')}
-        onSuccess={props.onSuccess}
+        onDone={finish}
         onClose={props.onClose}
       />
     );
@@ -147,7 +164,7 @@ export const AddServerModal = observer(function AddServerModal(props: Props) {
         serverName={connected.name}
         step={CONNECT_STEPS}
         of={CONNECT_STEPS}
-        onDone={props.onSuccess}
+        onDone={() => finish(connected.id)}
       />
     );
   }
@@ -257,11 +274,12 @@ function SetupStepItem({ children }: { children: React.ReactNode }) {
 
 const LocalSetupStep = observer(function LocalSetupStep({
   onBack,
-  onSuccess,
+  onDone,
   onClose,
 }: {
   onBack?: () => void;
-  onSuccess: () => void;
+  /** Reports the server the stack registered, so the flow can end on it. */
+  onDone: (serverId: string | null) => void;
   onClose: () => void;
 }) {
   const store = localServerStore;
@@ -280,7 +298,7 @@ const LocalSetupStep = observer(function LocalSetupStep({
 
   const primaryLabel = running ? 'Done' : store.phase === 'error' ? 'Retry' : 'Start';
   const onPrimary = () => {
-    if (running) onSuccess();
+    if (running) onDone(store.status?.serverId ?? null);
     else void store.start();
   };
 
@@ -418,11 +436,12 @@ function DockerStatus({
 
 const RemoteHostSetupStep = observer(function RemoteHostSetupStep({
   onBack,
-  onSuccess,
+  onDone,
   onClose,
 }: {
   onBack: () => void;
-  onSuccess: () => void;
+  /** Reports the server the stack registered, so the flow can end on it. */
+  onDone: (serverId: string | null) => void;
   onClose: () => void;
 }) {
   const store = remoteServerStore;
@@ -457,7 +476,7 @@ const RemoteHostSetupStep = observer(function RemoteHostSetupStep({
   const canStart = !!sshHost && name.trim().length > 0 && dockerReady && !starting && !hostBlocked;
   const primaryLabel = running ? 'Done' : status?.phase === 'error' ? 'Retry' : 'Start';
   const onPrimary = () => {
-    if (running) onSuccess();
+    if (running) onDone(sshHost ? (store.statusFor(sshHost).serverId ?? null) : null);
     else if (sshHost) void store.start(sshHost, name.trim());
   };
 
