@@ -91,31 +91,36 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   return (
     <SessionContextMenu {...actions}>
       <SidebarMenuRow
-        className={cn(
-          'group/row flex items-center justify-between px-1 h-8 gap-1',
-          rowVariant === 'pinned' && 'pl-2'
-        )}
-        style={rowVariant === 'pinned' ? undefined : depthIndent(depth)}
+        className="group/row flex items-center justify-between gap-[9px]"
         isActive={isActive}
         onMouseDown={(e) => e.preventDefault()}
         onClick={openSession}
       >
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center">
-          <MessageSquare className="h-4 w-4 text-foreground-muted" />
-        </span>
-        <SidebarMenuAction
-          aria-label={`Open session ${sessionName || 'session'}`}
-          className="gap-1 overflow-hidden"
+        {/* Indent on the content, not the row, so the highlight still spans the
+            sidebar's full width at every depth. The icon box is wider than a
+            header row's and the gap tighter, which is what optically continues
+            the 16px step without a third indent value. */}
+        <div
+          className="flex h-6 min-w-0 flex-1 items-center gap-1"
+          style={rowVariant === 'pinned' ? { paddingLeft: 4 } : depthIndent(depth)}
         >
-          <span
-            className={cn(
-              'min-w-0 truncate text-left transition-colors',
-              session.isBootstrapping && 'text-foreground/40'
-            )}
-          >
-            {sessionName}
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center">
+            <MessageSquare className="h-4 w-4 text-foreground-muted" />
           </span>
-        </SidebarMenuAction>
+          <SidebarMenuAction
+            aria-label={`Open session ${sessionName || 'session'}`}
+            className="gap-1 overflow-hidden"
+          >
+            <span
+              className={cn(
+                'min-w-0 truncate text-left transition-colors',
+                session.isBootstrapping && 'text-foreground/40'
+              )}
+            >
+              {sessionName}
+            </span>
+          </SidebarMenuAction>
+        </div>
         {/* The status and the actions button take turns in one slot rather than
             sitting side by side: the row is narrow, and a second control
             appearing on hover would shorten the title just as it is being read. */}

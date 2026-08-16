@@ -154,15 +154,19 @@ export function RoomRow({
   return (
     <SidebarMenuRow
       className={cn(
-        'group/room flex h-8 items-center gap-1 px-1',
+        'group/room flex items-center gap-[9px]',
         onSelect === null && 'cursor-default'
       )}
       isActive={isActive}
-      style={depthIndent(depth)}
+      // Indent on the content below, not here, so the highlight still spans the
+      // sidebar's full width at every depth.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onSelect ?? undefined}
     >
-      <span className="flex size-6 shrink-0 items-center justify-center">
+      <span
+        className="flex size-4 shrink-0 items-center justify-center"
+        style={{ marginLeft: depthIndent(depth).paddingLeft }}
+      >
         {hasBridgeIcon(bridgeType) ? (
           <BridgeIcon bridgeType={bridgeType} size={16} className="h-4 w-4" />
         ) : (

@@ -109,15 +109,17 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
     <ContextMenu>
       <ContextMenuTrigger>
         <SidebarMenuRow
-          className="group/row flex h-8 justify-between px-1"
-          style={depthIndent(depth)}
+          className="group/row flex justify-between"
           data-active={isActive || undefined}
           isActive={isActive}
           onMouseDown={(e) => e.preventDefault()}
           onClick={open}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <span className="flex size-6 shrink-0 items-center justify-center">
+          {/* The indent lives on the content, not the row, so the hover and
+              selection highlight still spans the sidebar's full width at every
+              depth. */}
+          <div className="flex min-w-0 flex-1 items-center gap-[9px]" style={depthIndent(depth)}>
+            <span className="flex size-4 shrink-0 items-center justify-center">
               {agent.providerId ? (
                 <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
               ) : (
