@@ -32,7 +32,7 @@ export function ServerResetSection({
   const [open, setOpen] = useState(false);
 
   return (
-    <section className="border-t border-border pt-5">
+    <section>
       <div className="flex items-center justify-between gap-3">
         <div className="space-y-0.5">
           <h3 className="text-sm font-medium text-foreground">Reset</h3>

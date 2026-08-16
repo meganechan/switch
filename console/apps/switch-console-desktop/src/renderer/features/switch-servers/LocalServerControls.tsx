@@ -1,12 +1,11 @@
-import { CircleStop, Play, RefreshCw, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@renderer/lib/ui/alert';
-import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { localServerStore } from './local-server-store';
 import { LogTail } from './log-tail';
-import { StackSection, StackStatusRow } from './server-stack-section';
+import { phaseLabel, StackAction, StackSection, StackStatusRow } from './server-stack-section';
 
 /**
  * Lifecycle for the managed local Switch stack: live status, Docker guidance,
@@ -15,6 +14,7 @@ import { StackSection, StackStatusRow } from './server-stack-section';
  */
 export const LocalServerControls = observer(function LocalServerControls() {
   const store = localServerStore;
+  const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
     void store.checkDocker();
@@ -30,46 +30,49 @@ export const LocalServerControls = observer(function LocalServerControls() {
   const downgradeBlocked = store.drift?.direction === 'downgrade';
 
   return (
-    <StackSection title="Local server">
+    <StackSection>
       <StackStatusRow
+        title="Local server"
         phase={store.phase}
-        detail={store.isRunning ? `switch-core ${runningVersion}` : 'not running'}
+        summary={store.isRunning ? 'Running on this computer' : phaseLabel(store.phase)}
+        versionDetail={runningVersion ? `switch-core ${runningVersion}` : null}
+        activity={
+          store.logs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowActivity((s) => !s)}
+              className="text-foreground-muted underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
+              {showActivity ? 'Hide activity' : 'Recent activity'}
+            </button>
+          ) : null
+        }
         actions={
           store.isRunning ? (
             <>
-              <Button
-                variant="outline"
-                size="sm"
+              <StackAction
+                label="Restart"
                 disabled={transitioning}
                 onClick={() => void store.start()}
-              >
-                <RefreshCw className="size-4" />
-                Restart
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+              />
+              <StackAction
+                label="Stop"
+                danger
                 disabled={transitioning}
                 onClick={() => void store.stop()}
-              >
-                <CircleStop className="size-4" />
-                Stop
-              </Button>
+              />
             </>
           ) : (
-            <Button
-              size="sm"
+            <StackAction
+              label={store.phase === 'error' && !downgradeBlocked ? 'Retry' : 'Start'}
               disabled={transitioning || downgradeBlocked}
               onClick={() => void store.start()}
-            >
-              <Play className="size-4" />
-              {store.phase === 'error' && !downgradeBlocked ? 'Retry' : 'Start'}
-            </Button>
+            />
           )
         }
       />
 
-      <div className="space-y-3 p-3">
+      <div className="space-y-3">
         {store.message && transitioning && (
           <div className="flex items-center gap-2 text-sm text-foreground-muted">
             <Spinner className="size-3.5" />
@@ -96,17 +99,9 @@ export const LocalServerControls = observer(function LocalServerControls() {
           </Alert>
         )}
 
-        {/* What the stack is, until it has said something itself. Once it is
-          talking, its own output is the more useful thing to keep on screen. */}
-        {store.logs.length > 0 ? (
-          <LogTail lines={store.logs} placeholder={null} />
-        ) : (
-          <p className="text-xs text-foreground-muted">
-            Runs the full Switch stack on this computer with Docker
-            {runningVersion ? ` (switch-core ${runningVersion})` : ''}. It keeps running when you
-            close Switch Console — your agents, rooms and messaging apps come back with it.
-          </p>
-        )}
+        {/* Behind the disclosure rather than shown the moment there is output:
+            the log is what you go looking for, not what the section is for. */}
+        {showActivity && store.logs.length > 0 && <LogTail lines={store.logs} placeholder={null} />}
       </div>
     </StackSection>
   );

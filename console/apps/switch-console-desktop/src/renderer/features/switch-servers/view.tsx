@@ -301,7 +301,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
           ))}
 
         {detailsVisible && !unreachable && (
-          <div className={`${card} flex items-center justify-between gap-3`}>
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
               <h3 className="text-sm font-medium text-foreground">Full admin interface</h3>
               <p className="text-xs text-foreground-muted">

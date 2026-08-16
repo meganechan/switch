@@ -15,6 +15,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@renderer/lib/ui/dialog';
+import { DropdownMenuItem } from '@renderer/lib/ui/dropdown-menu';
 import { Spinner } from '@renderer/lib/ui/spinner';
 
 function CopyButton({ value, label }: { value: string; label: string }) {
@@ -96,15 +97,21 @@ function CredentialRow({
 export function BundledChatSignIn({
   serverId,
   bridgeDisplayName,
+  asMenuItem = false,
 }: {
   serverId: string;
   bridgeDisplayName: string;
+  /** Render the opener as a dropdown entry rather than a standalone icon
+   * button, for the row menu that now carries this action. */
+  asMenuItem?: boolean;
 }) {
   const [open, setOpen] = useState(false);
 
   const signInQuery = useQuery({
     queryKey: ['bundled-chat-sign-in', serverId],
     queryFn: () => rpc.switchServers.getBundledChatSignIn(serverId),
+    // The password only crosses into the renderer once the dialog is actually
+    // opened, so merely listing the app never fetches it.
     enabled: open,
   });
 
@@ -113,15 +120,25 @@ export function BundledChatSignIn({
 
   return (
     <>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label={`${bridgeDisplayName} sign-in details`}
-        title={`${bridgeDisplayName} sign-in details`}
-        onClick={() => setOpen(true)}
-      >
-        <KeyRound className="size-3" />
-      </Button>
+      {asMenuItem ? (
+        // `closeOnClick={false}` would leave the menu over the dialog; letting
+        // it close and opening the dialog from the same click is what keeps one
+        // surface on screen at a time.
+        <DropdownMenuItem onClick={() => setOpen(true)}>
+          <KeyRound className="size-4" />
+          Sign-in details…
+        </DropdownMenuItem>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label={`${bridgeDisplayName} sign-in details`}
+          title={`${bridgeDisplayName} sign-in details`}
+          onClick={() => setOpen(true)}
+        >
+          <KeyRound className="size-3" />
+        </Button>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
