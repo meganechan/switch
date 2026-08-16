@@ -102,20 +102,23 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
 
   return (
     <FieldGroup>
-      <div className="rounded-md border border-border">
+      {/* No box around the disclosure: it is a heading for the fields it
+          reveals, and framing it made it read as a control of the same weight
+          as the inputs above and below it. */}
+      <div>
         <button
           type="button"
-          className="flex w-full items-center gap-1.5 px-2 py-2 text-sm text-foreground-muted"
+          className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
           onClick={() => setSettingsOpen((v) => !v)}
         >
           <ChevronRight
             className={cn('h-4 w-4 transition-transform', settingsOpen && 'rotate-90')}
           />
-          <span className="text-foreground">Settings</span>
-          <span className="ml-auto text-xs">Sessions, permissions, who can address it</span>
+          <span className="font-medium text-foreground">Settings</span>
+          <span className="ml-auto">Sessions, permissions, who can address it</span>
         </button>
         {settingsOpen && (
-          <FieldGroup className="border-t border-border px-3 py-3">
+          <FieldGroup className="pt-3">
             <Field>
               <FieldLabel>Switch server</FieldLabel>
               <div className="rounded-md border border-border bg-background-1 px-3 py-1.5 text-sm">
@@ -226,6 +229,14 @@ export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState })
           <span className="text-destructive text-xs">
             Use lowercase letters, digits, <span className="font-mono">. - _</span>, starting with a
             letter or digit. No spaces or uppercase.
+          </span>
+        ) : form.agentName.length > 0 ? (
+          // Once there is a name, show the handle it produces rather than
+          // repeating the advice: the advice is about choosing a name, and it
+          // has been taken.
+          <span className="text-xs text-foreground-muted">
+            In rooms this agent is addressed as{' '}
+            <span className="text-foreground">@{form.agentName}</span>.
           </span>
         ) : (
           <span className="text-xs text-foreground-muted">

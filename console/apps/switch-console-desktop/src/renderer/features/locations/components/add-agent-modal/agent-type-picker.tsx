@@ -2,6 +2,7 @@ import { CircleAlert } from 'lucide-react';
 import { useEffect, useMemo } from 'react';
 import { useAppSettingsKey } from '@renderer/features/settings/use-app-settings-key';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useAgentTypeAvailability } from '@renderer/lib/stores/use-switch-setup';
 import { Field, FieldLabel } from '@renderer/lib/ui/field';
@@ -25,11 +26,16 @@ export function AgentTypePicker({
   value,
   onChange,
   sshHost,
+  onNavigateAway,
 }: {
   value: AgentProviderId | null;
   onChange: (providerId: AgentProviderId) => void;
   sshHost?: string;
+  /** Called before leaving for the page that installs providers, so the modal
+   * can close itself rather than being navigated out from under. */
+  onNavigateAway: () => void;
 }) {
+  const { navigate } = useNavigate();
   const { data: availability, isPending } = useAgentTypeAvailability(sshHost);
   const { data: agents } = useAgents();
   const { value: defaultAgent } = useAppSettingsKey('defaultAgent');
@@ -87,13 +93,20 @@ export function AgentTypePicker({
 
   // Asking the host what it has costs SSH round trips, and an empty dropdown
   // during that reads as "this host offers nothing" rather than "still asking".
+  // The placeholder tiles say the answer is a set of these, so the section does
+  // not resize under the user when it arrives.
   if (isPending) {
     return (
       <Field>
         <FieldLabel>Agent provider</FieldLabel>
-        <div className="flex items-center gap-2 text-xs text-foreground-muted">
+        <div className="flex items-center gap-2 text-sm text-foreground-muted">
           <Spinner />
           {sshHost ? `Checking what ${sshHost} has installed…` : 'Checking what is installed…'}
+        </div>
+        <div aria-hidden className="grid grid-cols-3 gap-2">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[86px] animate-pulse rounded-[11px] bg-[var(--fill)]" />
+          ))}
         </div>
       </Field>
     );
@@ -131,8 +144,22 @@ export function AgentTypePicker({
           </button>
         ))}
       </div>
+      {/* The list is a report on one machine, so the way to change it is on
+          that machine's own page — Agent providers for this computer, the
+          host's page for a host. */}
       <p className="text-xs text-foreground-muted">
-        Only providers installed {sshHost ? `on ${sshHost}` : 'on this machine'} are listed.
+        Only providers installed {sshHost ? `on ${sshHost}` : 'on this machine'} are listed.{' '}
+        <button
+          type="button"
+          className="cursor-pointer text-foreground underline underline-offset-2"
+          onClick={() => {
+            onNavigateAway();
+            if (sshHost) navigate('remoteHost', { sshHost });
+            else navigate('settings', { tab: 'clis-models' });
+          }}
+        >
+          {sshHost ? `Set up ${sshHost}` : 'Set up agent providers'}
+        </button>
       </p>
     </Field>
   );

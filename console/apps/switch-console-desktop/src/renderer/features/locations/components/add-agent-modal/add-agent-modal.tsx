@@ -1,5 +1,6 @@
 import type { RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import { useQuery } from '@tanstack/react-query';
+import { Monitor, Server } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
@@ -94,6 +95,11 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   });
   const onboardedHosts = useMemo(() => remoteHosts ?? [], [remoteHosts]);
   const isRemoteRun = runHost !== LOCAL_RUN_LOCATION;
+  // The trigger has to say the host's name, not the value behind it: the value
+  // for this machine is the sentinel "local", which is not what it is called.
+  const runLocationLabel = isRemoteRun
+    ? (onboardedHosts.find((h) => h.sshHost === runHost)?.name ?? runHost)
+    : 'This computer';
 
   // An agent always binds to the active (scoped) server — the user does not pick
   // one here. Ensure the server list + active id are loaded when the modal opens
@@ -305,6 +311,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
       footer={
         <DialogFooter>
+          {/* Why Add agent is greyed out, said where the greyed-out button is.
+              Left alone, a disabled primary with no explanation beside it is
+              indistinguishable from a broken one. */}
+          {isRemoteRun && hostReadiness.checking && (
+            <span className="mr-auto self-center text-xs text-foreground-muted">
+              Waiting for {runLocationLabel}…
+            </span>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -324,15 +338,31 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
 
         <Field>
           <FieldLabel>Run location</FieldLabel>
+          {/* Icons and the right-hand kind, because the list mixes two sorts of
+              thing: this machine, and hosts reached over SSH. The names alone
+              do not say which is which. */}
           <Select value={runHost} onValueChange={(v) => setRunHost(v ?? LOCAL_RUN_LOCATION)}>
-            <SelectTrigger>
-              <SelectValue />
+            <SelectTrigger className="w-full">
+              <SelectValue>
+                {isRemoteRun ? (
+                  <Server className="size-4 text-foreground-muted" />
+                ) : (
+                  <Monitor className="size-4 text-foreground-muted" />
+                )}
+                <span className="truncate">{runLocationLabel}</span>
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={LOCAL_RUN_LOCATION}>This computer</SelectItem>
+              <SelectItem value={LOCAL_RUN_LOCATION}>
+                <Monitor className="size-4 text-foreground-muted" />
+                <span className="flex-1">This computer</span>
+                <span className="text-xs text-foreground-muted">local</span>
+              </SelectItem>
               {allowedHosts.map((host) => (
                 <SelectItem key={host.sshHost} value={host.sshHost}>
-                  {host.name}
+                  <Server className="size-4 text-foreground-muted" />
+                  <span className="flex-1 truncate">{host.name}</span>
+                  <span className="text-xs text-foreground-muted">ssh</span>
                 </SelectItem>
               ))}
             </SelectContent>
@@ -345,7 +375,11 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             </p>
           )}
           {isRemoteRun && <HostReachabilityNotice sshHost={runHost} />}
-          {isRemoteRun && runHostReachable && (
+          {/* Not while it is still checking: the provider picker below is
+              already saying so, and two spinners for one question read as two
+              questions. Its verdict — the part only it can report — still
+              lands here. */}
+          {isRemoteRun && runHostReachable && !hostReadiness.checking && (
             <HostReadinessNotice
               sshHost={runHost}
               readiness={hostReadiness}
@@ -357,8 +391,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         {/* The host still gates what comes below it: with it unreachable, or
             missing its own prerequisites, we cannot know which providers it
             has, so offering the tiles would be guessing. What no longer gates
-            anything is the directory — nothing is scanned in it. */}
-        {canConfigureAgent && (
+            anything is the directory — nothing is scanned in it, so it can be
+            filled in while the host is still being surveyed. */}
+        {canChooseAgentType && (
           <Field>
             <FieldLabel>Directory</FieldLabel>
             {isRemoteRun ? (
@@ -393,6 +428,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
             value={pickState.providerId}
             onChange={pickState.setProviderId}
             sshHost={isRemoteRun ? runHost : undefined}
+            onNavigateAway={onClose}
           />
         )}
 

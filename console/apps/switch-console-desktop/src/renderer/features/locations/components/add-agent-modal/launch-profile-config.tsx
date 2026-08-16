@@ -8,7 +8,7 @@ import {
   type AgentProviderConfig,
   providerConfigFromAttributes,
 } from '@shared/core/agents/agent-provider-config';
-import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { getProvider, type AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
   attributesFromForm,
   DefinitionFieldInput,
@@ -101,18 +101,23 @@ export function LaunchProfileConfig({
 
   if (!providerId || fields.length === 0) return null;
 
+  const providerLabel = getProvider(providerId)?.name ?? providerId;
+
   return (
-    <div className="rounded-md border border-border">
+    <div>
       <button
         type="button"
-        className="flex w-full items-center gap-1.5 px-2 py-2 text-sm text-foreground-muted"
+        className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
         onClick={() => setOpen((v) => !v)}
       >
         <ChevronRight className={cn('h-4 w-4 transition-transform', open && 'rotate-90')} />
-        Advanced configuration
+        <span className="font-medium text-foreground">Advanced configuration</span>
+        <span className="ml-auto">
+          {providerLabel} · {fields.length} {fields.length === 1 ? 'field' : 'fields'}
+        </span>
       </button>
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border px-3 py-3">
+        <div className="flex flex-col gap-4 pt-3">
           {fields.map((field) => {
             const catalogueState = fieldCatalogueState(field, state, catalogue);
             const rendered = fieldWithCatalogue(field, catalogueState);
