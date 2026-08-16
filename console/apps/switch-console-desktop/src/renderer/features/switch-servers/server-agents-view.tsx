@@ -19,7 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import type { Agent } from '@shared/core/agents/agents';
 import { providerDisplayName } from '@shared/core/providers/agent-provider-registry';
 import { ServerPage } from './server-page';
@@ -56,12 +55,16 @@ const ServerAgentsPanel = observer(function ServerAgentsPanel() {
       {/* The add tile leads the grid rather than sitting as a button in the
           page header: it is the same kind of thing as the cards after it, and
           on an empty server it is the only thing on screen, which says what to
-          do without needing an empty-state sentence. */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
+          do without needing an empty-state sentence.
+
+          Four columns at the design's content width, reflowing narrower rather
+          than squashing. The height is a floor rather than a ratio, so a card
+          keeps its shape as the column width changes. */}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-[14px]">
         <button
           type="button"
           onClick={() => showAddAgentModal({})}
-          className="flex min-h-44 cursor-pointer items-center justify-center rounded-[11px] border border-dashed border-border text-foreground-muted transition-colors hover:border-border-1 hover:bg-[var(--sel-soft)] hover:text-foreground"
+          className="flex min-h-[184px] cursor-pointer items-center justify-center rounded-[11px] border border-dashed border-border text-foreground-muted transition-colors hover:border-border-1 hover:bg-[var(--sel-soft)] hover:text-foreground"
           aria-label="Add agent"
         >
           <Plus className="size-5" />
@@ -82,7 +85,6 @@ const AgentCard = observer(function AgentCard({
   serverId: string;
 }) {
   const { navigate } = useNavigate();
-  const showCreateSessionModal = useShowModal('sessionModal');
   const showConfirmReset = useShowModal('resetAgentModal');
   const confirmDeleteAgent = useConfirmDeleteAgent();
   const { toastPromise } = useToast();
@@ -96,7 +98,7 @@ const AgentCard = observer(function AgentCard({
     agent.switchAgentId && switchRoomsStore.gatewayAgentUrl(serverId, agent.switchAgentId);
 
   return (
-    <div className="group relative flex min-h-44 flex-col rounded-[11px] bg-background-1 transition-colors hover:bg-background-2">
+    <div className="group relative flex min-h-[184px] flex-col rounded-[11px] bg-[var(--surface-2)] transition-colors hover:bg-[var(--fill)]">
       {/* One real button covering the card, so the whole tile is the target and
           screen readers get a single named control rather than a grid of
           nested ones. The visible content below it is inert; the actions after
@@ -108,7 +110,7 @@ const AgentCard = observer(function AgentCard({
         onClick={() => navigate('location', { locationId: agent.locationId, agentName: label })}
       />
 
-      <div className="pointer-events-none flex flex-1 flex-col p-4">
+      <div className="pointer-events-none flex flex-1 flex-col p-[14px]">
         <div className="flex flex-1 items-center justify-center py-3">
           <span className="flex size-16 items-center justify-center rounded-full bg-background">
             {agent.providerId ? (
@@ -127,28 +129,10 @@ const AgentCard = observer(function AgentCard({
         </div>
       </div>
 
-      {/* Everything the row used to offer, on hover. Kept rather than dropped
-          with the table: removing an agent and opening it in the gateway have
-          no other entry point from this page. */}
+      {/* Open in gateway, Reset and Remove, on hover. Kept rather than dropped
+          with the table: none of them has another entry point from this page.
+          Starting a session is not here — the sidebar is where sessions begin. */}
       <div className="absolute top-2 right-2 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={`New session for ${label}`}
-                onClick={() =>
-                  showCreateSessionModal({ locationId: agent.locationId, agentName: label })
-                }
-              >
-                <Plus className="size-3" />
-              </Button>
-            }
-          />
-          <TooltipContent>New session</TooltipContent>
-        </Tooltip>
-
         <DropdownMenu>
           <DropdownMenuTrigger
             render={
