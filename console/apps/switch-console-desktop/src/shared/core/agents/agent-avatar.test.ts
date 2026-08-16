@@ -26,6 +26,19 @@ describe('agentAvatarUrlForSeed', () => {
     expect(agentAvatarUrlForSeed('worker')).not.toContain('/svg');
   });
 
+  it('names a background rather than leaving the image transparent', () => {
+    // Slack composites a transparent PNG onto white, so an unset background is
+    // a bright square around every agent in a dark message list.
+    expect(agentAvatarUrlForSeed('worker')).toContain('backgroundColor=1a1d21');
+  });
+
+  it('gives every agent the same background', () => {
+    // DiceBear reads a comma-separated `backgroundColor` as a palette to pick
+    // from at random, which would undo the point of matching one surface.
+    const url = new URL(agentAvatarUrlForSeed('worker'));
+    expect(url.searchParams.get('backgroundColor')).not.toContain(',');
+  });
+
   it('pins the drawing version', () => {
     // Unpinned, every stored icon silently becomes a different bot the day the
     // service ships a new major.
