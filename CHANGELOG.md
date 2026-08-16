@@ -44,6 +44,16 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.17.1] - 2026-08-16
+
+#### Fixed
+
+- Agent avatars no longer show a bright square on Slack's dark message list. A
+  generated avatar is a transparent DiceBear PNG and Slack composites it onto
+  white; newly generated icon URLs now name Slack's resting dark surface as the
+  background instead. Only newly generated URLs change — an icon already stored
+  keeps its URL (#239).
+
 ### [0.17.0] - 2026-08-16
 
 #### Added
