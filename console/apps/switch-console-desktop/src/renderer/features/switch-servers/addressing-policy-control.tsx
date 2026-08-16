@@ -51,6 +51,7 @@ export function AddressingPolicyControl({
   agents,
   linkedIdentities,
   onClaimIdentity,
+  onOpenMessagingApps,
   disabled = false,
 }: {
   value: AddressingPolicy | null;
@@ -65,9 +66,12 @@ export function AddressingPolicyControl({
    * has not arrived. */
   linkedIdentities: LinkedIdentity[] | null;
   /** Opens the claim-your-identity modal. Null where a modal cannot be opened
-   * over the current one (the add-agent dialog), which turns the warning into
-   * a statement rather than an action that would discard the form. */
+   * over the current one (the add-agent dialog), which sends the warning to
+   * `onOpenMessagingApps` instead of claiming in place. */
   onClaimIdentity: (() => void) | null;
+  /** Opens the server's Messaging apps, where an account is linked when it
+   * cannot be claimed from here. */
+  onOpenMessagingApps: () => void;
   disabled?: boolean;
 }) {
   // Custom is sticky while it is chosen: a rule set can pass through a shape
@@ -114,7 +118,10 @@ export function AddressingPolicyControl({
       <span className="text-xs text-foreground-muted">{MODE_HINTS[mode]}</span>
 
       {policyNamesOwner(value) && linkedIdentities?.length === 0 && (
-        <OwnerUnreachableWarning onClaimIdentity={onClaimIdentity} />
+        <OwnerUnreachableWarning
+          onClaimIdentity={onClaimIdentity}
+          onOpenMessagingApps={onOpenMessagingApps}
+        />
       )}
 
       {mode === 'custom' && value !== null && (
@@ -138,7 +145,13 @@ export function AddressingPolicyControl({
  * up admitting nobody. Silence here would look like a working restriction right
  * up until someone wonders why the agent never answers.
  */
-function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => void) | null }) {
+function OwnerUnreachableWarning({
+  onClaimIdentity,
+  onOpenMessagingApps,
+}: {
+  onClaimIdentity: (() => void) | null;
+  onOpenMessagingApps: () => void;
+}) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
       <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
@@ -149,9 +162,16 @@ function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => 
           answer nobody.
         </span>
         {onClaimIdentity === null ? (
-          <span className="text-foreground-muted">
-            Link your account from the server page, under “Messaging apps”.
-          </span>
+          // Naming the place is not the same as going there. The claim modal
+          // cannot open over this one, so the warning opens Messaging apps
+          // itself rather than leaving the user to find it.
+          <button
+            type="button"
+            className="w-fit cursor-pointer text-foreground underline underline-offset-2"
+            onClick={onOpenMessagingApps}
+          >
+            Open Messaging apps
+          </button>
         ) : (
           <Button variant="outline" size="sm" className="self-start" onClick={onClaimIdentity}>
             Link my messaging account

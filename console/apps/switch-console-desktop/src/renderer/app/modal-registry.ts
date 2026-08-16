@@ -46,7 +46,7 @@ export function createModal<TProps, TResult>(
 export const modalRegistry = {
   commandPaletteModal: createModal(CommandPaletteModal, { size: 'md' }),
   sessionModal: createModal(CreateSessionModal, { dismissOnOutsideClick: false }),
-  addAgentModal: createModal(AddAgentModal, { dismissOnOutsideClick: false }),
+  addAgentModal: createModal(AddAgentModal, { size: 'lg', dismissOnOutsideClick: false }),
   confirmActionModal: createModal(ConfirmActionDialog, { size: 'xs' }),
   deleteAgentModal: createModal(DeleteAgentModal, { size: 'sm' }),
   resetAgentModal: createModal(ResetAgentModal, { size: 'sm' }),

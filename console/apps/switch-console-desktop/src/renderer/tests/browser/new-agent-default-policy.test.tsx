@@ -1,8 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
+import { afterEach, describe, expect, it } from 'vitest';
 /**
  * What "Who can send instructions" starts on for a brand-new agent (CHOO-2137).
  *
@@ -12,19 +11,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
  * to everyone still works perfectly, which is exactly why this needs pinning
  * rather than watching.
  */
-
-vi.mock('@renderer/lib/ipc', () => ({
-  rpc: {
-    switchServers: {
-      // The form seeds its name and description from this; the policy is not
-      // derived from it and must not become so.
-      suggestAgentDefaults: vi.fn(() =>
-        Promise.resolve({ name: 'louis-ama', description: 'Claude Code running in repo' })
-      ),
-    },
-  },
-}));
-
 import { useConfigureAgentForm } from '@renderer/features/locations/components/add-agent-modal/modes';
 import { addressingModeOf } from '@shared/core/switch-servers/owner-policy';
 
@@ -42,7 +28,7 @@ afterEach(async () => {
 async function initialMode(): Promise<string> {
   let seen = '';
   function Probe() {
-    const form = useConfigureAgentForm('/tmp/repo', false, 'claude' as never);
+    const form = useConfigureAgentForm(false);
     seen = addressingModeOf(form.addressingPolicy);
     return null;
   }

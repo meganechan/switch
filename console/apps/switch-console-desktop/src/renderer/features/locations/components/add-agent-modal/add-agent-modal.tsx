@@ -74,7 +74,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const showAddServerModal = useShowModal('addServerModal');
 
   const pickState = usePickMode();
-  const configureForm = useConfigureAgentForm(pickState.path, false, pickState.providerId);
+  const configureForm = useConfigureAgentForm(false);
 
   // Run location: 'local' (default) or an onboarded remote host's SSH alias. A
   // remote agent runs its sessions on the host and needs a remote working dir.
@@ -82,13 +82,10 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Typed directly, with no commit step: it used to need one because committing
   // fired the directory scans, and there are none left to fire.
   const [remoteRepoDir, setRemoteRepoDir] = useState('');
-  // Configure form for onboarding a brand-new agent in the remote dir. Defaults
-  // (name/description) are derived from the remote dir just like a local agent.
-  const remoteConfigureForm = useConfigureAgentForm(
-    remoteRepoDir.trim(),
-    true,
-    pickState.providerId
-  );
+  // A second form for a remote agent, which starts with permissions bypassed:
+  // a host is picked to run unattended, and prompts nobody will answer stall
+  // the session.
+  const remoteConfigureForm = useConfigureAgentForm(true);
   const { data: remoteHosts } = useQuery({
     queryKey: ['remote-hosts'],
     queryFn: () => rpc.remoteHosts.listHosts(),
@@ -415,14 +412,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           </Field>
         )}
 
-        {canConfigureAgent && (
-          <AgentSettingsSection
-            form={form}
-            serverId={pickState.serverId}
-            onAddServer={() => showAddServerModal({})}
-          />
-        )}
-
         {canChooseAgentType && (
           <AgentTypePicker
             value={pickState.providerId}
@@ -442,6 +431,21 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
               onChange={onLaunchProfileConfigChange}
             />
           </>
+        )}
+
+        {/* Last, below Advanced configuration. Everything above it is a choice
+            the agent cannot exist without; these have working defaults and are
+            changeable afterwards from the agent's own settings. */}
+        {canConfigureAgent && (
+          <AgentSettingsSection
+            form={form}
+            serverId={pickState.serverId}
+            onAddServer={() => showAddServerModal({})}
+            onOpenMessagingApps={() => {
+              onClose();
+              if (pickState.serverId) navigate('server', { serverId: pickState.serverId });
+            }}
+          />
         )}
       </DialogContentArea>
     </ModalLayout>

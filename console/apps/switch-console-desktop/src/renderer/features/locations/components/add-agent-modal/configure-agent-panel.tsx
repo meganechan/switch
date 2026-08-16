@@ -27,10 +27,12 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
   form,
   serverId,
   onAddServer,
+  onOpenMessagingApps,
 }: {
   form: ConfigureAgentFormState;
   serverId: string | null;
   onAddServer: () => void;
+  onOpenMessagingApps: () => void;
 }) {
   // Sessions, permissions and addressing are set once and rarely revisited, so
   // they start folded — the identity fields above are what the dialog is for.
@@ -120,16 +122,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
         {settingsOpen && (
           <FieldGroup className="pt-3">
             <Field>
-              <FieldLabel>Switch server</FieldLabel>
-              <div className="rounded-md border border-border bg-background-1 px-3 py-1.5 text-sm">
-                {serverId
-                  ? (servers.find((s) => s.id === serverId)?.name ?? serverId)
-                  : 'No server selected'}
-              </div>
-            </Field>
-
-            <Field>
-              <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
+              <label className="flex cursor-pointer items-start justify-between gap-3">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Auto-create a session on notify
@@ -151,7 +144,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
             </Field>
 
             <Field>
-              <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
+              <label className="flex cursor-pointer items-start justify-between gap-3">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Bypass permissions
@@ -194,6 +187,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
                 // at a time — opening the claim dialog here would throw away the form
                 // the user is halfway through. The warning names where to go instead.
                 onClaimIdentity={null}
+                onOpenMessagingApps={onOpenMessagingApps}
               />
             </Field>
           </FieldGroup>

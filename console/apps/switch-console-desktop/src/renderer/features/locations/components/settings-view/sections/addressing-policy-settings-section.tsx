@@ -8,6 +8,7 @@ import {
 } from '@renderer/features/switch-servers/addressing-policy-editor';
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Field, FieldTitle } from '@renderer/lib/ui/field';
@@ -76,6 +77,7 @@ function AddressingPolicyRow({
 }) {
   const queryClient = useQueryClient();
   const showClaimIdentity = useShowModal('claimIdentityModal');
+  const { navigate } = useNavigate();
   const { identities, refresh: refreshIdentities } = useMyIdentities(serverId);
   const [draft, setDraft] = useState<AddressingPolicy | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -166,6 +168,7 @@ function AddressingPolicyRow({
                   onSuccess: () => refreshIdentities(),
                 })
         }
+        onOpenMessagingApps={() => navigate('server', { serverId })}
         disabled={mutation.isPending}
       />
       {error && <span className="text-destructive text-xs">{error}</span>}
