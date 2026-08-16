@@ -241,12 +241,11 @@ const ServerMainPanel = observer(function ServerMainPanel() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
-                {/* Only a server Switch Console runs is one it can delete. For
-                    anyone else's, all we can do is let go of it — and a red
-                    "Delete server" on someone else's deployment reads as a
-                    threat to the deployment. */}
+                {/* Only a server Switch Console runs is one it can delete; for
+                    anyone else's, all we can do is let go of it. Both stay red:
+                    either way every agent pointed at this server loses it. */}
                 <DropdownMenuItem
-                  variant={server.managed ? 'destructive' : undefined}
+                  variant="destructive"
                   onClick={() =>
                     showDeleteServerModal({ serverId, onSuccess: () => navigate('home') })
                   }

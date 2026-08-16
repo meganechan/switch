@@ -90,9 +90,7 @@ export const DeleteServerModal = observer(function DeleteServerModal({
     <>
       <DialogHeader showCloseButton={false}>
         <div className="flex items-center gap-2">
-          {/* The alarm belongs to the teardown, not to letting go of a server
-              someone else runs — that one you can undo by adding it again. */}
-          {managed && <TriangleAlert className="size-4 text-red-500" />}
+          <TriangleAlert className="size-4 text-red-500" />
           <DialogTitle>
             {managed ? `Delete “${server.name}”?` : `Disconnect from “${server.name}”?`}
           </DialogTitle>
@@ -144,7 +142,7 @@ export const DeleteServerModal = observer(function DeleteServerModal({
           Cancel
         </Button>
         <ConfirmButton
-          variant={managed ? 'destructive' : 'default'}
+          variant="destructive"
           onClick={() => void handleDelete()}
           disabled={!typeConfirmed || isDeleting}
         >

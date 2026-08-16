@@ -232,25 +232,15 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
       </div>
 
       {/* Same shape as the addressing editor's owner warning, so the two
-        readings of one problem look like one problem. */}
+        readings of one problem look like one problem.
+
+        The warning states the consequence itself, and each unlinked row below
+        carries the longer explanation — a third hover here was one more thing
+        to hover for something already said. */}
       {unrecognisedIn.length > 0 && (
         <div className="mt-2 flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
           <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
           <span>{unrecognisedMessagingAppsMessage(unrecognisedIn)}</span>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span
-                  tabIndex={0}
-                  aria-label={NO_ACCOUNT_EXPLANATION}
-                  className="mt-0.5 inline-flex shrink-0 text-foreground-muted"
-                >
-                  <Info className="size-3.5" />
-                </span>
-              }
-            />
-            <TooltipContent className="max-w-xs">{NO_ACCOUNT_EXPLANATION}</TooltipContent>
-          </Tooltip>
         </div>
       )}
 

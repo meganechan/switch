@@ -1,11 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { Bot, MessageSquare, Search, X } from 'lucide-react';
+import { MessageSquare, Search, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { openRoomView } from '@renderer/features/sidebar/sidebar-room-grouping';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
-import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import {
+  AgentMark as SharedAgentMark,
+  agentProviderLabel,
+} from '@renderer/lib/components/agent-mark';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
@@ -31,7 +34,6 @@ import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Input } from '@renderer/lib/ui/input';
 import { Textarea } from '@renderer/lib/ui/textarea';
 import { cn } from '@renderer/utils/utils';
-import { providerDisplayName } from '@shared/core/providers/agent-provider-registry';
 import type {
   LinkedIdentity,
   RemoteAgentSummary,
@@ -505,9 +507,12 @@ function AgentMark({
   serverId: string;
   size: number;
 }) {
-  const providerId = localAgentFor(agentId, serverId)?.providerId ?? null;
-  if (!providerId) return <Bot className="size-4 shrink-0 text-foreground-muted" />;
-  return <AgentIcon id={providerId} size={size} />;
+  return (
+    <SharedAgentMark
+      providerId={localAgentFor(agentId, serverId)?.providerId ?? null}
+      size={size}
+    />
+  );
 }
 
 /** This install's record of a Switch agent, which is where its provider is
@@ -519,8 +524,7 @@ function localAgentFor(switchAgentId: string, serverId: string) {
 }
 
 function providerLabelFor(switchAgentId: string, serverId: string): string {
-  const providerId = localAgentFor(switchAgentId, serverId)?.providerId;
-  return (providerId ? providerDisplayName(providerId) : null) ?? 'Agent';
+  return agentProviderLabel(localAgentFor(switchAgentId, serverId)?.providerId);
 }
 
 /** The claimed account as a handle. Platforms differ on whether the username

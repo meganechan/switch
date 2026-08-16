@@ -1,3 +1,4 @@
+import { detectPlatform } from '@tanstack/hotkeys';
 import { type ReactNode } from 'react';
 import { useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider';
@@ -8,6 +9,8 @@ const LEFT_PANEL_DEFAULT_SIZE = '274px';
 const LEFT_SIDEBAR_MIN_SIZE = '200px';
 const LEFT_SIDEBAR_MAX_SIZE = '30%';
 const MAIN_PANEL_MIN_SIZE = '30%';
+
+const isMac = detectPlatform() === 'mac';
 
 interface WorkspaceLayoutProps {
   leftSidebar: ReactNode;
@@ -75,8 +78,20 @@ export function WorkspaceLayout({
             the two, in place of a divider. Flush to the sidebar on the left,
             8px away on the other three sides. The hairline is a spread shadow
             rather than a border so it lands on a half pixel and does not take
-            a whole one out of the panel. */}
-        <div className="relative h-full w-full overflow-hidden pt-2 pr-2 pb-2">
+            a whole one out of the panel.
+
+            With the sidebar collapsed there is no sidebar to be flush against,
+            so the card insets on the left too — and on macOS it starts below
+            the traffic lights instead of behind them. The sidebar's empty top
+            strip was what kept them clear; without it the card was drawing its
+            own corner under the close button. */}
+        <div
+          className={cn(
+            'relative h-full w-full overflow-hidden pr-2 pb-2',
+            isLeftOpen ? 'pt-2' : 'pl-2',
+            !isLeftOpen && (isMac ? 'pt-9' : 'pt-2')
+          )}
+        >
           <div className="relative h-full w-full overflow-hidden rounded-[var(--panel-radius)] shadow-[0_0_0_0.5px_var(--hair)]">
             {mainContent}
             {persistentLayer}

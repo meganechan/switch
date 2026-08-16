@@ -81,7 +81,9 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   addAgentsToRoomModal: createModal(AddAgentsToRoomModal, {
-    size: 'sm',
+    // The room-side twin of `addAgentToRoomModal`, and sized to match: the two
+    // do the same job from opposite ends and should not feel like two dialogs.
+    size: 'lg',
     dismissOnOutsideClick: false,
   }),
   addAgentToRoomModal: createModal(AddAgentToRoomsModal, {

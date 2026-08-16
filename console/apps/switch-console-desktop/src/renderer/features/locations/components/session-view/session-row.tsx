@@ -50,7 +50,9 @@ export const SessionRow = observer(function SessionRow({
     });
   const isArchived = Boolean(session.data.archivedAt);
   const canPin = session.state !== 'unregistered';
-  const agentAttention = sessionAgentStatus(session);
+  // Only working still draws something, so only working may take the row's
+  // trailing slot from the timestamp.
+  const isWorking = sessionAgentStatus(session) === 'working';
 
   return (
     <SessionContextMenu
@@ -114,11 +116,11 @@ export const SessionRow = observer(function SessionRow({
         <div
           className={cn(
             'flex min-w-8 shrink-0 items-center justify-end',
-            agentAttention ? 'justify-end' : 'justify-middle'
+            isWorking ? 'justify-end' : 'justify-middle'
           )}
         >
-          {agentAttention ? (
-            <AgentStatusIndicator status={agentAttention} />
+          {isWorking ? (
+            <AgentStatusIndicator status="working" />
           ) : (
             <RelativeTime
               value={session.data.createdAt}
