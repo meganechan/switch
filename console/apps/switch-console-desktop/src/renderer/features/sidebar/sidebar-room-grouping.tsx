@@ -235,7 +235,7 @@ export function RoomRow({
               </SidebarItemMiniButton>
             }
           />
-          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenuContent align="end">
             {onAddAgent && (
               <DropdownMenuItem onClick={onAddAgent}>
                 <Plus className="size-4" />
