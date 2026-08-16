@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown, Plus } from 'lucide-react';
+import { ChevronsUpDown, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
@@ -174,17 +174,26 @@ const ServerMenuItem = observer(function ServerMenuItem({ server }: { server: Sw
 
   return (
     <DropdownMenuItem
+      // The active server is shown by filling its row rather than by a tick in
+      // the right margin, so the row you are on reads at a glance instead of
+      // needing the eye to travel to the end of it. `aria-current` carries the
+      // same fact for anything that cannot see the fill.
+      aria-current={isActive ? 'true' : undefined}
+      className={cn(isActive && 'bg-[var(--sel)]')}
       onClick={() => {
         void store.setActive(server.id);
         navigate('server', { serverId: server.id });
       }}
     >
-      <ServerAvatar server={server} size="sm" />
+      <ServerAvatar server={server} size="md" />
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm text-foreground">{server.name}</span>
+        <span className="block truncate text-sm font-medium text-foreground">{server.name}</span>
         <span className="flex min-w-0 items-center gap-1.5 text-xs text-foreground-muted">
           <Icon className="size-3 shrink-0" />
           <span className="truncate">{serverStatusLabel(server)}</span>
+          {/* Beside the words it qualifies rather than at the row's right edge,
+              where it read as a property of the row instead of of the status. */}
+          <ServerStatusDot server={server} />
           {placement && (
             <span className="shrink-0 rounded bg-background-tertiary px-1 py-px text-[10px] font-medium tracking-wide text-foreground-muted uppercase">
               {placement}
@@ -193,8 +202,6 @@ const ServerMenuItem = observer(function ServerMenuItem({ server }: { server: Sw
         </span>
       </span>
       {drift && <ServerDriftIndicator drift={drift} />}
-      <ServerStatusDot server={server} />
-      {isActive && <Check className="size-3.5 shrink-0 text-foreground" />}
     </DropdownMenuItem>
   );
 });
