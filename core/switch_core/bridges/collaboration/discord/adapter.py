@@ -232,13 +232,6 @@ class DiscordAdapter(CollaborationAdapter):
             raise RuntimeError("Discord client not connected")
         return self._client
 
-    # ── Agent icon ───────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _get_agent_icon(agent_name: str) -> str:
-        name = agent_name.replace("_", "+")
-        return f"https://ui-avatars.com/api/?name={name}&background=random&size=128"
-
     # ── Messaging ────────────────────────────────────────────────────────────
 
     async def send_message(
@@ -284,12 +277,16 @@ class DiscordAdapter(CollaborationAdapter):
         kwargs: dict[str, Any] = {}
         if thread is not None:
             kwargs["thread"] = thread
+        # Resolved once here rather than inside the send callback: that callback
+        # is synchronous, and a chunked message would otherwise re-resolve per
+        # chunk and could split one message across two different avatars.
+        avatar_url = await self.agent_icon_url(sender_name)
         return await self._send_chunked(
             content,
             lambda part: webhook.send(
                 content=part,
                 username=sender_name,
-                avatar_url=self._get_agent_icon(sender_name),
+                avatar_url=avatar_url,
                 suppress_embeds=True,
                 wait=True,
                 **kwargs,
@@ -423,7 +420,7 @@ class DiscordAdapter(CollaborationAdapter):
             sent: Any = await webhook.send(
                 content=body,
                 username=sender_name,
-                avatar_url=self._get_agent_icon(sender_name),
+                avatar_url=await self.agent_icon_url(sender_name),
                 file=discord.File(io.BytesIO(data), filename=filename),
                 wait=True,
                 **kwargs,

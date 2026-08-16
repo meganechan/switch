@@ -52,6 +52,11 @@ export function useConfigureAgentForm() {
   const [addressingPolicy, setAddressingPolicy] = useState<AddressingPolicy | null>(() =>
     ownerOnlyPolicy()
   );
+  // The agent's icon (CHOO-2171). Null means "whatever the name generates",
+  // which is also what the ✕ in the picker returns to — held as null rather
+  // than as the resolved URL so the avatar keeps following the name while the
+  // user is still typing it.
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
 
   const setAutoApprove = useCallback((value: boolean) => {
     setAutoApproveRaw(value);
@@ -88,6 +93,8 @@ export function useConfigureAgentForm() {
     suggestAutoApprove,
     addressingPolicy,
     setAddressingPolicy,
+    iconUrl,
+    setIconUrl,
     isValid,
   };
 }

@@ -99,6 +99,12 @@ class Agent(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    # Absolute https URL of the agent's icon (CHOO-2171). Switch stores the
+    # link, never image bytes: whatever produces the picture — a generated-
+    # avatar service, the operator's own host — is the client's concern. NULL
+    # means no icon was chosen, and the display layer supplies the fallback, so
+    # that fallback can change without touching stored rows.
+    icon_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     agent_type: Mapped[str] = mapped_column(Text, nullable=False)
     connector_type: Mapped[str] = mapped_column(Text, nullable=False)
     integration_profile: Mapped[dict] = mapped_column(JSONB, nullable=False)

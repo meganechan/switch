@@ -127,13 +127,6 @@ class SlackAdapter(CollaborationAdapter):
         self._web_client = None
         logger.info("Slack adapter stopped")
 
-    # ── Agent icon ───────────────────────────────────────────────────────────
-
-    @staticmethod
-    def _get_agent_icon(agent_name: str) -> str:
-        name = agent_name.replace("_", "+")
-        return f"https://ui-avatars.com/api/?name={name}&background=random&size=128"
-
     # ── Messaging ────────────────────────────────────────────────────────────
 
     async def send_message(
@@ -164,7 +157,7 @@ class SlackAdapter(CollaborationAdapter):
                 channel=channel_id,
                 text=self.translate_outbound(content),
                 username=sender_name,
-                icon_url=self._get_agent_icon(sender_name),
+                icon_url=await self.agent_icon_url(sender_name),
                 thread_ts=thread_ts,
                 unfurl_links=False,
                 unfurl_media=False,
@@ -433,7 +426,7 @@ class SlackAdapter(CollaborationAdapter):
                     channel=channel_id,
                     text="_thinking..._",
                     username=sender_name,
-                    icon_url=self._get_agent_icon(sender_name),
+                    icon_url=await self.agent_icon_url(sender_name),
                     thread_ts=thread_ts,
                 )
                 ts = result.get("ts")

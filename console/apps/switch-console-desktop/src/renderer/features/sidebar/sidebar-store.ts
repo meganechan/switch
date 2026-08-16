@@ -190,6 +190,11 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   /** Whether the first-run setup checklist is collapsed to its header row. */
   onboardingChecklistCollapsed = false;
 
+  /** Whether to hide the provider mark beside a sidebar agent's name. Stated
+   * as "hide" so the default — showing it — is the falsy one, and a reader who
+   * never opens the menu keeps seeing what an agent runs on. */
+  hideProviderMark = false;
+
   constructor(private readonly locationManager: LocationManagerStore) {
     makeAutoObservable(this, {
       expandedLocationIds: false,
@@ -471,6 +476,7 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
       filterBridgeTypes: [...this.filterBridgeTypes],
       filterRoomHasLiveSession: this.filterRoomHasLiveSession,
       onboardingChecklistCollapsed: this.onboardingChecklistCollapsed,
+      hideProviderMark: this.hideProviderMark,
     };
   }
 
@@ -519,10 +525,17 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
     if (snapshot.onboardingChecklistCollapsed !== undefined) {
       this.onboardingChecklistCollapsed = snapshot.onboardingChecklistCollapsed;
     }
+    if (snapshot.hideProviderMark !== undefined) {
+      this.hideProviderMark = snapshot.hideProviderMark;
+    }
   }
 
   toggleOnboardingChecklistCollapsed(): void {
     this.onboardingChecklistCollapsed = !this.onboardingChecklistCollapsed;
+  }
+
+  setHideProviderMark(hidden: boolean): void {
+    this.hideProviderMark = hidden;
   }
 
   /** Called on first load when no snapshot exists — expand all known locations. */

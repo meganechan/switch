@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, DoorOpen, MessageSquare, Plus } from 'lucide-react';
+import { ChevronDown, DoorOpen, MessageSquare, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import type { GuardResult, ViewDefinition } from '@renderer/app/view-registry';
@@ -6,11 +6,12 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
 import { openRoom } from '@renderer/features/switch-rooms/open-room';
 import { roomTitle } from '@renderer/features/switch-rooms/room-labels';
-import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { useRemoteAgents } from '@renderer/lib/stores/use-remote-agents';
 import { Button } from '@renderer/lib/ui/button';
 import { SearchInput } from '@renderer/lib/ui/search-input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -244,6 +245,8 @@ const RoomRow = observer(function RoomRow({
   serverId: string;
 }) {
   const members = switchRoomsStore.localMemberIds(room.id);
+  const { data: remoteAgents } = useRemoteAgents(serverId);
+  const remoteById = new Map((remoteAgents ?? []).map((agent) => [agent.id, agent]));
   const localAgents = agentsStore
     .agentsOnServer(serverId)
     .filter((agent) => agent.switchAgentId != null && members.includes(agent.switchAgentId));
@@ -282,21 +285,21 @@ const RoomRow = observer(function RoomRow({
               // the room — and a stack reads as that, where an evenly spaced
               // row reads as a set of separate controls to click.
               //
-              // Each mark sits in a filled disc, so what a mark in front hides
-              // is a clean circle rather than the silhouette of its own logo —
-              // the marks are different shapes, and letting them interlock made
-              // two agents read as one broken glyph.
+              // Each avatar keeps its ring, so what the one in front hides is a
+              // clean circle rather than a bitten-into picture — the avatars
+              // are all different, and letting them interlock made two agents
+              // read as one broken image.
               <span className="flex shrink-0 items-center -space-x-1.5">
                 {localAgents.map((agent) => (
                   <span
                     key={agent.id}
                     className="flex size-6 items-center justify-center rounded-full bg-background ring-1 ring-[var(--hair-soft)] transition-colors group-hover/room:bg-[var(--fill)]"
                   >
-                    {agent.providerId ? (
-                      <AgentIcon id={agent.providerId} size={14} />
-                    ) : (
-                      <Bot className="size-3.5 text-foreground-muted" />
-                    )}
+                    <AgentAvatar
+                      name={agent.name}
+                      iconUrl={remoteById.get(agent.switchAgentId ?? '')?.iconUrl ?? null}
+                      size={22}
+                    />
                   </span>
                 ))}
               </span>

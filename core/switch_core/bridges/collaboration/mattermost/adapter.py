@@ -18,6 +18,7 @@ import requests as sync_requests
 from mattermostdriver import Driver
 from mattermostdriver.exceptions import NoAccessTokenProvided
 
+from switch_core.agent_icon import default_icon_url
 from switch_core.bridges.collaboration.adapter import (
     CollaborationAdapter,
     LiveRuntimeIndicator,
@@ -37,6 +38,11 @@ from switch_core.bridges.collaboration.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Ceiling on a bot icon Switch downloads before re-uploading it to Mattermost.
+# Generously above any real avatar; it exists so a hostile or broken URL cannot
+# stream unbounded data into memory.
+_MAX_BOT_ICON_BYTES = 5 * 1024 * 1024
 
 
 class MattermostConnectionConfig(BridgeConnectionConfig):
@@ -964,18 +970,37 @@ class MattermostAdapter(CollaborationAdapter):
 
     # ── Bot icons ────────────────────────────────────────────────────────────
 
+    def default_agent_icon(self, agent_name: str) -> str:
+        # Mattermost uploads the image itself rather than passing a link on, so
+        # the response has to be a PNG it can accept.
+        return default_icon_url(agent_name, image_format="png")
+
     async def _set_bot_icon(self, bot_id: str, agent_name: str) -> None:
         if not self._admin_driver or not self._main_loop:
             logger.error("[BOT-ICON] skipping %s: no driver or loop", agent_name)
             return
         driver = self._admin_driver
         try:
-            url = f"https://ui-avatars.com/api/?name={agent_name}&background=random&size=128&format=png"
+            url = await self.agent_icon_url(agent_name)
             logger.debug("[BOT-ICON] fetching avatar for %s", agent_name)
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(url)
+            # This is the one place Switch dereferences an agent's icon URL
+            # rather than handing it to a platform, so the fetch is bounded:
+            # redirects off (a permitted host could otherwise bounce us to an
+            # internal one, which validation at write time cannot foresee) and
+            # a size ceiling so a hostile response cannot be read unbounded.
+            async with httpx.AsyncClient(follow_redirects=False) as client:
+                resp = await client.get(url, timeout=10.0)
                 resp.raise_for_status()
                 image_bytes = resp.content
+            if len(image_bytes) > _MAX_BOT_ICON_BYTES:
+                logger.error(
+                    "[BOT-ICON] icon for %s is %d bytes, over the %d limit — "
+                    "leaving the current icon in place",
+                    agent_name,
+                    len(image_bytes),
+                    _MAX_BOT_ICON_BYTES,
+                )
+                return
             logger.debug(
                 "[BOT-ICON] fetched %d bytes for %s", len(image_bytes), agent_name
             )

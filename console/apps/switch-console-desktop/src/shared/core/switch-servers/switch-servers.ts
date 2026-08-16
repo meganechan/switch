@@ -189,8 +189,28 @@ export type RemoteAgentSummary = {
    * owner" is one list read rather than a read per agent. Null also for a
    * server older than the field, which reads the same as open. */
   addressingPolicy: AddressingPolicy | null;
+  /** Absolute URL of the agent's own icon, or null when it has none. Null is
+   * the ordinary state rather than an error: the display layer draws a
+   * name-derived avatar instead, so the fallback can change without every
+   * agent needing rewriting. */
+  iconUrl: string | null;
   createdAt: string;
 };
+
+/**
+ * What came of giving this user's icon-less agents their generated avatar
+ * (CHOO-2171).
+ *
+ * Reported rather than logged because the app cannot tell the difference on
+ * screen: it draws a name-derived bot for any agent with no stored icon, so a
+ * server that rejected every write still looks right here while the chat
+ * platforms show the lettered avatar.
+ */
+export type AgentIconBackfill =
+  | { kind: 'written'; written: number }
+  /** The server has no agent-icon endpoint — it predates the feature. */
+  | { kind: 'unsupported' }
+  | { kind: 'partial'; written: number; failed: number };
 
 /** Read-only summary of a remote room (mirrors the gateway `RoomSummary`). */
 export type RemoteRoomSummary = {

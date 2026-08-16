@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from switch_core.agent_icon import default_icon_url
 from switch_core.bridges.collaboration.models import InboundCommand, InboundMessage
 from switch_core.bridges.collaboration.teams.adapter import (
     TeamsAdapter,
@@ -820,23 +821,55 @@ def test_typing_false_is_noop() -> None:
 
 
 def test_agent_card_carries_name_and_body() -> None:
-    card = agent_message_card("worker", "the message body")
+    card = agent_message_card("worker", "the message body", "https://example.com/i.png")
     # Name appears in the header column; body appears as its own TextBlock.
     header = card["body"][0]["columns"][1]["items"][0]
     assert header["text"] == "worker"
     assert card["body"][1]["text"] == "the message body"
 
 
-def test_message_activity_carries_notification_summary_and_fallback() -> None:
+def test_agent_card_renders_the_supplied_icon() -> None:
+    card = agent_message_card("worker", "body", "https://example.com/custom.png")
+    image = card["body"][0]["columns"][0]["items"][0]
+    assert image["url"] == "https://example.com/custom.png"
+
+
+async def test_message_activity_carries_notification_summary_and_fallback() -> None:
     # Without a plain-text summary on the activity and a fallbackText on the card,
     # Teams renders a "cards.unsupported" placeholder in notifications, mobile, and
     # link/search previews.
     adapter = _adapter()
-    activity = adapter._message_activity("worker", "hello world")
+    activity = await adapter._message_activity("worker", "hello world")
     assert activity["summary"] == "worker: hello world"
     assert (
         activity["attachments"][0]["content"]["fallbackText"] == "worker: hello world"
     )
+
+
+async def test_message_activity_uses_the_agents_own_icon_when_it_has_one() -> None:
+    adapter = _adapter()
+
+    async def _resolver(agent_name: str) -> str | None:
+        return "https://example.com/worker.png" if agent_name == "worker" else None
+
+    adapter.set_agent_icon_resolver(_resolver)
+    activity = await adapter._message_activity("worker", "hello")
+
+    image = activity["attachments"][0]["content"]["body"][0]["columns"][0]["items"][0]
+    assert image["url"] == "https://example.com/worker.png"
+
+
+async def test_message_activity_falls_back_to_the_default_icon() -> None:
+    adapter = _adapter()
+
+    async def _resolver(agent_name: str) -> str | None:
+        return None
+
+    adapter.set_agent_icon_resolver(_resolver)
+    activity = await adapter._message_activity("worker", "hello")
+
+    image = activity["attachments"][0]["content"]["body"][0]["columns"][0]["items"][0]
+    assert image["url"] == default_icon_url("worker")
 
 
 # ── Runtime state ────────────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ from switch_core.bridges.agent.protocol.types import (
 class RegisterAgentRequest(BaseModel):
     name: str
     description: str
+    icon_url: str | None = None
     connector_type: str
     integration_profile: IntegrationProfile
     tools: list[ToolSpec] = []
@@ -37,6 +38,7 @@ class RegisterKnownAgentRequest(BaseModel):
     agent_type: str
     name: str
     description: str
+    icon_url: str | None = None
     options: dict[str, Any] = {}
     # When set, register this agent as a child of `parent_agent_id` (e.g. a
     # Claude Code subagent under the user's main agent). None = top-level.

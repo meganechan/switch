@@ -3,9 +3,11 @@ import { observer } from 'mobx-react-lite';
 import { useCallback, useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
-import { AgentMark, agentProviderLabel } from '@renderer/lib/components/agent-mark';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
+import { agentProviderLabel } from '@renderer/lib/components/agent-mark';
 import { rpc } from '@renderer/lib/ipc';
 import { type BaseModalProps, useModalContext } from '@renderer/lib/modal/modal-provider';
+import { useRemoteAgents } from '@renderer/lib/stores/use-remote-agents';
 import { Button } from '@renderer/lib/ui/button';
 import {
   Combobox,
@@ -27,7 +29,12 @@ import { Field, FieldLabel } from '@renderer/lib/ui/field';
 type Props = BaseModalProps<void> & { roomId: string };
 
 /** An agent that can be added: this install's agent, by its Switch identity. */
-type Candidate = { id: string; name: string; providerId: string | null };
+type Candidate = {
+  id: string;
+  name: string;
+  providerId: string | null;
+  iconUrl: string | null;
+};
 
 export const AddAgentsToRoomModal = observer(function AddAgentsToRoomModal({
   roomId,
@@ -47,6 +54,10 @@ export const AddAgentsToRoomModal = observer(function AddAgentsToRoomModal({
   // offer have to be the same two sets the tree uses, or the picker and the
   // sidebar can disagree about who is already in the room.
   const members = new Set(switchRoomsStore.localMemberIds(roomId));
+  // The agents' own icons live on the server, not in the local row, so the
+  // list is joined against the server's summary to draw them.
+  const { data: remoteAgents } = useRemoteAgents(serverId);
+  const remoteById = new Map((remoteAgents ?? []).map((agent) => [agent.id, agent]));
   // Only this install's agents are offered. An agent registered on another
   // Switch Console could be added server-side but could never be shown or driven
   // from here, so it is not ours to offer.
@@ -57,6 +68,7 @@ export const AddAgentsToRoomModal = observer(function AddAgentsToRoomModal({
           id: agent.switchAgentId as string,
           name: agent.name,
           providerId: agent.providerId ?? null,
+          iconUrl: remoteById.get(agent.switchAgentId as string)?.iconUrl ?? null,
         }))
         .filter((a) => !members.has(a.id) && !selected.some((s) => s.id === a.id))
     : [];
@@ -144,7 +156,7 @@ export const AddAgentsToRoomModal = observer(function AddAgentsToRoomModal({
                 <ComboboxList>
                   {(item: Candidate) => (
                     <ComboboxItem key={item.id} value={item} showCheck={false}>
-                      <AgentMark providerId={item.providerId} size={16} />
+                      <AgentAvatar name={item.name} iconUrl={item.iconUrl} size={22} />
                       <span className="min-w-0 flex-1 truncate">{item.name}</span>
                       <span className="shrink-0 text-xs text-foreground-muted">
                         {agentProviderLabel(item.providerId)}
@@ -188,7 +200,7 @@ function ChosenAgentTile({ agent, onRemove }: { agent: Candidate; onRemove: () =
     // dialog's own background, so a tile drawn in it was a tile nobody could
     // see.
     <div className="group relative flex flex-col gap-2 rounded-[10px] bg-[var(--fill)] p-3">
-      <AgentMark providerId={agent.providerId} size={22} />
+      <AgentAvatar name={agent.name} iconUrl={agent.iconUrl} size={26} />
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-sm text-foreground">{agent.name}</span>
         <span className="truncate text-xs text-foreground-muted">

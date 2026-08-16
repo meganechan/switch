@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bot, ExternalLink, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { ExternalLink, Loader2, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useState } from 'react';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
-import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { useRemoteAgents } from '@renderer/lib/stores/use-remote-agents';
 import { Button } from '@renderer/lib/ui/button';
 import { Input } from '@renderer/lib/ui/input';
 import {
@@ -302,10 +303,7 @@ const ParticipantsSection = observer(function ParticipantsSection({
   // Names for agents belonging to other installs, which this computer has no
   // local record of. Shares its key with the rest of the app, so it is usually
   // already in hand.
-  const remoteAgents = useQuery({
-    queryKey: ['remote-agents', serverId],
-    queryFn: () => rpc.switchServers.listRemoteAgents(serverId),
-  });
+  const remoteAgents = useRemoteAgents(serverId);
   const remoteById = new Map((remoteAgents.data ?? []).map((a) => [a.id, a]));
 
   async function refresh() {
@@ -340,7 +338,7 @@ const ParticipantsSection = observer(function ParticipantsSection({
           {room.agentIds.map((agentId) => (
             <ParticipantCard
               key={agentId}
-              mark={<AgentMark agentId={agentId} serverId={serverId} />}
+              mark={<AgentMark agentId={agentId} serverId={serverId} remoteById={remoteById} />}
               name={agentNameFor(agentId, serverId, remoteById)}
               detail={agentKindFor(agentId, serverId, remoteById)}
             />
@@ -406,6 +404,8 @@ const AddAgentPanel = observer(function AddAgentPanel({
   const [error, setError] = useState<string | null>(null);
 
   const members = new Set(room.agentIds);
+  const { data: remoteAgents } = useRemoteAgents(serverId);
+  const remoteById = new Map((remoteAgents ?? []).map((agent) => [agent.id, agent]));
   const query = filter.trim().toLowerCase();
   const candidates = agentsStore
     .agentsOnServer(serverId)
@@ -479,11 +479,11 @@ const AddAgentPanel = observer(function AddAgentPanel({
                   busyId !== null && 'cursor-wait'
                 )}
               >
-                {agent.providerId ? (
-                  <AgentIcon id={agent.providerId} size={18} />
-                ) : (
-                  <Bot className="size-4 shrink-0 text-foreground-muted" />
-                )}
+                <AgentAvatar
+                  name={agent.name}
+                  iconUrl={remoteById.get(switchAgentId)?.iconUrl ?? null}
+                  size={22}
+                />
                 <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                   {agent.name}
                 </span>
@@ -523,19 +523,24 @@ function PanelNotice({
   );
 }
 
-/** The mark of what an agent runs, resolved through this install's copy of it. */
-function AgentMark({ agentId, serverId }: { agentId: string; serverId: string }) {
-  const providerId = localAgentFor(agentId, serverId)?.providerId ?? null;
-  if (!providerId) {
-    return (
-      <span className="flex size-7 shrink-0 items-center justify-center">
-        <Bot className="size-4 text-foreground-muted" />
-      </span>
-    );
-  }
+/** An agent's own picture, beside the human participants' initials discs. */
+function AgentMark({
+  agentId,
+  serverId,
+  remoteById,
+}: {
+  agentId: string;
+  serverId: string;
+  remoteById: Map<string, RemoteAgentSummary>;
+}) {
+  const remote = remoteById.get(agentId) ?? null;
   return (
     <span className="flex size-7 shrink-0 items-center justify-center">
-      <AgentIcon id={providerId} size={20} />
+      <AgentAvatar
+        name={agentNameFor(agentId, serverId, remoteById)}
+        iconUrl={remote?.iconUrl ?? null}
+        size={26}
+      />
     </span>
   );
 }

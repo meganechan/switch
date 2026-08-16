@@ -3,8 +3,12 @@ import type { LocationStore } from '@renderer/features/locations/stores/location
 import type { SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
+import { toast } from '@renderer/lib/hooks/use-toast';
+import { rpc } from '@renderer/lib/ipc';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { log } from '@renderer/utils/logger';
 import type { Agent } from '@shared/core/agents/agents';
+import type { AgentIconBackfill } from '@shared/core/switch-servers/switch-servers';
 
 /**
  * What the two sidebar trees agree on: which agents are in scope and which
@@ -117,4 +121,56 @@ export async function refreshSidebarRoomState(force: boolean): Promise<void> {
     switchRoomsStore.ensureMembershipsFor(switchIdentities(), { force }),
     switchRoomsStore.loadRoomNames(),
   ]);
+  void giveExistingAgentsAnIcon();
+}
+
+/**
+ * Fill in the avatar of any of this user's agents registered before icons
+ * existed (CHOO-2171). The main process does it once per server per run, so
+ * calling it on every refresh costs nothing after the first.
+ *
+ * Not awaited by the caller and never allowed to throw: the sidebar must paint
+ * whether or not the gateway is reachable, and an agent without an icon still
+ * shows the avatar its name generates in the meantime.
+ *
+ * **A failure here has to be said out loud.** That name-derived avatar makes
+ * the app look finished whether or not the server accepted anything, and the
+ * only place the difference shows is Slack — where the agent keeps its old
+ * lettered picture with nothing explaining why.
+ */
+async function giveExistingAgentsAnIcon(): Promise<void> {
+  const serverIds = new Set(switchIdentities().map((identity) => identity.serverId));
+  for (const serverId of serverIds) {
+    try {
+      reportBackfill(await rpc.switchServers.backfillAgentIcons(serverId));
+    } catch (cause) {
+      log.warn('could not give existing agents their icons', { serverId, cause });
+      toast({
+        title: 'Agent icons could not be saved',
+        description:
+          'Your agents show a generated icon here, but the Switch server has not stored it — so they keep their old picture in Slack and the other chat apps.',
+        variant: 'destructive',
+      });
+    }
+  }
+}
+
+function reportBackfill(outcome: AgentIconBackfill): void {
+  if (outcome.kind === 'unsupported') {
+    toast({
+      title: 'This Switch server does not support agent icons yet',
+      description:
+        'Your agents show a generated icon here, but it cannot be saved, so they keep their old picture in Slack and the other chat apps. Updating the server fixes it.',
+      variant: 'destructive',
+    });
+    return;
+  }
+  if (outcome.kind === 'partial') {
+    toast({
+      title: `${outcome.failed} agent${outcome.failed === 1 ? '' : 's'} kept the old icon`,
+      description:
+        'Their icon could not be saved to the Switch server, so it will not show in Slack or the other chat apps.',
+      variant: 'destructive',
+    });
+  }
 }

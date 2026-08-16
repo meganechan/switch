@@ -171,6 +171,7 @@ class BridgeCore:
         await self._load_channel_map()
         await self._load_existing_puppets()
         self._adapter.set_channel_migration_handler(self._handle_channel_migrated)
+        self._adapter.set_agent_icon_resolver(self._agent_icon_url)
         await self._adapter.start(
             on_message=self._handle_inbound_message,
             on_command=self._handle_inbound_command,
@@ -254,6 +255,18 @@ class BridgeCore:
             await self._adapter.ensure_channel_subscriptions(channels)
 
     # ── Inbound (platform → room) ───────────────────────────────────────────
+
+    async def _agent_icon_url(self, agent_name: str) -> str | None:
+        """An agent's own icon URL, or None if it has not been given one.
+
+        Installed on the adapter as its icon resolver; None sends the adapter
+        to its existing default. A name matching no agent — an alias, or a bot
+        the platform reports that Switch does not own — also yields None rather
+        than an error, since the caller only wants to know whether to override.
+        """
+        async with self._session_factory() as session:
+            agent = await self._agent_store.get_by_name(session, agent_name)
+        return agent.icon_url if agent else None
 
     async def _is_registered_agent(self, name: str) -> bool:
         """Whether `name` is a registered Switch agent. Switch creates each

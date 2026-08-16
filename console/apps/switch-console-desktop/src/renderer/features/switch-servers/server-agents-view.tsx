@@ -6,11 +6,12 @@ import { useConfirmDeleteAgent } from '@renderer/features/locations/hooks/use-co
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { getLocationStore } from '@renderer/features/locations/stores/location-selectors';
 import { refreshSidebarRoomState } from '@renderer/features/sidebar/sidebar-tree-data';
-import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { useAgentIconUrl } from '@renderer/lib/stores/use-remote-agents';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
@@ -93,6 +94,7 @@ const AgentCard = observer(function AgentCard({
   const sshHost = location?.data?.sshHost ?? null;
   const label = agent.name || 'Unnamed agent';
   const provider = providerDisplayName(agent.providerId);
+  const iconUrl = useAgentIconUrl(serverId, agent.switchAgentId);
 
   const gatewayUrl =
     agent.switchAgentId && switchRoomsStore.gatewayAgentUrl(serverId, agent.switchAgentId);
@@ -112,13 +114,7 @@ const AgentCard = observer(function AgentCard({
 
       <div className="pointer-events-none flex flex-1 flex-col p-[14px]">
         <div className="flex flex-1 items-center justify-center py-3">
-          <span className="flex size-16 items-center justify-center rounded-full bg-background">
-            {agent.providerId ? (
-              <AgentIcon id={agent.providerId} size={30} />
-            ) : (
-              <Bot className="size-7 text-foreground-muted" />
-            )}
-          </span>
+          <AgentAvatar name={label} iconUrl={iconUrl} size={66} />
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium text-foreground">{label}</div>
