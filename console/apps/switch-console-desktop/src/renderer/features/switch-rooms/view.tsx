@@ -1,10 +1,11 @@
-import { ExternalLink } from 'lucide-react';
+import { DoorOpen, ExternalLink } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import type { GuardResult, ViewDefinition } from '@renderer/app/view-registry';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
 import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
+import { TitlebarBreadcrumb } from '@renderer/lib/components/titlebar/titlebar-breadcrumb';
 import { useParams } from '@renderer/lib/layout/navigation-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
@@ -48,25 +49,32 @@ const OpenInMessagingApp = observer(function OpenInMessagingApp({ roomId }: { ro
   );
 });
 
+/**
+ * A room opened on its own is its own root: it belongs to a server and to every
+ * agent in it, and picking one of those to stand in front of it would be a
+ * claim about how you got here rather than about where you are.
+ */
 const RoomTitlebar = observer(function RoomTitlebar() {
   const { params } = useParams('room');
   const name = switchRoomsStore.roomNameById(params.roomId);
-  const serverName = switchRoomsStore.roomServerName(params.roomId);
+  const bridgeType = switchRoomsStore.roomBridgeTypeById(params.roomId);
 
   return (
     <Titlebar
       leftSlot={
-        <div className="flex items-center gap-1 px-2 text-sm text-foreground-muted">
-          {serverName && (
-            <>
-              <span className="max-w-40 truncate text-sm text-foreground-passive">
-                {serverName}
-              </span>
-              <span className="text-sm text-foreground-passive">/</span>
-            </>
-          )}
-          <span className="max-w-56 truncate">{name ?? 'Room'}</span>
-        </div>
+        <TitlebarBreadcrumb
+          crumbs={[
+            {
+              key: 'room',
+              icon: hasBridgeIcon(bridgeType) ? (
+                <BridgeIcon bridgeType={bridgeType} size={14} className="shrink-0" />
+              ) : (
+                <DoorOpen className="size-3.5 shrink-0" />
+              ),
+              label: name ?? 'Room',
+            },
+          ]}
+        />
       }
       rightSlot={
         <div className="mr-2 flex items-center gap-1">

@@ -603,6 +603,94 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Changed
+
+- **A server is now a workspace, and you switch between them.** The list of
+  servers that sat in the sidebar has been replaced by a switcher at the top,
+  showing the one you are in and opening onto the rest — each with where it
+  runs and whether it is reachable. Everything below it already belonged to
+  that server; now the sidebar says so. Under the switcher is that server's
+  Home, which is the page you used to reach by clicking the server in the
+  list, and the titlebar names the path to it (CHOO-2158).
+- The session list is a section of its own, headed **Sessions**, with the
+  grouping control labelled as what it is — group by **By Agent** or **By
+  Room** — rather than sitting alone at the top of the tree where it read as
+  the sidebar's whole navigation (CHOO-2158).
+- The welcome screen is reachable from the switcher as **About Switch**, as
+  well as from the Switch mark at the bottom of the sidebar. With no servers
+  added, the sidebar is just **Add a server** over the setup checklist
+  (CHOO-2158).
+- **A server's Home page reads as a dashboard rather than a stack of cards.**
+  It opens with the server, where it runs and who you are signed in as, then
+  how many agents, rooms and messaging apps are on it, and gives the rest of
+  the page over to the things you act on (CHOO-2158).
+- **Messaging apps are a table.** Which account is you, whether Switch may
+  create channels there, and the app's actions are columns you can read down
+  rather than facts to be opened one row at a time. Turning channel creation on
+  or off is now in the row instead of behind its menu, and a platform that
+  cannot create channels at all says so rather than showing the switch off.
+  Unlinking stays in the menu — it is irreversible, and the row is where you
+  press to *change* an account (CHOO-2158).
+- The managed stack has a section of its own with a **Restart**, and shows its
+  live output, which until now was only visible while adding a server. An
+  available switch-core update is announced at the top of the page rather than
+  inside that section, and **Reset** sits alone at the bottom, away from Start
+  and Stop (CHOO-2158).
+- The Mattermost sign-in details Switch Console generates open in a dialog from
+  the app's row, rather than expanding underneath it (CHOO-2158).
+- **A server's agents and rooms each have a page.** Under the switcher, next to
+  Home, **Your Agents** lists every agent registered on the server with the
+  provider it runs, where that is, and how many of the server's rooms it is in;
+  **Your Rooms** lists the rooms with the messaging app each is bridged to and
+  how many agents are in it. Both start a session or add a member from the row,
+  and carry the same actions the sidebar rows do. Until now the only way to see
+  either as a list was to scroll the sidebar tree (CHOO-2158).
+- **An agent's page opens with the agent.** Its mark, its name, the server it is
+  registered on and what it runs, with **Create Session** alongside — where the
+  page used to begin at a list of sessions, with the agent named only in the
+  titlebar. Sessions are framed as a list, each saying which room it is talking
+  in, or that it is in none (CHOO-2158).
+- **The titlebar says where you are, in full.** A session now reads
+  agent / room / session rather than naming its directory and itself, and a room
+  is its own heading with its messaging app's mark. An agent's page carries the
+  same connection status and actions menu its server's pages do (CHOO-2158).
+- Agents are described by their provider's name — **Claude Code**, **Codex** —
+  rather than the `claude` and `codex` they are keyed by (CHOO-2158).
+- **Every session in the sidebar has an actions button.** Pin, rename, archive
+  and delete were reachable only by right-clicking, which nothing in the
+  interface said you could do; they are now on a menu in the row as well. Both
+  menus are built from one list, so an action cannot arrive on one and be
+  missing from the other (CHOO-2158).
+- **Expanding a row in the sidebar is now the chevron's job alone**, and the
+  chevron has moved to the end of the row, appearing on hover with that row's
+  other actions. Opening an agent or a room no longer unfolds it, so reading one
+  thing does not rearrange the tree around it, and the agent's provider mark
+  stays visible instead of turning into a chevron under the pointer. A row with
+  nothing beneath it has no chevron at all (CHOO-2158).
+- **A room in the sidebar no longer counts its agents.** The pair of numbers on
+  the row — agents this computer runs, agents it does not — sat where the expand
+  control now goes and told you little. The sidebar lists the agents it can
+  actually open; a room's full membership is a column on **Your Rooms**, which
+  is the page for reading rooms as a list (CHOO-2158).
+- **Anything you can click now says so under the pointer.** Buttons, sidebar
+  rows, menu entries and tabs show the hand cursor; Tailwind's reset had left
+  them all on the arrow (CHOO-2158).
+
+#### Fixed
+
+- **Adding your first server left the app with no workspace selected.** Nothing
+  chose it, so the sidebar stayed on "Add a server" until the next launch
+  (CHOO-2158).
+- **Removing the server you were in could leave the app with no workspace at
+  all** — no switcher, no destinations, no sidebar tree — because the remembered
+  server was still named as the active one. A remembered server that no longer
+  exists now counts as no choice, and the app picks one (CHOO-2158).
+- Removing an agent from its own page removed the first agent in that directory,
+  which is a different agent whenever a directory holds more than one
+  (CHOO-2158).
+- The empty session list offered to "spawn a claude session" whatever the agent
+  actually runs (CHOO-2158).
+
 ### [0.25.0] - 2026-08-15
 
 #### Added

@@ -1,5 +1,7 @@
 import { MessageSquare } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
+import { useState } from 'react';
+import { SessionActionsMenu } from '@renderer/features/sessions/components/session-actions-menu';
 import { SessionContextMenu } from '@renderer/features/sessions/components/session-context-menu';
 import {
   getSessionManagerStore,
@@ -32,6 +34,7 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
   const { navigate } = useNavigate();
   const showRename = useShowModal('renameSessionModal');
   const showDeleteSession = useShowModal('deleteSessionModal');
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   const { currentView } = useWorkspaceSlots();
   const { params } = useParams('session');
@@ -72,19 +75,21 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
 
   const canPin = session.state !== 'unregistered';
 
+  const actions = {
+    isPinned: session.data.isPinned,
+    canPin,
+    isArchived: false,
+    onPin: () => void session.setPinned(true),
+    onUnpin: () => void session.setPinned(false),
+    onRename: handleRename,
+    onArchive: handleArchive,
+    onReconnect: undefined,
+    onConvertAutomation: undefined,
+    onDelete: handleDelete,
+  };
+
   return (
-    <SessionContextMenu
-      isPinned={session.data.isPinned}
-      canPin={canPin}
-      isArchived={false}
-      onPin={() => void session.setPinned(true)}
-      onUnpin={() => void session.setPinned(false)}
-      onRename={handleRename}
-      onArchive={handleArchive}
-      onReconnect={undefined}
-      onConvertAutomation={undefined}
-      onDelete={handleDelete}
-    >
+    <SessionContextMenu {...actions}>
       <SidebarMenuRow
         className={cn(
           'group/row flex items-center justify-between px-1 h-8 gap-1',
@@ -111,8 +116,21 @@ export const SidebarSessionItem = observer(function SidebarSessionItem({
             {sessionName}
           </span>
         </SidebarMenuAction>
-        <div className="ml-2 flex shrink-0 items-center justify-end gap-1.5">
-          <SessionSidebarTrailingSlot session={session} />
+        {/* The status and the actions button take turns in one slot rather than
+            sitting side by side: the row is narrow, and a second control
+            appearing on hover would shorten the title just as it is being read. */}
+        <div className="ml-2 flex min-w-6 shrink-0 items-center justify-end gap-1.5">
+          {!actionsOpen && (
+            <span className="flex items-center group-hover/row:hidden">
+              <SessionSidebarTrailingSlot session={session} />
+            </span>
+          )}
+          <SessionActionsMenu
+            {...actions}
+            sessionName={sessionName}
+            className={actionsOpen ? 'flex' : 'hidden group-hover/row:flex'}
+            onOpenChange={setActionsOpen}
+          />
         </div>
       </SidebarMenuRow>
     </SessionContextMenu>

@@ -84,14 +84,6 @@ export class SwitchRoomsStore {
     return this.roomServerById.get(roomId) ?? null;
   }
 
-  /** Display name of the server a room belongs to, for the room titlebar's
-   * breadcrumb. Null while rooms are still loading. */
-  roomServerName(roomId: string): string | null {
-    const serverId = this.roomServerById.get(roomId);
-    if (!serverId) return null;
-    return switchServersStore.servers.find((s) => s.id === serverId)?.name ?? null;
-  }
-
   /**
    * URL of a room's detail page in the gateway web app, or null if the room's
    * owning server isn't known yet (names/servers are loaded by loadRoomNames).
@@ -135,14 +127,20 @@ export class SwitchRoomsStore {
     const serverIds = activeServerId
       ? [activeServerId]
       : [...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()])];
-    const listed = serverIds.flatMap((serverId) => {
-      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
-      return (
-        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
-        []
-      );
-    });
+    const listed = serverIds.flatMap((serverId) => this.listedRoomsOnServer(serverId));
     return listed.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  /**
+   * The rooms one server contributes to the lists above, under the same scope
+   * rule. Named separately so a page about a single server asks for that
+   * server rather than for whichever one happens to be active.
+   */
+  listedRoomsOnServer(serverId: string): RemoteRoomSummary[] {
+    const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
+    return (
+      (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ?? []
+    );
   }
 
   /**
@@ -159,13 +157,7 @@ export class SwitchRoomsStore {
     const serverIds = [
       ...new Set([...this.allRoomsByServer.keys(), ...this.ownedRoomsByServer.keys()]),
     ];
-    const listed = serverIds.flatMap((serverId) => {
-      const managed = switchServersStore.servers.find((s) => s.id === serverId)?.managed ?? false;
-      return (
-        (managed ? this.allRoomsByServer.get(serverId) : this.ownedRoomsByServer.get(serverId)) ??
-        []
-      );
-    });
+    const listed = serverIds.flatMap((serverId) => this.listedRoomsOnServer(serverId));
     return listed.sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -358,8 +350,9 @@ export class SwitchRoomsStore {
    * view that wants either reads this, so the two cannot disagree.
    *
    * Scope is deliberate. This install can only act on its own agents, so those
-   * are the only members the sidebar draws (see {@link undrawableMemberCount}
-   * for how the rest are disclosed).
+   * are the only members the sidebar can draw. A room's full membership, agents
+   * on other installs included, is the server's own count and is listed on the
+   * Your Rooms page.
    */
   get localMemberIdsByRoom(): Map<string, string[]> {
     const byRoom = new Map<string, string[]>();
@@ -378,22 +371,6 @@ export class SwitchRoomsStore {
   /** The Switch agent ids of this install's agents in a room. */
   localMemberIds(roomId: string): string[] {
     return this.localMemberIdsByRoom.get(roomId) ?? [];
-  }
-
-  /**
-   * Members the server counts for a room that this install cannot draw — agents
-   * registered elsewhere, plus any whose membership failed to load. Null when
-   * the room's server list has not loaded, so the difference is unknown rather
-   * than zero.
-   *
-   * This is never rendered as the member count. The count is the length of what
-   * is drawn; this only discloses the gap, so a member that exists but cannot be
-   * shown is not mistaken for a member that is not there.
-   */
-  undrawableMemberCount(roomId: string): number | null {
-    const total = this.roomSummaryById(roomId)?.agentCount ?? null;
-    if (total === null) return null;
-    return Math.max(0, total - this.localMemberIds(roomId).length);
   }
 
   /**

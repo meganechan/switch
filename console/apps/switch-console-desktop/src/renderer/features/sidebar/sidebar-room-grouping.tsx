@@ -100,15 +100,17 @@ export function groupByRoom(
 }
 
 /**
- * A room header row. The leading icon doubles as the expand toggle — it shows
- * the bridged platform's logo (Slack, Mattermost, …) for bridged rooms, else a
- * generic door icon, and swaps to a chevron on hover (rotated when expanded).
- * Clicking the row body toggles expand/collapse; opening the room in the gateway
- * web app is scoped to the dedicated "go to" button (named rooms only).
+ * A room header row. It leads with the bridged platform's logo (Slack,
+ * Mattermost, …), or a generic door icon when the room is not bridged.
+ *
+ * Clicking the row opens the room; expanding and collapsing it belongs to the
+ * chevron at the far end and to nothing else, so reading a room never rearranges
+ * the tree underneath it. A row with no room behind it (Unassigned) has nothing
+ * to open and so is not clickable at all.
  */
 export function RoomRow({
   label,
-  count,
+  hasChildren,
   expanded,
   onToggle,
   onOpenGateway,
@@ -118,23 +120,18 @@ export function RoomRow({
   isActive = false,
   depth = 0,
   bridgeType = null,
-  undrawableCount = null,
   nameKnown = true,
   nameBlockedBySignIn = false,
 }: {
   label: string;
-  count: number;
+  /** Whether there is anything under this room to unfold. */
+  hasChildren: boolean;
   /** False when `label` is a stand-in because the room's name has not loaded.
    * Rendered as visibly provisional rather than as the room's name. */
   nameKnown?: boolean;
   /** True when the name is missing because the room's server is signed out —
    * something to act on, not to wait for. */
   nameBlockedBySignIn?: boolean;
-  /** Members the server counts that this install cannot draw — agents
-   * registered on another Switch Console, plus any whose membership failed to load.
-   * Disclosed next to the count so a member that exists but cannot be shown is
-   * not read as a member that is not there. Null when unknown. */
-  undrawableCount?: number | null;
   expanded: boolean;
   onToggle: () => void;
   onOpenGateway: () => void;
@@ -156,37 +153,22 @@ export function RoomRow({
   const channelLinkable = onOpenChannel !== null && hasBridgeIcon(bridgeType);
   return (
     <SidebarMenuRow
-      className="group/room flex h-8 items-center gap-1 px-1"
+      className={cn(
+        'group/room flex h-8 items-center gap-1 px-1',
+        onSelect === null && 'cursor-default'
+      )}
       isActive={isActive}
       style={depthIndent(depth)}
       onMouseDown={(e) => e.preventDefault()}
-      onClick={onSelect ?? onToggle}
+      onClick={onSelect ?? undefined}
     >
-      <SidebarItemMiniButton
-        type="button"
-        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
-        className="relative"
-        onClick={(e) => {
-          e.stopPropagation();
-          onToggle();
-        }}
-      >
+      <span className="flex size-6 shrink-0 items-center justify-center">
         {hasBridgeIcon(bridgeType) ? (
-          <BridgeIcon
-            bridgeType={bridgeType}
-            size={16}
-            className="absolute h-4 w-4 opacity-100 transition-opacity duration-150 group-hover/room:opacity-0"
-          />
+          <BridgeIcon bridgeType={bridgeType} size={16} className="h-4 w-4" />
         ) : (
-          <DoorOpen className="absolute h-4 w-4 text-foreground-muted opacity-100 transition-opacity duration-150 group-hover/room:opacity-0" />
+          <DoorOpen className="h-4 w-4 text-foreground-muted" />
         )}
-        <ChevronRight
-          className={cn(
-            'absolute h-4 w-4 opacity-0 transition-all duration-150 group-hover/room:opacity-100',
-            expanded && 'rotate-90'
-          )}
-        />
-      </SidebarItemMiniButton>
+      </span>
       {nameKnown ? (
         <span className="min-w-0 flex-1 truncate text-sm">{label}</span>
       ) : (
@@ -263,19 +245,21 @@ export function RoomRow({
         />
         <TooltipContent>Open in gateway</TooltipContent>
       </Tooltip>
-      <span className="shrink-0 text-xs text-foreground-tertiary-passive">{count}</span>
-      {undrawableCount !== null && undrawableCount > 0 && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className="shrink-0 text-xs text-foreground-muted">+{undrawableCount}</span>
-            }
+      {hasChildren && (
+        <SidebarItemMiniButton
+          type="button"
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+          aria-expanded={expanded}
+          className="opacity-0 transition-opacity duration-150 group-hover/room:opacity-100 focus-visible:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+        >
+          <ChevronRight
+            className={cn('h-4 w-4 transition-transform duration-150', expanded && 'rotate-90')}
           />
-          <TooltipContent>
-            {undrawableCount} more {undrawableCount === 1 ? 'member is' : 'members are'} in this
-            room but not on this copy of Switch Console, so they cannot be shown here
-          </TooltipContent>
-        </Tooltip>
+        </SidebarItemMiniButton>
       )}
     </SidebarMenuRow>
   );

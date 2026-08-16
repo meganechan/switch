@@ -53,7 +53,7 @@ function SessionVirtualList({
   return (
     <div
       ref={parentRef}
-      className="min-h-0 flex-1 overflow-y-auto py-3"
+      className="min-h-0 flex-1 overflow-y-auto py-1"
       style={{ scrollbarWidth: 'none' }}
     >
       <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
@@ -138,7 +138,6 @@ export const SessionList = observer(function SessionList() {
   const store = asMounted(getLocationStore(locationId));
   const sessionManager = getSessionManagerStore(locationId);
   const showDeleteSession = useShowModal('deleteSessionModal');
-  const showCreateSessionModal = useShowModal('sessionModal');
 
   const sessionView = store?.view.sessionView ?? null;
 
@@ -215,8 +214,8 @@ export const SessionList = observer(function SessionList() {
     : displaySessions;
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col">
-      <div className="flex shrink-0 flex-col gap-4 border-b border-border pb-3">
+    <div className="relative flex h-full min-h-0 w-full flex-col gap-3">
+      <div className="flex shrink-0 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <ToggleGroup
             multiple={false}
@@ -228,37 +227,37 @@ export const SessionList = observer(function SessionList() {
             <ToggleGroupItem value="active">Active ({activeSessions.length})</ToggleGroupItem>
             <ToggleGroupItem value="archived">Archived ({archivedSessions.length})</ToggleGroupItem>
           </ToggleGroup>
-          <div className="flex items-center gap-2">
-            <SearchInput
-              placeholder="Search sessions…"
-              value={sessionView.searchQuery}
-              onChange={(e) => sessionView.setSearchQuery(e.target.value)}
-              className="flex-1"
-            />
-            <Button onClick={() => showCreateSessionModal({ locationId, agentName })}>
-              Create Session <BoundShortcut settingsKey="newSession" />
-            </Button>
-          </div>
+          <SearchInput
+            placeholder="Search sessions…"
+            value={sessionView.searchQuery}
+            onChange={(e) => sessionView.setSearchQuery(e.target.value)}
+            className="w-56"
+          />
         </div>
       </div>
 
+      {/* The border frames a list. With nothing to list it frames empty space,
+        which reads as a list that failed to load rather than as an agent with
+        no sessions yet. */}
       {filteredSessions.length === 0 && sessionView.tab === 'active' ? (
         <SessionListEmptyState locationId={locationId} agentName={agentName} />
       ) : (
-        <SessionVirtualList
-          sessions={filteredSessions}
-          selectedIds={sessionView.selectedIds}
-          onToggleSelect={(id, shiftKey) => {
-            if (shiftKey) {
-              sessionView.selectRange(
-                filteredSessions.map((t) => t.data.id),
-                id
-              );
-            } else {
-              sessionView.toggleSelect(id);
-            }
-          }}
-        />
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border">
+          <SessionVirtualList
+            sessions={filteredSessions}
+            selectedIds={sessionView.selectedIds}
+            onToggleSelect={(id, shiftKey) => {
+              if (shiftKey) {
+                sessionView.selectRange(
+                  filteredSessions.map((t) => t.data.id),
+                  id
+                );
+              } else {
+                sessionView.toggleSelect(id);
+              }
+            }}
+          />
+        </div>
       )}
 
       <SelectionBar

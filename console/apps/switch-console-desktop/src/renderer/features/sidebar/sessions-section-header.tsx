@@ -1,6 +1,5 @@
-import { DoorOpen, Filter, Laptop, ListFilter, Plus, Server, UserPlus, Users } from 'lucide-react';
+import { ArrowUpDown, DoorOpen, Filter, Laptop, Plus, Server, UserPlus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import type { ComponentType } from 'react';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
@@ -19,6 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
+import { SectionLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { cn } from '@renderer/utils/utils';
@@ -31,25 +31,25 @@ const CONNECTION_LABEL: Record<AgentConnectionKind, string> = {
   remote: 'Remote',
 };
 
-const GROUPING_OPTIONS: {
-  value: SidebarGrouping;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-}[] = [
-  { value: 'agent', label: 'Agents', icon: Users },
-  { value: 'room', label: 'Rooms', icon: DoorOpen },
+const GROUPING_OPTIONS: { value: SidebarGrouping; label: string }[] = [
+  { value: 'agent', label: 'By Agent' },
+  { value: 'room', label: 'By Room' },
 ];
 
 /**
  * View switcher for the grouped sidebar — a segmented control that shows both
- * groupings (Agents / Rooms) side by side, with the active one highlighted, so
- * the choice is discoverable at a glance rather than hidden behind an icon menu.
+ * groupings side by side, with the active one highlighted, so the choice is
+ * discoverable at a glance rather than hidden behind an icon menu.
+ *
+ * The labels carry no icon. "By Agent" and "By Room" already say it, and two
+ * glyphs inside a control this small crowd it without adding meaning.
  * Observer-wrapped so the active selection updates reactively.
  */
 const ViewGroupingToggle = observer(function ViewGroupingToggle() {
   return (
     <ToggleGroup
       size="sm"
+      spacing={1}
       multiple={false}
       value={[sidebarStore.grouping]}
       onValueChange={([value]) => {
@@ -57,16 +57,22 @@ const ViewGroupingToggle = observer(function ViewGroupingToggle() {
         if (opt) sidebarStore.setGrouping(opt.value);
       }}
       aria-label="Group sidebar by"
+      // The raised option has to read as sitting *in* the track, not as a
+      // button dropped on top of a box: concentric corners (inner radius =
+      // outer radius less the padding) and only a hairline of track showing
+      // around it.
+      className="h-7 gap-px rounded-lg border-transparent bg-background-tertiary-2 p-px"
     >
-      {GROUPING_OPTIONS.map((opt) => {
-        const OptIcon = opt.icon;
-        return (
-          <ToggleGroupItem key={opt.value} value={opt.value} aria-label={opt.label}>
-            <OptIcon className="mr-1 h-3.5 w-3.5" />
-            {opt.label}
-          </ToggleGroupItem>
-        );
-      })}
+      {GROUPING_OPTIONS.map((opt) => (
+        <ToggleGroupItem
+          key={opt.value}
+          value={opt.value}
+          aria-label={opt.label}
+          className="rounded-[7px] px-2.5 hover:bg-transparent aria-pressed:bg-background data-pressed:bg-background data-[state=on]:bg-background"
+        >
+          {opt.label}
+        </ToggleGroupItem>
+      ))}
     </ToggleGroup>
   );
 });
@@ -241,7 +247,12 @@ const FilterDropdown = observer(function FilterDropdown() {
   );
 });
 
-export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
+/**
+ * The Sessions section's header: what the list below is, then how it is
+ * arranged. The grouping toggle used to sit alone on a single row, where it
+ * read as the sidebar's whole navigation rather than as one list's setting.
+ */
+export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
   const showAddLocationModal = useShowModal('addAgentModal');
   const showCreateRoomModal = useShowModal('createRoomModal');
   // The add button offers both actions rather than the one matching the current
@@ -251,116 +262,122 @@ export const LocationsGroupLabel = observer(function LocationsGroupLabel() {
   const roomMode = sidebarStore.grouping === 'room';
 
   return (
-    <div className="flex h-[40px] items-center justify-between pr-2.5 pl-2.5">
-      <ViewGroupingToggle />
-      <div className="flex items-center gap-1">
-        <DropdownMenu>
-          <Tooltip>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label={roomMode ? 'Sort rooms' : 'Sort agents'}
-                      className={buttonVariants({
-                        size: 'icon-xs',
-                        variant: 'ghost',
-                        className:
-                          'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                      })}
-                    >
-                      <ListFilter />
-                    </button>
-                  }
-                />
-              }
-            />
-            <TooltipContent>Sort by</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="min-w-48">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Sort by</DropdownMenuLabel>
-              {roomMode ? (
-                // Rooms are places, so they order by their own properties, and
-                // separately from the session sort — switching view must not
-                // silently re-order the other one.
-                <DropdownMenuRadioGroup value={sidebarStore.roomSortBy}>
-                  <DropdownMenuRadioItem
-                    value="name"
-                    onClick={() => sidebarStore.setRoomSortBy('name')}
-                  >
-                    Name
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="created-at"
-                    onClick={() => sidebarStore.setRoomSortBy('created-at')}
-                  >
-                    Created
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="updated-at"
-                    onClick={() => sidebarStore.setRoomSortBy('updated-at')}
-                  >
-                    Last active
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              ) : (
-                <DropdownMenuRadioGroup value={sidebarStore.sessionSortBy}>
-                  <DropdownMenuRadioItem
-                    value="created-at"
-                    onClick={() => sidebarStore.applySort('created-at')}
-                  >
-                    Created at
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="updated-at"
-                    onClick={() => sidebarStore.applySort('updated-at')}
-                  >
-                    Last used
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              )}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <FilterDropdown />
-        <DropdownMenu>
-          <Tooltip>
-            <DropdownMenuTrigger
-              render={
-                <TooltipTrigger
-                  render={
-                    <button
-                      type="button"
-                      aria-label="Add"
-                      className={buttonVariants({
-                        size: 'icon-xs',
-                        variant: 'ghost',
-                        className:
-                          'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                      })}
-                    >
-                      <Plus />
-                    </button>
-                  }
-                />
-              }
-            />
-            <TooltipContent>Add</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent className="min-w-48" align="start">
-            <DropdownMenuItem onClick={() => showAddLocationModal({})}>
-              <UserPlus className="mr-1.5 h-4 w-4" />
-              Add an agent
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
-              <DoorOpen className="mr-1.5 h-4 w-4" />
-              Create a room
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <>
+      <div className="flex h-[22px] items-center justify-between pr-2.5 pl-2.5">
+        <SectionLabel>Sessions</SectionLabel>
+        <span className="text-xs text-foreground-passive">Group by</span>
       </div>
-    </div>
+      <div className="flex h-[36px] items-center justify-between pr-2.5 pl-2.5">
+        <ViewGroupingToggle />
+        <div className="flex items-center gap-1">
+          <DropdownMenu>
+            <Tooltip>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label={roomMode ? 'Sort rooms' : 'Sort agents'}
+                        className={buttonVariants({
+                          size: 'icon-xs',
+                          variant: 'ghost',
+                          className:
+                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
+                        })}
+                      >
+                        <ArrowUpDown />
+                      </button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>Sort by</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="min-w-48">
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                {roomMode ? (
+                  // Rooms are places, so they order by their own properties, and
+                  // separately from the session sort — switching view must not
+                  // silently re-order the other one.
+                  <DropdownMenuRadioGroup value={sidebarStore.roomSortBy}>
+                    <DropdownMenuRadioItem
+                      value="name"
+                      onClick={() => sidebarStore.setRoomSortBy('name')}
+                    >
+                      Name
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="created-at"
+                      onClick={() => sidebarStore.setRoomSortBy('created-at')}
+                    >
+                      Created
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="updated-at"
+                      onClick={() => sidebarStore.setRoomSortBy('updated-at')}
+                    >
+                      Last active
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                ) : (
+                  <DropdownMenuRadioGroup value={sidebarStore.sessionSortBy}>
+                    <DropdownMenuRadioItem
+                      value="created-at"
+                      onClick={() => sidebarStore.applySort('created-at')}
+                    >
+                      Created at
+                    </DropdownMenuRadioItem>
+                    <DropdownMenuRadioItem
+                      value="updated-at"
+                      onClick={() => sidebarStore.applySort('updated-at')}
+                    >
+                      Last used
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                )}
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <FilterDropdown />
+          <DropdownMenu>
+            <Tooltip>
+              <DropdownMenuTrigger
+                render={
+                  <TooltipTrigger
+                    render={
+                      <button
+                        type="button"
+                        aria-label="Add"
+                        className={buttonVariants({
+                          size: 'icon-xs',
+                          variant: 'ghost',
+                          className:
+                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
+                        })}
+                      >
+                        <Plus />
+                      </button>
+                    }
+                  />
+                }
+              />
+              <TooltipContent>Add</TooltipContent>
+            </Tooltip>
+            <DropdownMenuContent className="min-w-48" align="start">
+              <DropdownMenuItem onClick={() => showAddLocationModal({})}>
+                <UserPlus className="mr-1.5 h-4 w-4" />
+                Add an agent
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => showCreateRoomModal({})}>
+                <DoorOpen className="mr-1.5 h-4 w-4" />
+                Create a room
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </div>
+    </>
   );
 });

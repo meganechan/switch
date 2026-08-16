@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronRight, X } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { openExternalUrl } from '@renderer/lib/open-external';
-import { MicroLabel } from '@renderer/lib/ui/label';
+import { SectionLabel } from '@renderer/lib/ui/label';
 import { cn } from '@renderer/utils/utils';
 import type { OnboardingStep, OnboardingStepId } from '@shared/core/onboarding/checklist';
 import { SWITCH_CONSOLE_DOCS_URL } from '@shared/urls';
@@ -174,7 +174,9 @@ export const OnboardingChecklistPanel = observer(function OnboardingChecklistPan
           ) : (
             <ChevronDown className="size-3.5 shrink-0" />
           )}
-          <MicroLabel className="text-foreground-tertiary-passive">Setting up Switch</MicroLabel>
+          <SectionLabel className="text-foreground-tertiary-passive">
+            Setting up Switch
+          </SectionLabel>
         </button>
         <button
           type="button"
@@ -213,7 +215,7 @@ export function OnboardingChecklistCard({
   return (
     <div className="flex w-full flex-col gap-2 rounded-xl border border-border p-4">
       <div className="flex items-center justify-between">
-        <MicroLabel className="text-foreground-tertiary-passive">Setting up Switch</MicroLabel>
+        <SectionLabel className="text-foreground-tertiary-passive">Setting up Switch</SectionLabel>
         <button
           type="button"
           onClick={onDismiss}

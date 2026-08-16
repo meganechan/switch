@@ -90,11 +90,24 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     sidebarStore.hasActiveFilters &&
     sidebarStore.filteredLocations.length === 0;
 
+  // A server with nothing on it yet left the panel blank, which reads as the
+  // list having failed to load rather than as there being nothing to list.
+  const showEmptyState =
+    !showFilterEmptyState &&
+    !sidebarStore.hasActiveFilters &&
+    switchServersStore.activeServerId !== null &&
+    sidebarStore.orderedLocations.length === 0 &&
+    switchRoomsStore.listedRoomsInActiveScope.length === 0;
+
   return (
     <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
       <RoomStateDisclosure />
       {showFilterEmptyState ? (
         <p className="px-2 py-3 text-xs text-foreground-muted">No agents match filters</p>
+      ) : showEmptyState ? (
+        <p className="px-2 py-3 text-xs text-foreground-muted">
+          No sessions running on this server.
+        </p>
       ) : sidebarStore.grouping === 'room' ? (
         <RoomTree />
       ) : (

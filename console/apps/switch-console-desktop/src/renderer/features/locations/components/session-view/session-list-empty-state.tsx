@@ -1,8 +1,10 @@
 import { Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
+import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { useArrowKeyNavigation } from '@renderer/lib/hooks/use-arrow-key-navigation';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { ActionListItem } from '@renderer/lib/ui/action-list-item';
+import { providerDisplayName } from '@shared/core/providers/agent-provider-registry';
 
 export const SessionListEmptyState = observer(function SessionListEmptyState({
   locationId,
@@ -13,12 +15,15 @@ export const SessionListEmptyState = observer(function SessionListEmptyState({
 }) {
   const showSessionModal = useShowModal('sessionModal');
 
+  const agent = agentsStore.agentAtLocation(locationId, agentName);
+  const provider = providerDisplayName(agent?.providerId ?? null);
+
   const actions = [
     {
       label: 'New Session',
       description: agentName
-        ? `Spawn a claude session as ${agentName}`
-        : 'Spawn a claude session for this agent',
+        ? `Start a ${provider ?? 'new'} session as ${agentName}`
+        : `Start a ${provider ?? 'new'} session for this agent`,
       icon: Plus,
       onActivate: () => showSessionModal({ locationId, agentName }),
     },
