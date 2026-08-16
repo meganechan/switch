@@ -44,6 +44,21 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Fixed
+
+- An agent joining a room greets it again. The greeting fires when an agent
+  notices its own arrival, and since 0.9.0 it never did: auto-accepting the
+  invite began recording the room as joined a moment before the join arrived
+  over sync, so the arrival was read as one already handled. Every room an
+  agent is invited to went ungreeted, on every connection, regardless of the
+  per-connection greeting toggle. Whether the arrival has been announced is now
+  tracked separately from membership, which the bridge needs recorded as early
+  as possible. Departing a room resets it, so being added back greets again.
+- `just test-integration` runs again. Its wiring had drifted behind
+  `RoomService`, `ProtocolService` and `AgentClient`, so every test errored
+  during setup — unnoticed, because the suite is excluded from the default run
+  and from CI. It is the suite that would have caught the greeting regression.
+
 ### [0.16.0] - 2026-08-15
 
 #### Added
