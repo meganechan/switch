@@ -7,6 +7,7 @@ import { CreateSessionModal } from '@renderer/features/sessions/create-session-m
 import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-modal';
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
 import { AddAgentsToRoomModal } from '@renderer/features/switch-rooms/AddAgentsToRoomModal';
+import { AddAgentToRoomsModal } from '@renderer/features/switch-rooms/AddAgentToRoomsModal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
 import { ClaimIdentityModal } from '@renderer/features/switch-servers/ClaimIdentityModal';
@@ -79,6 +80,10 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   addAgentsToRoomModal: createModal(AddAgentsToRoomModal, {
+    size: 'sm',
+    dismissOnOutsideClick: false,
+  }),
+  addAgentToRoomModal: createModal(AddAgentToRoomsModal, {
     size: 'sm',
     dismissOnOutsideClick: false,
   }),

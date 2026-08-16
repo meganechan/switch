@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Loader2, RefreshCw } from 'lucide-react';
+import { ChevronRight, Loader2, RefreshCw } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -21,8 +21,9 @@ import { isProvisioned } from '@renderer/features/sessions/stores/session-store'
 import { toast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
-import { Field, FieldDescription, FieldLabel, FieldTitle } from '@renderer/lib/ui/field';
+import { Field, FieldDescription, FieldLabel } from '@renderer/lib/ui/field';
 import { log } from '@renderer/utils/logger';
+import { cn } from '@renderer/utils/utils';
 
 /**
  * Per-agent "Advanced configuration" in the Settings tab: the model, reasoning
@@ -44,6 +45,7 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
   agentId: string | undefined;
 }) {
   const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
 
   const { data: agents } = useQuery({
     queryKey: ['location-agents', locationId],
@@ -196,12 +198,24 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
   const showStaleNotice = restartable && staleSessionIds.length > 0 && (dirty || save.isSuccess);
 
   return (
-    <Field>
-      <FieldTitle>Advanced configuration</FieldTitle>
-      <FieldDescription className="text-foreground-muted">
-        The agent&apos;s model, reasoning effort, tools, and system prompt. The agent name is fixed.
-      </FieldDescription>
-      <div className="flex flex-col gap-4">
+    <div>
+      <button
+        type="button"
+        className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <ChevronRight className={cn('h-4 w-4 transition-transform', open && 'rotate-90')} />
+        <span className="font-medium text-foreground">Advanced configuration</span>
+        <span className="truncate">{summariseValues(fields, savedForm)}</span>
+        <span className="ml-auto shrink-0">
+          {fields.length} {fields.length === 1 ? 'setting' : 'settings'}
+        </span>
+      </button>
+      <div className={cn('flex flex-col gap-4 pt-3', !open && 'hidden')}>
+        <FieldDescription className="text-foreground-muted">
+          The agent&apos;s model, reasoning effort, tools, and system prompt. The agent name is
+          fixed.
+        </FieldDescription>
         {fields.map((field) => {
           const catalogueState = fieldCatalogueState(field, form, catalogue);
           const rendered = fieldWithCatalogue(field, catalogueState);
@@ -271,9 +285,32 @@ export const AgentAdvancedSettingsSection = observer(function AgentAdvancedSetti
           </div>
         )}
       </div>
-    </Field>
+    </div>
   );
 });
+
+/**
+ * What the section is holding, read off the saved values rather than the form —
+ * a collapsed row has to say what is set without being opened, and the form may
+ * be mid-edit.
+ *
+ * Values, not labels: "claude-opus-4-6 · high" reads as configuration where
+ * "Model claude-opus-4-6 · Reasoning effort high" reads as a table of contents.
+ */
+function summariseValues(fields: { key: string; label: string }[], saved: FormState): string {
+  const set = fields
+    .map((field) => {
+      const value = saved[field.key];
+      if (value === true) return field.label.toLowerCase();
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+      return null;
+    })
+    .filter((v): v is string => v !== null);
+
+  if (set.length === 0) return 'defaults';
+  const shown = set.slice(0, 2).join(' · ');
+  return set.length > 2 ? `${shown} · +${set.length - 2}` : shown;
+}
 
 /**
  * The agent's sessions that already started a conversation, and so are running

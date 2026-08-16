@@ -107,6 +107,7 @@ describe('the chooser', () => {
         linkedIdentities={[]}
         onClaimIdentity={null}
         onOpenMessagingApps={() => {}}
+        inlineLabel={null}
       />
     );
     return { el, emitted: () => last };

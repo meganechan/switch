@@ -188,6 +188,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
                 // the user is halfway through. The warning names where to go instead.
                 onClaimIdentity={null}
                 onOpenMessagingApps={onOpenMessagingApps}
+                inlineLabel={null}
               />
             </Field>
           </FieldGroup>

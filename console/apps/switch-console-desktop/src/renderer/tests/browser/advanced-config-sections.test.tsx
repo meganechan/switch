@@ -86,8 +86,11 @@ async function sectionCount(): Promise<number> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  return [...container.querySelectorAll('button')].filter(
-    (b) => b.textContent?.trim() === 'Advanced configuration'
+  // Matched on the opening words rather than the whole string: the disclosure
+  // also summarises what it holds ("Claude Code · 1 field"), and how it is
+  // summarised is not what this test is about.
+  return [...container.querySelectorAll('button')].filter((b) =>
+    b.textContent?.trim().startsWith('Advanced configuration')
   ).length;
 }
 

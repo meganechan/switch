@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
+import { cn } from '@renderer/utils/utils';
 import {
   type AddressingMode,
   addressingModeOf,
@@ -52,6 +53,7 @@ export function AddressingPolicyControl({
   linkedIdentities,
   onClaimIdentity,
   onOpenMessagingApps,
+  inlineLabel,
   disabled = false,
 }: {
   value: AddressingPolicy | null;
@@ -72,6 +74,10 @@ export function AddressingPolicyControl({
   /** Opens the server's Messaging apps, where an account is linked when it
    * cannot be claimed from here. */
   onOpenMessagingApps: () => void;
+  /** The setting's own title, rendered beside the chooser as one settings row.
+   * Null where the caller already labels the control above it, which keeps the
+   * chooser stacked and full-width. */
+  inlineLabel: React.ReactNode | null;
   disabled?: boolean;
 }) {
   // Custom is sticky while it is chosen: a rule set can pass through a shape
@@ -93,29 +99,50 @@ export function AddressingPolicyControl({
     onChange(policyForMode(next, next === 'custom' ? (customDraft ?? value) : value));
   };
 
+  const chooser = (
+    <Select
+      value={mode}
+      onValueChange={(next) => selectMode(next as AddressingMode)}
+      disabled={disabled}
+    >
+      <SelectTrigger className={inlineLabel === null ? 'w-full' : 'shrink-0'}>
+        {/* The label, not the value. Left to itself the trigger renders what
+          is stored — "ownerAndAgents" — so the box contradicted the option
+          just picked from it. */}
+        <SelectValue>{MODE_LABELS[mode]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {MODE_ORDER.map((option) => (
+          <SelectItem key={option} value={option}>
+            {MODE_LABELS[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const hint = (
+    <span className={cn('text-foreground-muted', inlineLabel === null ? 'text-xs' : 'text-sm')}>
+      {MODE_HINTS[mode]}
+    </span>
+  );
+
   return (
     <div className="flex flex-col gap-3">
-      <Select
-        value={mode}
-        onValueChange={(next) => selectMode(next as AddressingMode)}
-        disabled={disabled}
-      >
-        <SelectTrigger className="w-full">
-          {/* The label, not the value. Left to itself the trigger renders what
-            is stored — "ownerAndAgents" — so the box contradicted the option
-            just picked from it. */}
-          <SelectValue>{MODE_LABELS[mode]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {MODE_ORDER.map((option) => (
-            <SelectItem key={option} value={option}>
-              {MODE_LABELS[option]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      <span className="text-xs text-foreground-muted">{MODE_HINTS[mode]}</span>
+      {inlineLabel === null ? (
+        <>
+          {chooser}
+          {hint}
+        </>
+      ) : (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            {inlineLabel}
+            {hint}
+          </div>
+          {chooser}
+        </div>
+      )}
 
       {policyNamesOwner(value) && linkedIdentities?.length === 0 && (
         <OwnerUnreachableWarning
