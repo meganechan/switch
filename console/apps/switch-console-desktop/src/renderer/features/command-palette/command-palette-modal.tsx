@@ -15,6 +15,7 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import { REMOTE_HOSTS_QUERY_KEY } from '@renderer/features/remote-hosts/views/remote-hosts-view';
 import { getSessionStore } from '@renderer/features/sessions/stores/session-selectors';
 import { agentExpandKey } from '@renderer/features/sidebar/sidebar-store';
+import { openRoom } from '@renderer/features/switch-rooms/open-room';
 import { serverIcon } from '@renderer/features/switch-servers/server-icon';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
@@ -25,7 +26,7 @@ import { useDebounce } from '@renderer/lib/hooks/useDebounce';
 import { getEffectiveHotkey } from '@renderer/lib/hooks/useKeyboardShortcuts';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { scopeToLocationServer, scopeToRoomServer } from '@renderer/lib/layout/scope-to-server';
+import { scopeToLocationServer } from '@renderer/lib/layout/scope-to-server';
 import { type BaseModalProps } from '@renderer/lib/modal/modal-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
 import { Shortcut } from '@renderer/lib/ui/shortcut';
@@ -362,7 +363,7 @@ export function CommandPaletteModal({
 
   const handleNavigateToRoom = (item: SearchItem) => {
     handleClose();
-    void scopeToRoomServer(item.id).then(() => navigate('room', { roomId: item.id }));
+    void openRoom(item.id);
   };
 
   const handleNavigateToServer = (item: SearchItem) => {

@@ -100,7 +100,10 @@ export const SidebarGroupedList = observer(function SidebarGroupedList() {
     switchRoomsStore.listedRoomsInActiveScope.length === 0;
 
   return (
-    <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-3">
+    <div
+      ref={scrollerRef}
+      className="flex min-h-0 flex-1 flex-col gap-[2px] overflow-y-auto px-2 pt-0 pb-3"
+    >
       <RoomStateDisclosure />
       {showFilterEmptyState ? (
         <p className="px-2 py-3 text-xs text-foreground-muted">No agents match filters</p>

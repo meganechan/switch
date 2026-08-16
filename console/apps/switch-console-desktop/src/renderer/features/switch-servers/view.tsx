@@ -7,6 +7,7 @@ import {
   PlugZap,
   RefreshCw,
   Trash2,
+  Unplug,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
@@ -27,8 +28,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@renderer/lib/ui/dropdown-menu';
-import { Input } from '@renderer/lib/ui/input';
-import { Label } from '@renderer/lib/ui/label';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import type { SwitchServer } from '@shared/core/switch-servers/switch-servers';
 import { localServerStore } from './local-server-store';
@@ -40,6 +39,7 @@ import { serverIcon } from './server-icon';
 import { ServerAvatar, serverDrift, serverPlacementLabel } from './server-presentation';
 import { ServerResetSection } from './server-reset-section';
 import { ServerSectionTitlebar } from './server-section-titlebar';
+import { ServerSignInFields, useServerSignIn } from './server-sign-in';
 import { ServerStatTiles } from './server-stat-tiles';
 import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
@@ -241,14 +241,17 @@ const ServerMainPanel = observer(function ServerMainPanel() {
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />
+                {/* Only a server Switch Console runs is one it can delete; for
+                    anyone else's, all we can do is let go of it. Both stay red:
+                    either way every agent pointed at this server loses it. */}
                 <DropdownMenuItem
                   variant="destructive"
                   onClick={() =>
                     showDeleteServerModal({ serverId, onSuccess: () => navigate('home') })
                   }
                 >
-                  <Trash2 className="size-4" />
-                  Delete server…
+                  {server.managed ? <Trash2 className="size-4" /> : <Unplug className="size-4" />}
+                  {server.managed ? 'Delete server…' : 'Disconnect from server…'}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -301,7 +304,7 @@ const ServerMainPanel = observer(function ServerMainPanel() {
           ))}
 
         {detailsVisible && !unreachable && (
-          <div className={`${card} flex items-center justify-between gap-3`}>
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
               <h3 className="text-sm font-medium text-foreground">Full admin interface</h3>
               <p className="text-xs text-foreground-muted">
@@ -447,94 +450,26 @@ function StatusDot({ connected }: { connected: boolean }) {
 }
 
 const LoginPanel = observer(function LoginPanel({ serverId }: { serverId: string }) {
-  const store = switchServersStore;
-  const config = store.authConfigFor(serverId);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-
-  const doPasswordLogin = async () => {
-    setSubmitting(true);
-    try {
-      await store.passwordLogin(serverId, email, password);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const doOidcLogin = async () => {
-    setSubmitting(true);
-    try {
-      await store.oidcLogin(serverId);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  if (!config) {
-    return <div className={card}>Checking sign-in options…</div>;
-  }
+  const signIn = useServerSignIn(serverId);
 
   return (
     <div className={`${card} space-y-4`}>
       <p className="text-sm text-foreground-muted">Sign in to connect to this server.</p>
-
-      {config.passwordLoginEnabled && (
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="switch-login-email">Email</Label>
-            <Input
-              id="switch-login-email"
-              type="email"
-              autoComplete="username"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="switch-login-password">Password</Label>
-            <Input
-              id="switch-login-password"
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') void doPasswordLogin();
-              }}
-            />
-          </div>
+      <ServerSignInFields
+        signIn={signIn}
+        idPrefix="switch-login"
+        onSignedIn={() => {}}
+        passwordSubmit={
           <Button
             size="sm"
-            disabled={submitting || !email || !password}
-            onClick={() => void doPasswordLogin()}
+            className="self-start"
+            disabled={signIn.submitting || !signIn.canSubmitPassword}
+            onClick={() => void signIn.signInWithPassword()}
           >
-            Sign in
+            {signIn.submitting ? 'Signing in…' : 'Sign in'}
           </Button>
-        </div>
-      )}
-
-      {config.oidcEnabled && (
-        <div className="space-y-2">
-          {config.passwordLoginEnabled && (
-            <div className="text-xs tracking-wide text-foreground-passive uppercase">or</div>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={submitting}
-            onClick={() => void doOidcLogin()}
-          >
-            Sign in with {config.oidcProviderLabel ?? 'SSO'}
-          </Button>
-        </div>
-      )}
-
-      {!config.passwordLoginEnabled && !config.oidcEnabled && (
-        <Alert variant="destructive">
-          <AlertDescription>This server has no enabled login methods.</AlertDescription>
-        </Alert>
-      )}
+        }
+      />
     </div>
   );
 });

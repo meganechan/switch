@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect, useId } from 'react';
+import { useEffect, useId, useState } from 'react';
 import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
 import { AddressingPolicyControl } from '@renderer/features/switch-servers/addressing-policy-control';
 import type { OptionItem } from '@renderer/features/switch-servers/addressing-policy-editor';
@@ -9,6 +9,7 @@ import { switchServersStore } from '@renderer/features/switch-servers/switch-ser
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
+import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
 import { Switch } from '@renderer/lib/ui/switch';
@@ -22,17 +23,20 @@ import type { ConfigureAgentFormState } from './modes';
  * run-mode or notify-handle choice (CHOO-1440); advanced definition attributes
  * live in the collapsed Advanced section.
  */
-export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
+export const AgentSettingsSection = observer(function AgentSettingsSection({
   form,
   serverId,
   onAddServer,
+  onOpenMessagingApps,
 }: {
   form: ConfigureAgentFormState;
   serverId: string | null;
   onAddServer: () => void;
+  onOpenMessagingApps: () => void;
 }) {
-  const nameId = useId();
-  const descriptionId = useId();
+  // Sessions, permissions and addressing are set once and rarely revisited, so
+  // they start folded — the identity fields above are what the dialog is for.
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (switchServersStore.servers.length === 0) void switchServersStore.init();
@@ -81,6 +85,17 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
   // Read here rather than inside the editor so the owner-only default can be
   // questioned before the agent exists, not after it has gone quiet.
   const { identities } = useMyIdentities(serverId);
+  const bridgesQuery = useQuery({
+    queryKey: ['remote-bridges', serverId],
+    queryFn: () => rpc.switchServers.listRemoteBridges(serverId as string),
+    enabled: serverId !== null,
+  });
+  const unlinkedApps =
+    identities === null || bridgesQuery.data === undefined
+      ? null
+      : bridgesQuery.data
+          .filter((bridge) => !identities.some((identity) => identity.bridgeId === bridge.id))
+          .map((bridge) => bridge.displayName);
 
   if (servers.length === 0) {
     return (
@@ -100,20 +115,109 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
 
   return (
     <FieldGroup>
-      <Field>
-        <FieldLabel>Switch server</FieldLabel>
-        <div className="rounded-md border border-border bg-background-1 px-3 py-1.5 text-sm">
-          {serverId
-            ? (servers.find((s) => s.id === serverId)?.name ?? serverId)
-            : 'No server selected'}
-        </div>
-      </Field>
+      {/* No box around the disclosure: it is a heading for the fields it
+          reveals, and framing it made it read as a control of the same weight
+          as the inputs above and below it. */}
+      <div>
+        <DisclosureRow
+          open={settingsOpen}
+          title="Settings"
+          meta="Sessions, permissions, who can address it"
+          onToggle={() => setSettingsOpen((v) => !v)}
+        />
+        {settingsOpen && (
+          <FieldGroup className="pt-3">
+            <Field>
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--sel-soft)]">
+                <span className="flex flex-col gap-0.5">
+                  <span className="flex items-center gap-1.5 text-sm">
+                    Auto-create a session on notify
+                    <InfoTooltip
+                      label="More info about auto-creating a session"
+                      content="Switch Console watches this agent's Switch rooms and starts a session — connected to the room and ready to reply — whenever it's addressed with no session running."
+                    />
+                  </span>
+                  <span className="text-xs text-foreground-muted">
+                    Start a session when this agent is addressed.
+                  </span>
+                </span>
+                <Switch
+                  className="mt-0.5"
+                  checked={form.autoSession}
+                  onCheckedChange={(checked) => form.setAutoSession(checked)}
+                />
+              </label>
+            </Field>
 
+            <Field>
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--sel-soft)]">
+                <span className="flex flex-col gap-0.5">
+                  <span className="flex items-center gap-1.5 text-sm">
+                    Bypass permissions
+                    <InfoTooltip
+                      label="More info about bypassing permissions"
+                      content="Sessions start with the provider's auto-approve flag, including ones started automatically. Turn it on only for agents you trust to run unattended."
+                    />
+                  </span>
+                  <span className="text-xs text-foreground-muted">
+                    Run this agent&apos;s sessions without permission prompts.
+                  </span>
+                </span>
+                <Switch
+                  className="mt-0.5"
+                  checked={form.autoApprove}
+                  onCheckedChange={(checked) => form.setAutoApprove(checked)}
+                />
+              </label>
+            </Field>
+
+            <Field>
+              <FieldLabel>
+                <span className="flex items-center gap-1.5">
+                  Who can send instructions
+                  <InfoTooltip
+                    label="More info about addressing"
+                    content="Sending instructions means an @mention, a targeted message, or a delegated task. A new agent answers only you; grant other agents to let them delegate to it. You can change this later from the agent's settings."
+                  />
+                </span>
+              </FieldLabel>
+              <AddressingPolicyControl
+                value={form.addressingPolicy}
+                onChange={form.setAddressingPolicy}
+                rooms={roomOptions}
+                roomGroups={groupOptions}
+                users={userOptions}
+                agents={agentOptions}
+                unlinkedApps={unlinkedApps}
+                onOpenMessagingApps={onOpenMessagingApps}
+                inlineLabel={null}
+              />
+            </Field>
+          </FieldGroup>
+        )}
+      </div>
+    </FieldGroup>
+  );
+});
+
+/**
+ * Name and description, which are what the dialog is really asking for.
+ *
+ * Separate from the settings below because they need nothing but the form,
+ * while the addressing control needs the server's rooms, groups, users and
+ * agents — so the two halves can sit in different places in the dialog without
+ * the identity fields waiting on four queries they do not use.
+ */
+export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState }) {
+  const nameId = useId();
+  const descriptionId = useId();
+  return (
+    <FieldGroup>
       <Field>
-        <FieldLabel htmlFor={nameId}>Agent name</FieldLabel>
+        <FieldLabel htmlFor={nameId}>Name</FieldLabel>
         <Input
           id={nameId}
-          placeholder="claude-code.my-repo.me"
+          placeholder="Name this agent"
           value={form.agentName}
           onChange={(e) => form.setAgentName(e.target.value)}
           aria-invalid={form.agentName.length > 0 && !form.nameIsValid}
@@ -123,10 +227,18 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
             Use lowercase letters, digits, <span className="font-mono">. - _</span>, starting with a
             letter or digit. No spaces or uppercase.
           </span>
+        ) : form.agentName.length > 0 ? (
+          // Once there is a name, show the handle it produces rather than
+          // repeating the advice: the advice is about choosing a name, and it
+          // has been taken.
+          <span className="text-xs text-foreground-muted">
+            In rooms this agent is addressed as{' '}
+            <span className="text-foreground">@{form.agentName}</span>.
+          </span>
         ) : (
           <span className="text-xs text-foreground-muted">
-            Visible to everyone in the agent&apos;s rooms — include your name so it&apos;s clear
-            which person&apos;s Claude Code this is.
+            In rooms this agent is addressed by its name — include your own so it&apos;s clear whose
+            agent it is.
           </span>
         )}
       </Field>
@@ -135,80 +247,14 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
         <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
         <Input
           id={descriptionId}
-          placeholder="Claude Code running in my-repo"
+          placeholder="What is this agent for?"
           value={form.description}
           onChange={(e) => form.setDescription(e.target.value)}
         />
-      </Field>
-
-      <Field>
-        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
-          <span className="flex flex-col gap-0.5">
-            <span className="flex items-center gap-1.5 text-sm">
-              Auto-create a session on notify
-              <InfoTooltip
-                label="More info about auto-creating a session"
-                content="Switch Console watches this agent's Switch rooms and starts a session — connected to the room and ready to reply — whenever it's addressed with no session running."
-              />
-            </span>
-            <span className="text-xs text-foreground-muted">
-              Start a session when this agent is addressed.
-            </span>
-          </span>
-          <Switch
-            className="mt-0.5"
-            checked={form.autoSession}
-            onCheckedChange={(checked) => form.setAutoSession(checked)}
-          />
-        </label>
-      </Field>
-
-      <Field>
-        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-md border border-border px-2 py-1.5">
-          <span className="flex flex-col gap-0.5">
-            <span className="flex items-center gap-1.5 text-sm">
-              Bypass permissions
-              <InfoTooltip
-                label="More info about bypassing permissions"
-                content="Sessions start with the provider's auto-approve flag, including ones started automatically. Turn it on only for agents you trust to run unattended."
-              />
-            </span>
-            <span className="text-xs text-foreground-muted">
-              Run this agent&apos;s sessions without permission prompts.
-            </span>
-          </span>
-          <Switch
-            className="mt-0.5"
-            checked={form.autoApprove}
-            onCheckedChange={(checked) => form.setAutoApprove(checked)}
-          />
-        </label>
-      </Field>
-
-      <Field>
-        <FieldLabel>
-          <span className="flex items-center gap-1.5">
-            Who can send instructions
-            <InfoTooltip
-              label="More info about addressing"
-              content="Sending instructions means an @mention, a targeted message, or a delegated task. A new agent answers only you; grant other agents to let them delegate to it. You can change this later from the agent's settings."
-            />
-          </span>
-        </FieldLabel>
-        <AddressingPolicyControl
-          value={form.addressingPolicy}
-          onChange={form.setAddressingPolicy}
-          rooms={roomOptions}
-          roomGroups={groupOptions}
-          users={userOptions}
-          agents={agentOptions}
-          linkedIdentities={identities}
-          // No claim button: this panel is inside a modal, and the app shows one
-          // at a time — opening the claim dialog here would throw away the form
-          // the user is halfway through. The warning names where to go instead.
-          onClaimIdentity={null}
-        />
+        <span className="text-xs text-foreground-muted">
+          Helps other people and agents understand what this agent is for.
+        </span>
       </Field>
     </FieldGroup>
   );
-});
+}

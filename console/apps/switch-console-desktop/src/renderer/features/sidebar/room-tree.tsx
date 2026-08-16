@@ -12,7 +12,7 @@ import {
   groupByRoom,
   isRoomNameKnown,
   isRoomViewActive,
-  openRoomInGateway,
+  deleteRoomAction,
   openRoomInMessagingApp,
   openRoomView,
   RoomRow,
@@ -64,6 +64,7 @@ function membersByRoom(): Map<string, AgentEntry[]> {
 
 export const RoomTree = observer(function RoomTree() {
   const showAddAgentsToRoomModal = useShowModal('addAgentsToRoomModal');
+  const showDeleteRoomModal = useShowModal('deleteRoomModal');
 
   // Tag every visible session with the agent it belongs to, then group by room.
   const bySession = new Map<string, AgentEntry>();
@@ -142,13 +143,13 @@ export const RoomTree = observer(function RoomTree() {
                 onToggle={() => sidebarStore.toggleGroupExpanded(roomViewKey)}
                 onSelect={() => openRoomView(roomKey)}
                 isActive={isRoomViewActive(roomKey)}
-                onOpenGateway={() => openRoomInGateway(roomKey)}
                 onOpenChannel={
                   switchRoomsStore.roomChannelUrl(roomKey)
                     ? () => openRoomInMessagingApp(roomKey)
                     : null
                 }
                 onAddAgent={() => showAddAgentsToRoomModal({ roomId: roomKey })}
+                onDelete={deleteRoomAction(roomKey, showDeleteRoomModal)}
               />
             }
           >

@@ -92,7 +92,7 @@ export function serverDrift(server: SwitchServer): SwitchVersionDrift | null {
 
 const AVATAR_SIZE = {
   sm: 'size-6 text-xs',
-  md: 'size-7 text-sm',
+  md: 'size-[26px] text-xs',
   lg: 'size-9 rounded-lg text-lg',
 } as const;
 
@@ -108,7 +108,7 @@ export function ServerAvatar({
     <span
       aria-hidden
       className={cn(
-        'flex shrink-0 items-center justify-center rounded-md bg-foreground font-medium text-background',
+        'flex shrink-0 items-center justify-center rounded-lg bg-[var(--accent-solid)] font-semibold text-white',
         AVATAR_SIZE[size]
       )}
     >

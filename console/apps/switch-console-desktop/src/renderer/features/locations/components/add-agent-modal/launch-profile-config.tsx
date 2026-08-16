@@ -1,14 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
+import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldDescription, FieldLabel } from '@renderer/lib/ui/field';
-import { cn } from '@renderer/utils/utils';
 import {
   type AgentProviderConfig,
   providerConfigFromAttributes,
 } from '@shared/core/agents/agent-provider-config';
-import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { getProvider, type AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
   attributesFromForm,
   DefinitionFieldInput,
@@ -101,18 +100,18 @@ export function LaunchProfileConfig({
 
   if (!providerId || fields.length === 0) return null;
 
+  const providerLabel = getProvider(providerId)?.name ?? providerId;
+
   return (
-    <div className="rounded-md border border-border">
-      <button
-        type="button"
-        className="flex w-full items-center gap-1.5 px-2 py-2 text-sm text-foreground-muted"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <ChevronRight className={cn('h-4 w-4 transition-transform', open && 'rotate-90')} />
-        Advanced configuration
-      </button>
+    <div>
+      <DisclosureRow
+        open={open}
+        title="Advanced configuration"
+        meta={`${providerLabel} · ${fields.length} ${fields.length === 1 ? 'field' : 'fields'}`}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && (
-        <div className="flex flex-col gap-4 border-t border-border px-3 py-3">
+        <div className="flex flex-col gap-4 pt-3">
           {fields.map((field) => {
             const catalogueState = fieldCatalogueState(field, state, catalogue);
             const rendered = fieldWithCatalogue(field, catalogueState);

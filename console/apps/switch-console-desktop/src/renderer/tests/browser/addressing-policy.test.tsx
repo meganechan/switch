@@ -92,7 +92,7 @@ async function pickOption(label: string): Promise<void> {
 }
 
 describe('the chooser', () => {
-  async function control(value: AddressingPolicy | null) {
+  async function control(value: AddressingPolicy | null, unlinkedApps: string[] = ['Slack Test']) {
     let last: AddressingPolicy | null | 'unset' = 'unset';
     const el = await render(
       <AddressingPolicyControl
@@ -104,8 +104,9 @@ describe('the chooser', () => {
         roomGroups={[]}
         users={USERS}
         agents={AGENTS}
-        linkedIdentities={[]}
-        onClaimIdentity={null}
+        unlinkedApps={unlinkedApps}
+        onOpenMessagingApps={() => {}}
+        inlineLabel={null}
       />
     );
     return { el, emitted: () => last };
@@ -180,6 +181,20 @@ describe('the chooser', () => {
     const { el } = await control({ rules: [rule({ owner: true })] });
 
     expect(el.textContent).toContain('you have not linked a messaging account');
+  });
+
+  it('warns about the one app with no account, not only about having none at all', async () => {
+    // Linking Slack and leaving Mattermost unclaimed leaves an owner rule
+    // half-working, and the agent silent in exactly the rooms nobody checked.
+    const { el } = await control({ rules: [rule({ owner: true })] }, ['Mattermost']);
+
+    expect(el.textContent).toContain('Mattermost');
+  });
+
+  it('stays quiet once every app has an account on it', async () => {
+    const { el } = await control({ rules: [rule({ owner: true })] }, []);
+
+    expect(el.textContent).not.toContain('you have not linked a messaging account');
   });
 
   it('stays quiet when only the owner’s agents are admitted', async () => {

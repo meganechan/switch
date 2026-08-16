@@ -144,6 +144,19 @@ export class SwitchRoomsStore {
   }
 
   /**
+   * Every active room the signed-in user can see on a server — what the gateway
+   * returned, which is already scoped to rooms they may read.
+   *
+   * Wider than {@link listedRoomsOnServer} on purpose. A standing list has to
+   * earn its place on screen, so the sidebar shows only rooms with a claim on
+   * you; a picker is a list you went looking for, and one that hides rooms you
+   * have every right to join cannot be searched into showing them.
+   */
+  readableRoomsOnServer(serverId: string): RemoteRoomSummary[] {
+    return this.allRoomsByServer.get(serverId) ?? [];
+  }
+
+  /**
    * The same listed rooms as {@link listedRoomsInActiveScope}, but across every
    * server rather than the active one.
    *
@@ -185,6 +198,33 @@ export class SwitchRoomsStore {
     const serverId = this.roomServerById.get(roomId);
     if (!serverId) return null;
     return this.allRoomsByServer.get(serverId)?.find((room) => room.id === roomId) ?? null;
+  }
+
+  /**
+   * Whether the signed-in user may delete a room: they own it, or they are an
+   * admin on its server.
+   *
+   * This mirrors the gateway's own rule so the action is not offered where it
+   * would only be refused. It is not the check that protects anything — the
+   * server's is — and where ownership is unknown the answer is no, since
+   * showing a delete that fails is worse than not showing one.
+   */
+  canDeleteRoom(serverId: string, room: RemoteRoomSummary): boolean {
+    const user = switchServersStore.statusFor(serverId)?.user ?? null;
+    if (!user) return false;
+    return room.ownerId === user.id || user.role === 'admin';
+  }
+
+  /**
+   * Delete a room on its server, then re-read what is left.
+   *
+   * Throws on refusal rather than reporting a boolean: the caller is a
+   * confirmation dialog, and a delete that quietly did nothing would leave the
+   * room on screen with no account of why.
+   */
+  async deleteRoom(serverId: string, roomId: string): Promise<void> {
+    await rpc.switchServers.deleteRoom({ serverId, roomId });
+    await this.refreshRoomState();
   }
 
   /**

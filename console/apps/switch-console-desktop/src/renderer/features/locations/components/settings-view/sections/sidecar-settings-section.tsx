@@ -1,10 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
+  ArrowRight,
+  Check,
   CheckCircle2,
+  ChevronRight,
+  Copy,
   Loader2,
   Power,
   RefreshCw,
+  Server,
   Users,
   XCircle,
 } from 'lucide-react';
@@ -12,8 +17,10 @@ import { useEffect, useState } from 'react';
 import { events, rpc } from '@renderer/lib/ipc';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
-import { Field, FieldDescription, FieldTitle } from '@renderer/lib/ui/field';
+import { DisclosureRow, disclosureRowClass } from '@renderer/lib/ui/disclosure-row';
+import { Field, FieldDescription } from '@renderer/lib/ui/field';
 import { log } from '@renderer/utils/logger';
+import { cn } from '@renderer/utils/utils';
 import type { AgentSidecarStatus, SidecarVerdict } from '@shared/events/sidecarEvents';
 import { sidecarStatusChannel } from '@shared/events/sidecarEvents';
 
@@ -102,10 +109,8 @@ export function SidecarSettingsSection({ agentId }: { agentId: string }) {
 
   return (
     <Field>
-      <div className="flex items-center justify-between gap-3">
-        <FieldTitle>Remote sidecar</FieldTitle>
-        {data && <VerdictBadge verdict={data.verdict} />}
-      </div>
+      {data && <StatusStrip status={data} />}
+
       <FieldDescription className="text-foreground-muted">
         The on-host process that keeps this agent connected to its Switch rooms while Switch Console
         is closed. Updated automatically when Switch Console connects; you can also manage it here.
@@ -129,13 +134,11 @@ export function SidecarSettingsSection({ agentId }: { agentId: string }) {
       )}
 
       {data && (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
           <VersionRows status={data} />
 
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              size="sm"
-              variant="outline"
               disabled={busy || NOTHING_TO_UPDATE.has(data.verdict)}
               onClick={() => upgrade.mutate()}
             >
@@ -146,7 +149,7 @@ export function SidecarSettingsSection({ agentId }: { agentId: string }) {
               )}
               Update
             </Button>
-            <Button size="sm" variant="outline" disabled={busy} onClick={() => restart.mutate()}>
+            <Button variant="outline" disabled={busy} onClick={() => restart.mutate()}>
               {restart.isPending ? (
                 <Loader2 className="size-3.5 animate-spin" />
               ) : (
@@ -154,9 +157,19 @@ export function SidecarSettingsSection({ agentId }: { agentId: string }) {
               )}
               {data.verdict === 'incompatible' ? 'Replace' : 'Restart'}
             </Button>
+
+            <p className="min-w-0 flex-1 px-2 text-xs text-foreground-muted">
+              {data.verdict === 'other-install' &&
+                'Another Switch Console install on this host deployed the running sidecar, from the same release as yours. Neither build is newer, so this one leaves it alone rather than the two of you replacing it in turn. Use Restart to run your build instead — the other install will then leave yours alone.'}
+              {data.verdict === 'upgrade-pending' &&
+                `An update is ready but held back because ${data.liveSessions} session${
+                  data.liveSessions === 1 ? ' is' : 's are'
+                } running. It applies next time the sidecar is idle — or use Restart to apply it now (running sessions reconnect automatically).`}
+            </p>
+
             <Button
-              size="sm"
               variant="outline"
+              className="text-destructive hover:text-destructive ml-auto"
               disabled={busy || !data.running}
               onClick={() => stop.mutate()}
             >
@@ -169,28 +182,38 @@ export function SidecarSettingsSection({ agentId }: { agentId: string }) {
             </Button>
           </div>
 
-          {data.verdict === 'other-install' && (
-            <p className="text-xs text-foreground-muted">
-              Another Switch Console install on this host deployed the running sidecar, from the
-              same release as yours. Neither build is newer, so this one leaves it alone rather than
-              the two of you replacing it in turn. Use Restart to run your build instead — the other
-              install will then leave yours alone.
-            </p>
-          )}
-
-          {data.verdict === 'upgrade-pending' && (
-            <p className="text-xs text-foreground-muted">
-              An update is ready but held back because {data.liveSessions} session
-              {data.liveSessions === 1 ? '' : 's'} {data.liveSessions === 1 ? 'is' : 'are'} running.
-              It applies next time the sidecar is idle — or use Restart to apply it now (running
-              sessions reconnect automatically).
-            </p>
-          )}
-
           <SidecarLog agentId={agentId} />
         </div>
       )}
     </Field>
+  );
+}
+
+/**
+ * What the host is running right now, in one line: the verdict, the build with
+ * its restart count and pid, and which host it is. The first thing to look at,
+ * so it is the first thing on the section.
+ */
+function StatusStrip({ status }: { status: AgentSidecarStatus }) {
+  return (
+    <div className="flex items-center gap-3 rounded-[10px] bg-[var(--surface-2)] px-3 py-2.5">
+      <VerdictBadge verdict={status.verdict} />
+      <span className="min-w-0 flex-1 truncate font-mono text-xs">
+        {status.running ? runningBuildLine(status) : 'not running'}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5 text-xs text-foreground-muted">
+        <Server className="size-3.5" />
+        {status.sshHost}
+      </span>
+    </div>
+  );
+}
+
+function runningBuildLine(status: AgentSidecarStatus): string {
+  return (
+    `${status.deployedVersion ?? '?'}+${shortHash(status.deployedHash)}` +
+    (status.epoch !== null ? ` · restart #${status.epoch}` : '') +
+    (status.pid !== null ? ` · pid ${status.pid}` : '')
   );
 }
 
@@ -204,36 +227,78 @@ function VerdictBadge({ verdict }: { verdict: SidecarVerdict }) {
 }
 
 function VersionRows({ status }: { status: AgentSidecarStatus }) {
+  const clientBuild = `${status.clientVersion}+${shortHash(status.clientHash)}`;
+  const hostBuild = status.running
+    ? `${status.deployedVersion ?? '?'}+${shortHash(status.deployedHash)}`
+    : null;
+
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
-      <Row
-        label="This client ships"
-        value={`${status.clientVersion}+${shortHash(status.clientHash)}`}
-      />
-      <Row
-        label="Host running"
-        value={
-          status.running
-            ? `${status.deployedVersion ?? '?'}+${shortHash(status.deployedHash)}` +
-              (status.epoch !== null ? ` · restart #${status.epoch}` : '') +
-              (status.pid !== null ? ` · pid ${status.pid}` : '')
-            : 'not running'
-        }
-      />
-      {status.running && <Row label="Deployed by" value={deployedByLabel(status)} />}
-      <Row label="Live sessions" value={String(status.liveSessions)} />
-      <Row label="Host" value={status.sshHost} />
-      <Row label="Working dir" value={status.repoDir} mono />
+    <dl className="divide-y divide-border overflow-hidden rounded-[10px] border border-border text-sm">
+      <Row label="Version">
+        {/* Both builds on one line, in the direction the update would go. Read
+          as two rows they were two facts to compare; read as one they are the
+          gap itself. */}
+        <span className="flex flex-wrap items-center gap-2 font-mono text-xs">
+          {hostBuild === null ? (
+            <span className="text-foreground-muted">not running</span>
+          ) : (
+            <>
+              <span>{hostBuild}</span>
+              {hostBuild !== clientBuild && (
+                <>
+                  <ArrowRight className="size-3.5 text-foreground-muted" />
+                  <span>{clientBuild}</span>
+                </>
+              )}
+            </>
+          )}
+          {hostBuild !== clientBuild && (
+            <span className="font-sans text-foreground-muted">this client ships</span>
+          )}
+        </span>
+      </Row>
+      <Row label="Live sessions">{String(status.liveSessions)}</Row>
+      {status.running && <Row label="Deployed by">{deployedByLabel(status)}</Row>}
+      <Row label="Working dir">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-mono text-xs">{status.repoDir}</span>
+          <CopyButton value={status.repoDir} label="Copy the working directory" />
+        </span>
+      </Row>
     </dl>
   );
 }
 
-function Row({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <>
-      <dt className="text-foreground-muted">{label}</dt>
-      <dd className={mono ? 'truncate font-mono text-xs' : 'truncate'}>{value}</dd>
-    </>
+    <div className="flex items-center gap-4 px-3 py-2.5">
+      <dt className="w-32 shrink-0 text-foreground-muted">{label}</dt>
+      <dd className="min-w-0 flex-1 truncate">{children}</dd>
+    </div>
+  );
+}
+
+function CopyButton({ value, label }: { value: string; label: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      aria-label={label}
+      className="ml-auto shrink-0"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(
+          () => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+          },
+          (error: unknown) => log.error('Failed to copy to the clipboard', { error })
+        );
+      }}
+    >
+      {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+    </Button>
   );
 }
 
@@ -246,17 +311,21 @@ function SidecarLog({ agentId }: { agentId: string }) {
   });
 
   if (!open) {
-    return (
-      <Button size="xs" variant="ghost" className="self-start" onClick={() => setOpen(true)}>
-        Show recent log
-      </Button>
-    );
+    return <DisclosureRow open={false} title="Show recent log" onToggle={() => setOpen(true)} />;
   }
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-foreground-muted">Recent sidecar log</span>
+      <div className={cn(disclosureRowClass, 'justify-between hover:bg-transparent')}>
+        <button
+          type="button"
+          aria-expanded
+          className="-mx-2 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-background-1"
+          onClick={() => setOpen(false)}
+        >
+          <ChevronRight className="size-4 rotate-90 text-foreground-muted" />
+          <span className="font-medium text-foreground">Recent sidecar log</span>
+        </button>
         <Button size="xs" variant="ghost" disabled={isFetching} onClick={() => void refetch()}>
           {isFetching ? (
             <Loader2 className="size-3 animate-spin" />

@@ -8,9 +8,7 @@ import {
 } from '@renderer/features/switch-servers/addressing-policy-editor';
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
-import { useShowModal } from '@renderer/lib/modal/modal-provider';
-import { Button } from '@renderer/lib/ui/button';
-import { Field, FieldTitle } from '@renderer/lib/ui/field';
+import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { log } from '@renderer/utils/logger';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 
@@ -38,28 +36,17 @@ export function AddressingPolicySettingsSection({
   if (switchAgents.length === 0) return null;
 
   return (
-    <Field>
-      <FieldTitle>
-        <span className="flex items-center gap-1.5">
-          Who can send instructions
-          <InfoTooltip
-            label="More info about addressing"
-            content="Sending instructions means an @mention, a targeted message, or a delegated task. Only you, anyone in the agent's rooms, or whoever a rule admits."
-          />
-        </span>
-      </FieldTitle>
-      <div className="flex flex-col gap-4">
-        {switchAgents.map((agent) => (
-          <AddressingPolicyRow
-            key={agent.id}
-            serverId={agent.serverId as string}
-            agentId={agent.switchAgentId as string}
-            agentName={agent.name}
-            showName={switchAgents.length > 1}
-          />
-        ))}
-      </div>
-    </Field>
+    <div className="flex flex-col gap-4">
+      {switchAgents.map((agent) => (
+        <AddressingPolicyRow
+          key={agent.id}
+          serverId={agent.serverId as string}
+          agentId={agent.switchAgentId as string}
+          agentName={agent.name}
+          showName={switchAgents.length > 1}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -75,8 +62,8 @@ function AddressingPolicyRow({
   showName: boolean;
 }) {
   const queryClient = useQueryClient();
-  const showClaimIdentity = useShowModal('claimIdentityModal');
-  const { identities, refresh: refreshIdentities } = useMyIdentities(serverId);
+  const { navigate } = useNavigate();
+  const { identities } = useMyIdentities(serverId);
   const [draft, setDraft] = useState<AddressingPolicy | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,11 +93,15 @@ function AddressingPolicyRow({
     queryKey: ['remote-bridges', serverId],
     queryFn: () => rpc.switchServers.listRemoteBridges(serverId),
   });
-  // Which workspace the "link my account" button opens on. The claim modal is
-  // per-bridge, so one has to be named: the default bridge is where this
-  // server's rooms land, and the rest are reachable from the server page.
-  const claimBridge =
-    (bridges.data ?? []).find((b) => b.isDefault) ?? (bridges.data ?? [])[0] ?? null;
+  // The apps on this server the user has claimed no account on. Null until both
+  // halves have arrived: a bridge list without the identities would read as
+  // every app unlinked.
+  const unlinkedApps =
+    identities === null || bridges.data === undefined
+      ? null
+      : bridges.data
+          .filter((bridge) => !identities.some((identity) => identity.bridgeId === bridge.id))
+          .map((bridge) => bridge.displayName);
 
   // Until the user edits, show the saved policy; once dirty, show the draft.
   const value = dirty ? draft : (saved ?? null);
@@ -142,42 +133,44 @@ function AddressingPolicyRow({
   // Prefer the registered Switch agent name over the local directory basename.
   const displayName = agentOptions.find((o) => o.id === agentId)?.label ?? agentName;
 
+  // Saved the moment it is changed — there is no Save button. A rule set that
+  // admits nobody is the one exception: it is held as a draft rather than
+  // written, because saving it mid-edit would silently shut the agent off.
+  const change = (next: AddressingPolicy | null) => {
+    setDraft(next);
+    setDirty(true);
+    if (!policyHasDeadRule(next)) mutation.mutate(next);
+  };
+
   return (
     <div className="flex flex-col gap-2">
       {showName && <span className="text-sm font-medium">{displayName}</span>}
       <AddressingPolicyControl
         value={value}
-        onChange={(next) => {
-          setDraft(next);
-          setDirty(true);
-        }}
+        onChange={change}
+        inlineLabel={
+          <span className="flex items-center gap-1.5 text-sm leading-snug font-medium">
+            Who can send instructions
+            <InfoTooltip
+              label="More info about addressing"
+              content="Sending instructions means an @mention, a targeted message, or a delegated task. Only you, anyone in the agent's rooms, or whoever a rule admits."
+            />
+          </span>
+        }
         rooms={roomOptions}
         roomGroups={groupOptions}
         users={userOptions}
         agents={agentOptions}
-        linkedIdentities={identities}
-        onClaimIdentity={
-          claimBridge === null
-            ? null
-            : () =>
-                showClaimIdentity({
-                  serverId,
-                  bridgeId: claimBridge.id,
-                  onSuccess: () => refreshIdentities(),
-                })
-        }
+        unlinkedApps={unlinkedApps}
+        onOpenMessagingApps={() => navigate('server', { serverId })}
         disabled={mutation.isPending}
       />
       {error && <span className="text-destructive text-xs">{error}</span>}
-      <div>
-        <Button
-          size="sm"
-          disabled={!dirty || mutation.isPending || policyHasDeadRule(value)}
-          onClick={() => mutation.mutate(value)}
-        >
-          Save policy
-        </Button>
-      </div>
+      {policyHasDeadRule(value) && (
+        <span className="text-xs text-foreground-warning">
+          Not saved — a rule admits nobody. It is kept here until it names a sender.
+        </span>
+      )}
     </div>
   );
 }

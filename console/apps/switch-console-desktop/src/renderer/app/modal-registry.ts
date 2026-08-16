@@ -7,6 +7,8 @@ import { CreateSessionModal } from '@renderer/features/sessions/create-session-m
 import { DeleteSessionModal } from '@renderer/features/sessions/delete-session-modal';
 import { RenameSessionModal } from '@renderer/features/sessions/rename-session-modal';
 import { AddAgentsToRoomModal } from '@renderer/features/switch-rooms/AddAgentsToRoomModal';
+import { AddAgentToRoomsModal } from '@renderer/features/switch-rooms/AddAgentToRoomsModal';
+import { DeleteRoomModal } from '@renderer/features/switch-rooms/DeleteRoomModal';
 import { AddServerModal } from '@renderer/features/switch-servers/AddServerModal';
 import { AssignServerModal } from '@renderer/features/switch-servers/assign-server-modal';
 import { ClaimIdentityModal } from '@renderer/features/switch-servers/ClaimIdentityModal';
@@ -46,7 +48,7 @@ export function createModal<TProps, TResult>(
 export const modalRegistry = {
   commandPaletteModal: createModal(CommandPaletteModal, { size: 'md' }),
   sessionModal: createModal(CreateSessionModal, { dismissOnOutsideClick: false }),
-  addAgentModal: createModal(AddAgentModal, { dismissOnOutsideClick: false }),
+  addAgentModal: createModal(AddAgentModal, { size: 'lg', dismissOnOutsideClick: false }),
   confirmActionModal: createModal(ConfirmActionDialog, { size: 'xs' }),
   deleteAgentModal: createModal(DeleteAgentModal, { size: 'sm' }),
   resetAgentModal: createModal(ResetAgentModal, { size: 'sm' }),
@@ -65,7 +67,7 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   deleteServerModal: createModal(DeleteServerModal, { size: 'sm' }),
-  createRoomModal: createModal(CreateRoomModal, { size: 'md', dismissOnOutsideClick: false }),
+  createRoomModal: createModal(CreateRoomModal, { size: 'lg', dismissOnOutsideClick: false }),
   connectMessagingAppModal: createModal(ConnectMessagingAppModal, {
     size: 'md',
     dismissOnOutsideClick: false,
@@ -79,8 +81,17 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   addAgentsToRoomModal: createModal(AddAgentsToRoomModal, {
-    size: 'sm',
+    // The room-side twin of `addAgentToRoomModal`, and sized to match: the two
+    // do the same job from opposite ends and should not feel like two dialogs.
+    size: 'lg',
     dismissOnOutsideClick: false,
   }),
+  addAgentToRoomModal: createModal(AddAgentToRoomsModal, {
+    // Wide enough for a searchable list and a grid of what you have picked —
+    // this dialog browses a whole server's rooms, not just confirms one.
+    size: 'lg',
+    dismissOnOutsideClick: false,
+  }),
+  deleteRoomModal: createModal(DeleteRoomModal, { size: 'sm', dismissOnOutsideClick: false }),
   // oxlint-disable-next-line typescript/no-explicit-any
 } satisfies Record<string, ModalRegistryEntry<any, any>>;

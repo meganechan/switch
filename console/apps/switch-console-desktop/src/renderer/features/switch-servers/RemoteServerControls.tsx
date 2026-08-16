@@ -1,12 +1,11 @@
-import { CircleStop, Play, RefreshCw, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, AlertDescription, AlertTitle } from '@renderer/lib/ui/alert';
-import { Button } from '@renderer/lib/ui/button';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { LogTail } from './log-tail';
 import { remoteServerStore } from './remote-server-store';
-import { StackSection, StackStatusRow } from './server-stack-section';
+import { phaseLabel, StackAction, StackSection, StackStatusRow } from './server-stack-section';
 
 /**
  * Lifecycle for a managed Switch stack running in Docker on an SSH host. The
@@ -21,6 +20,7 @@ export const RemoteServerControls = observer(function RemoteServerControls({
   name: string;
 }) {
   const store = remoteServerStore;
+  const [showActivity, setShowActivity] = useState(false);
 
   useEffect(() => {
     void store.init();
@@ -44,46 +44,51 @@ export const RemoteServerControls = observer(function RemoteServerControls({
   const logs = store.logsFor(sshHost);
 
   return (
-    <StackSection title={`Server on ${sshHost}`}>
+    <StackSection>
       <StackStatusRow
+        title={`Server on ${sshHost}`}
         phase={hostBlocked ? 'unreachable' : status.phase}
-        detail={running ? `switch-core ${runningVersion}` : 'not running'}
+        summary={
+          running ? `Running on ${sshHost}` : phaseLabel(hostBlocked ? 'unreachable' : status.phase)
+        }
+        versionDetail={runningVersion ? `switch-core ${runningVersion}` : null}
+        activity={
+          logs.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowActivity((s) => !s)}
+              className="text-foreground-muted underline-offset-2 transition-colors hover:text-foreground hover:underline"
+            >
+              {showActivity ? 'Hide activity' : 'Recent activity'}
+            </button>
+          ) : null
+        }
         actions={
           running ? (
             <>
-              <Button
-                variant="outline"
-                size="sm"
+              <StackAction
+                label="Restart"
                 disabled={transitioning}
                 onClick={() => void store.start(sshHost, name)}
-              >
-                <RefreshCw className="size-4" />
-                Restart
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
+              />
+              <StackAction
+                label="Stop"
+                danger
                 disabled={transitioning}
                 onClick={() => void store.stop(sshHost)}
-              >
-                <CircleStop className="size-4" />
-                Stop
-              </Button>
+              />
             </>
           ) : (
-            <Button
-              size="sm"
+            <StackAction
+              label={status.phase === 'error' && !downgradeBlocked ? 'Retry' : 'Start'}
               disabled={transitioning || downgradeBlocked}
               onClick={() => void store.start(sshHost, name)}
-            >
-              <Play className="size-4" />
-              {status.phase === 'error' && !downgradeBlocked ? 'Retry' : 'Start'}
-            </Button>
+            />
           )
         }
       />
 
-      <div className="space-y-3 p-3">
+      <div className="space-y-3">
         {status.message && transitioning && (
           <div className="flex items-center gap-2 text-sm text-foreground-muted">
             <Spinner className="size-3.5" />
@@ -110,17 +115,9 @@ export const RemoteServerControls = observer(function RemoteServerControls({
           </Alert>
         )}
 
-        {/* What the stack is, until it has said something itself. Once it is
-          talking, its own output is the more useful thing to keep on screen. */}
-        {logs.length > 0 ? (
-          <LogTail lines={logs} placeholder={null} />
-        ) : (
-          <p className="text-xs text-foreground-muted">
-            Runs the full Switch stack in Docker on {sshHost}, bridged to this computer over SSH
-            {runningVersion ? ` (switch-core ${runningVersion})` : ''}. It keeps running when you
-            close Switch Console; agents on this computer can reach it while Switch Console is open.
-          </p>
-        )}
+        {/* Behind the disclosure rather than shown the moment there is output:
+            the log is what you go looking for, not what the section is for. */}
+        {showActivity && logs.length > 0 && <LogTail lines={logs} placeholder={null} />}
       </div>
     </StackSection>
   );

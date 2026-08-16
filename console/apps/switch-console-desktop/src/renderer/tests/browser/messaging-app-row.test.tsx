@@ -109,13 +109,15 @@ async function openMenu(el: HTMLElement): Promise<string[]> {
 }
 
 describe('the identity column', () => {
-  it('offers one control, not two, once an account is linked', async () => {
-    // The second control was the unlink cross. Its removal is the point: the
-    // one thing on the row is the handle, and pressing it changes the account.
+  it('states the handle without hanging a control off it', async () => {
+    // The control that was removed is the unlink cross, and its absence is
+    // still the point. The handle now reads as a fact about the app; both
+    // things you can do to it — change it, drop it — are in the menu, where
+    // neither sits a mis-click from the other.
     const el = await render(row({ identities: [IDENTITY] }));
 
-    const inColumn = buttonLabels(el).filter((l) => l.includes('amaudruz.louis'));
-    expect(inColumn).toEqual(['@amaudruz.louis']);
+    expect(el.textContent).toContain('@amaudruz.louis');
+    expect(buttonLabels(el).filter((l) => l.includes('amaudruz.louis'))).toEqual([]);
   });
 
   it('cannot unlink straight from the row', async () => {
@@ -146,7 +148,8 @@ describe('the identity column', () => {
       row({ identities: [{ ...IDENTITY, externalUsername: '@already.sigilled' }] })
     );
 
-    expect(buttonLabels(el)).toContain('@already.sigilled');
+    expect(el.textContent).toContain('@already.sigilled');
+    expect(el.textContent).not.toContain('@@already.sigilled');
   });
 });
 
@@ -225,44 +228,70 @@ describe('the row menu', () => {
 });
 
 /**
- * Channel creation moved out of the row menu into a column of the table
- * (CHOO-2158), so it can be read down the page rather than opened one row at a
- * time. What it has to say did not change with the shape.
+ * Whether Switch may open channels on an app.
+ *
+ * It has been in both places. CHOO-2158 pulled it onto the row as a column, so
+ * it could be read down the page; the card is a list rather than a table of
+ * controls now, and it is back in the menu — read far less often than the app
+ * name and the account under it, and a switch in a list of names reads as the
+ * loudest thing there.
+ *
+ * What it has to say did not change with either move, and that is what these
+ * are for.
  */
-describe('the channel-creation column', () => {
-  function channelSwitch(el: HTMLElement): HTMLElement {
-    const found = el.querySelector<HTMLElement>('[aria-label^="Let Switch create channels"]');
-    expect(found).not.toBeNull();
+describe('channel creation', () => {
+  /** Opens the row menu and returns the item with this label. Base UI portals
+   * the menu, so this reads the whole document. */
+  async function menuItem(el: HTMLElement, label: string): Promise<HTMLElement> {
+    await openMenu(el);
+    const found = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menuitemcheckbox"]'),
+    ].find((i) => i.textContent?.trim() === label);
+    expect(found, `no menu item labelled ${label}`).toBeDefined();
     return found!;
   }
 
-  it('puts the toggle on the row rather than behind the menu', async () => {
+  it('is in the menu, not on the row', async () => {
     const el = await render(row({ isAdmin: true }));
 
-    expect(channelSwitch(el).getAttribute('aria-checked')).toBe('true');
-    expect(await openMenu(el)).not.toContain('Can create channels');
+    expect(el.querySelector('[role="switch"]')).toBeNull();
+    expect(await openMenu(el)).toContain('Create channels on Slack');
+  });
+
+  it('shows the current answer', async () => {
+    const el = await render(row({ isAdmin: true }));
+
+    expect((await menuItem(el, 'Create channels on Slack')).getAttribute('aria-checked')).toBe(
+      'true'
+    );
   });
 
   it('says a platform cannot create channels rather than just showing it off', async () => {
-    // An unticked disabled switch reads as "switched off", which is a different
-    // claim from "this platform has no such thing".
+    // An unticked box reads as "switched off", which is a different claim from
+    // "this platform has no such thing". Telegram is the case: it never gets a
+    // box at all, only a line saying so.
     const el = await render(
       row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
     );
 
-    expect(el.textContent).toContain('Not supported');
-    expect(el.textContent).not.toContain('Off');
+    const labels = await openMenu(el);
+    expect(labels).toContain('Channels not supported on Slack');
+    expect(document.querySelector('[role="menuitemcheckbox"]')).toBeNull();
   });
 
-  it('leaves the toggle alone for a non-admin', async () => {
+  it('leaves it alone for a non-admin', async () => {
     const el = await render(row({ isAdmin: false }));
 
-    expect(channelSwitch(el).getAttribute('data-disabled')).not.toBeNull();
+    expect(
+      (await menuItem(el, 'Create channels on Slack')).getAttribute('data-disabled')
+    ).not.toBeNull();
   });
 
   it('lets an admin move it', async () => {
     const el = await render(row({ isAdmin: true }));
 
-    expect(channelSwitch(el).getAttribute('data-disabled')).toBeNull();
+    expect(
+      (await menuItem(el, 'Create channels on Slack')).getAttribute('data-disabled')
+    ).toBeNull();
   });
 });

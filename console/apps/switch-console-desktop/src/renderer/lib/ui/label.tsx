@@ -40,7 +40,10 @@ export function SectionLabel({ className, ...props }: React.ComponentProps<'labe
     <label
       data-slot="label"
       className={cn(
-        'cursor-default text-xs font-medium text-foreground-passive select-none',
+        // `--fg-passive`, not the `foreground-passive` token: that one is the
+        // design's faint step and leaves a section heading too weak to read
+        // without hovering it.
+        'cursor-default text-xs font-medium text-[var(--fg-passive)] select-none',
         className
       )}
       {...props}

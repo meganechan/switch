@@ -1,6 +1,5 @@
 import { CircleAlert } from 'lucide-react';
 import { useState } from 'react';
-import { Button } from '@renderer/lib/ui/button';
 import {
   Select,
   SelectContent,
@@ -8,13 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
+import { cn } from '@renderer/utils/utils';
 import {
   type AddressingMode,
   addressingModeOf,
   policyForMode,
   policyNamesOwner,
 } from '@shared/core/switch-servers/owner-policy';
-import type { AddressingPolicy, LinkedIdentity } from '@shared/core/switch-servers/switch-servers';
+import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 import { AddressingPolicyEditor, type OptionItem } from './addressing-policy-editor';
 
 const MODE_ORDER: AddressingMode[] = ['owner', 'ownerAndAgents', 'anyone', 'custom'];
@@ -49,8 +49,9 @@ export function AddressingPolicyControl({
   roomGroups,
   users,
   agents,
-  linkedIdentities,
-  onClaimIdentity,
+  unlinkedApps,
+  onOpenMessagingApps,
+  inlineLabel,
   disabled = false,
 }: {
   value: AddressingPolicy | null;
@@ -59,15 +60,18 @@ export function AddressingPolicyControl({
   roomGroups: OptionItem[];
   users: OptionItem[];
   agents: OptionItem[];
-  /** Messaging accounts the signed-in user has claimed on this server. An
-   * owner rule resolves through these, so an empty list means such a rule
-   * admits nobody. Null while unknown — no warning is drawn from a list that
-   * has not arrived. */
-  linkedIdentities: LinkedIdentity[] | null;
-  /** Opens the claim-your-identity modal. Null where a modal cannot be opened
-   * over the current one (the add-agent dialog), which turns the warning into
-   * a statement rather than an action that would discard the form. */
-  onClaimIdentity: (() => void) | null;
+  /** Messaging apps on this server the signed-in user has claimed no account
+   * on, by display name. An owner rule resolves through a claimed account, so
+   * in those apps it admits nobody — and that is true of one unclaimed app even
+   * when others are linked. Null while unknown; no warning is drawn from a list
+   * that has not arrived. */
+  unlinkedApps: string[] | null;
+  /** Opens the server's Messaging apps, which is where an account is linked. */
+  onOpenMessagingApps: () => void;
+  /** The setting's own title, rendered beside the chooser as one settings row.
+   * Null where the caller already labels the control above it, which keeps the
+   * chooser stacked and full-width. */
+  inlineLabel: React.ReactNode | null;
   disabled?: boolean;
 }) {
   // Custom is sticky while it is chosen: a rule set can pass through a shape
@@ -89,32 +93,56 @@ export function AddressingPolicyControl({
     onChange(policyForMode(next, next === 'custom' ? (customDraft ?? value) : value));
   };
 
+  const chooser = (
+    <Select
+      value={mode}
+      onValueChange={(next) => selectMode(next as AddressingMode)}
+      disabled={disabled}
+    >
+      <SelectTrigger className={inlineLabel === null ? 'w-full' : 'shrink-0'}>
+        {/* The label, not the value. Left to itself the trigger renders what
+          is stored — "ownerAndAgents" — so the box contradicted the option
+          just picked from it. */}
+        <SelectValue>{MODE_LABELS[mode]}</SelectValue>
+      </SelectTrigger>
+      <SelectContent>
+        {MODE_ORDER.map((option) => (
+          <SelectItem key={option} value={option}>
+            {MODE_LABELS[option]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
+  const hint = (
+    <span className={cn('text-foreground-muted', inlineLabel === null ? 'text-xs' : 'text-sm')}>
+      {MODE_HINTS[mode]}
+    </span>
+  );
+
   return (
     <div className="flex flex-col gap-3">
-      <Select
-        value={mode}
-        onValueChange={(next) => selectMode(next as AddressingMode)}
-        disabled={disabled}
-      >
-        <SelectTrigger className="w-full">
-          {/* The label, not the value. Left to itself the trigger renders what
-            is stored — "ownerAndAgents" — so the box contradicted the option
-            just picked from it. */}
-          <SelectValue>{MODE_LABELS[mode]}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {MODE_ORDER.map((option) => (
-            <SelectItem key={option} value={option}>
-              {MODE_LABELS[option]}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      {inlineLabel === null ? (
+        <>
+          {chooser}
+          {hint}
+        </>
+      ) : (
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-col gap-1">
+            {inlineLabel}
+            {hint}
+          </div>
+          {chooser}
+        </div>
+      )}
 
-      <span className="text-xs text-foreground-muted">{MODE_HINTS[mode]}</span>
-
-      {policyNamesOwner(value) && linkedIdentities?.length === 0 && (
-        <OwnerUnreachableWarning onClaimIdentity={onClaimIdentity} />
+      {policyNamesOwner(value) && unlinkedApps !== null && unlinkedApps.length > 0 && (
+        <OwnerUnreachableWarning
+          unlinkedApps={unlinkedApps}
+          onOpenMessagingApps={onOpenMessagingApps}
+        />
       )}
 
       {mode === 'custom' && value !== null && (
@@ -133,31 +161,47 @@ export function AddressingPolicyControl({
 }
 
 /**
- * Shown when a rule admits the agent's owner but the signed-in user has claimed
- * no messaging account, which is exactly the case where a privacy control ends
- * up admitting nobody. Silence here would look like a working restriction right
- * up until someone wonders why the agent never answers.
+ * Shown when a rule admits the agent's owner but there are messaging apps the
+ * signed-in user has claimed no account on — exactly the case where a privacy
+ * control ends up admitting nobody. Silence here would look like a working
+ * restriction right up until someone wonders why the agent never answers.
+ *
+ * It names the apps rather than saying "this server": linking Slack and leaving
+ * Mattermost unclaimed leaves the rule half-working, and a message that only
+ * fires when nothing at all is linked would have called that fine.
  */
-function OwnerUnreachableWarning({ onClaimIdentity }: { onClaimIdentity: (() => void) | null }) {
+function OwnerUnreachableWarning({
+  unlinkedApps,
+  onOpenMessagingApps,
+}: {
+  unlinkedApps: string[];
+  onOpenMessagingApps: () => void;
+}) {
   return (
     <div className="flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
       <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span>
-          This admits the agent&apos;s owner, but you have not linked a messaging account on this
-          server — so Switch cannot tell that a message from you is from you, and the agent will
-          answer nobody.
+          This admits the agent&apos;s owner, but you have not linked a messaging account on{' '}
+          {listApps(unlinkedApps)} — so Switch cannot tell that a message from you there is from
+          you, and the agent will answer nobody in those rooms.
         </span>
-        {onClaimIdentity === null ? (
-          <span className="text-foreground-muted">
-            Link your account from the server page, under “Messaging apps”.
-          </span>
-        ) : (
-          <Button variant="outline" size="sm" className="self-start" onClick={onClaimIdentity}>
-            Link my messaging account
-          </Button>
-        )}
+        {/* Messaging apps, not a claim dialog: an account is linked per app, and
+          which app is being claimed is a decision that belongs beside the list
+          of them rather than inside a button pressed from here. */}
+        <button
+          type="button"
+          className="-mx-1 w-fit cursor-pointer rounded px-1 text-foreground underline underline-offset-2 transition-colors hover:bg-background-2"
+          onClick={onOpenMessagingApps}
+        >
+          Open Messaging apps
+        </button>
       </div>
     </div>
   );
+}
+
+function listApps(names: string[]): string {
+  if (names.length === 1) return names[0] as string;
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }

@@ -12,6 +12,7 @@ import {
   getSessionStore,
   sessionDisplayName,
 } from '@renderer/features/sessions/stores/session-selectors';
+import { openRoom } from '@renderer/features/switch-rooms/open-room';
 import { switchRoomsStore as sessionRoomsStore } from '@renderer/features/switch-rooms/switch-rooms-store';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
@@ -74,7 +75,7 @@ export const SessionTitlebar = observer(function SessionTitlebar() {
       ),
       label: roomName,
       maxWidthClassName: 'max-w-40',
-      onClick: () => navigate('room', { roomId }),
+      onClick: () => void openRoom(roomId),
     });
   }
 

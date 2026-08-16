@@ -1,13 +1,4 @@
-import {
-  Bot,
-  ChevronRight,
-  ExternalLink,
-  Plus,
-  RotateCcw,
-  Server,
-  Trash2,
-  TriangleAlert,
-} from 'lucide-react';
+import { Bot, ChevronRight, Plus, RotateCcw, Server, Trash2, TriangleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useConfirmDeleteAgent } from '@renderer/features/locations/hooks/use-confirm-delete-agent';
 import {
@@ -21,7 +12,6 @@ import {
   hasDiscardableSessionError,
   hasSessionError,
 } from '@renderer/features/sessions/stores/session-selectors';
-import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -96,11 +86,6 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
   const sshHost = location.data?.sshHost ?? null;
   const hostUnreachable = hostReachabilityStore.isBlocked(sshHost);
 
-  const gatewayUrl =
-    agent.serverId && agent.switchAgentId
-      ? switchRoomsStore.gatewayAgentUrl(agent.serverId, agent.switchAgentId)
-      : null;
-
   // Opening the agent does not expand it. Expanding is the chevron's job alone,
   // so what is unfolded in the tree stays as the reader left it.
   const open = () => navigate('location', { locationId: agent.locationId, agentName });
@@ -109,15 +94,17 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
     <ContextMenu>
       <ContextMenuTrigger>
         <SidebarMenuRow
-          className="group/row flex h-8 justify-between px-1"
-          style={depthIndent(depth)}
+          className="group/row flex justify-between"
           data-active={isActive || undefined}
           isActive={isActive}
           onMouseDown={(e) => e.preventDefault()}
           onClick={open}
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1">
-            <span className="flex size-6 shrink-0 items-center justify-center">
+          {/* The indent lives on the content, not the row, so the hover and
+              selection highlight still spans the sidebar's full width at every
+              depth. */}
+          <div className="flex min-w-0 flex-1 items-center gap-[9px]" style={depthIndent(depth)}>
+            <span className="flex size-4 shrink-0 items-center justify-center">
               {agent.providerId ? (
                 <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
               ) : (
@@ -180,29 +167,6 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
               </span>
             </SidebarMenuAction>
           </div>
-          {gatewayUrl && agent.serverId && (
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <SidebarItemMiniButton
-                    type="button"
-                    aria-label={`Open ${label} in gateway`}
-                    className="opacity-0 transition-opacity duration-150 group-hover/row:opacity-100"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void rpc.switchServers.openGatewayPage({
-                        serverId: agent.serverId!,
-                        url: gatewayUrl,
-                      });
-                    }}
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </SidebarItemMiniButton>
-                }
-              />
-              <TooltipContent>Open in gateway</TooltipContent>
-            </Tooltip>
-          )}
           <Tooltip>
             <TooltipTrigger
               className="h-6"
