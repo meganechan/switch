@@ -307,6 +307,17 @@ class UpdateAddressingPolicyRequest(BaseModel):
     policy: AddressingPolicy | None = None
 
 
+class UpdateAgentIconRequest(BaseModel):
+    """Set (or clear) an agent's icon.
+
+    ``icon_url: null`` clears it — the agent falls back to whatever default the
+    caller renders. The field is required rather than defaulted so that
+    clearing an icon is always something the client said, never something it
+    forgot to send."""
+
+    icon_url: str | None
+
+
 class KnownAgentType(BaseModel):
     key: str
     connector_type: str
@@ -318,6 +329,10 @@ class RegisterKnownAgentRequest(BaseModel):
     agent_type: str
     name: str
     description: str
+    # Optional at registration: an agent may be given its icon later, and a
+    # re-registration that omits it keeps whatever icon the agent already has
+    # rather than clearing it.
+    icon_url: str | None = None
     options: dict[str, Any] = {}
     overwrite: bool = False
 
@@ -377,6 +392,7 @@ class UpdateAgentOptionsRequest(BaseModel):
 class RegisterOtherAgentRequest(BaseModel):
     name: str
     description: str
+    icon_url: str | None = None
     overwrite: bool = False
 
 
