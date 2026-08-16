@@ -8,7 +8,7 @@ import { cn } from '@renderer/utils/utils';
  * rather than one control shaped like a row.
  */
 export const disclosureRowClass =
-  '-mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-foreground-muted transition-colors hover:bg-background-1';
+  '-mx-2 flex w-[calc(100%+1rem)] cursor-pointer items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-foreground-muted transition-colors hover:bg-[var(--sel-soft)]';
 
 /**
  * The header of a collapsible section: a chevron, what it is, and what it is

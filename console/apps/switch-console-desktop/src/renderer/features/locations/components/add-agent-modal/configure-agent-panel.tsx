@@ -128,7 +128,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
         {settingsOpen && (
           <FieldGroup className="pt-3">
             <Field>
-              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-background-1">
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--sel-soft)]">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Auto-create a session on notify
@@ -150,7 +150,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
             </Field>
 
             <Field>
-              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-background-1">
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-[var(--sel-soft)]">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Bypass permissions

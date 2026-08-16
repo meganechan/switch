@@ -151,7 +151,7 @@ export function AgentTypePicker({
         Only providers installed {sshHost ? `on ${sshHost}` : 'on this machine'} are listed.{' '}
         <button
           type="button"
-          className="-mx-1 cursor-pointer rounded px-1 text-foreground underline underline-offset-2 transition-colors hover:bg-background-1"
+          className="-mx-1 cursor-pointer rounded px-1 text-foreground underline underline-offset-2 transition-colors hover:bg-[var(--sel-soft)]"
           onClick={() => {
             onNavigateAway();
             if (sshHost) navigate('remoteHost', { sshHost });

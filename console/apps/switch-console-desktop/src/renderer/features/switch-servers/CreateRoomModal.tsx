@@ -429,7 +429,10 @@ function BridgeTile({
       onClick={onSelect}
       className={cn(
         'flex cursor-pointer items-center gap-2.5 rounded-[10px] border p-3 text-left transition-colors',
-        selected ? 'border-foreground bg-[var(--sel-soft)]' : 'border-border hover:bg-background-1',
+        // Overlay tokens rather than `background-1`, which in dark mode is
+        // exactly the dialog's own surface — the hover was being drawn, in the
+        // colour of the thing behind it.
+        selected ? 'border-foreground bg-[var(--sel)]' : 'border-border hover:bg-[var(--sel-soft)]',
         unusable !== null && 'cursor-not-allowed opacity-50 hover:bg-transparent'
       )}
     >
@@ -469,7 +472,10 @@ function ChosenAgentTile({
   onRemove: () => void;
 }) {
   return (
-    <div className="group relative flex flex-col gap-2 rounded-[10px] bg-[var(--surface-2)] p-3">
+    // `--fill` rather than `--surface-2`: in dark mode that surface is the
+    // dialog's own background, so a tile drawn in it was a tile nobody could
+    // see.
+    <div className="group relative flex flex-col gap-2 rounded-[10px] bg-[var(--fill)] p-3">
       <AgentMark agentId={agent.id} serverId={serverId} size={22} />
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-sm text-foreground">{agent.name}</span>
@@ -481,7 +487,7 @@ function ChosenAgentTile({
         type="button"
         aria-label={`Remove ${agent.name}`}
         onClick={onRemove}
-        className="absolute top-1.5 right-1.5 flex size-5 cursor-pointer items-center justify-center rounded-md text-foreground-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--fill)] hover:text-foreground focus-visible:opacity-100"
+        className="absolute top-1.5 right-1.5 flex size-5 cursor-pointer items-center justify-center rounded-md text-foreground-muted opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[var(--fill-2)] hover:text-foreground focus-visible:opacity-100"
       >
         <X className="size-3.5" />
       </button>

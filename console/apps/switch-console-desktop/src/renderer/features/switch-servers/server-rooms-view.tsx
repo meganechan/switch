@@ -193,7 +193,7 @@ const MessagingAppGroup = observer(function MessagingAppGroup({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="-mx-2 flex w-fit cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-background-1"
+        className="-mx-2 flex w-fit cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-[var(--sel-soft)]"
       >
         <ChevronDown
           className={cn(
@@ -223,7 +223,7 @@ const MessagingAppGroup = observer(function MessagingAppGroup({
               onClick={() =>
                 setVisible((v) => (remaining > 0 ? v + ROOMS_BEFORE_FOLD : ROOMS_BEFORE_FOLD))
               }
-              className="flex w-full cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm text-foreground-muted transition-colors hover:bg-background-1 hover:text-foreground"
+              className="flex w-full cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm text-foreground-muted transition-colors hover:bg-[var(--fill)] hover:text-foreground"
             >
               <ChevronDown className={cn('size-4 shrink-0', remaining === 0 && 'rotate-180')} />
               {remaining > 0 ? `Show ${nextBatch} more` : 'Show fewer'}
@@ -251,7 +251,10 @@ const RoomRow = observer(function RoomRow({
     <button
       type="button"
       onClick={() => void openRoom(room.id)}
-      className="group/room flex w-full cursor-pointer items-center gap-3 bg-background px-4 py-3 text-left transition-colors hover:bg-background-1"
+      // A solid hover rather than a translucent one, because the discs holding
+      // the agent marks have to be filled with whatever the row is filled with
+      // — an overlay would leave them reading as holes punched in the row.
+      className="group/room flex w-full cursor-pointer items-center gap-3 bg-background px-4 py-3 text-left transition-colors hover:bg-[var(--fill)]"
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-foreground">{roomTitle(room)}</span>
@@ -286,7 +289,7 @@ const RoomRow = observer(function RoomRow({
                 {localAgents.map((agent) => (
                   <span
                     key={agent.id}
-                    className="flex size-6 items-center justify-center rounded-full bg-background ring-1 ring-[var(--hair-soft)] transition-colors group-hover/room:bg-background-1"
+                    className="flex size-6 items-center justify-center rounded-full bg-background ring-1 ring-[var(--hair-soft)] transition-colors group-hover/room:bg-[var(--fill)]"
                   >
                     {agent.providerId ? (
                       <AgentIcon id={agent.providerId} size={14} />
