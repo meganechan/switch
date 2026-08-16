@@ -17,12 +17,16 @@ export function Titlebar({ leftSlot, rightSlot }: { leftSlot?: ReactNode; rightS
   return (
     <header
       className={cn(
-        'flex h-10 shrink-0 items-center bg-background-secondary border-b border-border [-webkit-app-region:drag] dark:bg-background',
+        // No fill and no bottom rule: the header is part of the panel's own
+        // surface, so a bar across the top of it would read as a second
+        // divider next to the gutter that already separates panel from
+        // sidebar.
+        'flex h-11 shrink-0 items-center [-webkit-app-region:drag]',
         // macOS traffic lights sit at the top-left, so clear room only there.
         !isLeftOpen && isMac && 'pl-18',
         // Linux draws its own controls flush to the right corner (no native
         // frame); everywhere else keep the normal right padding.
-        isLinux ? 'pr-0' : 'pr-2'
+        isLinux ? 'pr-0' : 'pr-[18px]'
       )}
     >
       <div className="pointer-events-auto flex min-w-0 flex-1 items-center gap-1">

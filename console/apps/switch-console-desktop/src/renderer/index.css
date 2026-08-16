@@ -108,6 +108,10 @@
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+  /* Dialogs, popovers and bordered cards sit one step above the 8px of
+     buttons and rows. Without this `rounded-xl` falls back to Tailwind's
+     12px, which reads as the panel's radius rather than an elevated one. */
+  --radius-xl: var(--radius-elevated);
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
@@ -391,18 +395,25 @@
     --border-primary: var(--neutral-9);
 
     --ring: hsl(0 0% 3.9%);
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    /* The shell: a tinted, softly graded surface that the sidebar sits directly
-       on and the main panel floats above as an inset card. Warm rather than
-       neutral — it is what gives the app a colour identity instead of reading
-       as undifferentiated grey chrome. */
-    --app-surface-from: color(display-p3 0.925 0.918 0.882);
-    --app-surface-to: color(display-p3 0.882 0.882 0.847);
-    --panel-radius: 0.875rem;
-    --panel-border: color(display-p3 0.996 0.996 0.992 / 0.9);
-    --panel-shadow: 0 1px 2px color(display-p3 0.09 0.094 0.055 / 0.06),
-      0 6px 16px -6px color(display-p3 0.09 0.094 0.055 / 0.1);
+    /* The window is one material surface. The sidebar has no fill of its own —
+       it is this showing through — and the content panel is an inset card of
+       `--surface` on top of it, so the gap and the radius separate the two
+       rather than a divider. `--material` is the vibrancy colour flattened:
+       until the window itself is translucent there is nothing behind it to
+       blur, and the translucent form composites against whatever desktop
+       happens to be there. */
+    --material: #f7f6f2;
+    --surface: #ffffff;
+    --surface-2: #f9f9f9;
+
+    --hair: rgb(0 0 0 / 0.14);
+    --hair-strong: rgb(0 0 0 / 0.18);
+    --hair-soft: rgb(0 0 0 / 0.06);
+
+    --panel-radius: 12px;
+    --radius-elevated: 11px;
 
     --selection: var(--blue-6);
     --selection-foreground: var(--blue-12);
@@ -704,14 +715,20 @@
     --border-primary: var(--neutral-10);
 
     --ring: hsl(0 0% 3.9%);
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
-    --app-surface-from: color(display-p3 0.055 0.062 0.051);
-    --app-surface-to: color(display-p3 0.024 0.027 0.022);
-    --panel-radius: 0.875rem;
-    --panel-border: color(display-p3 1 1 1 / 0.07);
-    --panel-shadow: 0 1px 2px color(display-p3 0 0 0 / 0.4),
-      0 8px 24px -8px color(display-p3 0 0 0 / 0.55);
+    /* Inverted against light: the panel is darker than the material it sits on,
+       not lighter. */
+    --material: #1a1a1a;
+    --surface: #111111;
+    --surface-2: #191919;
+
+    --hair: rgb(255 255 255 / 0.12);
+    --hair-strong: rgb(255 255 255 / 0.18);
+    --hair-soft: rgb(255 255 255 / 0.07);
+
+    --panel-radius: 12px;
+    --radius-elevated: 11px;
 
     --selection: var(--blue-9);
     --selection-foreground: var(--blue-12);
@@ -815,7 +832,7 @@
   }
   body {
     @apply text-foreground;
-    background: linear-gradient(160deg, var(--app-surface-from) 0%, var(--app-surface-to) 100%);
+    background: var(--material);
   }
 
   /* Tailwind's reset gives buttons the arrow cursor, on the reasoning that a

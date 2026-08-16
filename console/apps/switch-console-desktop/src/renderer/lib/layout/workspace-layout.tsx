@@ -4,7 +4,7 @@ import { useWorkspaceLayoutContext } from '@renderer/lib/layout/layout-provider'
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@renderer/lib/ui/resizable';
 import { cn } from '@renderer/utils/utils';
 
-const LEFT_PANEL_DEFAULT_SIZE = '20%';
+const LEFT_PANEL_DEFAULT_SIZE = '274px';
 const LEFT_SIDEBAR_MIN_SIZE = '200px';
 const LEFT_SIDEBAR_MAX_SIZE = '30%';
 const MAIN_PANEL_MIN_SIZE = '30%';
@@ -67,12 +67,14 @@ export function WorkspaceLayout({
         )}
       />
       <ResizablePanel id="workspace-main" minSize={MAIN_PANEL_MIN_SIZE}>
-        {/* The main panel is an inset card floating on the shell surface rather
-            than a pane butted against the sidebar: the sidebar sits directly on
-            the app's own background, and the gap plus the radius is what
-            separates them, in place of a divider. */}
-        <div className="relative h-full w-full overflow-hidden pt-1 pr-1 pb-1">
-          <div className="relative h-full w-full overflow-hidden rounded-[var(--panel-radius)] border border-[var(--panel-border)] shadow-[var(--panel-shadow)]">
+        {/* The panel is an inset card on the window's material rather than a
+            pane butted against the sidebar: the gutter and the radius separate
+            the two, in place of a divider. Flush to the sidebar on the left,
+            8px away on the other three sides. The hairline is a spread shadow
+            rather than a border so it lands on a half pixel and does not take
+            a whole one out of the panel. */}
+        <div className="relative h-full w-full overflow-hidden pt-2 pr-2 pb-2">
+          <div className="relative h-full w-full overflow-hidden rounded-[var(--panel-radius)] shadow-[0_0_0_0.5px_var(--hair)]">
             {mainContent}
             {persistentLayer}
           </div>
