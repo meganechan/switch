@@ -44,6 +44,19 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.17.0] - 2026-08-16
+
+#### Added
+
+- Agents can carry a custom icon. Switch stores a per-agent `icon_url` — a link,
+  never image bytes — accepted at registration and set, changed or cleared
+  through a dedicated `set_agent_icon` operation and `PUT /agents/{id}/icon`; it
+  is reported on the agent summary and detail. The Mattermost bridge fetches the
+  icon and re-uploads it as the bot avatar. Because Switch itself dereferences
+  the URL, it is validated to an absolute `https` address with no embedded
+  credentials and refused when it names a local, private, loopback or
+  link-local host (CHOO-2171).
+
 #### Fixed
 
 - An agent joining a room greets it again. The greeting fires when an agent
@@ -58,6 +71,10 @@ version of their own to them without also giving them a release of their own.
   `RoomService`, `ProtocolService` and `AgentClient`, so every test errored
   during setup — unnoticed, because the suite is excluded from the default run
   and from CI. It is the suite that would have caught the greeting regression.
+- The bundled-stack **setup image** links the seeded Mattermost admin to its
+  owner, so a freshly seeded managed deployment comes up already knowing which
+  chat account the owner is — owner-only addressing then works without the owner
+  linking an account by hand first (CHOO-2172).
 
 ### [0.16.0] - 2026-08-15
 
@@ -617,6 +634,32 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.27.0] - 2026-08-16
+
+#### Added
+
+- Give an agent a custom icon. The add-agent dialog and an agent's settings
+  carry an icon picker — set, change, or clear it; cleared means an icon
+  generated from the agent's name. Icons render in the sidebar, the agent pages
+  and dialogs, and existing agents are backfilled on first run (CHOO-2171).
+
+#### Changed
+
+- Local-server mode now bundles and pulls **switch-core `0.17.0`** (was
+  `0.16.0`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
+
+#### Fixed
+
+- **Collapse all** collapses again. It cleared state the redesigned sidebar no
+  longer reads, so nothing moved; it now names the rows to collapse. Clearing
+  that state had also been dropping Next/Previous Session's list of visible
+  sessions, which stops (CHOO-2173).
+- A sidebar session row's **actions menu acts** — Delete and Archive ran but the
+  row's own click handler reopened the session on top of them, so they looked
+  inert (right-click was unaffected because it is a sibling of the row). The
+  guard now lives in the shared popup (CHOO-2173).
 
 ### [0.26.0] - 2026-08-16
 

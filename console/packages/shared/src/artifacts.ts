@@ -20,14 +20,14 @@ export interface ContractRange {
  * `CONTRACTS` below. The two must never be derived from one another.
  */
 export const ARTIFACT_VERSIONS = {
-  'switch-core': '0.16.0',
-  'switch-console': '0.26.0',
+  'switch-core': '0.17.0',
+  'switch-console': '0.27.0',
   'agent-runtime': '0.3.1',
   sidecar: '1.9.3',
-  gateway: '0.16.0',
-  setup: '0.16.0',
-  'helm-chart': '0.16.0',
-  compose: '0.16.0',
+  gateway: '0.17.0',
+  setup: '0.17.0',
+  'helm-chart': '0.17.0',
+  compose: '0.17.0',
   'switch-connector': '0.9.4',
   'switch-connector-codex': '0.3.5',
   'switch-connector-opencode': '0.1.2',
