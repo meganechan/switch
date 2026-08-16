@@ -27,6 +27,7 @@ import type {
   AgentDefaults,
   AgentVerifyResult,
   BridgeDirectorySearchResult,
+  AgentIconBackfill,
   BundledChatSignIn,
   ClaimIdentityParams,
   ClaimIdentityResult,
@@ -427,8 +428,9 @@ export const switchServersController = createRPCController({
     updateAddressingPolicy(await requireServer(params.serverId), params.agentId, params.policy),
 
   /** Give this user's icon-less agents the avatar their name generates. Runs
-   * once per server per app run; returns how many were written. */
-  backfillAgentIcons: async (serverId: string): Promise<number> =>
+   * once per server per app run; reports what happened so the caller can say
+   * when the icons did not reach the server. */
+  backfillAgentIcons: async (serverId: string): Promise<AgentIconBackfill> =>
     backfillAgentIcons(await requireServer(serverId)),
 
   /** Set or clear an agent's icon. Returns the agent as the server now holds
