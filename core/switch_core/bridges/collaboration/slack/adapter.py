@@ -34,6 +34,7 @@ from switch_core.bridges.collaboration.models import (
     InboundUserJoin,
     OutboundAttachment,
 )
+from switch_core.bridges.collaboration.slack.avatar import on_slack_background
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +170,12 @@ class SlackAdapter(CollaborationAdapter):
                 "Failed to send message to Slack channel %s: %s", channel_id, e
             )
             return None
+
+    async def agent_icon_url(self, agent_name: str) -> str:
+        # Overridden for Slack alone: it flattens a transparent avatar onto
+        # white. Wrapping the resolver rather than each call site keeps every
+        # place that posts as an agent on the same background.
+        return on_slack_background(await super().agent_icon_url(agent_name))
 
     def slash_invite_hint(self) -> str:
         # Slack passes a slash command's whole tail through as free text, so the

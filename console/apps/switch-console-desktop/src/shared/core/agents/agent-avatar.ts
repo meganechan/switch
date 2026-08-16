@@ -29,32 +29,11 @@ const AVATAR_PIXELS = 256;
 export const AVATAR_CHOICE_COUNT = 10;
 
 /**
- * The colour drawn behind the bot: Slack's dark-theme message surface.
- *
- * PNG is required — the chat platforms do not render SVG — and Slack composites
- * a transparent PNG onto white, so an avatar with no background of its own
- * wears a bright square in an otherwise dark message list. Naming the colour is
- * the only way to avoid that.
- *
- * The value is Slack's resting surface, sampled from a real client rather than
- * guessed. A hovered row lightens to roughly `232529` and the square is then
- * faintly visible; that is accepted, because matching the hover state instead
- * would make it visible in the far commoner resting one. A single colour is
- * passed rather than a list, since DiceBear picks randomly from a list and the
- * point here is that every agent shares the one background.
- */
-const AVATAR_BACKGROUND = '1a1d21';
-
-/**
  * The avatar URL for an arbitrary seed. Any string works; the same string
  * always draws the same bot.
  */
 export function agentAvatarUrlForSeed(seed: string): string {
-  const params = new URLSearchParams({
-    seed,
-    size: String(AVATAR_PIXELS),
-    backgroundColor: AVATAR_BACKGROUND,
-  });
+  const params = new URLSearchParams({ seed, size: String(AVATAR_PIXELS) });
   return `https://api.dicebear.com/${DICEBEAR_VERSION}/bottts/png?${params.toString()}`;
 }
 
