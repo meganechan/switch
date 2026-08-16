@@ -28,15 +28,14 @@ export const WorkspaceNav = observer(function WorkspaceNav() {
   ] as const;
 
   return (
-    <SidebarMenu className="px-2">
+    <SidebarMenu className="flex flex-col gap-[2px] px-2 pt-2">
       {destinations.map(({ view, icon: Icon, label, params }) => (
         <SidebarMenuButton
           key={view}
           isActive={isCurrentView(currentView, view) && params?.serverId === active.id}
           onClick={() => navigate(view, { serverId: active.id })}
-          className="h-7 px-2.5"
         >
-          <Icon className="size-4 shrink-0" />
+          <Icon className="size-[15px] shrink-0" />
           {label}
         </SidebarMenuButton>
       ))}

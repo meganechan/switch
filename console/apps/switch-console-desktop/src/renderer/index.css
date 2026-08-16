@@ -413,6 +413,19 @@
     --hair-strong: rgb(0 0 0 / 0.18);
     --hair-soft: rgb(0 0 0 / 0.06);
 
+    /* Row selection and hover. Distinct from `--selection`, which is the
+       browser's text-selection colour and unrelated. Both are translucent so
+       they tint the material rather than punching an opaque patch through the
+       vibrancy. */
+    --sel: rgb(36 58 49 / 0.12);
+    --sel-soft: rgb(36 58 49 / 0.1);
+
+    --fill: #f0f0f0;
+    --fill-2: #e8e8e8;
+    --fill-3: #d4d4d4;
+    --btn-1: #ffffff;
+    --accent-solid: #243a31;
+
     --panel-radius: 12px;
     --radius-elevated: 11px;
 
@@ -728,6 +741,15 @@
     --hair: rgb(255 255 255 / 0.12);
     --hair-strong: rgb(255 255 255 / 0.18);
     --hair-soft: rgb(255 255 255 / 0.07);
+
+    --sel: rgb(255 255 255 / 0.11);
+    --sel-soft: rgb(255 255 255 / 0.08);
+
+    --fill: #222222;
+    --fill-2: #2a2a2a;
+    --fill-3: #3a3a3a;
+    --btn-1: #2c2c2c;
+    --accent-solid: #33513f;
 
     --panel-radius: 12px;
     --radius-elevated: 11px;

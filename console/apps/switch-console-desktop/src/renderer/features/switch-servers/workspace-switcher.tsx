@@ -69,7 +69,7 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
           <button
             type="button"
             onClick={() => showAddServerModal({})}
-            className="flex w-full items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-sm text-foreground-tertiary hover:bg-background-tertiary-1"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground-tertiary hover:bg-[var(--sel-soft)]"
           >
             <Plus className="size-4 shrink-0 text-foreground-muted" />
             Add a server
@@ -90,7 +90,7 @@ export const WorkspaceSwitcher = observer(function WorkspaceSwitcher() {
             <button
               type="button"
               aria-label="Switch server"
-              className="flex w-full items-center gap-2 rounded-lg border border-border px-2 py-1.5 text-left hover:bg-background-tertiary-1"
+              className="flex w-full items-center gap-[10px] rounded-lg px-2 py-1.5 text-left hover:bg-[var(--sel-soft)]"
             >
               <ServerAvatar server={active} size="md" />
               <span className="min-w-0 flex-1">
@@ -150,7 +150,7 @@ const LocalServerPendingButton = observer(function LocalServerPendingButton() {
     <button
       type="button"
       onClick={() => showAddServerModal({ mode: 'local' })}
-      className="flex w-full items-center gap-2 rounded-lg border border-border px-2.5 py-2 text-sm text-foreground-tertiary hover:bg-background-tertiary-1"
+      className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-foreground-tertiary hover:bg-[var(--sel-soft)]"
     >
       <span className="min-w-0 flex-1 truncate text-left">
         {failed ? 'Local server (setup failed)' : 'Local Switch server'}

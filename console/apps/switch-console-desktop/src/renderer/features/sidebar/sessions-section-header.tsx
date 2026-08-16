@@ -1,11 +1,18 @@
-import { ArrowUpDown, DoorOpen, Filter, Laptop, Plus, Server, UserPlus } from 'lucide-react';
+import {
+  ChevronsDownUp,
+  DoorOpen,
+  Laptop,
+  MoreHorizontal,
+  Plus,
+  Server,
+  UserPlus,
+} from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
-import { buttonVariants } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -21,7 +28,6 @@ import {
 import { SectionLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
-import { cn } from '@renderer/utils/utils';
 import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
 import { type SidebarGrouping, UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
@@ -61,14 +67,14 @@ const ViewGroupingToggle = observer(function ViewGroupingToggle() {
       // button dropped on top of a box: concentric corners (inner radius =
       // outer radius less the padding) and only a hairline of track showing
       // around it.
-      className="h-7 gap-px rounded-lg border-transparent bg-background-tertiary-2 p-px"
+      className="h-auto gap-0 rounded-[9px] border-transparent bg-[var(--hair-soft)] p-[2px]"
     >
       {GROUPING_OPTIONS.map((opt) => (
         <ToggleGroupItem
           key={opt.value}
           value={opt.value}
           aria-label={opt.label}
-          className="rounded-[7px] px-2.5 hover:bg-transparent aria-pressed:bg-background data-pressed:bg-background data-[state=on]:bg-background"
+          className="h-auto rounded-[7px] px-[9px] py-[2px] text-[11.5px] font-medium text-foreground-muted hover:bg-transparent aria-pressed:bg-[var(--btn-1)] aria-pressed:text-foreground aria-pressed:shadow-[0_1px_2px_rgb(0_0_0_/_0.12)] data-pressed:bg-[var(--btn-1)] data-[state=on]:bg-[var(--btn-1)] data-[state=on]:text-foreground data-[state=on]:shadow-[0_1px_2px_rgb(0_0_0_/_0.12)]"
         >
           {opt.label}
         </ToggleGroupItem>
@@ -195,81 +201,32 @@ const AgentFilterSections = observer(function AgentFilterSections() {
 });
 
 /**
- * Optional additive filters for the grouped sidebar — a funnel button whose
- * sections belong to the view you are in, since the two views filter different
- * things. A dot on the icon signals that the view on screen is being narrowed.
- */
-const FilterDropdown = observer(function FilterDropdown() {
-  const roomMode = sidebarStore.grouping === 'room';
-  const active = sidebarStore.hasActiveFiltersInCurrentView;
-
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <DropdownMenuTrigger
-          render={
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label={roomMode ? 'Filter rooms' : 'Filter agents'}
-                  className={buttonVariants({
-                    size: 'icon-xs',
-                    variant: 'ghost',
-                    className: cn(
-                      'relative hover:bg-transparent hover:text-foreground',
-                      active ? 'text-foreground' : 'text-foreground-muted'
-                    ),
-                  })}
-                >
-                  <Filter />
-                  {active && (
-                    <span className="bg-accent absolute top-0.5 right-0.5 h-1.5 w-1.5 rounded-full" />
-                  )}
-                </button>
-              }
-            />
-          }
-        />
-        <TooltipContent>Filter</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent className="min-w-52" align="end">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>{roomMode ? 'Filter rooms' : 'Filter agents'}</DropdownMenuLabel>
-        </DropdownMenuGroup>
-        {roomMode ? <RoomFilterSections /> : <AgentFilterSections />}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem disabled={!active} onClick={() => sidebarStore.clearFilters()}>
-          Clear filters
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-});
-
-/**
  * The Sessions section's header: what the list below is, then how it is
- * arranged. The grouping toggle used to sit alone on a single row, where it
- * read as the sidebar's whole navigation rather than as one list's setting.
+ * arranged, then the one thing you most often want to do next.
+ *
+ * The toggle shares the label's line rather than owning one of its own. Alone
+ * on a row it read as the sidebar's whole navigation instead of as one list's
+ * setting, which is why it previously sat under a "Group by" caption; keeping
+ * it beside "Sessions" says the same thing without spending a second row.
  */
 export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
   const showAddLocationModal = useShowModal('addAgentModal');
   const showCreateRoomModal = useShowModal('createRoomModal');
-  // The add button offers both actions rather than the one matching the current
-  // view. Which grouping you are looking at says how you want the list
-  // arranged, not which thing you next want to make, and reaching the other
-  // action used to mean switching view first.
+  const showCreateSessionModal = useShowModal('sessionModal');
+  // The add actions offer both rather than the one matching the current view.
+  // Which grouping you are looking at says how you want the list arranged, not
+  // which thing you next want to make, and reaching the other action used to
+  // mean switching view first.
   const roomMode = sidebarStore.grouping === 'room';
 
   return (
     <>
-      <div className="flex h-[22px] items-center justify-between pr-2.5 pl-2.5">
-        <SectionLabel>Sessions</SectionLabel>
-        <span className="text-xs text-foreground-passive">Group by</span>
-      </div>
-      <div className="flex h-[36px] items-center justify-between pr-2.5 pl-2.5">
-        <ViewGroupingToggle />
-        <div className="flex items-center gap-1">
+      {/* Label, its overflow menu and the grouping toggle share one line. The
+          three icon buttons that used to sit on a second line — sort, filter,
+          add — are all in the menu now; the actions are unchanged. */}
+      <div className="flex items-center justify-between px-5 pt-[18px] pb-2">
+        <div className="flex items-center gap-[6px]">
+          <SectionLabel>Sessions</SectionLabel>
           <DropdownMenu>
             <Tooltip>
               <DropdownMenuTrigger
@@ -278,23 +235,18 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                     render={
                       <button
                         type="button"
-                        aria-label={roomMode ? 'Sort rooms' : 'Sort agents'}
-                        className={buttonVariants({
-                          size: 'icon-xs',
-                          variant: 'ghost',
-                          className:
-                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                        })}
+                        aria-label="Session list options"
+                        className="flex size-[18px] items-center justify-center rounded-[6px] text-foreground-muted transition-colors hover:bg-[var(--sel-soft)] hover:text-foreground"
                       >
-                        <ArrowUpDown />
+                        <MoreHorizontal className="size-[13px]" />
                       </button>
                     }
                   />
                 }
               />
-              <TooltipContent>Sort by</TooltipContent>
+              <TooltipContent>Sort, filter and more</TooltipContent>
             </Tooltip>
-            <DropdownMenuContent className="min-w-48">
+            <DropdownMenuContent className="min-w-52" align="start">
               <DropdownMenuGroup>
                 <DropdownMenuLabel>Sort by</DropdownMenuLabel>
                 {roomMode ? (
@@ -338,34 +290,23 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                   </DropdownMenuRadioGroup>
                 )}
               </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <FilterDropdown />
-          <DropdownMenu>
-            <Tooltip>
-              <DropdownMenuTrigger
-                render={
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="button"
-                        aria-label="Add"
-                        className={buttonVariants({
-                          size: 'icon-xs',
-                          variant: 'ghost',
-                          className:
-                            'hover:bg-transparent text-foreground-muted hover:text-foreground',
-                        })}
-                      >
-                        <Plus />
-                      </button>
-                    }
-                  />
-                }
-              />
-              <TooltipContent>Add</TooltipContent>
-            </Tooltip>
-            <DropdownMenuContent className="min-w-48" align="start">
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuLabel>{roomMode ? 'Filter rooms' : 'Filter agents'}</DropdownMenuLabel>
+              </DropdownMenuGroup>
+              {roomMode ? <RoomFilterSections /> : <AgentFilterSections />}
+              <DropdownMenuItem
+                disabled={!sidebarStore.hasActiveFiltersInCurrentView}
+                onClick={() => sidebarStore.clearFilters()}
+              >
+                Clear filters
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => sidebarStore.collapseAll()}>
+                <ChevronsDownUp className="mr-1.5 h-4 w-4" />
+                Collapse all
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => showAddLocationModal({})}>
                 <UserPlus className="mr-1.5 h-4 w-4" />
                 Add an agent
@@ -377,6 +318,18 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        <ViewGroupingToggle />
+      </div>
+      {/* Outside the tree's scroller, so it stays put as the list scrolls. */}
+      <div className="px-2 pb-1">
+        <button
+          type="button"
+          onClick={() => showCreateSessionModal({})}
+          className="flex w-full cursor-pointer items-center gap-[9px] rounded-lg px-[9px] py-[6px] text-sm text-foreground-muted transition-colors hover:bg-[var(--sel-soft)] hover:text-foreground"
+        >
+          <Plus className="size-4 shrink-0" />
+          New Session
+        </button>
       </div>
     </>
   );
