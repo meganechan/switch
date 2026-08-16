@@ -603,8 +603,15 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.26.0] - 2026-08-16
+
 #### Changed
 
+- **A visual design pass across the shell.** The window is now one graded
+  material surface with the sidebar sitting on it and the main panel floating
+  above as an inset card with a hairline and a soft shadow, using the design
+  spec's surface/material tokens and corner radii. Home is deliberately left for
+  a later pass (CHOO-2164).
 - **A server is now a workspace, and you switch between them.** The list of
   servers that sat in the sidebar has been replaced by a switcher at the top,
   showing the one you are in and opening onto the rest — each with where it
