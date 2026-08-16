@@ -9,7 +9,6 @@ import {
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
-import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { log } from '@renderer/utils/logger';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
 
@@ -63,9 +62,8 @@ function AddressingPolicyRow({
   showName: boolean;
 }) {
   const queryClient = useQueryClient();
-  const showClaimIdentity = useShowModal('claimIdentityModal');
   const { navigate } = useNavigate();
-  const { identities, refresh: refreshIdentities } = useMyIdentities(serverId);
+  const { identities } = useMyIdentities(serverId);
   const [draft, setDraft] = useState<AddressingPolicy | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +93,15 @@ function AddressingPolicyRow({
     queryKey: ['remote-bridges', serverId],
     queryFn: () => rpc.switchServers.listRemoteBridges(serverId),
   });
-  // Which workspace the "link my account" button opens on. The claim modal is
-  // per-bridge, so one has to be named: the default bridge is where this
-  // server's rooms land, and the rest are reachable from the server page.
-  const claimBridge =
-    (bridges.data ?? []).find((b) => b.isDefault) ?? (bridges.data ?? [])[0] ?? null;
+  // The apps on this server the user has claimed no account on. Null until both
+  // halves have arrived: a bridge list without the identities would read as
+  // every app unlinked.
+  const unlinkedApps =
+    identities === null || bridges.data === undefined
+      ? null
+      : bridges.data
+          .filter((bridge) => !identities.some((identity) => identity.bridgeId === bridge.id))
+          .map((bridge) => bridge.displayName);
 
   // Until the user edits, show the saved policy; once dirty, show the draft.
   const value = dirty ? draft : (saved ?? null);
@@ -159,17 +161,7 @@ function AddressingPolicyRow({
         roomGroups={groupOptions}
         users={userOptions}
         agents={agentOptions}
-        linkedIdentities={identities}
-        onClaimIdentity={
-          claimBridge === null
-            ? null
-            : () =>
-                showClaimIdentity({
-                  serverId,
-                  bridgeId: claimBridge.id,
-                  onSuccess: () => refreshIdentities(),
-                })
-        }
+        unlinkedApps={unlinkedApps}
         onOpenMessagingApps={() => navigate('server', { serverId })}
         disabled={mutation.isPending}
       />

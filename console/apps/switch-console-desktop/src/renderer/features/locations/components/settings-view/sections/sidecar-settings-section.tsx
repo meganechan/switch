@@ -17,8 +17,10 @@ import { useEffect, useState } from 'react';
 import { events, rpc } from '@renderer/lib/ipc';
 import { Badge } from '@renderer/lib/ui/badge';
 import { Button } from '@renderer/lib/ui/button';
+import { DisclosureRow, disclosureRowClass } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldDescription } from '@renderer/lib/ui/field';
 import { log } from '@renderer/utils/logger';
+import { cn } from '@renderer/utils/utils';
 import type { AgentSidecarStatus, SidecarVerdict } from '@shared/events/sidecarEvents';
 import { sidecarStatusChannel } from '@shared/events/sidecarEvents';
 
@@ -309,24 +311,16 @@ function SidecarLog({ agentId }: { agentId: string }) {
   });
 
   if (!open) {
-    return (
-      <button
-        type="button"
-        className="flex w-fit cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
-        onClick={() => setOpen(true)}
-      >
-        <ChevronRight className="size-4" />
-        <span className="font-medium text-foreground">Show recent log</span>
-      </button>
-    );
+    return <DisclosureRow open={false} title="Show recent log" onToggle={() => setOpen(true)} />;
   }
 
   return (
     <div className="flex flex-col gap-1">
-      <div className="flex items-center justify-between">
+      <div className={cn(disclosureRowClass, 'justify-between hover:bg-transparent')}>
         <button
           type="button"
-          className="flex cursor-pointer items-center gap-1.5 py-1 text-sm"
+          aria-expanded
+          className="-mx-2 flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-1 text-sm transition-colors hover:bg-background-1"
           onClick={() => setOpen(false)}
         >
           <ChevronRight className="size-4 rotate-90 text-foreground-muted" />

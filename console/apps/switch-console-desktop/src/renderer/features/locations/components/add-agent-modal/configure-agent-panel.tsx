@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight, CircleAlert } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useId, useState } from 'react';
 import { InfoTooltip } from '@renderer/features/settings/components/InfoTooltip';
@@ -9,10 +9,10 @@ import { switchServersStore } from '@renderer/features/switch-servers/switch-ser
 import { useMyIdentities } from '@renderer/features/switch-servers/use-my-identities';
 import { rpc } from '@renderer/lib/ipc';
 import { Button } from '@renderer/lib/ui/button';
+import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldGroup, FieldLabel } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
 import { Switch } from '@renderer/lib/ui/switch';
-import { cn } from '@renderer/utils/utils';
 import type { ConfigureAgentFormState } from './modes';
 
 /**
@@ -85,6 +85,17 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
   // Read here rather than inside the editor so the owner-only default can be
   // questioned before the agent exists, not after it has gone quiet.
   const { identities } = useMyIdentities(serverId);
+  const bridgesQuery = useQuery({
+    queryKey: ['remote-bridges', serverId],
+    queryFn: () => rpc.switchServers.listRemoteBridges(serverId as string),
+    enabled: serverId !== null,
+  });
+  const unlinkedApps =
+    identities === null || bridgesQuery.data === undefined
+      ? null
+      : bridgesQuery.data
+          .filter((bridge) => !identities.some((identity) => identity.bridgeId === bridge.id))
+          .map((bridge) => bridge.displayName);
 
   if (servers.length === 0) {
     return (
@@ -108,21 +119,16 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
           reveals, and framing it made it read as a control of the same weight
           as the inputs above and below it. */}
       <div>
-        <button
-          type="button"
-          className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
-          onClick={() => setSettingsOpen((v) => !v)}
-        >
-          <ChevronRight
-            className={cn('h-4 w-4 transition-transform', settingsOpen && 'rotate-90')}
-          />
-          <span className="font-medium text-foreground">Settings</span>
-          <span className="ml-auto">Sessions, permissions, who can address it</span>
-        </button>
+        <DisclosureRow
+          open={settingsOpen}
+          title="Settings"
+          meta="Sessions, permissions, who can address it"
+          onToggle={() => setSettingsOpen((v) => !v)}
+        />
         {settingsOpen && (
           <FieldGroup className="pt-3">
             <Field>
-              <label className="flex cursor-pointer items-start justify-between gap-3">
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-background-1">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Auto-create a session on notify
@@ -144,7 +150,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
             </Field>
 
             <Field>
-              <label className="flex cursor-pointer items-start justify-between gap-3">
+              <label className="-mx-2 flex cursor-pointer items-start justify-between gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-background-1">
                 <span className="flex flex-col gap-0.5">
                   <span className="flex items-center gap-1.5 text-sm">
                     Bypass permissions
@@ -182,11 +188,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
                 roomGroups={groupOptions}
                 users={userOptions}
                 agents={agentOptions}
-                linkedIdentities={identities}
-                // No claim button: this panel is inside a modal, and the app shows one
-                // at a time — opening the claim dialog here would throw away the form
-                // the user is halfway through. The warning names where to go instead.
-                onClaimIdentity={null}
+                unlinkedApps={unlinkedApps}
                 onOpenMessagingApps={onOpenMessagingApps}
                 inlineLabel={null}
               />

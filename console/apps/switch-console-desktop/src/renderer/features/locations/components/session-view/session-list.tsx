@@ -191,7 +191,7 @@ export const SessionList = observer(function SessionList() {
       {archivedSessions.length > 0 && (
         <button
           type="button"
-          className="w-fit cursor-pointer py-1 text-xs text-foreground-muted underline underline-offset-2"
+          className="-mx-1 w-fit cursor-pointer rounded px-1 py-1 text-xs text-foreground-muted underline underline-offset-2 transition-colors hover:bg-background-1 hover:text-foreground"
           onClick={() => {
             clearSelection();
             sessionView.setTab(showingArchived ? 'active' : 'archived');

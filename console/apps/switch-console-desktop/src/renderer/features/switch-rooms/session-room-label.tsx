@@ -1,6 +1,8 @@
+import { Hash } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect } from 'react';
 import { switchRoomsStore as serverRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { switchRoomsStore } from './switch-rooms-store';
 
 /**
@@ -31,5 +33,19 @@ export const SessionRoomLabel = observer(function SessionRoomLabel({
   const name = serverRoomsStore.roomNameById(roomId);
   if (!name) return null;
 
-  return <span className="max-w-32 shrink-0 truncate text-xs text-foreground-muted">{name}</span>;
+  // The platform the room lives on, marked the way the rest of the app marks it.
+  // A room name on its own says which conversation; the icon says where it is
+  // happening, which is what tells two similarly-named rooms apart.
+  const bridgeType = serverRoomsStore.roomBridgeTypeById(roomId);
+
+  return (
+    <span className="flex max-w-40 shrink-0 items-center gap-1.5 text-xs text-foreground-muted">
+      {hasBridgeIcon(bridgeType) ? (
+        <BridgeIcon bridgeType={bridgeType} size={12} />
+      ) : (
+        <Hash className="size-3 shrink-0" />
+      )}
+      <span className="truncate">{name}</span>
+    </span>
+  );
 });

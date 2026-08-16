@@ -1,9 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { ChevronRight } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
+import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldDescription, FieldLabel } from '@renderer/lib/ui/field';
-import { cn } from '@renderer/utils/utils';
 import {
   type AgentProviderConfig,
   providerConfigFromAttributes,
@@ -105,17 +104,12 @@ export function LaunchProfileConfig({
 
   return (
     <div>
-      <button
-        type="button"
-        className="flex w-full cursor-pointer items-center gap-1.5 py-1 text-sm text-foreground-muted"
-        onClick={() => setOpen((v) => !v)}
-      >
-        <ChevronRight className={cn('h-4 w-4 transition-transform', open && 'rotate-90')} />
-        <span className="font-medium text-foreground">Advanced configuration</span>
-        <span className="ml-auto">
-          {providerLabel} · {fields.length} {fields.length === 1 ? 'field' : 'fields'}
-        </span>
-      </button>
+      <DisclosureRow
+        open={open}
+        title="Advanced configuration"
+        meta={`${providerLabel} · ${fields.length} ${fields.length === 1 ? 'field' : 'fields'}`}
+        onToggle={() => setOpen((v) => !v)}
+      />
       {open && (
         <div className="flex flex-col gap-4 pt-3">
           {fields.map((field) => {
