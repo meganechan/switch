@@ -158,6 +158,7 @@ async def register_agent_endpoint(
         result = await protocol.register_agent(
             name=req.name,
             description=req.description,
+            icon_url=req.icon_url,
             connector_type=req.connector_type,
             integration_profile=req.integration_profile,
             tools=req.tools,
@@ -181,6 +182,7 @@ async def _register_known(
     agent_type: str,
     name: str,
     description: str,
+    icon_url: str | None,
     options_raw: dict,
     parent_agent_id: str | None,
     overwrite: bool,
@@ -214,6 +216,7 @@ async def _register_known(
         result = await protocol.register_agent(
             name=name,
             description=description,
+            icon_url=icon_url,
             connector_type=spec.connector_type,
             integration_profile=integration_profile,
             tools=spec.tools,
@@ -243,6 +246,7 @@ async def register_known_agent_endpoint(
         agent_type=req.agent_type,
         name=req.name,
         description=req.description,
+        icon_url=req.icon_url,
         options_raw=req.options,
         parent_agent_id=req.parent_agent_id,
         overwrite=req.overwrite,
@@ -328,6 +332,11 @@ async def register_known_agents_bulk_endpoint(
             agent_type=req.agent_type,
             name=name,
             description=description,
+            # Subagents deliberately do not inherit the parent's icon: sharing
+            # one would make every child render identically in a list, whereas
+            # no icon lets each fall back to something derived from its own
+            # name. An individual subagent can still be given one afterwards.
+            icon_url=None,
             options_raw=options,
             parent_agent_id=req.parent_agent_id,
             overwrite=req.overwrite,

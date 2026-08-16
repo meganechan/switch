@@ -6,6 +6,7 @@ import { ensureLocation, getLocationByHostDir } from '@main/core/locations/store
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
+import { agentAvatarUrlForName } from '@shared/core/agents/agent-avatar';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
@@ -34,6 +35,9 @@ export type AddAgentParams = {
   /** The registered Switch server to mint the identity on. */
   serverId: string;
   description: string;
+  /** The icon picked in the create form. Null means the form offered no
+   * choice, and the agent is registered with the avatar its name generates. */
+  iconUrl: string | null;
   autoSession: boolean;
   autoApprove: boolean;
   /** Provider-specific definition attributes (model, effort, tools, prompt, …),
@@ -88,6 +92,7 @@ export async function addAgent(params: AddAgentParams): Promise<AddAgentResult> 
     repoDir: params.dir,
     autoSession: params.autoSession,
     agentType: knownAgentTypeForProvider(params.providerId),
+    iconUrl: params.iconUrl ?? agentAvatarUrlForName(params.name),
   });
   if (registered.kind !== 'created') return registered;
 

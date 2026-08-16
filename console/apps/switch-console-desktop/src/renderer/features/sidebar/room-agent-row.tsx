@@ -3,12 +3,14 @@ import { observer } from 'mobx-react-lite';
 import { getLocationStore } from '@renderer/features/locations/stores/location-selectors';
 import { HostTroubleIndicator } from '@renderer/features/remote-hosts/host-trouble-indicator';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { appState, sidebarStore } from '@renderer/lib/stores/app-state';
+import { useAgentIconUrl } from '@renderer/lib/stores/use-remote-agents';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -56,6 +58,7 @@ export const RoomAgentRow = observer(function RoomAgentRow({
   // This is a Switch room's member list, so the Switch identity is what matters
   // — and that is the stored name: it is what was registered on the server.
   const label = agent.name || 'Unnamed agent';
+  const iconUrl = useAgentIconUrl(agent.serverId, agent.switchAgentId);
 
   const expandKey = roomAgentGroupKey(roomId, agent.id);
   const expanded = sidebarStore.isGroupExpanded(expandKey);
@@ -106,16 +109,26 @@ export const RoomAgentRow = observer(function RoomAgentRow({
           {/* Indent on the content, not the row, so the highlight still spans
               the sidebar's full width at every depth. */}
           <div className="flex min-w-0 flex-1 items-center gap-[9px]" style={depthIndent(depth)}>
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              {agent.providerId ? (
-                <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
-              ) : (
-                <Bot className="h-4 w-4" />
-              )}
+            <span className="flex size-[18px] shrink-0 items-center justify-center">
+              <AgentAvatar
+                name={label}
+                iconUrl={iconUrl}
+                size={21}
+                className="-mx-[1.5px] bg-transparent"
+              />
             </span>
             <SidebarMenuAction aria-label={`Open agent ${label}`} className="truncate select-none">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{label}</span>
+                {/* Mirrors the agent-grouped row: the same agent must not carry
+                    a different amount of information depending on how the
+                    sidebar happens to be grouped. */}
+                {!sidebarStore.hideProviderMark &&
+                  (agent.providerId ? (
+                    <AgentIcon id={agent.providerId} size={12} className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <Bot className="h-3 w-3 shrink-0 text-foreground-muted" />
+                  ))}
                 {/* Same agent, same host problem — this row used to show
                     nothing, so whether you saw it depended on which grouping
                     the sidebar happened to be in. */}

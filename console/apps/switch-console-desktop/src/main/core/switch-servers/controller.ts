@@ -18,6 +18,7 @@ import {
   managedServerHostBlocked,
 } from '@main/core/managed-switch-server/managed-server-status';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
+import { agentAvatarUrlForName } from '@shared/core/agents/agent-avatar';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import type {
@@ -26,6 +27,7 @@ import type {
   AgentDefaults,
   AgentVerifyResult,
   BridgeDirectorySearchResult,
+  AgentIconBackfill,
   BundledChatSignIn,
   ClaimIdentityParams,
   ClaimIdentityResult,
@@ -61,6 +63,7 @@ import type {
 } from '@shared/core/switch-servers/switch-servers';
 import { createRPCController } from '@shared/lib/ipc/rpc';
 import { type LoginError, oidcLogin, passwordLogin } from './auth';
+import { backfillAgentIcons } from './backfill-agent-icons';
 import { withResolvedHomeUrls } from './bridge-home-url';
 import { bundledChatSignInFor } from './bundled-chat-sign-in';
 import { createBridgeOnServer } from './create-bridge';
@@ -90,6 +93,7 @@ import {
   releaseBridgeIdentity,
   removeRoomAgent,
   updateAddressingPolicy,
+  updateAgentIcon,
   updateRoom,
 } from './gateway-client';
 import { openAuthenticatedGatewayPage } from './gateway-web';
@@ -423,6 +427,22 @@ export const switchServersController = createRPCController({
   }): Promise<void> =>
     updateAddressingPolicy(await requireServer(params.serverId), params.agentId, params.policy),
 
+  /** Give this user's icon-less agents the avatar their name generates. Runs
+   * once per server per app run; reports what happened so the caller can say
+   * when the icons did not reach the server. */
+  backfillAgentIcons: async (serverId: string): Promise<AgentIconBackfill> =>
+    backfillAgentIcons(await requireServer(serverId)),
+
+  /** Set or clear an agent's icon. Returns the agent as the server now holds
+   * it, so the caller refreshes from the stored value rather than the one it
+   * hoped for. */
+  updateAgentIcon: async (params: {
+    serverId: string;
+    agentId: string;
+    iconUrl: string | null;
+  }): Promise<RemoteAgentSummary> =>
+    updateAgentIcon(await requireServer(params.serverId), params.agentId, params.iconUrl),
+
   verifyAgent: async (params: {
     serverId: string;
     agentId: string;
@@ -458,6 +478,7 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.dir,
       autoSession: params.autoSession,
+      iconUrl: agentAvatarUrlForName(params.name),
       // Provisioning writes `.claude/settings.local.json` — this is the Claude
       // Code path by construction, not a fallback.
       agentType: knownAgentTypeForProvider('claude'),
@@ -505,6 +526,7 @@ export const switchServersController = createRPCController({
       description: params.description,
       repoDir: params.remoteRepoDir,
       autoSession: params.autoSession,
+      iconUrl: agentAvatarUrlForName(params.name),
       // Remote provisioning likewise writes `.claude/settings.local.json`.
       agentType: knownAgentTypeForProvider('claude'),
     });

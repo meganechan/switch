@@ -12,6 +12,7 @@ import {
   hasDiscardableSessionError,
   hasSessionError,
 } from '@renderer/features/sessions/stores/session-selectors';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
@@ -19,6 +20,7 @@ import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider
 import { useWorkspaceSlots } from '@renderer/lib/layout/workspace-slots';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { sidebarStore } from '@renderer/lib/stores/app-state';
+import { useAgentIconUrl } from '@renderer/lib/stores/use-remote-agents';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -60,6 +62,7 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
 
   const agentName = agent.name;
   const location = getLocationStore(agent.locationId);
+  const iconUrl = useAgentIconUrl(agent.serverId, agent.switchAgentId);
 
   // The agent's name IS its Switch identity: Switch Console chose it, registered it
   // under that name, and keys its credentials and definition by it. Reading the
@@ -104,16 +107,29 @@ export const SidebarAgentItem = observer(function SidebarAgentItem({
               selection highlight still spans the sidebar's full width at every
               depth. */}
           <div className="flex min-w-0 flex-1 items-center gap-[9px]" style={depthIndent(depth)}>
-            <span className="flex size-4 shrink-0 items-center justify-center">
-              {agent.providerId ? (
-                <AgentIcon id={agent.providerId} size={16} className="h-4 w-4" />
-              ) : (
-                <Bot className="h-4 w-4" />
-              )}
+            {/* 21px inside an 18px slot, so the larger circle reads at the same
+                weight as the provider glyphs it replaced without growing the
+                row or shifting the label. */}
+            <span className="flex size-[18px] shrink-0 items-center justify-center">
+              <AgentAvatar
+                name={label}
+                iconUrl={iconUrl}
+                size={21}
+                className="-mx-[1.5px] bg-transparent"
+              />
             </span>
             <SidebarMenuAction aria-label={`Open agent ${label}`} className="truncate select-none">
               <span className="flex min-w-0 items-center gap-1.5">
                 <span className="truncate">{label}</span>
+                {/* What the agent runs on. The avatar took the leading slot, so
+                    without this the row no longer says. Hideable from the
+                    Sessions menu for a reader who only cares about identity. */}
+                {!sidebarStore.hideProviderMark &&
+                  (agent.providerId ? (
+                    <AgentIcon id={agent.providerId} size={12} className="h-3 w-3 shrink-0" />
+                  ) : (
+                    <Bot className="h-3 w-3 shrink-0 text-foreground-muted" />
+                  ))}
                 {location.data?.sshHost != null && (
                   <Tooltip>
                     <TooltipTrigger>

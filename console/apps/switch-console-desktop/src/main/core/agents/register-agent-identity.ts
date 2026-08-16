@@ -12,6 +12,9 @@ export type RegisterAgentInput = {
    * `knownAgentTypeForProvider`. Required — an omitted type would silently
    * register the agent as Claude Code whatever it actually runs (CHOO-1436). */
   agentType: KnownAgentType;
+  /** The icon chosen in the create form, or null for none. Required so a new
+   * create flow has to say which it means. */
+  iconUrl: string | null;
 };
 
 /**
@@ -40,6 +43,7 @@ export async function registerAgentIdentity(
       name: input.name,
       description: input.description,
       agentType: input.agentType,
+      iconUrl: input.iconUrl,
       options: {
         channels_enabled: true,
         repo_dir: input.repoDir,
