@@ -9,7 +9,6 @@ import {
   Plus,
   Trash2,
   Unlink,
-  X,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
@@ -406,27 +405,18 @@ export function MessagingAppRow({
             Link
           </Button>
         ) : (
-          <div className="flex min-w-0 items-center gap-1">
-            <Button
-              variant="ghost"
-              size="xs"
-              className="min-w-0 font-mono text-foreground-muted"
-              title={`Change which ${bridge.displayName} account is you`}
-              onClick={claim}
-            >
-              <span className="truncate">{handleOf(identity)}</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              disabled={releasing}
-              aria-label={`Unlink ${handleOf(identity)}`}
-              title={`Unlink ${handleOf(identity)}`}
-              onClick={() => void release(identity.id)}
-            >
-              {releasing ? <Spinner className="size-3" /> : <X className="size-3" />}
-            </Button>
-          </div>
+          // One control, not two. Unlinking is irreversible and rare, and a
+          // cross beside the handle puts it one mis-click from the button you
+          // press to *change* the account (CHOO-2137); it lives in the row menu.
+          <Button
+            variant="ghost"
+            size="xs"
+            className="min-w-0 font-mono text-foreground-muted"
+            title={`Change which ${bridge.displayName} account is you`}
+            onClick={claim}
+          >
+            <span className="truncate">{handleOf(identity)}</span>
+          </Button>
         )}
         {releaseError !== null && <p className="text-destructive mt-0.5 text-xs">{releaseError}</p>}
       </td>
@@ -442,8 +432,15 @@ export function MessagingAppRow({
                   onCheckedChange={(next) => onToggleChannelCreation(next)}
                   aria-label={`Let Switch create channels on ${bridge.displayName}`}
                 />
+                {/* "Off" and "this platform has no such thing" are different
+                  claims, and an unticked disabled switch makes them look the
+                  same (CHOO-2137). Say which one it is. */}
                 <span className="text-xs text-foreground-muted">
-                  {bridge.canCreateChannels ? 'On' : 'Off'}
+                  {!bridge.channelCreationSupported
+                    ? 'Not supported'
+                    : bridge.canCreateChannels
+                      ? 'On'
+                      : 'Off'}
                 </span>
               </div>
             }

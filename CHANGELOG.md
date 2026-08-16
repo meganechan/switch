@@ -626,9 +626,11 @@ version of their own to them without also giving them a release of their own.
   the page over to the things you act on (CHOO-2158).
 - **Messaging apps are a table.** Which account is you, whether Switch may
   create channels there, and the app's actions are columns you can read down
-  rather than facts to be opened one row at a time. Unlinking an account and
-  turning channel creation on or off are now in the row instead of behind its
-  menu (CHOO-2158).
+  rather than facts to be opened one row at a time. Turning channel creation on
+  or off is now in the row instead of behind its menu, and a platform that
+  cannot create channels at all says so rather than showing the switch off.
+  Unlinking stays in the menu — it is irreversible, and the row is where you
+  press to *change* an account (CHOO-2158).
 - The managed stack has a section of its own with a **Restart**, and shows its
   live output, which until now was only visible while adding a server. An
   available switch-core update is announced at the top of the page rather than

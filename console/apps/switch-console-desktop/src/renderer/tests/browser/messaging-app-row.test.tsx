@@ -196,37 +196,16 @@ describe('the row menu', () => {
   });
 
   it('opens on a platform that cannot create channels at all', async () => {
-    // Telegram. The explanatory line under the channel toggle was a menu
-    // *label*, which Base UI requires to sit inside a group — so opening this
-    // menu threw and took the page down with it. Every other case here has a
-    // platform that supports channel creation, which is how it got through.
+    // Telegram. The explanation used to be a menu *label*, which Base UI
+    // requires to sit inside a group — so opening this menu threw and took the
+    // page down with it. Every other case here has a platform that supports
+    // channel creation, which is how it got through. The toggle has since moved
+    // out to a column of its own; the menu must still open.
     const el = await render(
       row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
     );
 
-    expect(await openMenu(el)).toContain('Can create channels');
-  });
-
-  it('says a platform cannot create channels rather than just showing it off', async () => {
-    // An unticked disabled box reads as "switched off", which is a different
-    // claim from "this platform has no such thing".
-    const el = await render(
-      row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
-    );
-    await openMenu(el);
-
-    const menu = document.querySelector('[role="menu"]');
-    expect(menu!.textContent).toContain('Slack cannot create channels from Switch');
-  });
-
-  it('leaves the channel toggle alone for a non-admin', async () => {
-    const el = await render(row({ isAdmin: false }));
-    await openMenu(el);
-
-    const item = [...document.querySelectorAll('[role="menuitemcheckbox"]')].find((i) =>
-      i.textContent?.includes('Can create channels')
-    );
-    expect(item!.getAttribute('data-disabled')).not.toBeNull();
+    expect(await openMenu(el)).toContain('Link my account…');
   });
 
   it('asks before disconnecting rather than doing it on the click', async () => {
@@ -242,5 +221,48 @@ describe('the row menu', () => {
     await act(async () => item!.click());
 
     expect(onDisconnect).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
+ * Channel creation moved out of the row menu into a column of the table
+ * (CHOO-2158), so it can be read down the page rather than opened one row at a
+ * time. What it has to say did not change with the shape.
+ */
+describe('the channel-creation column', () => {
+  function channelSwitch(el: HTMLElement): HTMLElement {
+    const found = el.querySelector<HTMLElement>('[aria-label^="Let Switch create channels"]');
+    expect(found).not.toBeNull();
+    return found!;
+  }
+
+  it('puts the toggle on the row rather than behind the menu', async () => {
+    const el = await render(row({ isAdmin: true }));
+
+    expect(channelSwitch(el).getAttribute('aria-checked')).toBe('true');
+    expect(await openMenu(el)).not.toContain('Can create channels');
+  });
+
+  it('says a platform cannot create channels rather than just showing it off', async () => {
+    // An unticked disabled switch reads as "switched off", which is a different
+    // claim from "this platform has no such thing".
+    const el = await render(
+      row({ bridge: bridge({ channelCreationSupported: false, canCreateChannels: false }) })
+    );
+
+    expect(el.textContent).toContain('Not supported');
+    expect(el.textContent).not.toContain('Off');
+  });
+
+  it('leaves the toggle alone for a non-admin', async () => {
+    const el = await render(row({ isAdmin: false }));
+
+    expect(channelSwitch(el).getAttribute('data-disabled')).not.toBeNull();
+  });
+
+  it('lets an admin move it', async () => {
+    const el = await render(row({ isAdmin: true }));
+
+    expect(channelSwitch(el).getAttribute('data-disabled')).toBeNull();
   });
 });
