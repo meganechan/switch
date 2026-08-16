@@ -26,6 +26,7 @@ from switch_core.addressing import (
     owner_only_policy,
     parse_policy,
 )
+from switch_core.agent_icon import normalise_icon_url, validate_icon_url
 from switch_core.aliases import check_alias_collisions, validate_alias_format
 from switch_core.authz import Action, Principal, require, require_manage
 from switch_core.bridges.agent.protocol.agent_detail import (
@@ -187,6 +188,7 @@ class ProtocolService:
         *,
         name: str,
         description: str,
+        icon_url: str | None = None,
         connector_type: str,
         integration_profile: IntegrationProfile,
         tools: list[ToolSpec] | None = None,
@@ -220,9 +222,15 @@ class ProtocolService:
         rotates the API key and replaces the integration profile, so callers
         must explicitly opt in.
 
+        ``icon_url`` is the agent's icon as an absolute https URL, or None for
+        no icon. On re-registration None leaves any existing icon alone rather
+        than clearing it, so re-registering an agent does not silently discard
+        a picture the owner chose.
+
         Raises:
             ValueError: name is invalid (lowercase alphanumeric, dots, hyphens,
                 or underscores — no spaces).
+            InvalidIconUrl: ``icon_url`` is malformed or points somewhere unsafe.
             AgentExistsError: agent with this name exists and ``overwrite`` is
                 False.
         """
@@ -231,6 +239,8 @@ class ProtocolService:
                 f"Invalid agent name: {name!r}. "
                 "Use only lowercase letters, digits, dots, hyphens, and underscores."
             )
+
+        validated_icon_url = normalise_icon_url(icon_url)
 
         tool_specs = tools or []
         model_specs = models or []
@@ -256,6 +266,7 @@ class ProtocolService:
                     api_key_hash=api_key_hash,
                     encrypted_key=encrypted_key,
                     description=description,
+                    icon_url=validated_icon_url,
                     agent_type=agent_type,
                     connector_type=connector_type,
                     integration_profile=profile_data,
@@ -272,6 +283,7 @@ class ProtocolService:
                     session=session,
                     name=name,
                     description=description,
+                    icon_url=validated_icon_url,
                     agent_type=agent_type,
                     connector_type=connector_type,
                     integration_profile=profile_data,
@@ -345,6 +357,7 @@ class ProtocolService:
         session: AsyncSession,
         name: str,
         description: str,
+        icon_url: str | None,
         agent_type: str,
         connector_type: str,
         integration_profile: dict[str, Any],
@@ -375,6 +388,7 @@ class ProtocolService:
         agent = Agent(
             name=name,
             description=description,
+            icon_url=icon_url,
             agent_type=agent_type,
             connector_type=connector_type,
             integration_profile=integration_profile,
@@ -424,6 +438,7 @@ class ProtocolService:
         api_key_hash: str,
         encrypted_key: str,
         description: str,
+        icon_url: str | None,
         agent_type: str,
         connector_type: str,
         integration_profile: dict[str, Any],
@@ -444,6 +459,10 @@ class ProtocolService:
         await self.api_key_store.create(session, new_api_key_record)
 
         old_api_key_id = existing.api_key_id
+        # An omitted icon keeps whatever the agent already has: re-registration
+        # rotates credentials and rebuilds the profile, and callers that know
+        # nothing about icons must not wipe one the owner chose.
+        icon_fields = {} if icon_url is None else {"icon_url": icon_url}
         await self.agent_store.update(
             session,
             existing.id,
@@ -455,6 +474,7 @@ class ProtocolService:
             metadata_=metadata,
             oauth_client_id=oauth_client_id,
             parent_agent_id=parent_agent_id,
+            **icon_fields,
         )
         await self.api_key_store.delete(session, old_api_key_id)
 
@@ -568,6 +588,28 @@ class ProtocolService:
             if updates:
                 await self.agent_store.update(session, agent_id, **updates)
                 await session.commit()
+
+    async def set_agent_icon(self, agent_id: str, icon_url: str | None) -> None:
+        """Set, change, or clear an agent's icon.
+
+        A URL replaces whatever the agent has; ``None`` clears it, leaving the
+        agent with no icon so callers fall back to their own default. This is
+        deliberately a separate operation from ``update_agent`` rather than
+        another optional field on it: there, ``None`` means "leave alone", and
+        an icon needs "remove it" to be sayable.
+
+        Raises:
+            InvalidIconUrl: the URL is malformed or points somewhere unsafe.
+            ValueError: no agent with this id exists.
+        """
+        validated = validate_icon_url(icon_url) if icon_url is not None else None
+
+        async with self.session_factory() as session:
+            agent = await self.agent_store.get(session, agent_id)
+            if agent is None:
+                raise ValueError(f"No such agent: {agent_id}")
+            await self.agent_store.update(session, agent_id, icon_url=validated)
+            await session.commit()
 
     async def _remove_bridge_identities(self, agent_name: str) -> None:
         for bridge_core in self.collab_lifecycle.all_bridges():

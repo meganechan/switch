@@ -214,6 +214,10 @@ class AgentSummary(BaseModel):
     id: str
     name: str
     description: str
+    # Absolute https URL of the agent's icon, or null when none is set. Null is
+    # not an error: the caller renders its own fallback rather than Switch
+    # inventing a default, so the fallback can change without a data migration.
+    icon_url: str | None = None
     connector_type: str
     connection_model: str | None
     tool_count: int
