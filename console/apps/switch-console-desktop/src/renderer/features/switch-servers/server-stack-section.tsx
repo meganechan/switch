@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { Button } from '@renderer/lib/ui/button';
 
 /** The lifecycle states a managed stack reports, local or remote. */
 export type StackPhase = 'stopped' | 'starting' | 'running' | 'stopping' | 'error' | 'unreachable';
@@ -80,9 +81,9 @@ export function StackStatusRow({
   );
 }
 
-/** A stack lifecycle action. Plain text rather than a button: the section is
- * read far more often than acted on, and three bordered controls in a row read
- * as the page's main business when they are its rarest. */
+/** A stack lifecycle action. Bordered rather than bare text: starting, stopping
+ * and restarting a server are consequential enough to look pressable, and a
+ * red word with no edge to it reads as a status rather than a control. */
 export function StackAction({
   label,
   danger = false,
@@ -95,18 +96,17 @@ export function StackAction({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="outline"
+      size="sm"
       disabled={disabled}
       onClick={onClick}
-      className={`text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-        danger
-          ? 'text-destructive hover:text-destructive/80'
-          : 'text-foreground-muted hover:text-foreground'
-      }`}
+      className={
+        danger ? 'border-red-500/40 text-red-500 hover:bg-red-500/10 hover:text-red-500' : undefined
+      }
     >
       {label}
-    </button>
+    </Button>
   );
 }
 

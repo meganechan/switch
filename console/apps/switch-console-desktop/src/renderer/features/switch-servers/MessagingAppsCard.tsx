@@ -61,6 +61,22 @@ import { useMyIdentities } from './use-my-identities';
  * signed-in user being an admin, because the endpoint is; linking an account is
  * not, because claiming an identity is something every user does for themselves.
  */
+/** Why a server has messaging apps at all: the agents registered here become
+ * reachable in them. Stated before the linking half, because it is the reason
+ * the section exists and linking is only a consequence of it. */
+const MESSAGING_APPS_PURPOSE =
+  'Connecting a messaging app puts this server’s agents in it, so you can talk to them where you already work.';
+
+/** The second half: what linking adds once an app is connected. */
+const MESSAGING_APPS_LINKING =
+  'Link your own account in each app so those agents know which person there is you.';
+
+/** Shown beside a row that has no linked account, and beside the card-level
+ * warning, so the consequence is one hover away from the thing warning about
+ * it rather than only in the section heading. */
+const NO_ACCOUNT_EXPLANATION =
+  'Switch cannot tell which account in this app is you. Agents set to answer only their owner will not recognise you here, and messages from you read as if from a stranger.';
+
 export const MessagingAppsCard = observer(function MessagingAppsCard({
   serverId,
   className,
@@ -160,24 +176,26 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-medium text-foreground">Messaging apps</h3>
-          {/* What linking is for. It used to be the "Your account" column's
-              header tooltip; with the columns gone this is where it lives, on
-              the heading rather than on the warning below, so it is still there
-              to read once the warning has been acted on. */}
+          {/* What the section is for, in the order the two facts matter:
+              connecting puts the agents somewhere people already are, and
+              linking is what lets those agents tell who is talking to them.
+              It used to be the "Your account" column's header tooltip; with
+              the columns gone it belongs to the heading. */}
           <Tooltip>
             <TooltipTrigger
               render={
                 <span
                   tabIndex={0}
-                  aria-label="Which account is you in each app, so your agents can recognise you."
+                  aria-label={`${MESSAGING_APPS_PURPOSE} ${MESSAGING_APPS_LINKING}`}
                   className="inline-flex text-foreground-muted"
                 >
                   <Info className="size-3.5" />
                 </span>
               }
             />
-            <TooltipContent>
-              Which account is you in each app, so your agents can recognise you.
+            <TooltipContent className="max-w-xs">
+              <span className="block">{MESSAGING_APPS_PURPOSE}</span>
+              <span className="mt-1.5 block">{MESSAGING_APPS_LINKING}</span>
             </TooltipContent>
           </Tooltip>
           {bridgesQuery.isLoading && <Spinner className="size-3.5" />}
@@ -224,6 +242,20 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
         <div className="mt-2 flex items-start gap-2 rounded-md border border-border bg-background-1 px-2 py-1.5 text-xs">
           <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
           <span>{unrecognisedMessagingAppsMessage(unrecognisedIn)}</span>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span
+                  tabIndex={0}
+                  aria-label={NO_ACCOUNT_EXPLANATION}
+                  className="mt-0.5 inline-flex shrink-0 text-foreground-muted"
+                >
+                  <Info className="size-3.5" />
+                </span>
+              }
+            />
+            <TooltipContent className="max-w-xs">{NO_ACCOUNT_EXPLANATION}</TooltipContent>
+          </Tooltip>
         </div>
       )}
 
@@ -389,6 +421,20 @@ export function MessagingAppRow({
           <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
             <TriangleAlert className="size-3 shrink-0" />
             No account linked
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <span
+                    tabIndex={0}
+                    aria-label={NO_ACCOUNT_EXPLANATION}
+                    className="inline-flex text-foreground-muted"
+                  >
+                    <Info className="size-3" />
+                  </span>
+                }
+              />
+              <TooltipContent className="max-w-xs">{NO_ACCOUNT_EXPLANATION}</TooltipContent>
+            </Tooltip>
           </span>
         ) : (
           <span className="truncate font-mono text-xs text-foreground-muted">
