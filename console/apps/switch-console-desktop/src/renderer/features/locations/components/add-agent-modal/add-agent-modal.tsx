@@ -74,7 +74,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const showAddServerModal = useShowModal('addServerModal');
 
   const pickState = usePickMode();
-  const configureForm = useConfigureAgentForm(false);
+  const form = useConfigureAgentForm();
 
   // Run location: 'local' (default) or an onboarded remote host's SSH alias. A
   // remote agent runs its sessions on the host and needs a remote working dir.
@@ -82,10 +82,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Typed directly, with no commit step: it used to need one because committing
   // fired the directory scans, and there are none left to fire.
   const [remoteRepoDir, setRemoteRepoDir] = useState('');
-  // A second form for a remote agent, which starts with permissions bypassed:
-  // a host is picked to run unattended, and prompts nobody will answer stall
-  // the session.
-  const remoteConfigureForm = useConfigureAgentForm(true);
   const { data: remoteHosts } = useQuery({
     queryKey: ['remote-hosts'],
     queryFn: () => rpc.remoteHosts.listHosts(),
@@ -155,11 +151,20 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   // Codex left Codex selected, and the form went on looking valid for a choice
   // the new machine cannot honour. Clearing it sends the picker back through
   // its own availability check for the host now selected.
+  //
+  // The name and description are not among them: they describe the agent, not
+  // the machine, and clearing them threw away typed text on the way to a
+  // second thought about where to run it.
   const { setProviderId } = pickState;
   useEffect(() => {
     setRemoteRepoDir('');
     setProviderId(null);
   }, [runHost, setProviderId]);
+
+  const { suggestAutoApprove } = form;
+  useEffect(() => {
+    suggestAutoApprove(isRemoteRun);
+  }, [isRemoteRun, suggestAutoApprove]);
 
   // Advanced definition attributes (model, effort, tools, system prompt, …) the
   // user set in the collapsed Advanced section. Held in a ref (not state) so the
@@ -200,7 +205,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   const canChooseAgentType = runHostReachable && !hostLevelBlocked;
   const canConfigureAgent = canChooseAgentType && runHostReady;
 
-  const form = isRemoteRun ? remoteConfigureForm : configureForm;
   const canSubmit =
     form.isValid &&
     !policyHasDeadRule(form.addressingPolicy) &&
@@ -253,7 +257,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
   /** Create a brand-new flat agent in the chosen directory (local or remote):
    * mint its identity, write its `.claude/agents/<name>.md` definition + its
    * per-agent credentials, and create the row — all via `addAgent`. */
-  const createNewAgent = async (form: ReturnType<typeof useConfigureAgentForm>) => {
+  const createNewAgent = async () => {
     if (!pickState.serverId || !pickState.providerId) return;
     setSubmitState('creating');
     setCloseGuard(true);
@@ -297,7 +301,7 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     }
   };
 
-  const handleCreate = () => createNewAgent(form);
+  const handleCreate = () => createNewAgent();
 
   return (
     <ModalLayout

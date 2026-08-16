@@ -28,7 +28,7 @@ afterEach(async () => {
 async function initialMode(): Promise<string> {
   let seen = '';
   function Probe() {
-    const form = useConfigureAgentForm(false);
+    const form = useConfigureAgentForm();
     seen = addressingModeOf(form.addressingPolicy);
     return null;
   }

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { ownerOnlyPolicy } from '@shared/core/switch-servers/owner-policy';
 import type { AddressingPolicy } from '@shared/core/switch-servers/switch-servers';
@@ -36,16 +36,40 @@ export type PickModeState = ReturnType<typeof usePickMode>;
  * know what it is for; a directory basename answers neither question, and
  * rewriting both when the directory changed moved text the user had already
  * looked at and accepted.
+ *
+ * One instance serves both run locations. There used to be two — one for a
+ * local agent, one for a remote one — and switching between them swapped which
+ * was on screen, so the name and description the user had typed vanished.
  */
-export function useConfigureAgentForm(defaultAutoApprove: boolean) {
+export function useConfigureAgentForm() {
   const [agentName, setAgentName] = useState('');
   const [description, setDescription] = useState('');
   const [autoSession, setAutoSession] = useState(true);
-  const [autoApprove, setAutoApprove] = useState(defaultAutoApprove);
+  const [autoApprove, setAutoApproveRaw] = useState(false);
+  const [autoApproveTouched, setAutoApproveTouched] = useState(false);
   // Scoped addressing policy (CHOO-1585). null = open; a new agent starts
   // owner-scoped (CHOO-2137). Applied via a follow-up PUT after creation.
   const [addressingPolicy, setAddressingPolicy] = useState<AddressingPolicy | null>(() =>
     ownerOnlyPolicy()
+  );
+
+  const setAutoApprove = useCallback((value: boolean) => {
+    setAutoApproveRaw(value);
+    setAutoApproveTouched(true);
+  }, []);
+
+  /**
+   * What the run location implies, for as long as the user has not answered
+   * themselves: an agent on a host is put there to run unattended, and a
+   * permission prompt nobody is watching stalls the session. Kept as a
+   * suggestion rather than a reset so a deliberate answer survives a change of
+   * mind about where the agent runs.
+   */
+  const suggestAutoApprove = useCallback(
+    (value: boolean) => {
+      setAutoApproveRaw((current) => (autoApproveTouched ? current : value));
+    },
+    [autoApproveTouched]
   );
 
   const nameIsValid = AGENT_NAME_PATTERN.test(agentName);
@@ -61,6 +85,7 @@ export function useConfigureAgentForm(defaultAutoApprove: boolean) {
     setAutoSession,
     autoApprove,
     setAutoApprove,
+    suggestAutoApprove,
     addressingPolicy,
     setAddressingPolicy,
     isValid,
