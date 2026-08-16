@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { rpc } from '@renderer/lib/ipc';
 import { Field, FieldDescription, FieldLabel } from '@renderer/lib/ui/field';
 import { cn } from '@renderer/utils/utils';
+import { getProvider } from '@shared/core/providers/agent-provider-registry';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
   advancedFields,
@@ -37,6 +38,7 @@ export function AgentAdvancedConfig({
   });
 
   const fields = useMemo(() => advancedFields(allFields ?? []), [allFields]);
+  const providerLabel = providerId ? (getProvider(providerId)?.name ?? providerId) : null;
 
   const [state, setState] = useState<FormState>({});
   // Reset the form (and reported attributes) whenever the provider's field set
@@ -66,7 +68,12 @@ export function AgentAdvancedConfig({
         onClick={() => setOpen((v) => !v)}
       >
         <ChevronRight className={cn('h-4 w-4 transition-transform', open && 'rotate-90')} />
-        Advanced configuration
+        <span className="text-foreground">Advanced configuration</span>
+        {providerLabel && (
+          <span className="ml-auto text-xs">
+            {providerLabel} · {fields.length} {fields.length === 1 ? 'field' : 'fields'}
+          </span>
+        )}
       </button>
       {open && (
         <div className="flex flex-col gap-4 border-t border-border px-3 py-3">

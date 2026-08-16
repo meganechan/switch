@@ -5,14 +5,8 @@ import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { useAgents } from '@renderer/lib/stores/use-agents';
 import { useAgentTypeAvailability } from '@renderer/lib/stores/use-switch-setup';
 import { Field, FieldLabel } from '@renderer/lib/ui/field';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@renderer/lib/ui/select';
 import { Spinner } from '@renderer/lib/ui/spinner';
+import { cn } from '@renderer/utils/utils';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { autoSelectedAgentType } from './agent-type-auto-selection';
 
@@ -96,7 +90,7 @@ export function AgentTypePicker({
   if (isPending) {
     return (
       <Field>
-        <FieldLabel>Agent type</FieldLabel>
+        <FieldLabel>Agent provider</FieldLabel>
         <div className="flex items-center gap-2 text-xs text-foreground-muted">
           <Spinner />
           {sshHost ? `Checking what ${sshHost} has installed…` : 'Checking what is installed…'}
@@ -105,45 +99,41 @@ export function AgentTypePicker({
     );
   }
 
-  const selected = options.find((o) => o.agent.id === value);
-
   return (
     <Field>
       {emptyNotice}
-      <FieldLabel>Agent type</FieldLabel>
-      <Select value={value ?? undefined} onValueChange={(v) => v && onChange(v as AgentProviderId)}>
-        <SelectTrigger>
-          <SelectValue placeholder="Select an agent type">
-            {selected ? (
-              <span className="flex items-center gap-2">
-                <AgentIcon id={selected.agent.id} size={16} />
-                {selected.agent.name}
-              </span>
-            ) : undefined}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {/*
-            Types that cannot be used here are listed and disabled rather than
-            omitted. A missing row says nothing; a greyed one with its reason
-            says what to go and fix. Availability is per-machine, so a type the
-            user has locally can legitimately be absent on the host they picked.
-          */}
-          {options.map(({ agent, available, blockedReason }) => (
-            <SelectItem key={agent.id} value={agent.id} disabled={!available}>
-              <span className="flex items-center gap-2">
-                <AgentIcon id={agent.id} size={16} />
-                {agent.name}
-                {!available && (
-                  <span className="text-xs text-foreground-muted">
-                    — {blockedReason ?? 'Not available here.'}
-                  </span>
-                )}
-              </span>
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <FieldLabel>Agent provider</FieldLabel>
+      {/*
+        Types that cannot be used here are listed and disabled rather than
+        omitted. A missing tile says nothing; a dimmed one with its reason
+        says what to go and fix. Availability is per-machine, so a type the
+        user has locally can legitimately be absent on the host they picked.
+      */}
+      <div className="grid grid-cols-3 gap-2">
+        {options.map(({ agent, available, blockedReason }) => (
+          <button
+            key={agent.id}
+            type="button"
+            disabled={!available}
+            aria-pressed={value === agent.id}
+            title={!available ? (blockedReason ?? 'Not available here.') : undefined}
+            onClick={() => onChange(agent.id as AgentProviderId)}
+            className={cn(
+              'flex cursor-pointer flex-col items-start gap-2 rounded-[11px] border p-3 text-left transition-colors',
+              value === agent.id
+                ? 'border-foreground bg-[var(--sel-soft)]'
+                : 'border-border hover:bg-[var(--sel-soft)]',
+              !available && 'cursor-not-allowed opacity-45 hover:bg-transparent'
+            )}
+          >
+            <AgentIcon id={agent.id} size={22} />
+            <span className="w-full truncate text-sm text-foreground">{agent.name}</span>
+          </button>
+        ))}
+      </div>
+      <p className="text-xs text-foreground-muted">
+        Only providers installed {sshHost ? `on ${sshHost}` : 'on this machine'} are listed.
+      </p>
     </Field>
   );
 }

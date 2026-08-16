@@ -23,7 +23,7 @@ import type { ConfigureAgentFormState } from './modes';
  * run-mode or notify-handle choice (CHOO-1440); advanced definition attributes
  * live in the collapsed Advanced section.
  */
-export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
+export const AgentSettingsSection = observer(function AgentSettingsSection({
   form,
   serverId,
   onAddServer,
@@ -32,8 +32,6 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
   serverId: string | null;
   onAddServer: () => void;
 }) {
-  const nameId = useId();
-  const descriptionId = useId();
   // Sessions, permissions and addressing are set once and rarely revisited, so
   // they start folded — the identity fields above are what the dialog is for.
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -104,38 +102,6 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
 
   return (
     <FieldGroup>
-      <Field>
-        <FieldLabel htmlFor={nameId}>Agent name</FieldLabel>
-        <Input
-          id={nameId}
-          placeholder="claude-code.my-repo.me"
-          value={form.agentName}
-          onChange={(e) => form.setAgentName(e.target.value)}
-          aria-invalid={form.agentName.length > 0 && !form.nameIsValid}
-        />
-        {form.agentName.length > 0 && !form.nameIsValid ? (
-          <span className="text-destructive text-xs">
-            Use lowercase letters, digits, <span className="font-mono">. - _</span>, starting with a
-            letter or digit. No spaces or uppercase.
-          </span>
-        ) : (
-          <span className="text-xs text-foreground-muted">
-            Visible to everyone in the agent&apos;s rooms — include your name so it&apos;s clear
-            which person&apos;s Claude Code this is.
-          </span>
-        )}
-      </Field>
-
-      <Field>
-        <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
-        <Input
-          id={descriptionId}
-          placeholder="Claude Code running in my-repo"
-          value={form.description}
-          onChange={(e) => form.setDescription(e.target.value)}
-        />
-      </Field>
-
       <div className="rounded-md border border-border">
         <button
           type="button"
@@ -233,3 +199,54 @@ export const ConfigureAgentPanel = observer(function ConfigureAgentPanel({
     </FieldGroup>
   );
 });
+
+/**
+ * Name and description, which are what the dialog is really asking for.
+ *
+ * Separate from the settings below because they need nothing but the form,
+ * while the addressing control needs the server's rooms, groups, users and
+ * agents — so the two halves can sit in different places in the dialog without
+ * the identity fields waiting on four queries they do not use.
+ */
+export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState }) {
+  const nameId = useId();
+  const descriptionId = useId();
+  return (
+    <FieldGroup>
+      <Field>
+        <FieldLabel htmlFor={nameId}>Name</FieldLabel>
+        <Input
+          id={nameId}
+          placeholder="Name this agent"
+          value={form.agentName}
+          onChange={(e) => form.setAgentName(e.target.value)}
+          aria-invalid={form.agentName.length > 0 && !form.nameIsValid}
+        />
+        {form.agentName.length > 0 && !form.nameIsValid ? (
+          <span className="text-destructive text-xs">
+            Use lowercase letters, digits, <span className="font-mono">. - _</span>, starting with a
+            letter or digit. No spaces or uppercase.
+          </span>
+        ) : (
+          <span className="text-xs text-foreground-muted">
+            In rooms this agent is addressed by its name — include your own so it&apos;s clear whose
+            agent it is.
+          </span>
+        )}
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor={descriptionId}>Description</FieldLabel>
+        <Input
+          id={descriptionId}
+          placeholder="What is this agent for?"
+          value={form.description}
+          onChange={(e) => form.setDescription(e.target.value)}
+        />
+        <span className="text-xs text-foreground-muted">
+          Helps other people and agents understand what this agent is for.
+        </span>
+      </Field>
+    </FieldGroup>
+  );
+}

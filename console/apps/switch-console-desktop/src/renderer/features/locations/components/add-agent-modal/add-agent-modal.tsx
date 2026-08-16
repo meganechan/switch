@@ -20,6 +20,7 @@ import {
   useShowModal,
   type BaseModalProps,
 } from '@renderer/lib/modal/modal-provider';
+import { Button } from '@renderer/lib/ui/button';
 import { ConfirmButton } from '@renderer/lib/ui/confirm-button';
 import {
   DialogContentArea,
@@ -42,7 +43,7 @@ import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-con
 import { type ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
 import { AgentAdvancedConfig } from './agent-advanced-config';
 import { AgentTypePicker } from './agent-type-picker';
-import { ConfigureAgentPanel } from './configure-agent-panel';
+import { AgentIdentityFields, AgentSettingsSection } from './configure-agent-panel';
 import { LaunchProfileConfig } from './launch-profile-config';
 import { LocalDirectorySelector } from './local-directory-selector';
 import { useConfigureAgentForm, usePickMode } from './modes';
@@ -304,6 +305,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
       footer={
         <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onClose}
+            disabled={submitState !== 'idle'}
+          >
+            Cancel
+          </Button>
           <ConfirmButton type="button" onClick={() => void handleCreate()} disabled={!canSubmit}>
             {submitState === 'creating' ? 'Adding…' : 'Add agent'}
           </ConfirmButton>
@@ -311,6 +320,8 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
       }
     >
       <DialogContentArea data-autofocus tabIndex={-1} className="max-h-[calc(100dvh-13rem)] gap-4">
+        <AgentIdentityFields form={form} />
+
         <Field>
           <FieldLabel>Run location</FieldLabel>
           <Select value={runHost} onValueChange={(v) => setRunHost(v ?? LOCAL_RUN_LOCATION)}>
@@ -344,9 +355,9 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         </Field>
 
         {/* The host still gates what comes below it: with it unreachable, or
-            missing its own prerequisites, we cannot know which agent types it
-            has, so offering a type picker would be guessing. What no longer
-            gates anything is the directory — nothing is scanned in it. */}
+            missing its own prerequisites, we cannot know which providers it
+            has, so offering the tiles would be guessing. What no longer gates
+            anything is the directory — nothing is scanned in it. */}
         {canConfigureAgent && (
           <Field>
             <FieldLabel>Directory</FieldLabel>
@@ -369,6 +380,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           </Field>
         )}
 
+        {canConfigureAgent && (
+          <AgentSettingsSection
+            form={form}
+            serverId={pickState.serverId}
+            onAddServer={() => showAddServerModal({})}
+          />
+        )}
+
         {canChooseAgentType && (
           <AgentTypePicker
             value={pickState.providerId}
@@ -379,11 +398,6 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
 
         {canConfigureAgent && !!pickState.providerId && (
           <>
-            <ConfigureAgentPanel
-              form={form}
-              serverId={pickState.serverId}
-              onAddServer={() => showAddServerModal({})}
-            />
             <AgentAdvancedConfig providerId={pickState.providerId} onChange={onAdvancedChange} />
             <LaunchProfileConfig
               providerId={pickState.providerId}
