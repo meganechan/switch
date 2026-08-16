@@ -17,6 +17,7 @@ import {
   openRoomView,
   RoomRow,
   roomLabel,
+  sessionRoomId,
 } from './sidebar-room-grouping';
 import { roomAgentGroupKey, roomViewGroupKey, UNASSIGNED_ROOM_KEY } from './sidebar-store';
 import {
@@ -62,6 +63,30 @@ function membersByRoom(): Map<string, AgentEntry[]> {
   return byRoom;
 }
 
+/**
+ * Every room this tree puts a top-level row under, before filters narrow it: one
+ * of this app's agents is a member of it, a visible session is connected to it,
+ * or it is listed on its own account — every room on a server this install
+ * manages, and rooms you created elsewhere. None of that waits on a session, so
+ * a room you just made is there immediately.
+ *
+ * Shared with Collapse all, which needs the same set of rows without the tree
+ * being on screen to ask.
+ */
+export function listedRoomKeys(): string[] {
+  const keys = new Set<string>([
+    ...switchRoomsStore.listedRoomsInActiveScope.map((room) => room.id),
+    ...membersByRoom().keys(),
+  ]);
+  for (const entry of scopedAgents()) {
+    for (const session of agentSessions(entry)) {
+      const roomKey = sessionRoomId(session);
+      if (roomKey) keys.add(roomKey);
+    }
+  }
+  return [...keys];
+}
+
 export const RoomTree = observer(function RoomTree() {
   const showAddAgentsToRoomModal = useShowModal('addAgentsToRoomModal');
   const showDeleteRoomModal = useShowModal('deleteRoomModal');
@@ -77,16 +102,7 @@ export const RoomTree = observer(function RoomTree() {
   }
 
   const members = membersByRoom();
-  // A room is listed when one of this app's agents is a member of it, when it
-  // has a session, or when it is listed on its own account — every room on a
-  // server this install manages, and rooms you created elsewhere. None of that
-  // waits on a session, so a room you just made is there immediately.
-  const alwaysShow = [
-    ...new Set([
-      ...switchRoomsStore.listedRoomsInActiveScope.map((room) => room.id),
-      ...members.keys(),
-    ]),
-  ];
+  const alwaysShow = listedRoomKeys();
 
   const sorted = sortRoomGroups(
     filterRoomGroups(

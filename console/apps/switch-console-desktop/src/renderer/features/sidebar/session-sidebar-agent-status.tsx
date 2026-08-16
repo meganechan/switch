@@ -3,18 +3,16 @@ import { AgentStatusIndicator } from '@renderer/features/sessions/components/age
 import { sessionAgentStatus } from '@renderer/features/sessions/stores/session-selectors';
 import { type SessionStore } from '@renderer/features/sessions/stores/session-store';
 import { useDelayedBoolean } from '@renderer/lib/hooks/use-delay-boolean';
-import { sidebarStore } from '@renderer/lib/stores/app-state';
-import { RelativeTime } from '@renderer/lib/ui/relative-time';
 import { Spinner } from '@renderer/lib/ui/spinner';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
-import { getSortInstant, sortKindFor } from './sidebar-store';
 
 /**
- * Sidebar trailing slot: a spinner while the session is being created or its
- * agent is working, otherwise the relative timestamp. The whole metadata
- * cluster is right-aligned by the parent, so the slot just hugs its content —
- * no fixed width to avoid an empty gap between the timestamp and the
- * line-changes / PR icon to its left.
+ * Sidebar trailing slot: a spinner while the session is being created, the
+ * status dot while its agent is working, and nothing at all otherwise. A row
+ * that is not doing anything says nothing here.
+ *
+ * The width is fixed so a spinner appearing does not shorten the title beside
+ * it, and the parent right-aligns the cluster.
  */
 function Slot({ children }: { children: React.ReactNode }) {
   return <span className="flex w-[3ch] shrink-0 items-center justify-end">{children}</span>;
@@ -42,9 +40,8 @@ export const SessionSidebarTrailingSlot = observer(function SessionSidebarTraili
     );
   }
 
-  // Only a working agent takes the slot from the timestamp. The other non-idle
-  // states no longer draw anything, so testing for "not idle" here would hand
-  // the slot to an indicator that renders nothing and blank the time instead.
+  // Only a working agent draws here. The other non-idle states render nothing,
+  // so testing for "not idle" would fill the slot with an empty indicator.
   if (sessionAgentStatus(session) === 'working') {
     return (
       <Slot>
@@ -53,16 +50,5 @@ export const SessionSidebarTrailingSlot = observer(function SessionSidebarTraili
     );
   }
 
-  const instant = getSortInstant(session, sortKindFor(sidebarStore.sessionSortBy));
-  if (!instant) return null;
-
-  return (
-    <Slot>
-      <RelativeTime
-        value={instant}
-        className="font-mono text-xs text-foreground-passive tabular-nums"
-        compact
-      />
-    </Slot>
-  );
+  return null;
 });

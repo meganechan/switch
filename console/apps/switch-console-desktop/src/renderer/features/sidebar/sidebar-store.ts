@@ -546,18 +546,19 @@ export class SidebarStore implements Snapshottable<SidebarSnapshot> {
   }
 
   /**
-   * Close every top-level branch of the tree, in whichever grouping is on
-   * screen. Second-level groups are left alone: they are tracked inverted
-   * (absence means open), so collapsing them would mean enumerating every key
-   * that exists, and they are hidden under a closed parent anyway.
+   * Close every top-level branch of the tree on screen.
    *
-   * A location re-expands on its own if a session starts in it while
-   * collapsed — see the reaction in the constructor. That is deliberate: a new
-   * session appearing nowhere visible is worse than a branch reopening.
+   * The keys come from the caller because the trees, not the store, decide what
+   * they list — which agents are in scope, which rooms are worth a row. Group
+   * openness is tracked inverted (absence means open), so closing a branch means
+   * naming its key; there is nothing to clear.
+   *
+   * Second-level groups are left alone. They are hidden under a closed parent
+   * anyway, and reopening a parent to find its children as you left them is what
+   * a tree is expected to do.
    */
-  collapseAll(): void {
-    this.expandedLocationIds.clear();
-    this.expandedRoomKeys.clear();
+  collapseAll(topLevelKeys: readonly string[]): void {
+    for (const key of topLevelKeys) this.collapsedGroupKeys.add(key);
   }
 
   toggleLocationExpanded(locationId: string): void {

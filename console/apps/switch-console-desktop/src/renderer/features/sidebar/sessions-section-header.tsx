@@ -33,6 +33,9 @@ import { cn } from '@renderer/utils/utils';
 import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
 import { type SidebarGrouping, UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
+import { listedRoomKeys } from './room-tree';
+import { agentExpandKey, roomViewGroupKey } from './sidebar-store';
+import { scopedAgents } from './sidebar-tree-data';
 
 const CONNECTION_LABEL: Record<AgentConnectionKind, string> = {
   local: 'Local',
@@ -43,6 +46,19 @@ const GROUPING_OPTIONS: { value: SidebarGrouping; label: string }[] = [
   { value: 'agent', label: 'By Agent' },
   { value: 'room', label: 'By Room' },
 ];
+
+/**
+ * The keys of the top-level rows the tree on screen draws — agents in the
+ * agent-focused view, rooms in the room-focused one. Only the grouping being
+ * looked at is named: collapsing the other one would be a change the user never
+ * asked for and would not see until they switched.
+ */
+function topLevelGroupKeys(): string[] {
+  if (sidebarStore.grouping === 'room') {
+    return listedRoomKeys().map(roomViewGroupKey);
+  }
+  return scopedAgents().map((entry) => agentExpandKey(entry.agent.id));
+}
 
 /**
  * View switcher for the grouped sidebar — a segmented control that shows both
@@ -301,7 +317,7 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                 </DropdownMenuCheckboxItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => sidebarStore.collapseAll()}>
+              <DropdownMenuItem onClick={() => sidebarStore.collapseAll(topLevelGroupKeys())}>
                 <ChevronsDownUp className="mr-1.5 h-4 w-4" />
                 Collapse all
               </DropdownMenuItem>
