@@ -18,6 +18,15 @@ export const externalLinkOpenRequestedChannel = defineEvent<{ url: string }>(
   'external-link:open-requested'
 );
 
+/**
+ * A mouse back/forward button pressed on Windows, where those buttons arrive as
+ * an `app-command` on the window rather than as a mouse event in the page.
+ * Elsewhere the renderer sees them directly and this never fires.
+ */
+export const appCommandNavigateChannel = defineEvent<{ direction: 'back' | 'forward' }>(
+  'app-command:navigate'
+);
+
 export const tabNavigationShortcutChannel = defineEvent<{
   source: { kind: 'browser'; browserId: string };
   direction: TabNavigationDirection;
