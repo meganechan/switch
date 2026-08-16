@@ -393,13 +393,16 @@ class TeamsAdapter(CollaborationAdapter):
     def _thread_conversation(channel_id: str, root_id: str) -> str:
         return f"{channel_id};messageid={root_id}"
 
-    def _message_activity(self, sender_name: str, body: str) -> dict[str, Any]:
+    async def _message_activity(self, sender_name: str, body: str) -> dict[str, Any]:
+        icon_url = await self.agent_icon_url(sender_name)
         return {
             "type": "message",
             # Notification/preview text; without it Teams renders a
             # "cards.unsupported" placeholder in toasts, mobile, and link previews.
             "summary": f"{sender_name}: {body}",
-            "attachments": [card_attachment(agent_message_card(sender_name, body))],
+            "attachments": [
+                card_attachment(agent_message_card(sender_name, body, icon_url))
+            ],
         }
 
     # ── Messaging ────────────────────────────────────────────────────────────
@@ -415,7 +418,9 @@ class TeamsAdapter(CollaborationAdapter):
             raise RuntimeError("Cannot send message: Teams adapter not started")
 
         service_url = self._service_url_for(channel_id)
-        activity = self._message_activity(sender_name, self.translate_outbound(content))
+        activity = await self._message_activity(
+            sender_name, self.translate_outbound(content)
+        )
 
         if self._is_channel(channel_id) and thread_root_id is None:
             conversation_id, msg_id = await self._connector.create_channel_thread(
@@ -592,7 +597,7 @@ class TeamsAdapter(CollaborationAdapter):
             service_url=service_url,
             conversation_id=conversation_id,
             activity_id=message_ref,
-            activity=self._message_activity(agent_name, body),
+            activity=await self._message_activity(agent_name, body),
         )
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:

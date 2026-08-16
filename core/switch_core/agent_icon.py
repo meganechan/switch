@@ -23,7 +23,7 @@ rather than treating storage validation as sufficient.
 
 import ipaddress
 from typing import NoReturn
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 # Long enough for a generated-avatar link carrying a full set of style options,
 # short enough that the column cannot be used to smuggle a payload.
@@ -106,6 +106,29 @@ def validate_icon_url(url: str) -> str:
     _check_host(hostname)
 
     return candidate
+
+
+def default_icon_url(agent_name: str, *, image_format: str | None = None) -> str:
+    """The initials avatar shown for an agent that has set no icon of its own.
+
+    Unchanged from what the collaboration bridges have always generated — this
+    is the picture agents already have on Slack, Mattermost, Discord and Teams,
+    and it stays the default so nothing regresses for an agent nobody has given
+    an icon to. It is gathered here only so the four bridges stop each keeping
+    their own copy of the URL.
+
+    `image_format` forces a response format for a caller that needs real bytes
+    rather than a link to hand onward (Mattermost uploads the image itself).
+    """
+    # Escape first, substitute second. The `+` stands in for a space so the
+    # avatar draws two initials for `switch_worker`; percent-encoding it after
+    # the fact turns it back into a literal plus and the agent renders with one
+    # initial instead. Agent names are already restricted to characters that
+    # need no escaping, so `quote` is only a guard against a name that somehow
+    # got past that.
+    name = quote(agent_name).replace("_", "+")
+    url = f"https://ui-avatars.com/api/?name={name}&background=random&size=128"
+    return f"{url}&format={image_format}" if image_format else url
 
 
 def normalise_icon_url(url: str | None) -> str | None:

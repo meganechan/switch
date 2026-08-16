@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
+from switch_core.agent_icon import default_icon_url
 from switch_core.bridges.collaboration.models import (
     BridgeInstallLink,
     ChannelCreationUnsupported,
@@ -88,6 +89,11 @@ class CollaborationAdapter(ABC):
         # Set by set_channel_migration_handler. Called with (old_id, new_id)
         # when the platform reissues a channel's id.
         self._on_channel_migrated: Callable[[str, str], Awaitable[None]] | None = None
+        # Set by set_agent_icon_resolver. Returns an agent's own icon URL, or
+        # None when it has not been given one. Left unset an adapter still
+        # works — every agent just gets the default — so adapters stay usable
+        # without a bridge core wired up behind them.
+        self._resolve_agent_icon: Callable[[str], Awaitable[str | None]] | None = None
         # Inbound attachment size ceiling, set by the lifecycle service from
         # config.agent_media_max_bytes. Adapters check a platform-reported file
         # size against this before downloading so an oversize file is rejected
@@ -625,3 +631,33 @@ class CollaborationAdapter(ABC):
         The symptom without it is one-way traffic — sends still arrive, because
         the platform forwards them, while nothing inbound matches a room again."""
         self._on_channel_migrated = handler
+
+    def set_agent_icon_resolver(
+        self, resolver: Callable[[str], Awaitable[str | None]]
+    ) -> None:
+        """Install the lookup for an agent's own icon URL (None if it has none).
+
+        The bridge core supplies this because the adapter has no database of
+        its own. Resolution happens per send rather than being cached, so
+        changing an agent's icon shows up on its next message instead of at the
+        next restart."""
+        self._resolve_agent_icon = resolver
+
+    def default_agent_icon(self, agent_name: str) -> str:
+        """The avatar for an agent that has set no icon.
+
+        Overridable for a platform that needs the default in a particular shape
+        — Mattermost uploads the bytes rather than passing a link on, so it
+        pins the response format."""
+        return default_icon_url(agent_name)
+
+    async def agent_icon_url(self, agent_name: str) -> str:
+        """The icon URL to render for an agent on this platform.
+
+        Adapters call this wherever they need a per-message avatar: the agent's
+        own icon when it has one, otherwise this platform's existing default."""
+        if self._resolve_agent_icon is not None:
+            chosen = await self._resolve_agent_icon(agent_name)
+            if chosen:
+                return chosen
+        return self.default_agent_icon(agent_name)
