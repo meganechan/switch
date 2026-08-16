@@ -105,7 +105,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             </SidebarMenuButton>
           </SidebarMenu>
         </SidebarFooter>
-        <div className="flex items-center justify-between gap-2 border-t border-border px-3 py-2">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
           {/* The mark doubles as the way back to the welcome screen — the one
               view with no other entry point once you have navigated away. */}
           <button
@@ -113,7 +113,7 @@ export const LeftSidebar: React.FC = observer(function LeftSidebar() {
             onClick={() => navigate('home')}
             aria-label="Go to home"
             title="Home"
-            className="rounded-md text-foreground-passive transition-colors hover:text-foreground"
+            className="rounded-md text-[var(--fg-passive)] transition-colors hover:text-foreground"
           >
             <SwitchConsoleMark size={18} />
           </button>

@@ -49,11 +49,7 @@ SidebarGroupContent.displayName = 'SidebarGroupContent';
 
 export const SidebarFooter = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
   ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      className={cn('mt-auto flex flex-col border-t px-3 py-3', className)}
-      {...props}
-    />
+    <div ref={ref} className={cn('mt-auto flex flex-col px-3 py-3', className)} {...props} />
   )
 );
 SidebarFooter.displayName = 'SidebarFooter';

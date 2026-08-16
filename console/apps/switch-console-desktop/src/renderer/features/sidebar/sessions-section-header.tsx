@@ -8,6 +8,7 @@ import {
   UserPlus,
 } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
+import { useState } from 'react';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { AgentIcon } from '@renderer/lib/components/agent-icon';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
@@ -28,6 +29,7 @@ import {
 import { SectionLabel } from '@renderer/lib/ui/label';
 import { ToggleGroup, ToggleGroupItem } from '@renderer/lib/ui/toggle-group';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
+import { cn } from '@renderer/utils/utils';
 import type { AgentConnectionKind } from '@shared/core/agents/agent-connection';
 import { getProvider } from '@shared/core/providers/agent-provider-registry';
 import { type SidebarGrouping, UNBRIDGED_FILTER_VALUE } from '@shared/view-state';
@@ -67,7 +69,7 @@ const ViewGroupingToggle = observer(function ViewGroupingToggle() {
       // button dropped on top of a box: concentric corners (inner radius =
       // outer radius less the padding) and only a hairline of track showing
       // around it.
-      className="h-auto gap-0 rounded-[9px] border-transparent bg-[var(--hair-soft)] p-[2px]"
+      className="h-auto gap-0 rounded-[9px] border-transparent bg-[var(--segment-track)] p-[2px]"
     >
       {GROUPING_OPTIONS.map((opt) => (
         <ToggleGroupItem
@@ -213,6 +215,7 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
   const showAddLocationModal = useShowModal('addAgentModal');
   const showCreateRoomModal = useShowModal('createRoomModal');
   const showCreateSessionModal = useShowModal('sessionModal');
+  const [optionsOpen, setOptionsOpen] = useState(false);
   // The add actions offer both rather than the one matching the current view.
   // Which grouping you are looking at says how you want the list arranged, not
   // which thing you next want to make, and reaching the other action used to
@@ -224,10 +227,10 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
       {/* Label, its overflow menu and the grouping toggle share one line. The
           three icon buttons that used to sit on a second line — sort, filter,
           add — are all in the menu now; the actions are unchanged. */}
-      <div className="flex items-center justify-between px-5 pt-[18px] pb-2">
+      <div className="group/sessions flex items-center justify-between px-5 pt-[18px] pb-2">
         <div className="flex items-center gap-[6px]">
           <SectionLabel>Sessions</SectionLabel>
-          <DropdownMenu>
+          <DropdownMenu onOpenChange={setOptionsOpen}>
             <Tooltip>
               <DropdownMenuTrigger
                 render={
@@ -236,7 +239,14 @@ export const SessionsSectionHeader = observer(function SessionsSectionHeader() {
                       <button
                         type="button"
                         aria-label="Session list options"
-                        className="flex size-[18px] items-center justify-center rounded-[6px] text-foreground-muted transition-colors hover:bg-[var(--sel-soft)] hover:text-foreground"
+                        // Hidden until the section is hovered, and held visible
+                        // while its own menu is open so the trigger does not
+                        // vanish from under the pointer. Opacity rather than
+                        // `hidden` so the row does not reflow on hover.
+                        className={cn(
+                          'flex size-[18px] items-center justify-center rounded-[6px] text-[var(--fg-passive)] transition-opacity duration-150 hover:bg-[var(--sel-soft)] hover:text-foreground focus-visible:opacity-100',
+                          optionsOpen ? 'opacity-100' : 'opacity-0 group-hover/sessions:opacity-100'
+                        )}
                       >
                         <MoreHorizontal className="size-[13px]" />
                       </button>

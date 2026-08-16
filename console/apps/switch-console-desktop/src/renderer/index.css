@@ -426,6 +426,16 @@
     --btn-1: #ffffff;
     --accent-solid: #243a31;
 
+    /* The existing `--foreground-passive` is the design's *faint* step, which
+       is too weak for a label that has to be readable without hovering. This
+       is the design's passive step, one stop darker. */
+    --fg-passive: #8d8d8d;
+
+    /* The segmented control's track. Its own token rather than `--hair-soft`,
+       which in dark lands within a couple of levels of the raised segment and
+       leaves the active option indistinguishable from the inactive one. */
+    --segment-track: rgb(0 0 0 / 0.06);
+
     --panel-radius: 12px;
     --radius-elevated: 11px;
 
@@ -750,6 +760,12 @@
     --fill-3: #3a3a3a;
     --btn-1: #2c2c2c;
     --accent-solid: #33513f;
+
+    --fg-passive: #8d8d8d;
+
+    /* Darker than the material rather than lighter, so the raised segment
+       reads as sitting on top of the track instead of merging into it. */
+    --segment-track: rgb(0 0 0 / 0.32);
 
     --panel-radius: 12px;
     --radius-elevated: 11px;
