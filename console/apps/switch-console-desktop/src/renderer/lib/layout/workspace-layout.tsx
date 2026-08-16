@@ -67,9 +67,15 @@ export function WorkspaceLayout({
         )}
       />
       <ResizablePanel id="workspace-main" minSize={MAIN_PANEL_MIN_SIZE}>
-        <div className="relative h-full w-full">
-          {mainContent}
-          {persistentLayer}
+        {/* The main panel is an inset card floating on the shell surface rather
+            than a pane butted against the sidebar: the sidebar sits directly on
+            the app's own background, and the gap plus the radius is what
+            separates them, in place of a divider. */}
+        <div className="relative h-full w-full overflow-hidden pt-1 pr-1 pb-1">
+          <div className="relative h-full w-full overflow-hidden rounded-[var(--panel-radius)] border border-[var(--panel-border)] shadow-[var(--panel-shadow)]">
+            {mainContent}
+            {persistentLayer}
+          </div>
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>
