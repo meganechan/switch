@@ -22,17 +22,10 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import type { Agent } from '@shared/core/agents/agents';
 import { providerDisplayName } from '@shared/core/providers/agent-provider-registry';
-import { ServerPage, ServerTable, ServerTableEmpty } from './server-page';
+import { ServerPage } from './server-page';
 import { ServerSectionTitlebar } from './server-section-titlebar';
 import { switchRoomsStore } from './switch-rooms-store';
 import { switchServersStore } from './switch-servers-store';
-
-const COLUMNS = [
-  { key: 'agent', label: 'Agent' },
-  { key: 'provider', label: 'Provider' },
-  { key: 'rooms', label: 'Rooms', className: 'w-24' },
-  { key: 'actions', label: 'Actions', className: 'w-28 text-right' },
-] as const;
 
 function useServerId(): string {
   return useParams('serverAgents').params.serverId;
@@ -59,29 +52,29 @@ const ServerAgentsPanel = observer(function ServerAgentsPanel() {
     <ServerPage
       title="Your Agents"
       description={`Agents on ${server?.name ?? 'this server'}. Add one, set how it is addressed, and start sessions.`}
-      action={
-        <Button size="sm" onClick={() => showAddAgentModal({})}>
-          <Plus className="size-4" />
-          Add agent
-        </Button>
-      }
     >
-      {agents.length === 0 ? (
-        <ServerTableEmpty>
-          No agents are registered on this server yet. Add one to start sessions with it.
-        </ServerTableEmpty>
-      ) : (
-        <ServerTable columns={COLUMNS}>
-          {agents.map((agent) => (
-            <AgentRow key={agent.id} agent={agent} serverId={serverId} />
-          ))}
-        </ServerTable>
-      )}
+      {/* The add tile leads the grid rather than sitting as a button in the
+          page header: it is the same kind of thing as the cards after it, and
+          on an empty server it is the only thing on screen, which says what to
+          do without needing an empty-state sentence. */}
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-4">
+        <button
+          type="button"
+          onClick={() => showAddAgentModal({})}
+          className="flex min-h-44 cursor-pointer items-center justify-center rounded-[11px] border border-dashed border-border text-foreground-muted transition-colors hover:border-border-1 hover:bg-[var(--sel-soft)] hover:text-foreground"
+          aria-label="Add agent"
+        >
+          <Plus className="size-5" />
+        </button>
+        {agents.map((agent) => (
+          <AgentCard key={agent.id} agent={agent} serverId={serverId} />
+        ))}
+      </div>
     </ServerPage>
   );
 });
 
-const AgentRow = observer(function AgentRow({
+const AgentCard = observer(function AgentCard({
   agent,
   serverId,
 }: {
@@ -103,131 +96,118 @@ const AgentRow = observer(function AgentRow({
     agent.switchAgentId && switchRoomsStore.gatewayAgentUrl(serverId, agent.switchAgentId);
 
   return (
-    <tr className="text-sm">
-      <td className="px-3 py-2">
-        <button
-          type="button"
-          className="flex min-w-0 items-center gap-2 text-left hover:underline"
-          onClick={() => navigate('location', { locationId: agent.locationId, agentName: label })}
-        >
-          {agent.providerId ? (
-            <AgentIcon id={agent.providerId} size={16} className="shrink-0" />
-          ) : (
-            <Bot className="size-4 shrink-0 text-foreground-muted" />
-          )}
-          <span className="truncate">{label}</span>
-        </button>
-      </td>
+    <div className="group relative flex min-h-44 flex-col rounded-[11px] bg-background-1 transition-colors hover:bg-background-2">
+      {/* One real button covering the card, so the whole tile is the target and
+          screen readers get a single named control rather than a grid of
+          nested ones. The visible content below it is inert; the actions after
+          it sit on top and keep their own clicks. */}
+      <button
+        type="button"
+        aria-label={`Open ${label}`}
+        className="focus-visible:ring-ring absolute inset-0 cursor-pointer rounded-[11px] focus-visible:ring-2 focus-visible:outline-none"
+        onClick={() => navigate('location', { locationId: agent.locationId, agentName: label })}
+      />
 
-      <td className="truncate px-3 py-2 text-foreground-muted">
-        {provider ? `${provider} · ` : ''}
-        {sshHost ?? 'this computer'}
-      </td>
-
-      <td className="px-3 py-2 text-foreground-muted">
-        <AgentRoomCount agent={agent} serverId={serverId} />
-      </td>
-
-      <td className="px-3 py-2">
-        <div className="flex items-center justify-end">
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={`New session for ${label}`}
-                  onClick={() =>
-                    showCreateSessionModal({ locationId: agent.locationId, agentName: label })
-                  }
-                >
-                  <Plus className="size-3" />
-                </Button>
-              }
-            />
-            <TooltipContent>New session</TooltipContent>
-          </Tooltip>
-
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button variant="ghost" size="icon-xs" aria-label={`${label} actions`}>
-                  <MoreVertical className="size-3" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent align="end">
-              {gatewayUrl && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    void rpc.switchServers.openGatewayPage({ serverId, url: gatewayUrl })
-                  }
-                >
-                  <ExternalLink className="size-4" />
-                  Open in gateway
-                </DropdownMenuItem>
-              )}
-              {sshHost != null && (
-                <DropdownMenuItem
-                  onClick={() =>
-                    showConfirmReset({
-                      agentLabel: label,
-                      onSuccess: () => {
-                        void toastPromise(rpc.agents.resetRemoteAgent({ agentId: agent.id }), {
-                          loading: `Resetting ${label}…`,
-                          success: `${label} was reset`,
-                          error: (error) =>
-                            `Failed to reset agent: ${error instanceof Error ? error.message : String(error)}`,
-                        });
-                      },
-                    })
-                  }
-                >
-                  <RotateCcw className="size-4" />
-                  Reset agent…
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                onClick={() => {
-                  void confirmDeleteAgent({
-                    locationId: agent.locationId,
-                    agentId: agent.id,
-                    locationLabel: label,
-                    onDeleted: () => {},
-                  });
-                }}
-              >
-                <Trash2 className="size-4" />
-                Remove agent…
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+      <div className="pointer-events-none flex flex-1 flex-col p-4">
+        <div className="flex flex-1 items-center justify-center py-3">
+          <span className="flex size-16 items-center justify-center rounded-full bg-background">
+            {agent.providerId ? (
+              <AgentIcon id={agent.providerId} size={30} />
+            ) : (
+              <Bot className="size-7 text-foreground-muted" />
+            )}
+          </span>
         </div>
-      </td>
-    </tr>
-  );
-});
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">{label}</div>
+          <div className="truncate text-xs text-foreground-muted">
+            {provider ? `${provider} · ` : ''}
+            {sshHost ?? 'this computer'}
+          </div>
+        </div>
+      </div>
 
-/**
- * How many of this server's rooms the agent is in.
- *
- * An agent whose membership has not been read yet shows an em dash, not a zero:
- * "in no rooms" is a thing you would go and fix, and it must not be said about
- * an agent we simply have not asked about.
- */
-const AgentRoomCount = observer(function AgentRoomCount({
-  agent,
-  serverId,
-}: {
-  agent: Agent;
-  serverId: string;
-}) {
-  if (!agent.switchAgentId) return <span>—</span>;
-  const memberships = switchRoomsStore.roomsFor(serverId, agent.switchAgentId);
-  if (memberships === undefined) return <span>—</span>;
-  return <span>{memberships.filter((room) => !room.archived).length}</span>;
+      {/* Everything the row used to offer, on hover. Kept rather than dropped
+          with the table: removing an agent and opening it in the gateway have
+          no other entry point from this page. */}
+      <div className="absolute top-2 right-2 flex items-center opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={`New session for ${label}`}
+                onClick={() =>
+                  showCreateSessionModal({ locationId: agent.locationId, agentName: label })
+                }
+              >
+                <Plus className="size-3" />
+              </Button>
+            }
+          />
+          <TooltipContent>New session</TooltipContent>
+        </Tooltip>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button variant="ghost" size="icon-xs" aria-label={`${label} actions`}>
+                <MoreVertical className="size-3" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end">
+            {gatewayUrl && (
+              <DropdownMenuItem
+                onClick={() =>
+                  void rpc.switchServers.openGatewayPage({ serverId, url: gatewayUrl })
+                }
+              >
+                <ExternalLink className="size-4" />
+                Open in gateway
+              </DropdownMenuItem>
+            )}
+            {sshHost != null && (
+              <DropdownMenuItem
+                onClick={() =>
+                  showConfirmReset({
+                    agentLabel: label,
+                    onSuccess: () => {
+                      void toastPromise(rpc.agents.resetRemoteAgent({ agentId: agent.id }), {
+                        loading: `Resetting ${label}…`,
+                        success: `${label} was reset`,
+                        error: (error) =>
+                          `Failed to reset agent: ${error instanceof Error ? error.message : String(error)}`,
+                      });
+                    },
+                  })
+                }
+              >
+                <RotateCcw className="size-4" />
+                Reset agent…
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={() => {
+                void confirmDeleteAgent({
+                  locationId: agent.locationId,
+                  agentId: agent.id,
+                  locationLabel: label,
+                  onDeleted: () => {},
+                });
+              }}
+            >
+              <Trash2 className="size-4" />
+              Remove agent…
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
+  );
 });
 
 export const serverAgentsView = {

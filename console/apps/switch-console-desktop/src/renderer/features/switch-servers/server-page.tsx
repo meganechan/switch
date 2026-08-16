@@ -14,7 +14,9 @@ export function ServerPage({
 }: {
   title: string;
   description: string;
-  action: ReactNode;
+  /** Header-level action, where the page has one. Agents has none: its add
+   * affordance is the first tile of its grid. */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -25,7 +27,7 @@ export function ServerPage({
             <h2 className="truncate text-2xl font-semibold text-foreground">{title}</h2>
             <p className="mt-1 text-sm text-foreground-muted">{description}</p>
           </div>
-          <div className="flex shrink-0 items-center gap-2">{action}</div>
+          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
         </header>
         {children}
       </div>
