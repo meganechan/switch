@@ -61,8 +61,11 @@ export function WorkspaceLayout({
         }}
         onPointerUp={() => handleDragging('left', false)}
         onPointerCancel={() => handleDragging('left', false)}
+        // The gutter and the panel's radius already separate sidebar from
+        // content, so the handle carries no line of its own — it only shows
+        // one while the pointer is on it, to say the edge can be dragged.
         className={cn(
-          'items-center justify-center transition-colors hover:bg-border/80',
+          'items-center justify-center bg-transparent transition-colors hover:bg-[var(--hair)]',
           isLeftOpen ? 'flex' : 'hidden'
         )}
       />

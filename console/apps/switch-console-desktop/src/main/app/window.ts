@@ -34,6 +34,19 @@ export function createMainWindow(): BrowserWindow {
           titleBarStyle: 'hiddenInset',
           trafficLightPosition: { x: 10, y: 10 },
           acceptFirstMouse: true,
+          // The sidebar is meant to read as a vibrancy material rather than a
+          // painted panel, which means the desktop behind the window has to
+          // show through it. Only the compositor can blur what is behind a
+          // window — CSS `backdrop-filter` reaches no further than the page —
+          // so the effect is the OS's and the renderer only tints it.
+          //
+          // A transparent `backgroundColor` is what stops Electron painting an
+          // opaque sheet over the effect. The renderer must not repaint one
+          // either: `index.html` keys its translucent material on the same
+          // platform test this branch does.
+          vibrancy: 'under-window',
+          visualEffectState: 'active',
+          backgroundColor: '#00000000',
         }
       : {}),
     show: false,

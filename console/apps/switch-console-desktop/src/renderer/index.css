@@ -405,6 +405,7 @@
        blur, and the translucent form composites against whatever desktop
        happens to be there. */
     --material: #f7f6f2;
+    --material-vibrant: rgb(247 246 242 / 0.78);
     --surface: #ffffff;
     --surface-2: #f9f9f9;
 
@@ -720,6 +721,7 @@
     /* Inverted against light: the panel is darker than the material it sits on,
        not lighter. */
     --material: #1a1a1a;
+    --material-vibrant: rgb(24 24 24 / 0.72);
     --surface: #111111;
     --surface-2: #191919;
 
@@ -833,6 +835,11 @@
   body {
     @apply text-foreground;
     background: var(--material);
+  }
+  /* Set by the pre-paint script in index.html where the compositor is actually
+     blurring behind the window. */
+  html.has-vibrancy body {
+    background: var(--material-vibrant);
   }
 
   /* Tailwind's reset gives buttons the arrow cursor, on the reasoning that a
