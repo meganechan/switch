@@ -66,7 +66,7 @@ export const modalRegistry = {
     dismissOnOutsideClick: false,
   }),
   deleteServerModal: createModal(DeleteServerModal, { size: 'sm' }),
-  createRoomModal: createModal(CreateRoomModal, { size: 'md', dismissOnOutsideClick: false }),
+  createRoomModal: createModal(CreateRoomModal, { size: 'lg', dismissOnOutsideClick: false }),
   connectMessagingAppModal: createModal(ConnectMessagingAppModal, {
     size: 'md',
     dismissOnOutsideClick: false,

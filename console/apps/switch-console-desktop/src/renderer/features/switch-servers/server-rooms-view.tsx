@@ -251,7 +251,7 @@ const RoomRow = observer(function RoomRow({
     <button
       type="button"
       onClick={() => void openRoom(room.id)}
-      className="flex w-full cursor-pointer items-center gap-3 bg-background px-4 py-3 text-left transition-colors hover:bg-background-1"
+      className="group/room flex w-full cursor-pointer items-center gap-3 bg-background px-4 py-3 text-left transition-colors hover:bg-background-1"
     >
       <div className="flex min-w-0 flex-1 flex-col">
         <span className="truncate text-sm font-medium text-foreground">{roomTitle(room)}</span>
@@ -277,14 +277,24 @@ const RoomRow = observer(function RoomRow({
               // Overlapped rather than spaced: this is one fact — who is in
               // the room — and a stack reads as that, where an evenly spaced
               // row reads as a set of separate controls to click.
-              <span className="flex shrink-0 items-center -space-x-1">
-                {localAgents.map((agent) =>
-                  agent.providerId ? (
-                    <AgentIcon key={agent.id} id={agent.providerId} size={14} />
-                  ) : (
-                    <Bot key={agent.id} className="size-3.5 text-foreground-muted" />
-                  )
-                )}
+              //
+              // Each mark sits in a filled disc, so what a mark in front hides
+              // is a clean circle rather than the silhouette of its own logo —
+              // the marks are different shapes, and letting them interlock made
+              // two agents read as one broken glyph.
+              <span className="flex shrink-0 items-center -space-x-1.5">
+                {localAgents.map((agent) => (
+                  <span
+                    key={agent.id}
+                    className="flex size-6 items-center justify-center rounded-full bg-background ring-1 ring-[var(--hair-soft)] transition-colors group-hover/room:bg-background-1"
+                  >
+                    {agent.providerId ? (
+                      <AgentIcon id={agent.providerId} size={14} />
+                    ) : (
+                      <Bot className="size-3.5 text-foreground-muted" />
+                    )}
+                  </span>
+                ))}
               </span>
             }
           />
