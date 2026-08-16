@@ -1,4 +1,4 @@
-import { Bot, DoorOpen, MessageSquare, Plus } from 'lucide-react';
+import { Bot, ChevronDown, DoorOpen, MessageSquare, Plus } from 'lucide-react';
 import { observer } from 'mobx-react-lite';
 import { useEffect, useState } from 'react';
 import type { GuardResult, ViewDefinition } from '@renderer/app/view-registry';
@@ -13,6 +13,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { Button } from '@renderer/lib/ui/button';
 import { SearchInput } from '@renderer/lib/ui/search-input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/tooltip';
+import { cn } from '@renderer/utils/utils';
 import type { RemoteRoomSummary } from '@shared/core/switch-servers/switch-servers';
 import { ServerPage, ServerTableEmpty } from './server-page';
 import { ServerSectionTitlebar } from './server-section-titlebar';
@@ -91,7 +92,15 @@ const ServerRoomsPanel = observer(function ServerRoomsPanel() {
             </p>
           ) : (
             groups.map((group) => (
-              <MessagingAppGroup key={group.key} group={group} serverId={serverId} />
+              <MessagingAppGroup
+                key={group.key}
+                group={group}
+                serverId={serverId}
+                // Nothing folds while a filter is on. Typing a name and being
+                // shown a "Show 3 more" where the match is hiding is the one
+                // moment the fold would cost more than it saves.
+                fold={query === ''}
+              />
             ))
           )}
         </div>
@@ -145,16 +154,53 @@ function groupByMessagingApp(rooms: RemoteRoomSummary[]): RoomGroup[] {
   });
 }
 
+/**
+ * How many rooms a messaging app shows before the rest are folded away.
+ *
+ * A single busy workspace can hold more rooms than the whole page otherwise
+ * has, and left whole it pushes every other app off the screen — so the page
+ * stops answering "where are my rooms" and answers only "what is in Slack".
+ * Five is enough to see the group is real and to recognise the room you came
+ * for; the count in the heading always says how many there are in total, so
+ * nothing is hidden silently.
+ */
+const ROOMS_BEFORE_FOLD = 5;
+
 const MessagingAppGroup = observer(function MessagingAppGroup({
   group,
   serverId,
+  fold,
 }: {
   group: RoomGroup;
   serverId: string;
+  /** Whether long groups are cut short. False while the list is filtered. */
+  fold: boolean;
 }) {
+  const [open, setOpen] = useState(true);
+  const [visible, setVisible] = useState(ROOMS_BEFORE_FOLD);
+
+  const shown = fold ? group.rooms.slice(0, visible) : group.rooms;
+  const remaining = group.rooms.length - shown.length;
+  // One page at a time rather than the whole tail at once: a workspace with
+  // forty rooms in it would otherwise unfold into the same wall the fold
+  // exists to prevent, and there would be no way back to a readable page
+  // short of collapsing the app entirely.
+  const nextBatch = Math.min(remaining, ROOMS_BEFORE_FOLD);
+
   return (
     <section className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 px-0.5">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="-mx-2 flex w-fit cursor-pointer items-center gap-2 rounded-md px-2 py-1 transition-colors hover:bg-background-1"
+      >
+        <ChevronDown
+          className={cn(
+            'size-3.5 shrink-0 text-foreground-muted transition-transform',
+            !open && '-rotate-90'
+          )}
+        />
         {hasBridgeIcon(group.bridgeType) ? (
           <BridgeIcon bridgeType={group.bridgeType} size={16} />
         ) : (
@@ -164,17 +210,32 @@ const MessagingAppGroup = observer(function MessagingAppGroup({
         <span className="shrink-0 text-xs text-foreground-muted">
           {group.rooms.length} {group.rooms.length === 1 ? 'room' : 'rooms'}
         </span>
-      </div>
-      <div className="flex flex-col gap-2">
-        {group.rooms.map((room) => (
-          <RoomCard key={room.id} room={room} serverId={serverId} />
-        ))}
-      </div>
+      </button>
+
+      {open && (
+        <div className="divide-y divide-border overflow-hidden rounded-[10px] border border-border">
+          {shown.map((room) => (
+            <RoomRow key={room.id} room={room} serverId={serverId} />
+          ))}
+          {fold && group.rooms.length > ROOMS_BEFORE_FOLD && (
+            <button
+              type="button"
+              onClick={() =>
+                setVisible((v) => (remaining > 0 ? v + ROOMS_BEFORE_FOLD : ROOMS_BEFORE_FOLD))
+              }
+              className="flex w-full cursor-pointer items-center gap-1.5 px-4 py-2.5 text-sm text-foreground-muted transition-colors hover:bg-background-1 hover:text-foreground"
+            >
+              <ChevronDown className={cn('size-4 shrink-0', remaining === 0 && 'rotate-180')} />
+              {remaining > 0 ? `Show ${nextBatch} more` : 'Show fewer'}
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 });
 
-const RoomCard = observer(function RoomCard({
+const RoomRow = observer(function RoomRow({
   room,
   serverId,
 }: {
@@ -190,12 +251,17 @@ const RoomCard = observer(function RoomCard({
     <button
       type="button"
       onClick={() => void openRoom(room.id)}
-      className="flex w-full cursor-pointer items-center gap-3 rounded-[10px] border border-border bg-background px-4 py-3 text-left transition-colors hover:border-border-1 hover:bg-background-1"
+      className="flex w-full cursor-pointer items-center gap-3 bg-background px-4 py-3 text-left transition-colors hover:bg-background-1"
     >
       <div className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate text-sm text-foreground">{roomTitle(room)}</span>
+        <span className="truncate text-sm font-medium text-foreground">{roomTitle(room)}</span>
+        {/* An empty room is a state, not a quantity. "0 agents" reads as a
+          measurement of something that is working; a room nobody is in is a
+          room that cannot answer, and it should say so in words. */}
         <span className="text-xs text-foreground-muted">
-          {room.agentCount} {room.agentCount === 1 ? 'agent' : 'agents'}
+          {room.agentCount === 0
+            ? 'No agent in this room yet'
+            : `${room.agentCount} ${room.agentCount === 1 ? 'agent' : 'agents'}`}
         </span>
       </div>
 
@@ -208,7 +274,10 @@ const RoomCard = observer(function RoomCard({
         <Tooltip>
           <TooltipTrigger
             render={
-              <span className="flex shrink-0 items-center gap-1.5">
+              // Overlapped rather than spaced: this is one fact — who is in
+              // the room — and a stack reads as that, where an evenly spaced
+              // row reads as a set of separate controls to click.
+              <span className="flex shrink-0 items-center -space-x-1">
                 {localAgents.map((agent) =>
                   agent.providerId ? (
                     <AgentIcon key={agent.id} id={agent.providerId} size={14} />
