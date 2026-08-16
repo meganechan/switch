@@ -62,14 +62,12 @@ import { useMyIdentities } from './use-my-identities';
  * not, because claiming an identity is something every user does for themselves.
  */
 /** Why a server has messaging apps at all: the agents registered here become
- * reachable in them. Stated before the linking half, because it is the reason
- * the section exists and linking is only a consequence of it. */
+ * reachable in them. Linking is deliberately not explained here — it has its
+ * own hover on the rows and the warning that are actually about it, and saying
+ * both on the heading made the section's purpose the smaller half of a wall of
+ * text. */
 const MESSAGING_APPS_PURPOSE =
   'Connecting a messaging app puts this server’s agents in it, so you can talk to them where you already work.';
-
-/** The second half: what linking adds once an app is connected. */
-const MESSAGING_APPS_LINKING =
-  'Link your own account in each app so those agents know which person there is you.';
 
 /** Shown beside a row that has no linked account, and beside the card-level
  * warning, so the consequence is one hover away from the thing warning about
@@ -186,17 +184,14 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
               render={
                 <span
                   tabIndex={0}
-                  aria-label={`${MESSAGING_APPS_PURPOSE} ${MESSAGING_APPS_LINKING}`}
+                  aria-label={MESSAGING_APPS_PURPOSE}
                   className="inline-flex text-foreground-muted"
                 >
                   <Info className="size-3.5" />
                 </span>
               }
             />
-            <TooltipContent className="max-w-xs">
-              <span className="block">{MESSAGING_APPS_PURPOSE}</span>
-              <span className="mt-1.5 block">{MESSAGING_APPS_LINKING}</span>
-            </TooltipContent>
+            <TooltipContent className="max-w-xs">{MESSAGING_APPS_PURPOSE}</TooltipContent>
           </Tooltip>
           {bridgesQuery.isLoading && <Spinner className="size-3.5" />}
         </div>
