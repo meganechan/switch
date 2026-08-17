@@ -22,9 +22,10 @@ vi.mock('./switch-room-service', () => ({
   },
 }));
 const noteIntendedRoom = vi.fn();
+const noteSpawnTrigger = vi.fn();
 vi.mock('./switch-notification-poller', () => ({
   switchNotificationPoller: {
-    noteSpawnTrigger: vi.fn(),
+    noteSpawnTrigger: (...args: unknown[]) => noteSpawnTrigger(...args),
     noteIntendedRoom: (...args: unknown[]) => noteIntendedRoom(...args),
   },
 }));
@@ -53,12 +54,35 @@ function fakeWatcher() {
   };
 }
 
+/** An addressed room message, as the watch stream delivers it. */
+function messageEvent(
+  roomId: string,
+  overrides: { body?: string; sequence?: number; messageId?: string } = {}
+): unknown {
+  return {
+    type: 'message',
+    room_id: roomId,
+    sequence: overrides.sequence ?? 7,
+    payload: {
+      addressed: true,
+      body: overrides.body ?? 'hi there',
+      sender_name: 'user',
+      message_id: overrides.messageId ?? 'msg-1',
+      thread_id: null,
+    },
+  };
+}
+
 // handleNotification is private; reach it directly to test the decision in
 // isolation from the long-poll loop.
-function handle(watcher: ReturnType<typeof fakeWatcher>, roomId: string): void {
+function handle(
+  watcher: ReturnType<typeof fakeWatcher>,
+  roomId: string,
+  overrides: { body?: string; sequence?: number; messageId?: string } = {}
+): void {
   (
-    autoSessionWatcher as unknown as { handleNotification: (w: unknown, r: string) => void }
-  ).handleNotification(watcher, roomId);
+    autoSessionWatcher as unknown as { handleNotification: (w: unknown, e: unknown) => void }
+  ).handleNotification(watcher, messageEvent(roomId, overrides));
 }
 
 describe('AutoSessionWatcher.handleNotification', () => {
@@ -221,5 +245,58 @@ describe('AutoSessionWatcher.handleNotification', () => {
 
     const sessionId = (createSession.mock.calls[0][0] as { id: string }).id;
     expect(noteIntendedRoom).toHaveBeenCalledWith(sessionId, 'room-x', null);
+  });
+});
+
+/**
+ * The message a session was started for travels in its opening prompt
+ * (CHOO-2173).
+ *
+ * It used to be left to the session's room connection to type in once the
+ * session was up. But that connection opens before the terminal exists, which
+ * is exactly when this message arrives — so it waited, and the agent connected,
+ * found nothing addressed to it and greeted the room instead of answering.
+ * There is nothing to wait for if it goes in with the launch.
+ */
+describe('the message that started the session', () => {
+  beforeEach(() => {
+    createSession.mockReset();
+    getConnections.mockReset();
+    getConnections.mockReturnValue([]);
+    getAgentById.mockReset();
+    getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false });
+    createSession.mockResolvedValue({ success: true, data: { session: { id: 'new' } } });
+    noteSpawnTrigger.mockReset();
+  });
+
+  async function openingPrompt(
+    overrides: { body?: string; sequence?: number; messageId?: string } = {}
+  ): Promise<string> {
+    const watcher = fakeWatcher();
+    handle(watcher, 'room-x', overrides);
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    return (createSession.mock.calls[0][0] as { initialPrompt: string }).initialPrompt;
+  }
+
+  it('rides along with the instruction to join the room', async () => {
+    const prompt = await openingPrompt({ body: 'what is the build status?' });
+
+    expect(prompt).toContain('connect to switch room room-x');
+    expect(prompt).toContain('what is the build status?');
+  });
+
+  it('carries who said it and its id, so the agent can reply to it', async () => {
+    const prompt = await openingPrompt({ messageId: 'msg-42' });
+
+    expect(prompt).toContain('user');
+    expect(prompt).toContain('msg-42');
+  });
+
+  it('is not also replayed onto the session, which would answer it twice', async () => {
+    await openingPrompt({ sequence: 7 });
+
+    // Start *at* the trigger, so the stream resumes after it rather than
+    // handing it over a second time.
+    expect(noteSpawnTrigger).toHaveBeenCalledWith('switch-agent-1', 7, true);
   });
 });

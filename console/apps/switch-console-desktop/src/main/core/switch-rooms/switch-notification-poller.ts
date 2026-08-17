@@ -97,8 +97,11 @@ class SwitchNotificationPoller {
    * the room it claims, so the cost of overlap is small and the cost of a gap
    * is the bug this fixes.
    */
-  noteSpawnTrigger(agentId: string, sequence: number): void {
-    const start = Math.max(sequence - 1, 0);
+  noteSpawnTrigger(agentId: string, sequence: number, deliveredInOpeningPrompt: boolean): void {
+    // The trigger is replayed to the session unless it has already been handed
+    // to it in its opening prompt — in which case start *after* it, or the
+    // session receives the same message twice and answers it twice.
+    const start = deliveredInOpeningPrompt ? sequence : Math.max(sequence - 1, 0);
     const pending = this.pendingStart.get(agentId);
     this.pendingStart.set(agentId, pending === undefined ? start : Math.min(pending, start));
   }
