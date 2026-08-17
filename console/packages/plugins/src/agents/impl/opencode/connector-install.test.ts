@@ -129,10 +129,99 @@ describe('the OpenCode connector installer', () => {
     expect(config().$schema).toBe('https://opencode.ai/config.json');
   });
 
-  it('refuses to rewrite a config it cannot parse', async () => {
-    writeFileSync(join(configDir, 'opencode.json'), '{ this is not json');
+  /**
+   * Each of these parses as JSON, or looks close enough to work, and each one
+   * silently did the wrong thing before: an array root took the assignments and
+   * dropped them on serialise, so the install reported success having changed
+   * nothing; a non-object `mcp` was spread into a numeric-keyed object, quietly
+   * reshaping whatever was there.
+   */
+  describe('a config it cannot safely edit', () => {
+    it('refuses one that is not valid JSON', async () => {
+      writeFileSync(join(configDir, 'opencode.json'), '{ this is not json');
 
-    await expect(install(configDir)).rejects.toThrow(/not valid JSON/);
+      await expect(install(configDir)).rejects.toThrow(/not valid JSON/);
+    });
+
+    it.each([
+      ['an array root', '[1, 2, 3]'],
+      ['a string root', '"nope"'],
+      ['a null root', 'null'],
+    ])('refuses %s rather than reporting success', async (_name, content) => {
+      writeFileSync(join(configDir, 'opencode.json'), content);
+
+      await expect(install(configDir)).rejects.toThrow(/not a JSON object/);
+    });
+
+    it.each([
+      ['an array', '{"mcp": ["not", "an", "object"]}'],
+      ['a string', '{"mcp": "oops"}'],
+    ])('refuses an mcp value that is %s, rather than reshaping it', async (_name, content) => {
+      writeFileSync(join(configDir, 'opencode.json'), content);
+
+      await expect(install(configDir)).rejects.toThrow(/"mcp" value that is not an object/);
+      expect(readFileSync(join(configDir, 'opencode.json'), 'utf8')).toBe(content);
+    });
+
+    it('refuses on uninstall too, instead of crashing part way through', async () => {
+      writeFileSync(join(configDir, 'opencode.json'), '{"mcp": "oops"}');
+
+      await expect(uninstall(configDir)).rejects.toThrow(/"mcp" value that is not an object/);
+    });
+  });
+
+  /**
+   * `switch` and `configure` are ordinary words, and the skill directory is
+   * shared with whatever the user writes there themselves. Install used to
+   * overwrite a same-named skill without a word, and uninstall then removed the
+   * whole directory — taking files this tool never wrote with it.
+   */
+  describe("a skill directory it does not own", () => {
+    it('refuses to overwrite a skill someone else wrote', async () => {
+      mkdirSync(join(configDir, 'skills', 'configure'), { recursive: true });
+      writeFileSync(join(configDir, 'skills', 'configure', 'SKILL.md'), '# my own notes\n');
+
+      await expect(install(configDir)).rejects.toThrow(/was not written by this connector/);
+      expect(readFileSync(join(configDir, 'skills', 'configure', 'SKILL.md'), 'utf8')).toBe(
+        '# my own notes\n'
+      );
+    });
+
+    it('refuses before touching the config, so the two cannot get out of step', async () => {
+      mkdirSync(join(configDir, 'skills', 'switch'), { recursive: true });
+      writeFileSync(join(configDir, 'skills', 'switch', 'SKILL.md'), 'mine\n');
+      writeConfig({ model: 'anthropic/claude-sonnet-4-5' });
+
+      await expect(install(configDir)).rejects.toThrow();
+      expect(config().mcp).toBeUndefined();
+    });
+
+    it('keeps files the user left beside a skill it did write', async () => {
+      await install(configDir);
+      writeFileSync(join(configDir, 'skills', 'switch', 'my-notes.md'), 'notes\n');
+
+      await uninstall(configDir);
+
+      expect(existsSync(join(configDir, 'skills', 'switch', 'my-notes.md'))).toBe(true);
+      expect(existsSync(join(configDir, 'skills', 'switch', 'SKILL.md'))).toBe(false);
+      expect(existsSync(join(configDir, 'skills', 'configure'))).toBe(false);
+    });
+
+    it('leaves skills alone when no record of an install survives, and says so', async () => {
+      await install(configDir);
+      rmSync(join(configDir, 'switch-connector.json'));
+
+      const { hadRecord } = await uninstall(configDir);
+
+      expect(hadRecord).toBe(false);
+      expect(existsSync(join(configDir, 'skills', 'switch', 'SKILL.md'))).toBe(true);
+    });
+
+    it('re-installing over its own skills is fine', async () => {
+      await install(configDir);
+
+      await expect(install(configDir)).resolves.toBeDefined();
+    });
   });
 
   describe('reporting what is installed', () => {
@@ -167,26 +256,85 @@ describe('the OpenCode connector installer', () => {
   });
 
   /**
-   * npm installs a `bin` as a symlink, so the command a user runs is a link in
-   * `node_modules/.bin` rather than this file. The tests above import the
-   * functions and so never take that path — which is how a version of this
-   * shipped that did nothing at all and exited 0 when installed the normal way,
-   * while passing every test and working when run as a file.
+   * The command, rather than the functions the tests above import.
+   *
+   * npm installs a `bin` as a symlink, so what a user runs is a link in
+   * `node_modules/.bin` — a path no import-based test takes. That is how a
+   * version of this shipped that did nothing at all and exited 0 when installed
+   * the normal way, while passing every test and working when run as a file.
    */
-  it('does the work when run through the symlink npm installs, not just as a file', () => {
-    const installer = resolve(
-      __dirname,
-      '../../../../../../../connectors/opencode-plugin/install.js'
-    );
-    const bin = join(mkdtempSync(join(tmpdir(), 'opencode-bin-')), 'switch-connector-opencode');
-    symlinkSync(installer, bin);
+  describe('run as the command npm installs', () => {
+    let binDir: string;
+    let bin: string;
 
-    const output = execFileSync(process.execPath, [bin, 'install', '--config-dir', configDir], {
-      encoding: 'utf8',
+    beforeEach(() => {
+      binDir = mkdtempSync(join(tmpdir(), 'opencode-bin-'));
+      bin = join(binDir, 'switch-connector-opencode');
+      symlinkSync(
+        resolve(__dirname, '../../../../../../../connectors/opencode-plugin/install.js'),
+        bin
+      );
     });
 
-    expect(output).toContain('Installed the Switch connector');
-    expect(existsSync(join(configDir, 'skills', 'configure', 'SKILL.md'))).toBe(true);
+    afterEach(() => {
+      rmSync(binDir, { recursive: true, force: true });
+    });
+
+    function run(...args: string[]): { status: number; output: string } {
+      try {
+        return {
+          status: 0,
+          output: execFileSync(process.execPath, [bin, ...args, '--config-dir', configDir], {
+            encoding: 'utf8',
+            stdio: 'pipe',
+          }),
+        };
+      } catch (error) {
+        const failure = error as { status: number; stdout: string; stderr: string };
+        return { status: failure.status, output: `${failure.stdout}${failure.stderr}` };
+      }
+    }
+
+    it('installs', () => {
+      const { status, output } = run('install');
+
+      expect(status).toBe(0);
+      expect(output).toContain('Installed the Switch connector');
+      expect(existsSync(join(configDir, 'skills', 'configure', 'SKILL.md'))).toBe(true);
+    });
+
+    it('reports status, and fails when nothing is installed', () => {
+      expect(run('status').status).toBe(1);
+
+      run('install');
+
+      const installed = run('status');
+      expect(installed.status).toBe(0);
+      expect(installed.output).toMatch(/Switch connector \d+\.\d+\.\d+ installed/);
+    });
+
+    it('uninstalls', () => {
+      run('install');
+
+      const { status } = run('uninstall');
+
+      expect(status).toBe(0);
+      expect(config().mcp).toBeUndefined();
+    });
+
+    it('surfaces a refusal rather than exiting as though it worked', () => {
+      writeFileSync(join(configDir, 'opencode.json'), '[1, 2, 3]');
+
+      const { status, output } = run('install');
+
+      expect(status).toBe(1);
+      expect(output).toContain('not a JSON object');
+    });
+
+    it('rejects an unknown command and an unknown flag', () => {
+      expect(run('frobnicate').status).toBe(2);
+      expect(run('install', '--frobnicate').status).toBe(1);
+    });
   });
 
   it('creates the config directory when there is none', async () => {

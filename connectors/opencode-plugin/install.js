@@ -20,7 +20,7 @@
  */
 
 import { realpathSync } from 'node:fs';
-import { readFile, mkdir, writeFile, rm, readdir } from 'node:fs/promises';
+import { readFile, mkdir, writeFile, rename, rm, readdir, rmdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,9 +51,29 @@ async function readIfPresent(file) {
   }
 }
 
+/**
+ * Write via a temporary file in the same directory, then rename.
+ *
+ * `opencode.json` is read by every OpenCode session on the machine. Writing it
+ * in place leaves a window in which it is truncated or half-written, and a
+ * process killed inside that window breaks every session until someone repairs
+ * the file by hand. A rename within a directory is atomic, so a reader sees
+ * either the old file or the new one.
+ */
 async function writeFileEnsuringDir(file, content) {
   await mkdir(path.dirname(file), { recursive: true });
-  await writeFile(file, content, 'utf8');
+  const temporary = `${file}.tmp-${process.pid}`;
+  try {
+    await writeFile(temporary, content, 'utf8');
+    await rename(temporary, file);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function serialize(value) {
@@ -100,36 +120,106 @@ async function declaredSkills() {
   return skills;
 }
 
+/**
+ * The user's config, or an empty one — and never anything this cannot safely
+ * put an MCP server into.
+ *
+ * A config we cannot use is not ours to rewrite: replacing it would discard
+ * whatever the user has in there. Both shape checks matter as much as the
+ * parse. A JSON document whose root is an array parses cleanly, takes the
+ * assignments below without complaint, and then serialises back with them
+ * dropped — so without this the install would report success having changed
+ * nothing. A non-object `mcp` is worse: spreading it reshapes whatever was
+ * there into a numeric-keyed object.
+ */
 function parseConfig(raw, configFile) {
   if (!raw?.trim()) return {};
+
+  let parsed;
   try {
-    return JSON.parse(raw);
+    parsed = JSON.parse(raw);
   } catch {
-    // A config we cannot parse is not ours to rewrite: replacing it would
-    // discard whatever the user has in there. Fail loudly instead.
     throw new Error(`${configFile} is not valid JSON. Fix or move it, then install again.`);
   }
+
+  if (!isPlainObject(parsed)) {
+    throw new Error(
+      `${configFile} is not a JSON object — its root is ${Array.isArray(parsed) ? 'an array' : `a ${parsed === null ? 'null' : typeof parsed}`}. Fix or move it, then install again.`
+    );
+  }
+  if ('mcp' in parsed && !isPlainObject(parsed.mcp)) {
+    throw new Error(
+      `${configFile} has an "mcp" value that is not an object. Fix or move it, then install again.`
+    );
+  }
+  return parsed;
+}
+
+/**
+ * The record of a previous install: which skills it wrote, so an uninstall can
+ * remove those and nothing else.
+ *
+ * `switch` and `configure` are ordinary words, and the skill directory is
+ * shared with whatever the user writes themselves. Without a record of what
+ * this tool put there, uninstall is `rm -r` on a directory that may be mostly
+ * someone else's work.
+ */
+async function readMarker(configDir) {
+  const raw = await readIfPresent(path.join(configDir, MARKER_FILE));
+  if (raw === null) return null;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      `${path.join(configDir, MARKER_FILE)} is not valid JSON, so there is no record of what was installed. Remove it by hand, along with any Switch skills you recognise, and install again.`
+    );
+  }
+  if (!isPlainObject(parsed)) return null;
+  return {
+    version: typeof parsed.version === 'string' ? parsed.version : null,
+    skills: Array.isArray(parsed.skills) ? parsed.skills.filter((s) => typeof s === 'string') : [],
+  };
 }
 
 async function install(configDir) {
+  // Everything that can refuse does so before anything is written: a failure
+  // half way through leaves a session with tools and no instructions, or
+  // instructions and no tools.
   const configFile = path.join(configDir, 'opencode.json');
   const config = parseConfig(await readIfPresent(configFile), configFile);
+  const entry = await declaredServerEntry();
+  const skills = await declaredSkills();
+  const ours = new Set((await readMarker(configDir))?.skills ?? []);
+
+  for (const skill of skills) {
+    const target = path.join(configDir, 'skills', skill.name, 'SKILL.md');
+    if (!ours.has(skill.name) && (await readIfPresent(target)) !== null) {
+      throw new Error(
+        `${target} already exists and was not written by this connector. Move it aside, then install again.`
+      );
+    }
+  }
 
   // OpenCode rewrites its own config to add `$schema` when it is missing;
   // writing it ourselves keeps that from showing up as a spurious change.
   config.$schema ??= 'https://opencode.ai/config.json';
-  config.mcp = { ...config.mcp, [SERVER_NAME]: await declaredServerEntry() };
+  config.mcp = { ...config.mcp, [SERVER_NAME]: entry };
   await writeFileEnsuringDir(configFile, serialize(config));
 
   const written = [configFile];
-  for (const skill of await declaredSkills()) {
+  for (const skill of skills) {
     const target = path.join(configDir, 'skills', skill.name, 'SKILL.md');
     await writeFileEnsuringDir(target, skill.content);
     written.push(target);
   }
 
   const markerFile = path.join(configDir, MARKER_FILE);
-  await writeFileEnsuringDir(markerFile, serialize({ version: await packageVersion() }));
+  await writeFileEnsuringDir(
+    markerFile,
+    serialize({ version: await packageVersion(), skills: skills.map((s) => s.name) })
+  );
   written.push(markerFile);
 
   return written;
@@ -137,6 +227,8 @@ async function install(configDir) {
 
 async function uninstall(configDir) {
   const configFile = path.join(configDir, 'opencode.json');
+  const marker = await readMarker(configDir);
+
   const raw = await readIfPresent(configFile);
   if (raw !== null) {
     const config = parseConfig(raw, configFile);
@@ -145,14 +237,21 @@ async function uninstall(configDir) {
       const { [SERVER_NAME]: _removed, ...rest } = config.mcp;
       config.mcp = rest;
       if (Object.keys(rest).length === 0) delete config.mcp;
-      await writeFile(configFile, serialize(config), 'utf8');
+      await writeFileEnsuringDir(configFile, serialize(config));
     }
   }
 
-  for (const skill of await declaredSkills()) {
-    await rm(path.join(configDir, 'skills', skill.name), { recursive: true, force: true });
+  // Only the skills a previous install recorded, and only the file it wrote —
+  // the directory goes when it is empty, so anything the user keeps beside a
+  // skill survives. With no record, the skills are left alone and said so.
+  for (const name of marker?.skills ?? []) {
+    const directory = path.join(configDir, 'skills', name);
+    await rm(path.join(directory, 'SKILL.md'), { force: true });
+    await rmdir(directory).catch(() => {});
   }
   await rm(path.join(configDir, MARKER_FILE), { force: true });
+
+  return { removedSkills: marker?.skills ?? [], hadRecord: marker !== null };
 }
 
 /**
@@ -164,19 +263,14 @@ async function uninstall(configDir) {
  * Switch tools.
  */
 async function installedVersion(configDir) {
-  const marker = await readIfPresent(path.join(configDir, MARKER_FILE));
-  if (!marker) return null;
+  const marker = await readMarker(configDir);
+  if (marker === null) return null;
 
   const configFile = path.join(configDir, 'opencode.json');
   const config = parseConfig(await readIfPresent(configFile), configFile);
   if (!config.mcp || !(SERVER_NAME in config.mcp)) return null;
 
-  try {
-    const parsed = JSON.parse(marker);
-    return typeof parsed.version === 'string' ? parsed.version : null;
-  } catch {
-    return null;
-  }
+  return marker.version;
 }
 
 function parseArgs(argv) {
@@ -206,8 +300,13 @@ async function main(argv) {
       return 0;
     }
     case 'uninstall': {
-      await uninstall(configDir);
+      const { hadRecord } = await uninstall(configDir);
       console.log(`Removed the Switch connector from ${configDir}.`);
+      if (!hadRecord) {
+        console.log(
+          'No record of an install was found, so any skills in there were left alone. Remove them by hand if you want them gone.'
+        );
+      }
       return 0;
     }
     case 'status': {
