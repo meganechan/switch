@@ -24,8 +24,21 @@ import {
   type SwitchAgentCredentials,
 } from './switch-credentials';
 import { formatEventForInjection } from './switch-event-format';
-import { switchNotificationPoller } from './switch-notification-poller';
+import { type SpawnTurn, switchNotificationPoller } from './switch-notification-poller';
 import { switchRoomService } from './switch-room-service';
+
+/**
+ * Where in the conversation the message that caused this spawn sits, so the
+ * session can report working against it the moment it reaches the room.
+ *
+ * Only a message can start a turn — a command or a join has nobody waiting on
+ * an answer, so there is no turn to open and this is null for them.
+ */
+function spawnTurnOf(event: AgentBridgeEvent): SpawnTurn | null {
+  if (event.type !== 'message') return null;
+  const msg = event.payload as { thread_id?: string | null; message_id?: string | null };
+  return { threadId: msg.thread_id ?? null, anchorId: msg.message_id ?? null };
+}
 
 const SPAWN_MAX_ATTEMPTS = 3;
 const SPAWN_RETRY_DELAY_MS = 2000;
@@ -474,7 +487,8 @@ class AutoSessionWatcher {
       switchNotificationPoller.noteSpawnTrigger(
         watcher.creds.agentId,
         sequence,
-        triggerLine !== null
+        triggerLine !== null,
+        spawnTurnOf(event)
       );
     }
     // The two halves of the hand-off are logged at both ends, so a session that

@@ -134,6 +134,13 @@ export interface RoomConnectionLogger {
   error(message: string, meta?: Record<string, unknown>): void;
 }
 
+/** Where the message that caused a spawn sits, so the session can report
+ * against it rather than at the room root. */
+export interface SpawnTurn {
+  threadId: string | null;
+  anchorId: string | null;
+}
+
 export interface RoomConnectionDeps {
   creds: SwitchCredentials;
   /**
@@ -158,6 +165,18 @@ export interface RoomConnectionDeps {
    * session exists to handle.
    */
   startCursor?: number;
+  /**
+   * The message this session was started to answer, when it was started by one.
+   *
+   * A session normally opens its turn when an addressed message is injected
+   * into it. A spawned one never gets that injection — the message travels in
+   * its opening prompt, because it arrives before there is a terminal to type
+   * into — so without this its first turn is the one turn that reports
+   * nothing: no working state, and on Mattermost no indicator and no typing.
+   * Holding the message's own position here lets the turn be opened when the
+   * session reaches the room instead, against the message that is waiting.
+   */
+  spawnTurn?: SpawnTurn | null;
   /** The Switch Console session id of the session this connection drives, so
    * the deeplink can resolve to the exact session on any client (the shared
    * session id is the same across clients; the local room mapping is not). */
@@ -270,6 +289,9 @@ export class RoomConnection {
    * socket. */
   private readonly connectionId: string;
   private readonly startCursor: number | undefined;
+  /** Cleared once opened, so the turn is opened once and not on every
+   * reconnect or room change for the life of the session. */
+  private spawnTurn: SpawnTurn | null;
   /** Notified whenever the server tells us which room this session is in. */
   private readonly onRoomChanged: ((roomId: string | null) => void) | null;
   /**
@@ -306,6 +328,7 @@ export class RoomConnection {
     this.mediaDir = deps.mediaDir;
     this.connectionId = deps.connectionId;
     this.startCursor = deps.startCursor;
+    this.spawnTurn = deps.spawnTurn ?? null;
     this.onRoomChanged = deps.onRoomChanged ?? null;
     this.log = deps.log;
   }
@@ -341,7 +364,38 @@ export class RoomConnection {
     // session's `(Open in Switch Console)` link is available in the new room's
     // !status immediately on connect/switch — not only once the agent next
     // works. idle surfaces nothing on the bridge, so this posts no message.
-    if (this.roomId) void this.postRuntimeState('idle', null).catch(() => {});
+    if (this.roomId && !this.openSpawnTurn()) {
+      void this.postRuntimeState('idle', null).catch(() => {});
+    }
+  }
+
+  /**
+   * Report the turn a spawned session was started for, once it is in the room.
+   *
+   * Answers "is anything happening?" for the one turn that could not answer it:
+   * the message is already inside the session's opening prompt, so it is being
+   * worked on, but nothing had said so. Reported against the message itself, so
+   * the indicator and Mattermost's typing land where the asking happened rather
+   * than at the room root.
+   *
+   * Returns whether it opened one, so the caller can fall back to reporting
+   * idle — a session that owes nobody an answer should not look busy.
+   */
+  private openSpawnTurn(): boolean {
+    const turn = this.spawnTurn;
+    if (turn === null) return false;
+    this.spawnTurn = null;
+    this.roomTurnActive = true;
+    this.currentThreadId = turn.threadId;
+    this.currentAnchorId = turn.anchorId;
+    this.log.info('RoomConnection: reporting the turn this session was started for', {
+      event: 'switch_spawn_turn_opened',
+      roomId: this.roomId,
+      threadId: turn.threadId,
+      anchorId: turn.anchorId,
+    });
+    this.setRuntimeState('working');
+    return true;
   }
 
   /**
@@ -404,7 +458,9 @@ export class RoomConnection {
       roomId: next,
     });
     this.onRoomChanged?.(next);
-    if (next) void this.postRuntimeState('idle', null).catch(() => {});
+    if (next && !this.openSpawnTurn()) {
+      void this.postRuntimeState('idle', null).catch(() => {});
+    }
   }
 
   /** Stop the loops and clear any lingering runtime-state surface. */

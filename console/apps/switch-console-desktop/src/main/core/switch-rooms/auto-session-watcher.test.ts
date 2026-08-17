@@ -62,10 +62,14 @@ function fakeWatcher() {
 }
 
 /** An addressed room message, as the watch stream delivers it. */
-function messageEvent(
-  roomId: string,
-  overrides: { body?: string; sequence?: number; messageId?: string } = {}
-): unknown {
+type Overrides = {
+  body?: string;
+  sequence?: number;
+  messageId?: string;
+  threadId?: string;
+};
+
+function messageEvent(roomId: string, overrides: Overrides = {}): unknown {
   return {
     type: 'message',
     room_id: roomId,
@@ -75,7 +79,7 @@ function messageEvent(
       body: overrides.body ?? 'hi there',
       sender_name: 'user',
       message_id: overrides.messageId ?? 'msg-1',
-      thread_id: null,
+      thread_id: overrides.threadId ?? null,
     },
   };
 }
@@ -85,7 +89,7 @@ function messageEvent(
 function handle(
   watcher: ReturnType<typeof fakeWatcher>,
   roomId: string,
-  overrides: { body?: string; sequence?: number; messageId?: string } = {}
+  overrides: Overrides = {}
 ): void {
   (
     autoSessionWatcher as unknown as { handleNotification: (w: unknown, e: unknown) => void }
@@ -278,9 +282,7 @@ describe('the message that started the session', () => {
     fetchRoomDetail.mockResolvedValue({ id: 'room-x', name: 'Charlie' });
   });
 
-  async function openingPrompt(
-    overrides: { body?: string; sequence?: number; messageId?: string } = {}
-  ): Promise<string> {
+  async function openingPrompt(overrides: Overrides = {}): Promise<string> {
     const watcher = fakeWatcher();
     handle(watcher, 'room-x', overrides);
     await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
@@ -331,6 +333,26 @@ describe('the message that started the session', () => {
 
     // Start *at* the trigger, so the stream resumes after it rather than
     // handing it over a second time.
-    expect(noteSpawnTrigger).toHaveBeenCalledWith('switch-agent-1', 7, true);
+    expect(noteSpawnTrigger).toHaveBeenCalledWith('switch-agent-1', 7, true, expect.anything());
+  });
+
+  it('hands over where the message sits, so the turn can be reported against it', async () => {
+    // Without this the session's first turn is the one turn nothing reports:
+    // the message is in the opening prompt, so no injection opens the turn.
+    await openingPrompt({ sequence: 7, messageId: 'msg-42', threadId: 'thread-1' });
+
+    expect(noteSpawnTrigger).toHaveBeenCalledWith('switch-agent-1', 7, true, {
+      threadId: 'thread-1',
+      anchorId: 'msg-42',
+    });
+  });
+
+  it('reports a root-level message as having no thread', async () => {
+    await openingPrompt({ sequence: 7, messageId: 'msg-42' });
+
+    expect(noteSpawnTrigger).toHaveBeenCalledWith('switch-agent-1', 7, true, {
+      threadId: null,
+      anchorId: 'msg-42',
+    });
   });
 });
