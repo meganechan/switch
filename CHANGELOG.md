@@ -28,9 +28,9 @@ leaves its contracts alone.
   `sidecar-version.ts` and deployed by Switch Console, not published separately.
 - **switch-connector** / **switch-connector-codex** / **switch-connector-opencode**
   — the three connectors (`connectors/`), versioned in their respective
-  manifests. The first two are installed from the plugin marketplace; the
-  OpenCode one is written by Switch Console, which has no marketplace to install
-  from, so its version identifies the source rather than an install.
+  manifests. The first two are installed from the plugin marketplace; OpenCode
+  has no marketplace, so that one is published to a registry and carries an
+  install command of its own.
 
 Three things are **not** separately versioned, and ship under the switch-core
 release so a single tag pins the whole stack: the **operator dashboard**
