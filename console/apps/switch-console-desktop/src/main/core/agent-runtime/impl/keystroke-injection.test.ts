@@ -258,8 +258,36 @@ describe('the gate on typing into a starting session', () => {
     expect(onOpenForInjection).toHaveBeenCalledTimes(1);
   });
 
-  it('opens straight away when there is no opening prompt to wait for', () => {
-    const { pty } = makePty();
+  it('still waits for the TUI when the prompt went on the command line', () => {
+    // The bug the first attempt at this missed: Claude and Codex take their
+    // opening prompt as an argv flag, so there is nothing to type and the gate
+    // used to open the instant the pty registered — straight into a booting
+    // TUI, which is exactly the case that matters, since those are the
+    // providers auto-started sessions actually run.
+    const { pty, write, emitData } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('claude'),
+      initialPrompt: 'connect to switch room r-1',
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    expect(onOpenForInjection).not.toHaveBeenCalled();
+
+    emitData('booting...');
+    vi.advanceTimersByTime(200);
+    expect(onOpenForInjection).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(800);
+
+    expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+    // Nothing typed — the prompt was already on the command line.
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('waits for the TUI when there is no opening prompt at all', () => {
+    const { pty, emitData } = makePty();
     scheduleInitialPromptInjection({
       pty,
       session: makeSession('hermes'),
@@ -268,11 +296,16 @@ describe('the gate on typing into a starting session', () => {
       onOpenForInjection,
     });
 
+    expect(onOpenForInjection).not.toHaveBeenCalled();
+
+    emitData('ready');
+    vi.advanceTimersByTime(800);
+
     expect(onOpenForInjection).toHaveBeenCalledTimes(1);
   });
 
-  it('opens straight away when resuming, which sends no prompt', () => {
-    const { pty } = makePty();
+  it('waits for the TUI when resuming, which sends no prompt', () => {
+    const { pty, write, emitData } = makePty();
     scheduleInitialPromptInjection({
       pty,
       session: makeSession('hermes'),
@@ -281,21 +314,44 @@ describe('the gate on typing into a starting session', () => {
       onOpenForInjection,
     });
 
+    emitData('ready');
+    vi.advanceTimersByTime(800);
+
     expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+    expect(write).not.toHaveBeenCalled();
   });
 
-  it('opens straight away for a provider that takes no keystrokes', () => {
-    // Nothing is going to be typed here, so holding the gate shut would strand
-    // every room message for the life of the session.
+  it('opens on the long-stop when the TUI never says anything', () => {
+    // A pane that produces no output at all must not strand every room message
+    // for the life of the session.
     const { pty } = makePty();
     scheduleInitialPromptInjection({
       pty,
       session: makeSession('claude'),
-      initialPrompt: 'Fix the bug',
+      initialPrompt: 'connect to switch room r-1',
       isResuming: false,
       onOpenForInjection,
     });
 
+    vi.advanceTimersByTime(15_000);
+
     expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+  });
+
+  it('never opens a pane whose process has gone', () => {
+    const { pty, emitData, emitExit } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('claude'),
+      initialPrompt: 'connect to switch room r-1',
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    emitData('starting');
+    emitExit();
+    vi.advanceTimersByTime(20_000);
+
+    expect(onOpenForInjection).not.toHaveBeenCalled();
   });
 });

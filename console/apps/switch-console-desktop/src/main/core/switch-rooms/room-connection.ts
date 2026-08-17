@@ -674,6 +674,17 @@ export class RoomConnection {
   private enqueue(injection: QueuedInjection): void {
     if (this.stopped) return;
     this.queue.push(injection);
+    // Together with `switch_message_injected` below, these two say whether a
+    // message that reached the session ever made it into the pane — the
+    // question every "the agent ignored me" report comes down to.
+    this.log.info('RoomConnection: room message queued for the session', {
+      event: 'switch_message_queued',
+      roomId: this.roomId,
+      sessionId: this.sessionId,
+      messageId: injection.messageId,
+      addressed: injection.addressed,
+      queued: this.queue.length,
+    });
     this.tryFlush();
   }
 
@@ -853,7 +864,9 @@ export class RoomConnection {
       // guaranteed to drive the queue afterwards.
       if (!this.noTargetTimer) {
         this.log.warn('RoomConnection: injection deferred — no live target for session', {
+          event: 'switch_message_deferred',
           roomId: this.roomId,
+          sessionId: this.sessionId,
           queued: this.queue.length,
         });
         this.noTargetTimer = setTimeout(() => {
@@ -872,8 +885,11 @@ export class RoomConnection {
       // delivered. Writing both in one chunk makes TUIs (Claude) treat the
       // trailing Enter as part of the pasted input, leaving the text unsent.
       target.write(payload);
-      this.log.debug('RoomConnection: injected message into target', {
+      this.log.info('RoomConnection: injected message into target', {
+        event: 'switch_message_injected',
         roomId: this.roomId,
+        sessionId: this.sessionId,
+        messageId: item.messageId,
         addressed: item.addressed,
         queued: this.queue.length,
       });
