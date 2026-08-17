@@ -183,10 +183,45 @@ async function readMarker(configDir) {
   };
 }
 
+/**
+ * OpenCode loads `opencode.json` and `opencode.jsonc` and merges both, and on a
+ * key they both define the `.jsonc` wins — measured, not assumed. So a user who
+ * already has a `switch` server in their `.jsonc` would get an install that
+ * writes to `.json`, reports success, and is then ignored by every session.
+ *
+ * Writing to the `.jsonc` instead is not the answer: it exists to hold comments,
+ * and rewriting it through a JSON parser would strip them. Refuse and say where
+ * the conflict is.
+ */
+async function assertNotShadowed(configDir) {
+  const jsoncFile = path.join(configDir, 'opencode.jsonc');
+  const raw = await readIfPresent(jsoncFile);
+  if (raw === null || !raw.trim()) return;
+
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Comments and trailing commas are the point of the format, so a file this
+    // cannot read is expected rather than broken. Say it is there and move on.
+    console.warn(
+      `Note: ${jsoncFile} also exists and takes precedence over opencode.json. If the Switch tools do not appear, check it does not define its own "${SERVER_NAME}" MCP server.`
+    );
+    return;
+  }
+
+  if (isPlainObject(parsed) && isPlainObject(parsed.mcp) && SERVER_NAME in parsed.mcp) {
+    throw new Error(
+      `${jsoncFile} already defines an MCP server called "${SERVER_NAME}", and it takes precedence over opencode.json — installing there would have no effect. Remove that entry, then install again.`
+    );
+  }
+}
+
 async function install(configDir) {
   // Everything that can refuse does so before anything is written: a failure
   // half way through leaves a session with tools and no instructions, or
   // instructions and no tools.
+  await assertNotShadowed(configDir);
   const configFile = path.join(configDir, 'opencode.json');
   const config = parseConfig(await readIfPresent(configFile), configFile);
   const entry = await declaredServerEntry();

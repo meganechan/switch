@@ -256,6 +256,35 @@ describe('the OpenCode connector installer', () => {
   });
 
   /**
+   * OpenCode reads `opencode.json` and `opencode.jsonc` and merges both, and on
+   * a key they both define the `.jsonc` wins — measured against OpenCode 1.18.
+   * An install that writes the `.json` while a `.jsonc` defines the same server
+   * would report success and then be ignored by every session.
+   */
+  describe('when a .jsonc config is also present', () => {
+    it('refuses when it defines the same server, rather than being shadowed', async () => {
+      writeFileSync(
+        join(configDir, 'opencode.jsonc'),
+        JSON.stringify({ mcp: { switch: { type: 'local', command: ['theirs'] } } })
+      );
+
+      await expect(install(configDir)).rejects.toThrow(/takes precedence/);
+      expect(existsSync(join(configDir, 'opencode.json'))).toBe(false);
+    });
+
+    it('installs normally when it defines something else', async () => {
+      writeFileSync(
+        join(configDir, 'opencode.jsonc'),
+        JSON.stringify({ mcp: { other: { type: 'local', command: ['theirs'] } } })
+      );
+
+      await install(configDir);
+
+      expect(config().mcp.switch).toBeDefined();
+    });
+  });
+
+  /**
    * The command, rather than the functions the tests above import.
    *
    * npm installs a `bin` as a symlink, so what a user runs is a link in
