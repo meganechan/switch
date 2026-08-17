@@ -122,15 +122,22 @@ route:
 curl -s --max-time 10 "$ENDPOINT/health"
 ```
 
+**Judge it on the body, never on the status code.** The gateway serves a
+single-page app, so on a real deployment it answers `/health` with **200 and an
+HTML page** — a status-code check reads that as success and sends you on to
+fail at registration, which is the exact waste this probe exists to prevent.
+
 - **`{"status":"ok"}`** — correct base URL. Continue.
-- **`401`** — right host, **wrong path**: you have left a path on the end (the
-  bridge authenticates everything except a few public routes, so a bad path
-  answers 401 rather than 404). Strip back to scheme+host and probe again.
-- **`405`, `404`, or HTML** — wrong host. This is the gateway or a static
+- **HTML, whatever the status** — wrong host. This is the gateway or a static
   server, not the bridge. Ask for the bridge URL; do not go hunting for another
   path on this one. `/gateway/agents/register-known` is **not** it — the
   gateway's registration route is session-authenticated and will not accept a
   registration token.
+- **`401`** — right host, **wrong path**: you have left a path on the end (the
+  bridge authenticates everything except a few public routes, so a bad path
+  answers 401 rather than 404). Strip back to scheme+host and probe again.
+- **`405` or `404` with a JSON body** — the bridge, but not a route that proves
+  anything. Probe `/health` itself rather than whatever path you tried.
 - **Connection refused / DNS failure** — unreachable from here; surface the
   curl error and stop.
 
@@ -235,33 +242,42 @@ advertises a capability that does not exist.
 
 ## Step 6 — Register
 
-`POST /agents/register-known` with the registration token in the header. It
-looks up the `codex` known-agent spec and returns the agent's `id` and
-`api_key`. Do not inline the token — command lines reach shell history and
-process listings:
+> ⚠️ **Do not register here. There is no command in this step, deliberately.**
+> Registration and writing the credentials file have to happen in one shell
+> command, for the reason below, and that command is in Step 7. Read this step,
+> then run Step 7's script — it does the registration.
 
-```bash
-curl -sf -X POST "$ENDPOINT/agents/register-known" \
-  -H "Authorization: Bearer $SWITCH_REGISTRATION_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -nc --arg name "$NAME" --arg desc "$DESC" \
-       --arg repo_dir "$REPO_DIR" \
-       '{agent_type:"codex", name:$name, description:$desc,
-         options:(if $repo_dir == "" then {} else {repo_dir:$repo_dir} end),
-         overwrite:false}')"
+The request Step 7 makes is `POST /agents/register-known`, with the
+registration token in an `Authorization: Bearer` header and this body:
+
+```json
+{
+  "agent_type": "codex",
+  "name": "<from step 4>",
+  "description": "<from step 4>",
+  "options": { "repo_dir": "<from step 5>" },
+  "overwrite": false
+}
 ```
+
+It looks up the `codex` known-agent spec and returns the agent's `id` and
+`api_key`. `repo_dir` may be an empty string — the server normalises a blank to
+"unset". Never inline the token: command lines reach shell history and process
+listings.
 
 **Pitfall — env-var expansion order.** Do NOT prefix the command with
 `SWITCH_REGISTRATION_TOKEN=... curl ...` while also referencing
 `$SWITCH_REGISTRATION_TOKEN` in it. The shell expands the variable against the
 *parent* environment *before* the inline assignment applies, so you send
-`Authorization: Bearer ` (empty), curl drops the header, and the bridge answers
-`401 Missing or invalid Authorization header` — which looks like a bad token but
-isn't. `export` it first, or assign to a shell variable on a preceding line. If
-you see that exact 401, suspect this before blaming the token.
+`Authorization: Bearer ` with nothing after it. The header is still well-formed,
+so the bridge gets past its "missing header" check, finds no key matching the
+empty token, and answers **`401 Invalid credentials`** — the same response a
+genuinely wrong or expired token gets. There is nothing in the reply to tell the
+two apart, so on any 401 rule this out first: `export` the token, or assign it
+to a shell variable on a preceding line, and try again before concluding the
+token is bad.
 
-The response is `{"id":"...","api_key":"..."}`. If `curl` exits non-zero, re-run
-with `-i` instead of `-sf` and show the user the status and body, then stop.
+The response is `{"id":"...","api_key":"..."}`.
 
 > ⚠️ **Register and write the credentials file in ONE shell command.** This is
 > the single most important instruction in this skill, and getting it wrong is
@@ -354,7 +370,12 @@ if [ -f "$creds" ]; then
 fi
 
 resp=$(mktemp)
-http_status=$(curl -s -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/register-known" \
+trap 'rm -f "$resp"' EXIT
+
+# -S so curl reports why it failed, and --max-time so it fails at all: with -s
+# alone a refused connection or a hung host kills the script under `set -e`
+# with no output whatsoever, and the status check below never runs.
+http_status=$(curl -sS --max-time 30 -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/register-known" \
   -H "Authorization: Bearer $SWITCH_REGISTRATION_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -nc --arg name "$NAME" --arg desc "$DESC" \
@@ -364,7 +385,7 @@ http_status=$(curl -s -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/reg
            overwrite:false}')")
 
 if [ "$http_status" != "200" ]; then
-  printf 'registration failed (%s): ' "$http_status"; cat "$resp"; echo; rm -f "$resp"; exit 1
+  printf 'registration failed (%s): ' "$http_status"; cat "$resp"; echo; exit 1
 fi
 
 jq --arg ep "$ENDPOINT" \
@@ -372,7 +393,6 @@ jq --arg ep "$ENDPOINT" \
    "$resp" > ".switch/agents/$NAME.json"
 chmod 600 ".switch/agents/$NAME.json"
 jq -r '"registered " + .id' "$resp"
-rm -f "$resp"
 ```
 
 The token goes from the response straight into the file without ever being
