@@ -177,10 +177,37 @@ async function readMarker(configDir) {
     );
   }
   if (!isPlainObject(parsed)) return null;
+  const listed = Array.isArray(parsed.skills)
+    ? parsed.skills.filter((s) => typeof s === 'string')
+    : null;
   return {
     version: typeof parsed.version === 'string' ? parsed.version : null,
-    skills: Array.isArray(parsed.skills) ? parsed.skills.filter((s) => typeof s === 'string') : [],
+    skills: listed ?? [],
+    // Switch Console writes this file too, and so did earlier versions of this
+    // command — neither records a skill list. A marker with no list still means
+    // a Switch install is here, so what it left behind is ours to replace.
+    listsSkills: listed !== null,
   };
+}
+
+/**
+ * Whether a skill file at this path is one a Switch install put there.
+ *
+ * Three ways to be sure, because three things write these files. The marker's
+ * list is the direct answer where there is one. A marker without a list is an
+ * install by Switch Console or by an earlier version of this command, which
+ * wrote exactly the skills their package shipped. And a file byte-identical to
+ * the one about to replace it is ours whoever wrote it — overwriting it changes
+ * nothing and deleting it loses nothing.
+ *
+ * Anything else is someone's own work, and is refused rather than replaced.
+ */
+async function isOursToReplace(target, name, content, marker) {
+  const existing = await readIfPresent(target);
+  if (existing === null) return true;
+  if (existing === content) return true;
+  if (marker === null) return false;
+  return marker.listsSkills ? marker.skills.includes(name) : true;
 }
 
 /**
@@ -226,11 +253,11 @@ async function install(configDir) {
   const config = parseConfig(await readIfPresent(configFile), configFile);
   const entry = await declaredServerEntry();
   const skills = await declaredSkills();
-  const ours = new Set((await readMarker(configDir))?.skills ?? []);
+  const marker = await readMarker(configDir);
 
   for (const skill of skills) {
     const target = path.join(configDir, 'skills', skill.name, 'SKILL.md');
-    if (!ours.has(skill.name) && (await readIfPresent(target)) !== null) {
+    if (!(await isOursToReplace(target, skill.name, skill.content, marker))) {
       throw new Error(
         `${target} already exists and was not written by this connector. Move it aside, then install again.`
       );
@@ -276,17 +303,27 @@ async function uninstall(configDir) {
     }
   }
 
-  // Only the skills a previous install recorded, and only the file it wrote —
-  // the directory goes when it is empty, so anything the user keeps beside a
-  // skill survives. With no record, the skills are left alone and said so.
-  for (const name of marker?.skills ?? []) {
-    const directory = path.join(configDir, 'skills', name);
-    await rm(path.join(directory, 'SKILL.md'), { force: true });
-    await rmdir(directory).catch(() => {});
+  // Only skills a Switch install put there, and only the file it wrote — the
+  // directory goes when it is empty, so anything the user keeps beside a skill
+  // survives. Anything left is named rather than silently abandoned.
+  const removed = [];
+  const left = [];
+  for (const skill of await declaredSkills()) {
+    const directory = path.join(configDir, 'skills', skill.name);
+    const target = path.join(directory, 'SKILL.md');
+    if ((await readIfPresent(target)) === null) continue;
+
+    if (await isOursToReplace(target, skill.name, skill.content, marker)) {
+      await rm(target, { force: true });
+      await rmdir(directory).catch(() => {});
+      removed.push(skill.name);
+    } else {
+      left.push(target);
+    }
   }
   await rm(path.join(configDir, MARKER_FILE), { force: true });
 
-  return { removedSkills: marker?.skills ?? [], hadRecord: marker !== null };
+  return { removedSkills: removed, left };
 }
 
 /**
@@ -335,11 +372,11 @@ async function main(argv) {
       return 0;
     }
     case 'uninstall': {
-      const { hadRecord } = await uninstall(configDir);
+      const { left } = await uninstall(configDir);
       console.log(`Removed the Switch connector from ${configDir}.`);
-      if (!hadRecord) {
+      if (left.length > 0) {
         console.log(
-          'No record of an install was found, so any skills in there were left alone. Remove them by hand if you want them gone.'
+          `Left alone, because this connector did not write them:\n${left.map((f) => `  ${f}`).join('\n')}`
         );
       }
       return 0;

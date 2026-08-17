@@ -207,20 +207,67 @@ describe('the OpenCode connector installer', () => {
       expect(existsSync(join(configDir, 'skills', 'configure'))).toBe(false);
     });
 
-    it('leaves skills alone when no record of an install survives, and says so', async () => {
+    /**
+     * A skill sharing a name with one this package ships, that no install ever
+     * wrote. Uninstall must not take it, and must not pretend it did.
+     */
+    it('names what it left behind rather than abandoning it silently', async () => {
       await install(configDir);
-      rmSync(join(configDir, 'switch-connector.json'));
+      writeFileSync(
+        join(configDir, 'switch-connector.json'),
+        JSON.stringify({ version: '0.1.2', skills: ['switch'] })
+      );
+      writeFileSync(join(configDir, 'skills', 'configure', 'SKILL.md'), '# my own notes\n');
 
-      const { hadRecord } = await uninstall(configDir);
+      const { removedSkills, left } = await uninstall(configDir);
 
-      expect(hadRecord).toBe(false);
-      expect(existsSync(join(configDir, 'skills', 'switch', 'SKILL.md'))).toBe(true);
+      expect(removedSkills).toEqual(['switch']);
+      expect(left).toEqual([join(configDir, 'skills', 'configure', 'SKILL.md')]);
+      expect(readFileSync(join(configDir, 'skills', 'configure', 'SKILL.md'), 'utf8')).toBe(
+        '# my own notes\n'
+      );
     });
 
     it('re-installing over its own skills is fine', async () => {
       await install(configDir);
 
       await expect(install(configDir)).resolves.toBeDefined();
+    });
+  });
+
+  /**
+   * Switch Console writes this connector itself, and its record names no
+   * skills — so every machine that already has the connector looks, to a naive
+   * ownership check, like one where a stranger wrote the skill. That is the
+   * normal case, not an edge one, and refusing there makes the command
+   * unusable for almost everybody.
+   */
+  describe('over an install Switch Console already wrote', () => {
+    function asSwitchConsoleLeftIt({ skillContent }: { skillContent: string }): void {
+      mkdirSync(join(configDir, 'skills', 'switch'), { recursive: true });
+      writeFileSync(join(configDir, 'skills', 'switch', 'SKILL.md'), skillContent);
+      writeFileSync(
+        join(configDir, 'switch-connector.json'),
+        JSON.stringify({ version: '0.1.2', runtime: '@sandboxaq/switch-agent-runtime@0.3.1' })
+      );
+      writeConfig({ mcp: { switch: { type: 'local', command: ['npx'] } } });
+    }
+
+    it('installs over it', async () => {
+      asSwitchConsoleLeftIt({ skillContent: 'whatever it shipped\n' });
+
+      await expect(install(configDir)).resolves.toBeDefined();
+      expect(existsSync(join(configDir, 'skills', 'configure', 'SKILL.md'))).toBe(true);
+    });
+
+    it('uninstalls it rather than reporting success and leaving it', async () => {
+      asSwitchConsoleLeftIt({ skillContent: 'whatever it shipped\n' });
+
+      const { removedSkills, left } = await uninstall(configDir);
+
+      expect(removedSkills).toContain('switch');
+      expect(left).toEqual([]);
+      expect(existsSync(join(configDir, 'skills', 'switch'))).toBe(false);
     });
   });
 

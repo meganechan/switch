@@ -12,13 +12,15 @@ export function install(configDir: string): Promise<string[]>;
 /**
  * Reverse an install, leaving the user's own config and MCP servers intact.
  *
- * Removes only the skills the recorded install wrote, and only the file it
- * wrote in each; with no record it leaves them alone and says so through
- * `hadRecord`.
+ * Removes only skills a Switch install put there — recorded, or written by
+ * Switch Console, or byte-identical to what this package ships — and only the
+ * `SKILL.md` in each, so anything the user keeps beside one survives. Skill
+ * files it will not claim come back in `left` rather than being abandoned
+ * without a word.
  */
 export function uninstall(configDir: string): Promise<{
   removedSkills: string[];
-  hadRecord: boolean;
+  left: string[];
 }>;
 
 /**
