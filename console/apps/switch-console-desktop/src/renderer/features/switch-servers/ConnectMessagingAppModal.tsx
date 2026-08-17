@@ -276,7 +276,7 @@ export const ConnectMessagingAppModal = observer(function ConnectMessagingAppMod
                   <span className="text-sm font-medium">Allow creating channels from Switch</span>
                   <span className="text-xs text-foreground-muted">
                     {channelCreationSupported
-                      ? 'Lets a new room create its channel here directly. Turn off to only ever adopt channels made in the app.'
+                      ? `Allows Switch users and agents to create channels in ${bridgePlatformLabel(selectedType.key)} from Switch. Turn it off to only ever use channels made in the app.`
                       : `${bridgePlatformLabel(selectedType.key)} has no way to create channels from Switch, so this connection can only be used with channels made in the app.`}
                   </span>
                 </span>

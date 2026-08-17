@@ -33,6 +33,13 @@ vi.mock('./switch-notification-poller', () => ({
 vi.mock('@main/core/agents/getAgentById', () => ({
   getAgentById: (...args: unknown[]) => getAgentById(...args),
 }));
+const fetchRoomDetail = vi.fn();
+vi.mock('@main/core/switch-servers/gateway-client', () => ({
+  fetchRoomDetail: (...args: unknown[]) => fetchRoomDetail(...args),
+}));
+vi.mock('@main/core/switch-servers/servers-store', () => ({
+  getServer: vi.fn(async () => ({ id: 'server-1' })),
+}));
 vi.mock('@main/db/client', () => ({ db: {} }));
 vi.mock('./auto-session-store', () => ({
   listAutoSessionAgentIds: vi.fn(async () => []),
@@ -264,9 +271,11 @@ describe('the message that started the session', () => {
     getConnections.mockReset();
     getConnections.mockReturnValue([]);
     getAgentById.mockReset();
-    getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false });
+    getAgentById.mockResolvedValue({ id: 'local-1', autoApprove: false, serverId: 'server-1' });
     createSession.mockResolvedValue({ success: true, data: { session: { id: 'new' } } });
     noteSpawnTrigger.mockReset();
+    fetchRoomDetail.mockReset();
+    fetchRoomDetail.mockResolvedValue({ id: 'room-x', name: 'Charlie' });
   });
 
   async function openingPrompt(
@@ -277,6 +286,31 @@ describe('the message that started the session', () => {
     await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
     return (createSession.mock.calls[0][0] as { initialPrompt: string }).initialPrompt;
   }
+
+  it('titles the session after the room, not its id', async () => {
+    // "Switch room 5ee6fedc-b701-4372-beb7-baa36464c3d0" names nothing anyone
+    // recognises, and it is how the session is listed from the moment it
+    // appears.
+    const watcher = fakeWatcher();
+    handle(watcher, 'room-x');
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+
+    expect((createSession.mock.calls[0][0] as { title: string }).title).toBe(
+      'Session for room Charlie'
+    );
+  });
+
+  it('falls back to the id when the room will not say its name', async () => {
+    // A name lookup that fails is not a reason to abandon the spawn.
+    fetchRoomDetail.mockRejectedValueOnce(new Error('gateway down'));
+    const watcher = fakeWatcher();
+    handle(watcher, 'room-x');
+    await vi.waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+
+    expect((createSession.mock.calls[0][0] as { title: string }).title).toBe(
+      'Session for room room-x'
+    );
+  });
 
   it('rides along with the instruction to join the room', async () => {
     const prompt = await openingPrompt({ body: 'what is the build status?' });

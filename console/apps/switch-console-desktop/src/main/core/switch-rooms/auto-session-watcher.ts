@@ -9,6 +9,8 @@ import {
 } from '@main/core/agents/switch-settings-paths';
 import { getLocationById } from '@main/core/locations/store';
 import { sessionService } from '@main/core/sessions/session-service';
+import { fetchRoomDetail } from '@main/core/switch-servers/gateway-client';
+import { getServer } from '@main/core/switch-servers/servers-store';
 import { log } from '@main/lib/logger';
 import {
   listAutoSessionAgentIds,
@@ -74,6 +76,33 @@ async function getAgentLocalDir(localAgentId: string): Promise<string | null> {
   const location = await getLocationById(agent.locationId);
   if (!location || location.sshHost !== null) return null;
   return location.dir;
+}
+
+/**
+ * The room's name, for the title of the session being started in it.
+ *
+ * The spawn is driven by an event that carries only the room's id, so the name
+ * has to be asked for. It is worth one call: the id names nothing a person
+ * recognises, and this title is how the session is listed from the moment it
+ * appears. A failure here is not a reason to abandon the spawn — the caller
+ * falls back to the id and says so in the log.
+ */
+async function roomNameFor(localAgentId: string, roomId: string): Promise<string | null> {
+  try {
+    const agent = await getAgentById(localAgentId);
+    if (!agent?.serverId) return null;
+    const server = await getServer(agent.serverId);
+    if (!server) return null;
+    const detail = await fetchRoomDetail(server, roomId);
+    return detail.name || null;
+  } catch (error) {
+    log.warn('AutoSessionWatcher: could not read the room name; titling by id', {
+      localAgentId,
+      roomId,
+      error: String(error),
+    });
+    return null;
+  }
 }
 
 /** Post a message to a room on the agent's behalf (used for the spawn-failure
@@ -490,6 +519,8 @@ class AutoSessionWatcher {
     // the per-agent setting (location settings) is the source of truth.
     const agent = await getAgentById(watcher.localAgentId);
     const autoApprove = agent?.autoApprove ?? false;
+    const roomName = await roomNameFor(watcher.localAgentId, roomId);
+    const title = `Session for room ${roomName ?? roomId}`;
     let lastError: string | null = null;
     for (let attempt = 1; attempt <= SPAWN_MAX_ATTEMPTS; attempt += 1) {
       if (watcher.abort.signal.aborted) return;
@@ -505,7 +536,7 @@ class AutoSessionWatcher {
           id: sessionId,
           agentId: watcher.localAgentId,
           agentName: watcher.agentName,
-          title: `Switch room ${roomId}`,
+          title,
           // Bootstrap: join the room, then answer the message that started this
           // session. Both in the opening prompt because the session has no
           // terminal to be typed into for the first seconds of its life —
