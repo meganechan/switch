@@ -5,7 +5,6 @@ import { agentsStore } from '@renderer/features/locations/stores/agents-store';
 import {
   asMounted,
   getLocationStore,
-  locationDisplayName,
   locationViewKind,
 } from '@renderer/features/locations/stores/location-selectors';
 import { ServerStatusPill } from '@renderer/features/switch-servers/server-presentation';
@@ -32,17 +31,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@renderer/lib/ui/toolti
 import type { Agent } from '@shared/core/agents/agents';
 
 /**
- * The agent this page is about. Falls back to the location's own name while the
- * agent list is still loading, or when the route carries no agent name.
+ * The agent this page is about. Shows a neutral placeholder while the agent
+ * list is still loading, or where the route names no agent and the location
+ * holds more than one to choose between.
  */
-const AgentCrumb = observer(function AgentCrumb({
-  locationId,
-  agent,
-}: {
-  locationId: string;
-  agent: Agent | null;
-}) {
-  const label = agent?.name ?? locationDisplayName(getLocationStore(locationId)) ?? 'Agent';
+const AgentCrumb = observer(function AgentCrumb({ agent }: { agent: Agent | null }) {
+  const label = agent?.name ?? 'Agent';
   const iconUrl = useAgentIconUrl(agent?.serverId ?? null, agent?.switchAgentId ?? null);
   return (
     <TitlebarBreadcrumb
@@ -108,7 +102,7 @@ const AgentActionsMenu = observer(function AgentActionsMenu({
   const confirmDeleteAgent = useConfirmDeleteAgent();
   const { toastPromise } = useToast();
 
-  const label = agent?.name ?? locationDisplayName(getLocationStore(locationId)) ?? 'this agent';
+  const label = agent?.name ?? 'this agent';
   const gatewayUrl =
     agent?.serverId && agent.switchAgentId
       ? switchRoomsStore.gatewayAgentUrl(agent.serverId, agent.switchAgentId)
@@ -188,7 +182,7 @@ export const LocationTitlebar = observer(function LocationTitlebar() {
 
   return (
     <Titlebar
-      leftSlot={<AgentCrumb locationId={locationId} agent={agent} />}
+      leftSlot={<AgentCrumb agent={agent} />}
       rightSlot={
         <div className="mr-1 flex items-center gap-1.5">
           {mounted &&
