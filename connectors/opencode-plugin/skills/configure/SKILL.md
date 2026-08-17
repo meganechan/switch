@@ -258,34 +258,42 @@ advertises a capability that does not exist.
 
 ## Step 6 — Register
 
-`POST /agents/register-known` with the registration token in the header. It
-looks up the `opencode` known-agent spec and returns the agent's `id` and
-`api_key`. Do not inline the token — command lines reach shell history and
-process listings:
+> ⚠️ **Do not register here. There is no command in this step, deliberately.**
+> Registration and writing the credentials file have to happen in one shell
+> command, for the reason below, and that command is in Step 7. Read this step,
+> then run Step 7's script — it does the registration.
 
-```bash
-curl -sf -X POST "$ENDPOINT/agents/register-known" \
-  -H "Authorization: Bearer $SWITCH_REGISTRATION_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d "$(jq -nc --arg name "$NAME" --arg desc "$DESC" \
-       --arg repo_dir "$REPO_DIR" --arg notify_user "$NOTIFY_USER" \
-       '{agent_type:"opencode", name:$name, description:$desc,
-         options:((if $repo_dir == "" then {} else {repo_dir:$repo_dir} end)
-                  + (if $notify_user == "" then {} else {notify_user:$notify_user} end)),
-         overwrite:false}')"
+The request Step 7 makes is `POST /agents/register-known`, with the
+registration token in an `Authorization: Bearer` header and this body:
+
+```json
+{
+  "agent_type": "opencode",
+  "name": "<from step 4>",
+  "description": "<from step 4>",
+  "options": { "repo_dir": "<from step 5>", "notify_user": "<from step 5>" },
+  "overwrite": false
+}
 ```
+
+It looks up the `opencode` known-agent spec and returns the agent's `id` and
+`api_key`. Either option may be an empty string — the server normalises a blank
+to "unset" — so the payload does not have to be built conditionally. Never
+inline the token: command lines reach shell history and process listings.
 
 **Pitfall — env-var expansion order.** Do NOT prefix the command with
 `SWITCH_REGISTRATION_TOKEN=... curl ...` while also referencing
 `$SWITCH_REGISTRATION_TOKEN` in it. The shell expands the variable against the
 *parent* environment *before* the inline assignment applies, so you send
-`Authorization: Bearer ` (empty), curl drops the header, and the bridge answers
-`401 Missing or invalid Authorization header` — which looks like a bad token but
-isn't. `export` it first, or assign to a shell variable on a preceding line. If
-you see that exact 401, suspect this before blaming the token.
+`Authorization: Bearer ` with nothing after it. The header is still well-formed,
+so the bridge gets past its "missing header" check, finds no key matching the
+empty token, and answers **`401 Invalid credentials`** — the same response a
+genuinely wrong or expired token gets. There is nothing in the reply to tell the
+two apart, so on any 401 rule this out first: `export` the token, or assign it
+to a shell variable on a preceding line, and try again before concluding the
+token is bad.
 
-The response is `{"id":"...","api_key":"..."}`. If `curl` exits non-zero, re-run
-with `-i` instead of `-sf` and show the user the status and body, then stop.
+The response is `{"id":"...","api_key":"..."}`.
 
 > ⚠️ **Register and write the credentials file in ONE shell command.** This is
 > the single most important instruction in this skill, and getting it wrong is
@@ -362,7 +370,12 @@ mkdir -p .switch/agents
 printf '*\n' > .switch/agents/.gitignore
 
 resp=$(mktemp)
-http_status=$(curl -s -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/register-known" \
+trap 'rm -f "$resp"' EXIT
+
+# -S so curl reports why it failed, and --max-time so it fails at all: with -s
+# alone a refused connection or a hung host kills the script under `set -e`
+# with no output whatsoever, and the status check below never runs.
+http_status=$(curl -sS --max-time 30 -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/register-known" \
   -H "Authorization: Bearer $SWITCH_REGISTRATION_TOKEN" \
   -H 'Content-Type: application/json' \
   -d "$(jq -nc --arg name "$NAME" --arg desc "$DESC" \
@@ -372,7 +385,7 @@ http_status=$(curl -s -o "$resp" -w '%{http_code}' -X POST "$ENDPOINT/agents/reg
            overwrite:false}')")
 
 if [ "$http_status" != "200" ]; then
-  printf 'registration failed (%s): ' "$http_status"; cat "$resp"; echo; rm -f "$resp"; exit 1
+  printf 'registration failed (%s): ' "$http_status"; cat "$resp"; echo; exit 1
 fi
 
 jq --arg ep "$ENDPOINT" \
@@ -380,7 +393,6 @@ jq --arg ep "$ENDPOINT" \
    "$resp" > ".switch/agents/$NAME.json"
 chmod 600 ".switch/agents/$NAME.json"
 jq -r '"registered " + .id' "$resp"
-rm -f "$resp"
 ```
 
 The token goes from the response straight into the file without ever being
@@ -471,6 +483,9 @@ directory are chosen between at session start with `select_agent`.
   MCP server timed out while `npx` fetched the runtime on a cold cache. The
   connector raises the startup allowance for exactly this, but a slow link can
   still miss it. Start a second session.
+- **`connection closed: initialize response`** — the runtime died before the
+  handshake; the reason is in `~/.switch/sessions/<ppid>/startup-error.log`. Read
+  it rather than guessing: the host reports every cause identically.
 - **Every OpenCode session breaks after editing the config** — OpenCode rejects
   unknown properties on an MCP entry and fails the whole config with them.
   Remove whatever was added beyond `type`, `command`, `cwd`, `environment`,
