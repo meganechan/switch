@@ -11,7 +11,7 @@ import {
 import { ServerStatusPill } from '@renderer/features/switch-servers/server-presentation';
 import { switchRoomsStore } from '@renderer/features/switch-servers/switch-rooms-store';
 import { switchServersStore } from '@renderer/features/switch-servers/switch-servers-store';
-import { AgentIcon } from '@renderer/lib/components/agent-icon';
+import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { OpenInMenu } from '@renderer/lib/components/titlebar/open-in-menu';
 import { Titlebar } from '@renderer/lib/components/titlebar/Titlebar';
 import { TitlebarBreadcrumb } from '@renderer/lib/components/titlebar/titlebar-breadcrumb';
@@ -19,6 +19,7 @@ import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useNavigate, useParams } from '@renderer/lib/layout/navigation-provider';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
+import { useAgentIconUrl } from '@renderer/lib/stores/use-remote-agents';
 import { Button } from '@renderer/lib/ui/button';
 import {
   DropdownMenu,
@@ -42,13 +43,17 @@ const AgentCrumb = observer(function AgentCrumb({
   agent: Agent | null;
 }) {
   const label = agent?.name ?? locationDisplayName(getLocationStore(locationId)) ?? 'Agent';
+  const iconUrl = useAgentIconUrl(agent?.serverId ?? null, agent?.switchAgentId ?? null);
   return (
     <TitlebarBreadcrumb
       crumbs={[
         {
           key: 'agent',
-          icon: agent?.providerId ? (
-            <AgentIcon id={agent.providerId} size={14} className="shrink-0" />
+          // The agent's own picture, as everywhere else it is listed — the
+          // provider logo that used to sit here says what it runs on, which is
+          // not what a crumb naming one agent is for.
+          icon: agent ? (
+            <AgentAvatar name={label} iconUrl={iconUrl} size={16} className="bg-transparent" />
           ) : (
             <Bot className="size-3.5 shrink-0" />
           ),

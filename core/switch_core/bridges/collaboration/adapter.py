@@ -78,6 +78,22 @@ class CollaborationAdapter(ABC):
     #: instead of each bridge discovering it in its own way.
     renders_custom_url_schemes: ClassVar[bool] = True
 
+    #: Whether a runtime-state report with no thread of its own should anchor
+    #: to the message the agent is working on.
+    #:
+    #: A report only carries a `thread_id` when the agent was addressed inside
+    #: an existing thread. Addressed at the conversation root it carries none,
+    #: while the agent's reply still opens a thread on the triggering message —
+    #: so the status and the answer to it end up in two different places.
+    #: Where this is True the anchor the agent reports (the last message it was
+    #: actually handed) stands in, putting the status in the thread the reply
+    #: will land in.
+    #:
+    #: Off by default: on a platform that renders a thread as a side panel
+    #: rather than inline, moving the status out of the channel hides it, and
+    #: that trade is the platform's to make.
+    runtime_state_follows_anchor: ClassVar[bool] = False
+
     def __init__(self) -> None:
         self._on_message: Callable[[InboundMessage], Awaitable[None]] | None = None
         self._on_command: Callable[[InboundCommand], Awaitable[None]] | None = None
