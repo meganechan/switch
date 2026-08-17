@@ -26,6 +26,7 @@ class _FakeAdapter:
     def __init__(self, *, follows_anchor: bool) -> None:
         self.runtime_state_follows_anchor = follows_anchor
         self.applied: list[str | None] = []
+        self.trigger_threads: list[str | None] = []
 
     def agents_with_live_runtime_state(self, channel_id: str) -> list[str]:
         return []
@@ -40,8 +41,10 @@ class _FakeAdapter:
         thread_root_id: str | None,
         deeplink_url: str | None,
         detail: str | None,
+        trigger_thread_root_id: str | None = None,
     ) -> None:
         self.applied.append(thread_root_id)
+        self.trigger_threads.append(trigger_thread_root_id)
 
     async def reposition_runtime_state(
         self, channel_id: str, agent_name: str, thread_root_id: str | None
@@ -100,9 +103,7 @@ def test_the_status_joins_the_thread_the_reply_will_open() -> None:
     # the message being worked on, and that is where the reply goes.
     bridge = _bridge(follows_anchor=True, posts={"$trigger": "post-trigger"})
 
-    assert (
-        _report(bridge, thread_id=None, anchor_event_id="$trigger") == "post-trigger"
-    )
+    assert _report(bridge, thread_id=None, anchor_event_id="$trigger") == "post-trigger"
 
 
 def test_a_real_thread_still_wins_over_the_anchor() -> None:
@@ -138,3 +139,23 @@ def test_a_report_with_neither_stays_at_the_root() -> None:
     bridge = _bridge(follows_anchor=True, posts={"$trigger": "post-trigger"})
 
     assert _report(bridge, thread_id=None, anchor_event_id=None) is None
+
+
+def test_the_trigger_keeps_its_own_place_even_as_the_status_moves() -> None:
+    # The two are reported separately: the status goes into the thread the
+    # answer will open, the trigger says where the person waiting is looking.
+    # Addressed at channel level, that is the root — so no thread.
+    bridge = _bridge(follows_anchor=True, posts={"$trigger": "post-trigger"})
+
+    _report(bridge, thread_id=None, anchor_event_id="$trigger")
+
+    assert bridge.adapter_spy.applied == ["post-trigger"]
+    assert bridge.adapter_spy.trigger_threads == [None]
+
+
+def test_a_threaded_trigger_reports_its_thread() -> None:
+    bridge = _bridge(follows_anchor=True, posts={"$thread": "post-thread"})
+
+    _report(bridge, thread_id="$thread", anchor_event_id="$thread")
+
+    assert bridge.adapter_spy.trigger_threads == ["post-thread"]

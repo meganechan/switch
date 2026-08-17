@@ -300,6 +300,7 @@ class CollaborationAdapter(ABC):
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
+        trigger_thread_root_id: str | None = None,
     ) -> None:
         """Serialise against any other runtime-indicator work for this agent,
         then apply the state. Adapters override ``_apply_runtime_state``."""
@@ -312,6 +313,7 @@ class CollaborationAdapter(ABC):
                 thread_root_id=thread_root_id,
                 deeplink_url=deeplink_url,
                 detail=detail,
+                trigger_thread_root_id=trigger_thread_root_id,
             )
 
     async def reposition_runtime_state(
@@ -333,6 +335,7 @@ class CollaborationAdapter(ABC):
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
+        trigger_thread_root_id: str | None = None,
     ) -> None:
         """Surface a Switch Console-managed agent's runtime state on the channel.
 
@@ -341,8 +344,17 @@ class CollaborationAdapter(ABC):
         show a persistent status message they remove (Slack) or edit to a
         terminal marker (Mattermost, whose delete leaves a tombstone).
 
-        ``thread_root_id``, when set, is the external thread the triggering
-        message belonged to; the state surfaces in that thread.
+        ``thread_root_id``, when set, is the external thread the state belongs
+        in; the state surfaces there.
+
+        ``trigger_thread_root_id`` is where the triggering message itself sits,
+        and is None when it came from the channel root. The two differ on an
+        adapter that pins a status to a thread the conversation is not in yet
+        (see ``runtime_state_follows_anchor``): the status belongs in the
+        thread, but a typing indicator belongs where the person who is waiting
+        for it is looking. Defaulted because only an adapter that draws the
+        distinction reads it, and its callers should not have to restate a
+        value the other adapters ignore.
 
         ``deeplink_url``, when set, is an https link (served by the gateway) that
         opens the agent's session in the Switch Console desktop app; adapters that

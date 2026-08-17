@@ -14,13 +14,29 @@ export function scheduleInitialPromptInjection(args: {
   session: Session;
   initialPrompt: string | undefined;
   isResuming: boolean;
+  /**
+   * Called once the session's own prompt is in and the pane is free for anyone
+   * else to type into — immediately when there is no prompt to deliver. Room
+   * messages wait on this: delivered any earlier they land in a TUI that is
+   * still booting, or in the middle of the prompt being typed.
+   */
+  onOpenForInjection: () => void;
 }): void {
-  if (args.isResuming) return;
-  if (!args.initialPrompt?.trim()) return;
+  if (args.isResuming) {
+    args.onOpenForInjection();
+    return;
+  }
+  if (!args.initialPrompt?.trim()) {
+    args.onOpenForInjection();
+    return;
+  }
 
   const plugin = getPlugin(args.session.providerId);
   const promptDelivery = plugin.capabilities.prompt;
-  if (promptDelivery.kind !== 'keystroke') return;
+  if (promptDelivery.kind !== 'keystroke') {
+    args.onOpenForInjection();
+    return;
+  }
 
   const submitSequence = promptDelivery.submitSequence ?? '\r';
   const submitDelayMs = promptDelivery.submitDelayMs;
@@ -39,16 +55,26 @@ export function scheduleInitialPromptInjection(args: {
     try {
       if (submitDelayMs) {
         args.pty.write(payload);
-        setTimeout(() => args.pty.write(submitSequence), submitDelayMs);
+        // Opened after the submit, not after the text: in between, the prompt
+        // is sitting unsent in the composer and anything else typed would be
+        // appended to it and sent as one.
+        setTimeout(() => {
+          args.pty.write(submitSequence);
+          args.onOpenForInjection();
+        }, submitDelayMs);
         return;
       }
       args.pty.write(`${payload}${submitSequence}`);
+      args.onOpenForInjection();
     } catch (error) {
       log.warn('AgentRuntime: failed to inject initial prompt', {
         providerId: args.session.providerId,
         sessionId: args.session.id,
         error: String(error),
       });
+      // The pane is no worse off for a write that failed, and holding the gate
+      // shut would strand every room message for the life of the session.
+      args.onOpenForInjection();
     }
   };
 

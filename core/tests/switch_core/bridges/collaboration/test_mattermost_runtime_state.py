@@ -224,21 +224,48 @@ def test_idle_without_an_indicator_does_nothing() -> None:
     assert recorder.deletes == []
 
 
-def test_the_turn_opens_with_a_typing_nudge_in_the_same_thread() -> None:
-    # Posting the status takes a moment; typing says something is happening
-    # before it lands. It goes where the status goes — without a parent
-    # Mattermost only ever shows it at the channel root.
+def test_the_turn_opens_with_a_typing_nudge_where_the_message_came_from() -> None:
+    # Addressed inside a thread: the reader is watching that thread, so the
+    # nudge goes there. Without a parent Mattermost shows it at the root.
     adapter = _adapter()
     recorder = _Recorder()
     recorder.install(adapter)
 
     _run(
         adapter.apply_runtime_state(
-            "chan-1", "worker", "working", mention_handle=None, thread_root_id="root-9"
+            "chan-1",
+            "worker",
+            "working",
+            mention_handle=None,
+            thread_root_id="root-9",
+            trigger_thread_root_id="root-9",
         )
     )
 
     assert recorder.typing == [("chan-1", "worker", "root-9")]
+
+
+def test_typing_stays_at_the_root_when_that_is_where_the_message_was() -> None:
+    # The status is pinned into the thread the answer will open, but whoever
+    # wrote at channel level is watching the channel — a typing indicator
+    # inside a thread they have not opened is one they never see.
+    adapter = _adapter()
+    recorder = _Recorder()
+    recorder.install(adapter)
+
+    _run(
+        adapter.apply_runtime_state(
+            "chan-1",
+            "worker",
+            "working",
+            mention_handle=None,
+            thread_root_id="post-trigger",
+            trigger_thread_root_id=None,
+        )
+    )
+
+    assert recorder.sends[0][3] == "post-trigger"
+    assert recorder.typing == [("chan-1", "worker", None)]
 
 
 def test_typing_is_not_repeated_on_every_activity_refresh() -> None:

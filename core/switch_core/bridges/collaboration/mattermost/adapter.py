@@ -475,6 +475,7 @@ class MattermostAdapter(CollaborationAdapter):
         thread_root_id: str | None,
         deeplink_url: str | None = None,
         detail: str | None = None,
+        trigger_thread_root_id: str | None = None,
     ) -> None:
         """Surface runtime state as a posted message that is **never deleted**.
 
@@ -515,11 +516,17 @@ class MattermostAdapter(CollaborationAdapter):
                     thread_root_id=thread_root_id,
                     started_at=time.monotonic(),
                 )
+                # Where the message came from, not where the status went. The
+                # status is pinned to the thread the answer will land in, but
+                # typing is for whoever is waiting — and someone who wrote at
+                # the channel root is watching the root, not a thread they have
+                # not opened.
+                #
                 # Only as the turn opens. Mattermost expires a typing indicator
                 # after a few seconds, and the posted message is what carries
                 # the state from there on — repeating it on every activity
                 # refresh would say "typing" for as long as the agent runs.
-                await self._post_typing(channel_id, agent_name, thread_root_id)
+                await self._post_typing(channel_id, agent_name, trigger_thread_root_id)
         elif state == "awaiting-input":
             ref = await self._ping_operator(
                 channel_id, agent_name, mention_handle, thread_root_id, deeplink_url

@@ -31,6 +31,12 @@ const BUSY_FALLBACK_MS = 60_000;
 // is typing into the pane. Short enough that delivery resumes promptly once
 // they pause.
 const HUMAN_GATE_RETRY_MS = 500;
+// How long to wait before looking again for a target to type into. A session
+// auto-started to answer a room message opens its room connection before its
+// terminal exists, so the very message it was started for arrives with nowhere
+// to go; without a retry of its own it waits for an unrelated event that on a
+// fresh session may never come.
+const NO_TARGET_RETRY_MS = 500;
 // Gap between steps of a multi-step control command (e.g. reset's `/clear` then
 // the reconnect prompt), so a TUI settles one before the next is typed.
 const CONTROL_STEP_GAP_MS = 600;
@@ -254,6 +260,7 @@ export class RoomConnection {
   private activityTicker: ReturnType<typeof setInterval> | null = null;
   private busyFallback: ReturnType<typeof setTimeout> | null = null;
   private humanGateTimer: ReturnType<typeof setTimeout> | null = null;
+  private noTargetTimer: ReturnType<typeof setTimeout> | null = null;
   /** The push transport: one SSE stream plus one heartbeat, replacing the
    * long-poll and the three renew loops. */
   private stream: SwitchEventStream | null = null;
@@ -417,6 +424,7 @@ export class RoomConnection {
     this.abort.abort();
     if (this.busyFallback) clearTimeout(this.busyFallback);
     if (this.humanGateTimer) clearTimeout(this.humanGateTimer);
+    if (this.noTargetTimer) clearTimeout(this.noTargetTimer);
     this.stopActivityTicker();
   }
 
@@ -838,12 +846,21 @@ export class RoomConnection {
 
     const target = this.sink.acquire();
     if (!target) {
-      // Target not live yet (or already gone); leave the message queued and
-      // retry on the next status change or poll event.
-      this.log.warn('RoomConnection: injection deferred — no live target for session', {
-        roomId: this.roomId,
-        queued: this.queue.length,
-      });
+      // Not ready to be typed into — the terminal is still starting, or the
+      // session's own opening prompt has not gone in yet. Keep the message and
+      // come back for it: an auto-started session receives the message it was
+      // started for before it has a terminal at all, and nothing else is
+      // guaranteed to drive the queue afterwards.
+      if (!this.noTargetTimer) {
+        this.log.warn('RoomConnection: injection deferred — no live target for session', {
+          roomId: this.roomId,
+          queued: this.queue.length,
+        });
+        this.noTargetTimer = setTimeout(() => {
+          this.noTargetTimer = null;
+          this.tryFlush();
+        }, NO_TARGET_RETRY_MS);
+      }
       return;
     }
 

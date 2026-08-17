@@ -317,6 +317,52 @@ describe('RoomConnection', () => {
     conn.stop();
   });
 
+  it('delivers the message once the session has a terminal to type into', async () => {
+    // The bug this guards (CHOO-2173): a session auto-started to answer a room
+    // message opens this connection before its terminal exists, so the very
+    // message it was started for arrives with nowhere to go. The dialog and
+    // operator-typing gates both come back on a timer; this one did not, and
+    // waited on an unrelated event that on a fresh session never came — so the
+    // agent booted, said hello, and never saw what it was asked.
+    vi.useFakeTimers();
+    try {
+      const target: InjectionTarget = { write: vi.fn() };
+      let live = false;
+      const { conn } = connect({ acquire: () => (live ? target : null) }, [messageEvent(true)]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(target.write).not.toHaveBeenCalled();
+
+      live = true;
+      // NO_TARGET_RETRY_MS.
+      await vi.advanceTimersByTimeAsync(500);
+
+      expect(vi.mocked(target.write).mock.calls.map((c) => c[0])[0]).toContain('<<');
+      conn.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops looking for a terminal once the connection is stopped', async () => {
+    vi.useFakeTimers();
+    try {
+      const target: InjectionTarget = { write: vi.fn() };
+      let live = false;
+      const { conn } = connect({ acquire: () => (live ? target : null) }, [messageEvent(true)]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      conn.stop();
+
+      live = true;
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(target.write).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('defers injection while the operator is typing into the pane', async () => {
     const target: InjectionTarget = { write: vi.fn() };
     const { conn } = connect({ acquire: () => target }, [messageEvent(true)], () => true);

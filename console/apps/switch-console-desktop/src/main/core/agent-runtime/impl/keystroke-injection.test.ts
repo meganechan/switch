@@ -50,9 +50,12 @@ function makePty(): {
   };
 }
 
+let onOpenForInjection: ReturnType<typeof vi.fn<() => void>>;
+
 describe('scheduleInitialPromptInjection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    onOpenForInjection = vi.fn();
   });
 
   afterEach(() => {
@@ -66,6 +69,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('booting...');
@@ -84,6 +88,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     vi.advanceTimersByTime(15_000);
@@ -97,6 +102,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: 'line one\nline two',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -111,6 +117,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('opencode'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -125,6 +132,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('grok'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -139,6 +147,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('claude'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -153,6 +162,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: 'Fix the bug',
       isResuming: true,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -167,6 +177,7 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: '   ',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('ready');
@@ -181,11 +192,110 @@ describe('scheduleInitialPromptInjection', () => {
       session: makeSession('hermes'),
       initialPrompt: 'Fix the bug',
       isResuming: false,
+      onOpenForInjection,
     });
 
     emitData('starting');
     emitExit();
     vi.advanceTimersByTime(20_000);
     expect(write).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * When the pane becomes free for anything else to type into (CHOO-2173).
+ *
+ * A session auto-started to answer a room message races two writers at the same
+ * terminal: its own opening prompt, held back until the TUI is ready, and the
+ * room message its connection has already received. Nothing sequenced them, and
+ * a message typed into a booting TUI — or onto the end of the unsent opening
+ * prompt — reads as a message that never arrived.
+ */
+describe('the gate on typing into a starting session', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    onOpenForInjection = vi.fn();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('stays shut while the opening prompt is still waiting for the TUI', () => {
+    const { pty, emitData } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('hermes'),
+      initialPrompt: 'connect to switch room r-1',
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    emitData('booting...');
+    vi.advanceTimersByTime(200);
+
+    expect(onOpenForInjection).not.toHaveBeenCalled();
+  });
+
+  it('opens as the opening prompt goes in, and not before', () => {
+    const { pty, write, emitData } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('hermes'),
+      initialPrompt: 'connect to switch room r-1',
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    emitData('ready');
+    vi.advanceTimersByTime(200);
+    expect(write).not.toHaveBeenCalled();
+    expect(onOpenForInjection).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(800);
+
+    expect(write).toHaveBeenCalled();
+    expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens straight away when there is no opening prompt to wait for', () => {
+    const { pty } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('hermes'),
+      initialPrompt: undefined,
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens straight away when resuming, which sends no prompt', () => {
+    const { pty } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('hermes'),
+      initialPrompt: 'Fix the bug',
+      isResuming: true,
+      onOpenForInjection,
+    });
+
+    expect(onOpenForInjection).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens straight away for a provider that takes no keystrokes', () => {
+    // Nothing is going to be typed here, so holding the gate shut would strand
+    // every room message for the life of the session.
+    const { pty } = makePty();
+    scheduleInitialPromptInjection({
+      pty,
+      session: makeSession('claude'),
+      initialPrompt: 'Fix the bug',
+      isResuming: false,
+      onOpenForInjection,
+    });
+
+    expect(onOpenForInjection).toHaveBeenCalledTimes(1);
   });
 });
