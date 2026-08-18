@@ -17,7 +17,12 @@ import {
 import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
 import { atomicWriteFile } from './atomic-file';
-import { NotificationWatcher, type WatcherLogger, postRoomMessage } from './notification-watcher';
+import {
+  addressedTo,
+  NotificationWatcher,
+  postRoomMessage,
+  type WatcherLogger,
+} from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
 import {
@@ -207,8 +212,9 @@ async function main(): Promise<void> {
   // so dropping it would let the next message spawn a second session on top of
   // the first rather than surfacing the one that needs attention.
   startupWatch.onStall(({ sessionId, providerId }) => {
-    const roomId = spawner?.roomIdForSession(sessionId);
-    if (!roomId) return;
+    const launched = spawner?.launchedFor(sessionId);
+    if (!launched) return;
+    const { roomId, requesterName } = launched;
     log.error('sidecar: spawned session never reported that it started', {
       sessionId,
       providerId,
@@ -217,7 +223,10 @@ async function main(): Promise<void> {
     void postRoomMessage(
       creds,
       roomId,
-      "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look."
+      addressedTo(
+        requesterName,
+        "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look."
+      )
     ).catch((error) => {
       log.warn('sidecar: failed to post startup-stall notice', { roomId, error: String(error) });
     });

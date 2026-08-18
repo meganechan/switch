@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
+import { type AgentBridgeEvent, SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
 import type { SwitchAgentCredentials } from '@main/core/switch-rooms/switch-credentials';
 
 // How often the auto_session gate is re-read, so toggling it takes effect
@@ -61,7 +61,29 @@ export interface SessionSpawner {
    * how it knows to spawn — so a session opening at head comes up having
    * missed the very message it exists to answer.
    */
-  launch(roomId: string, startCursor?: number): Promise<void>;
+  launch(roomId: string, requesterName: string | null, startCursor?: number): Promise<void>;
+}
+
+/**
+ * The name of whoever addressed the agent, so a notice can reach them rather
+ * than just appear in the channel. Null for a command or a join, which nobody
+ * is waiting on an answer to.
+ */
+export function requesterNameOf(event: AgentBridgeEvent): string | null {
+  if (event.type !== 'message') return null;
+  const name = (event.payload as { sender_name?: string }).sender_name;
+  return name?.trim() ? name.trim() : null;
+}
+
+/**
+ * Address a room notice to the person waiting on it.
+ *
+ * The `@name` is deliberate: Switch re-parses it, so the notice reaches them
+ * wherever they are instead of scrolling past in a channel they may not be
+ * looking at. That is the whole point of a notice saying nobody is coming.
+ */
+export function addressedTo(requesterName: string | null, body: string): string {
+  return requesterName ? `@${requesterName} ${body}` : body;
 }
 
 /**
@@ -173,7 +195,9 @@ export class NotificationWatcher {
       // Same promise as Switch Console's watcher: this process will spawn.
       spawnCapable: true,
       onEvent: (event) => {
-        if (event.room_id) this.handleNotification(event.room_id, event.sequence);
+        if (event.room_id) {
+          this.handleNotification(event.room_id, requesterNameOf(event), event.sequence);
+        }
       },
       onGap: (info) => {
         log.warn('NotificationWatcher: gap — may have missed a spawn trigger', {
@@ -205,7 +229,11 @@ export class NotificationWatcher {
   }
 
   /** Decide whether to spawn for a notified room, with a per-room in-flight guard. */
-  private handleNotification(roomId: string, sequence?: number): void {
+  private handleNotification(
+    roomId: string,
+    requesterName: string | null,
+    sequence?: number
+  ): void {
     if (this.inFlight.has(roomId)) {
       this.deps.log.info(
         'NotificationWatcher: notification for room with a spawn already in flight — skipping duplicate spawn',
@@ -222,7 +250,7 @@ export class NotificationWatcher {
     // claims — where a gap is the bug this exists to prevent.
     const startCursor = sequence === undefined ? undefined : Math.max(sequence - 1, 0);
 
-    void this.spawnForRoom(roomId, startCursor).catch((error) => {
+    void this.spawnForRoom(roomId, requesterName, startCursor).catch((error) => {
       this.deps.log.warn('NotificationWatcher: spawn failed', { roomId, error: String(error) });
     });
   }
@@ -237,7 +265,11 @@ export class NotificationWatcher {
     this.clearInFlight(roomId);
   }
 
-  private async spawnForRoom(roomId: string, startCursor?: number): Promise<void> {
+  private async spawnForRoom(
+    roomId: string,
+    requesterName: string | null,
+    startCursor?: number
+  ): Promise<void> {
     const { spawner, creds, log } = this.deps;
 
     // A session this watcher started is already attending the room — its own
@@ -251,7 +283,7 @@ export class NotificationWatcher {
     for (let attempt = 1; attempt <= SPAWN_MAX_ATTEMPTS; attempt += 1) {
       if (this.abort.signal.aborted) return;
       try {
-        await spawner.launch(roomId, startCursor);
+        await spawner.launch(roomId, requesterName, startCursor);
         // Half of a hand-off logged at both ends, so a session that comes up
         // without its triggering message can be diagnosed from the log alone:
         // this says where the session should start reading, and the runtime's
@@ -283,7 +315,10 @@ export class NotificationWatcher {
     await postRoomMessage(
       creds,
       roomId,
-      "I tried to start a session to handle this but couldn't — my operator may need to start one manually."
+      addressedTo(
+        requesterName,
+        "I tried to start a session to handle this but couldn't — my operator may need to start one manually."
+      )
     ).catch((error) => {
       log.warn('NotificationWatcher: failed to post spawn-failure notice', {
         roomId,

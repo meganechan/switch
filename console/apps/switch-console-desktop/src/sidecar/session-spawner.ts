@@ -82,7 +82,10 @@ export class InProcessSessionSpawner implements SessionSpawner {
     args: string[]
   ) => Promise<{ stdout: string; stderr: string }>;
   /** Room id → the session we launched for it (its minted id + tmux target). */
-  private readonly launched = new Map<string, { sessionId: string; tmuxTarget: string }>();
+  private readonly launched = new Map<
+    string,
+    { sessionId: string; tmuxTarget: string; requesterName: string | null }
+  >();
   /** The live launch recipe. Seeded from deps, replaceable via `setSpec` so a
    * bypass-permissions toggle takes effect without restarting the sidecar. */
   private spec: AgentLaunchSpec;
@@ -128,8 +131,19 @@ export class InProcessSessionSpawner implements SessionSpawner {
 
   /** The room a launched session was started for, or null if we did not start it. */
   roomIdForSession(sessionId: string): string | null {
+    return this.launchedFor(sessionId)?.roomId ?? null;
+  }
+
+  /**
+   * The room a launched session was started for and who is waiting on it, so a
+   * session that never comes up can be reported to the person rather than only
+   * into the channel. Null if this sidecar did not start it.
+   */
+  launchedFor(sessionId: string): { roomId: string; requesterName: string | null } | null {
     for (const [roomId, session] of this.launched) {
-      if (session.sessionId === sessionId) return roomId;
+      if (session.sessionId === sessionId) {
+        return { roomId, requesterName: session.requesterName };
+      }
     }
     return null;
   }
@@ -167,7 +181,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
     return false;
   }
 
-  async launch(roomId: string, startCursor?: number): Promise<void> {
+  async launch(roomId: string, requesterName: string | null, startCursor?: number): Promise<void> {
     const { hookPort, hookToken, endpointFile, log } = this.deps;
     const spec = this.spec;
     const sessionId = randomUUID();
@@ -212,7 +226,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
       this.deps.startupWatch.begin({ ptyId, sessionId, providerId: spec.providerId });
     }
     await this.startDetachedTmux(tmuxTarget, spec.cwd, command.env, command.command, command.args);
-    this.launched.set(roomId, { sessionId, tmuxTarget });
+    this.launched.set(roomId, { sessionId, tmuxTarget, requesterName });
     log.info('InProcessSessionSpawner: launched session for room', {
       roomId,
       sessionId,

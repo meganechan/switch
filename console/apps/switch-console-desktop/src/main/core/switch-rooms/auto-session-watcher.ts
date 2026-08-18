@@ -126,6 +126,34 @@ async function roomNameFor(localAgentId: string, roomId: string): Promise<string
   }
 }
 
+/**
+ * The name of whoever addressed the agent, so a notice can reach them rather
+ * than just appear in the channel. Null for a command or a join, which nobody
+ * is waiting on an answer to.
+ */
+function requesterNameOf(event: AgentBridgeEvent): string | null {
+  if (event.type !== 'message') return null;
+  const name = (event.payload as { sender_name?: string }).sender_name;
+  return name?.trim() ? name.trim() : null;
+}
+
+/**
+ * Address a room notice to the person waiting on it.
+ *
+ * The `@name` is deliberate: Switch re-parses it, so the notice reaches them
+ * wherever they are instead of scrolling past in a channel they may not be
+ * looking at. That is the whole point of a notice saying nobody is coming.
+ */
+function addressedTo(requesterName: string | null, body: string): string {
+  return requesterName ? `@${requesterName} ${body}` : body;
+}
+
+const STARTUP_STALL_NOTICE =
+  "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look.";
+
+const SPAWN_FAILED_NOTICE =
+  "I tried to start a session to handle this but couldn't — my operator may need to start one manually.";
+
 /** Post a message to a room on the agent's behalf (used for the spawn-failure
  * notice). Best-effort; throws on non-OK so the caller can log. */
 async function postRoomMessage(
@@ -165,7 +193,12 @@ class AutoSessionWatcher {
    */
   private readonly spawnedForRoom = new Map<
     string,
-    { roomId: string; creds: SwitchAgentCredentials; expiry: ReturnType<typeof setTimeout> }
+    {
+      roomId: string;
+      creds: SwitchAgentCredentials;
+      requesterName: string | null;
+      expiry: ReturnType<typeof setTimeout>;
+    }
   >();
 
   /** Start watchers for every agent and subagent currently mirrored as auto_session. */
@@ -244,14 +277,19 @@ class AutoSessionWatcher {
    * The in-flight guard is cleared too, so the next message can try again
    * rather than being suppressed by a spawn that went nowhere.
    */
-  private rememberSpawn(sessionId: string, roomId: string, creds: SwitchAgentCredentials): void {
+  private rememberSpawn(
+    sessionId: string,
+    roomId: string,
+    creds: SwitchAgentCredentials,
+    requesterName: string | null
+  ): void {
     this.forgetSpawn(sessionId);
     // Only the stall verdict is of interest, and it lands within the watch's
     // own timeout; past that the entry is dead weight on a session that came up
     // fine.
     const expiry = setTimeout(() => this.forgetSpawn(sessionId), SPAWN_STALL_WATCH_TTL_MS);
     expiry.unref?.();
-    this.spawnedForRoom.set(sessionId, { roomId, creds, expiry });
+    this.spawnedForRoom.set(sessionId, { roomId, creds, requesterName, expiry });
   }
 
   private forgetSpawn(sessionId: string): void {
@@ -283,7 +321,7 @@ class AutoSessionWatcher {
       void postRoomMessage(
         spawned.creds,
         spawned.roomId,
-        "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look."
+        addressedTo(spawned.requesterName, STARTUP_STALL_NOTICE)
       ).catch((error) => {
         log.warn('AutoSessionWatcher: failed to post startup-stall notice', {
           roomId: spawned.roomId,
@@ -594,7 +632,7 @@ class AutoSessionWatcher {
     const timer = setTimeout(() => watcher.inFlight.delete(roomId), INFLIGHT_TTL_MS);
     watcher.inFlight.set(roomId, timer);
 
-    void this.spawnForRoom(watcher, roomId, triggerLine).catch((error) => {
+    void this.spawnForRoom(watcher, roomId, triggerLine, requesterNameOf(event)).catch((error) => {
       log.warn('AutoSessionWatcher: spawn failed', {
         localAgentId: watcher.localAgentId,
         roomId,
@@ -606,7 +644,8 @@ class AutoSessionWatcher {
   private async spawnForRoom(
     watcher: AgentWatcher,
     roomId: string,
-    triggerLine: string | null
+    triggerLine: string | null,
+    requesterName: string | null
   ): Promise<void> {
     // Bypass permissions only if this agent is configured to. Auto-started
     // local sessions run with no operator watching, but the default is off —
@@ -649,7 +688,7 @@ class AutoSessionWatcher {
             roomId,
             sessionId: result.data.session.id,
           });
-          this.rememberSpawn(result.data.session.id, roomId, watcher.creds);
+          this.rememberSpawn(result.data.session.id, roomId, watcher.creds, requesterName);
           // createSession provisions the runtime inline but emits only
           // session:created — not session:provisioned. Without the latter an
           // open renderer leaves the session stuck "Setting up session…"
@@ -686,7 +725,7 @@ class AutoSessionWatcher {
     await postRoomMessage(
       watcher.creds,
       roomId,
-      "I tried to start a session to handle this but couldn't — my operator may need to start one manually."
+      addressedTo(requesterName, SPAWN_FAILED_NOTICE)
     ).catch((error) => {
       log.warn('AutoSessionWatcher: failed to post spawn-failure notice', {
         roomId,

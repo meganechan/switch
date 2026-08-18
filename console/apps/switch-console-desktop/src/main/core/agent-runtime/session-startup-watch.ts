@@ -2,13 +2,18 @@
  * How long a spawned session may go without reporting that it is up before
  * Switch Console treats it as stalled.
  *
- * Generous on purpose. A cold start pays for the CLI's own boot, auth and MCP
- * server startup, and calling a slow start a failure is its own kind of wrong
- * — the report goes to a room where a human reads it. A session parked on a
- * startup prompt stays parked, so waiting longer costs only how late the
- * notice is, never whether it arrives.
+ * Short on purpose: the notice exists so the person who asked stops waiting on
+ * an answer that is not coming, and a notice that arrives a minute late has
+ * already failed at that. The CLIs report as soon as their session exists,
+ * before the first turn, so this is the gap between spawning a process and it
+ * being ready to be spoken to — not the time to do any work.
+ *
+ * The cost of being wrong is asymmetric and mild in this direction: a slow
+ * start that reports at five seconds gets one notice it did not need, and the
+ * pane opens the moment the report lands either way. A stall never resolves
+ * itself, so the only thing a longer wait buys is a later notice.
  */
-export const STARTUP_SIGNAL_TIMEOUT_MS = 45_000;
+export const STARTUP_SIGNAL_TIMEOUT_MS = 4_000;
 
 export type StartupStall = {
   sessionId: string;

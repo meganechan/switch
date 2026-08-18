@@ -84,7 +84,7 @@ function makeSpawner(over: Partial<InProcessSessionSpawnerDeps> = {}) {
 describe('InProcessSessionSpawner.launch', () => {
   it('launches the agent tmux session wired to the local hook server', async () => {
     const { spawner, calls } = makeSpawner();
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     const launch = calls.find((c) => c.args[0] === 'new-session');
     expect(launch).toBeDefined();
@@ -118,7 +118,7 @@ describe('InProcessSessionSpawner.launch', () => {
       },
     });
 
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     const inner = calls.find((c) => c.args[0] === 'new-session')!.args.at(-1)!;
     const names = (parseTOML(profile) as { mcp_servers: Record<string, { env_vars: string[] }> })
@@ -137,7 +137,7 @@ describe('InProcessSessionSpawner.launch', () => {
   it("writes a global-scope provider's hooks under the home before the pane starts", async () => {
     const { spawner, calls } = makeSpawner({ spec: { ...SPEC, providerId: 'codex' } });
 
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     const config = JSON.parse(await readFile(join(HOME, '.codex/hooks.json'), 'utf8')) as {
       hooks: Record<string, unknown[]>;
@@ -155,7 +155,7 @@ describe('InProcessSessionSpawner.launch', () => {
   it("writes a workspace-scoped provider's hooks under the session's working dir", async () => {
     const { spawner } = makeSpawner();
 
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     expect(await readFile(join(CWD, '.claude/settings.local.json'), 'utf8')).toContain('hooks');
   });
@@ -168,7 +168,7 @@ describe('InProcessSessionSpawner.launch', () => {
   it("installs a plugin-delivered provider's hooks under the session's working dir", async () => {
     const { spawner, calls } = makeSpawner({ spec: { ...SPEC, providerId: 'opencode' } });
 
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     const dropped = await readFile(
       join(CWD, '.opencode/plugins/switchdash-notifications.js'),
@@ -187,7 +187,7 @@ describe('InProcessSessionSpawner.launch', () => {
     };
     try {
       const { spawner, calls } = makeSpawner();
-      await expect(spawner.launch('room-x')).rejects.toThrow(/no hook root for scope/);
+      await expect(spawner.launch('room-x', null)).rejects.toThrow(/no hook root for scope/);
       expect(calls.find((c) => c.args[0] === 'new-session')).toBeUndefined();
     } finally {
       pluginOverride.current = null;
@@ -196,13 +196,13 @@ describe('InProcessSessionSpawner.launch', () => {
 
   it('reports a launched-but-not-yet-connected room live while its pane is up', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     await expect(spawner.isRoomLive('room-x')).resolves.toBe(true);
   });
 
   it('treats a launched room whose pane died as not live', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => false });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     await expect(spawner.isRoomLive('room-x')).resolves.toBe(false);
   });
 
@@ -221,7 +221,7 @@ describe('InProcessSessionSpawner.launch', () => {
 describe('InProcessSessionSpawner.spawnedSessions', () => {
   it('reports a launched session with its minted session id while its pane is live', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     const spawned = spawner.spawnedSessions();
     expect(spawned).toHaveLength(1);
     expect(spawned[0]!.roomId).toBe('room-x');
@@ -230,7 +230,7 @@ describe('InProcessSessionSpawner.spawnedSessions', () => {
 
   it('omits a launched session whose pane has died (no ghost row)', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => false });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     expect(spawner.spawnedSessions()).toEqual([]);
   });
 });
@@ -243,7 +243,7 @@ describe('InProcessSessionSpawner.setSpec', () => {
       command: '/usr/bin/other-cli',
       args: ['--session-id', SESSION_ID_PLACEHOLDER, '--no-skip', INITIAL_PROMPT_PLACEHOLDER],
     });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     const inner = calls.find((c) => c.args[0] === 'new-session')!.args.at(-1)!;
     expect(inner).toContain('/usr/bin/other-cli');
@@ -255,7 +255,7 @@ describe('InProcessSessionSpawner.setSpec', () => {
 describe('InProcessSessionSpawner.roomIdForSession', () => {
   it('returns the room a launched session was started for, or null', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     const sessionId = spawner.spawnedSessions()[0]!.sessionId;
 
     expect(spawner.roomIdForSession(sessionId)).toBe('room-x');
@@ -266,7 +266,7 @@ describe('InProcessSessionSpawner.roomIdForSession', () => {
 describe('InProcessSessionSpawner.drop', () => {
   it('forgets a launched session by its session id', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
     const convId = spawner.spawnedSessions()[0]!.sessionId;
 
     spawner.drop(convId);
@@ -278,7 +278,7 @@ describe('InProcessSessionSpawner.drop', () => {
 
   it('is a no-op for an unknown session id', async () => {
     const { spawner } = makeSpawner({ isPaneLive: () => true });
-    await spawner.launch('room-x');
+    await spawner.launch('room-x', null);
 
     spawner.drop('not-a-real-conv');
 
@@ -296,7 +296,7 @@ describe('InProcessSessionSpawner.drop', () => {
     };
     const { spawner } = makeSpawner({ isPaneLive: () => true, runtime });
 
-    await spawner.launch('room-a');
+    await spawner.launch('room-a', null);
     const sessionId = spawner.spawnedSessions()[0]!.sessionId;
 
     // Connects to the room it was started for: still covered.
@@ -325,7 +325,7 @@ describe('InProcessSessionSpawner startup prompts', () => {
     const cwd = await freshCwd();
     const { spawner } = makeSpawner({ spec: { ...SPEC, cwd } });
 
-    await spawner.launch('room-trust');
+    await spawner.launch('room-trust', null);
 
     // The desktop cannot do this: the file belongs to the machine the session
     // runs on, and that is this one.
@@ -341,7 +341,7 @@ describe('InProcessSessionSpawner startup prompts', () => {
       spec: { ...SPEC, cwd, autoTrustWorktrees: false },
     });
 
-    await spawner.launch('room-untrusted');
+    await spawner.launch('room-untrusted', null);
 
     expect((await claudeConfig()).projects).not.toHaveProperty(cwd);
   });
@@ -353,13 +353,13 @@ describe('InProcessSessionSpawner startup prompts', () => {
       JSON.parse(await readFile(join(cwd, '.claude/settings.local.json'), 'utf8'));
 
     const plain = await freshCwd();
-    await makeSpawner({ spec: { ...SPEC, cwd: plain } }).spawner.launch('room-plain');
+    await makeSpawner({ spec: { ...SPEC, cwd: plain } }).spawner.launch('room-plain', null);
     expect(await localSettings(plain)).not.toHaveProperty('skipDangerousModePermissionPrompt');
 
     const bypassing = await freshCwd();
     await makeSpawner({
       spec: { ...SPEC, cwd: bypassing, autoApprove: true },
-    }).spawner.launch('room-bypass');
+    }).spawner.launch('room-bypass', null);
 
     // Scoped to this agent's directory, not the VM's global Claude settings —
     // one agent's toggle must not waive the warning for every other session on
@@ -374,7 +374,7 @@ describe('InProcessSessionSpawner startup prompts', () => {
     const startupWatch = new SessionStartupWatch(45_000, { warn: vi.fn(), error: vi.fn() });
     const { spawner } = makeSpawner({ spec: { ...SPEC, cwd }, startupWatch });
 
-    await spawner.launch('room-watch');
+    await spawner.launch('room-watch', null);
 
     const ptyId = makePtyId('claude', spawner.spawnedSessions()[0].sessionId);
     // Nothing may be typed into the pane yet: it could be showing a prompt.
