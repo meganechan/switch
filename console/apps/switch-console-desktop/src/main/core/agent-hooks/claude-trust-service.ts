@@ -12,7 +12,7 @@ import {
 const CLAUDE_PROVIDER_ID: AgentProviderId = 'claude';
 const COPILOT_PROVIDER_ID: AgentProviderId = 'copilot';
 const CLAUDE_CONFIG_NAME = '.claude.json';
-const CLAUDE_SETTINGS_NAME = '.claude/settings.json';
+const CLAUDE_LOCAL_SETTINGS_NAME = '.claude/settings.local.json';
 const CLAUDE_SKIP_BYPASS_PROMPT_KEY = 'skipDangerousModePermissionPrompt';
 const COPILOT_CONFIG_NAME = '.copilot/config.json';
 
@@ -36,7 +36,7 @@ export class ClaudeTrustService {
   }): Promise<void> {
     if (!cwd) return;
     if (providerId === CLAUDE_PROVIDER_ID && force) {
-      await this.acceptBypassPermissionsMode(homedir);
+      await this.acceptBypassPermissionsMode(path.resolve(cwd));
     }
     const trustConfig = await this.getTrustConfig(providerId, force);
     if (!trustConfig) return;
@@ -60,9 +60,17 @@ export class ClaudeTrustService {
    * the user accepted that risk; Switch Console does not decide it for them.
    * The warning's default answer is "No, exit", so a detached session left to
    * answer it does not merely stall — the first stray keypress kills it.
+   *
+   * Written per working directory, not to the user's global settings: one
+   * agent's toggle must not quietly waive the warning for every other agent,
+   * or for Claude Code run by hand outside Switch Console. Verified against
+   * 2.1.234 that `settings.local.json` is the narrowest scope that works —
+   * the shared, committable `settings.json` beside it does not clear the
+   * prompt at all, which is the right call on Claude Code's part and the
+   * reason not to reach for it.
    */
-  private async acceptBypassPermissionsMode(homedir: string): Promise<void> {
-    const settingsPath = path.join(homedir, CLAUDE_SETTINGS_NAME);
+  private async acceptBypassPermissionsMode(worktreePath: string): Promise<void> {
+    const settingsPath = path.join(worktreePath, CLAUDE_LOCAL_SETTINGS_NAME);
     await configWriteLock.run(settingsPath, async () => {
       try {
         const settings = parseConfig(await readLocalConfig(settingsPath), 'Claude settings');
@@ -160,17 +168,21 @@ function parseConfig(raw: string | null, warningName: string): Record<string, un
 }
 
 /**
- * Clears the two prompts Claude Code raises before a session exists: the
- * first-run setup wizard (global) and "is this a project you trust?" (per
- * directory). Both block on a keypress in the TUI, so a session that hits
- * either never starts and never says why.
+ * Clears "is this a project you trust?" for one directory.
  *
- * `hasCompletedOnboarding`, `projects` and the two per-directory flags are
- * Claude Code's names for its own config, not Switch Console's. They track
- * whatever Claude Code calls them and must not be renamed to follow our
- * vocabulary — CHOO-1426 renamed them alongside our own project→location
- * refactor, which silently disabled auto-trust for every Claude session while
- * the (equally renamed) test kept passing.
+ * Deliberately does NOT mark Claude Code's global first-run setup as complete,
+ * though doing so would clear another startup prompt. That wizard is where a
+ * new install is told to connect an account, and skipping it would replace a
+ * prompt that says what is missing with a session that fails later for no
+ * visible reason. A session held up by it is reported as stalled instead —
+ * which is the honest answer, because setup really is needed.
+ *
+ * `projects` and the two flags under it are Claude Code's names for its own
+ * config, not Switch Console's. They track whatever Claude Code calls them and
+ * must not be renamed to follow our vocabulary — CHOO-1426 renamed them
+ * alongside our own project→location refactor, which silently disabled
+ * auto-trust for every Claude session while the (equally renamed) test kept
+ * passing.
  */
 function withClaudeTrustedProject(
   config: Record<string, unknown>,
@@ -180,14 +192,12 @@ function withClaudeTrustedProject(
   const existing = isPlainObject(projects[worktreePath]) ? projects[worktreePath] : {};
 
   const alreadyTrusted =
-    config['hasCompletedOnboarding'] === true &&
     existing['hasTrustDialogAccepted'] === true &&
     existing['hasCompletedProjectOnboarding'] === true;
   if (alreadyTrusted) return null;
 
   return {
     ...config,
-    hasCompletedOnboarding: true,
     projects: {
       ...projects,
       [worktreePath]: {

@@ -102,7 +102,7 @@ describe('ClaudeTrustService', () => {
       homedir: '/home/local-user',
     });
 
-    expect(renamedTo()).not.toContain('/home/local-user/.claude/settings.json');
+    expect(renamedTo()).not.toContain('/tmp/worktree/.claude/settings.local.json');
 
     vi.clearAllMocks();
     mockReadFile.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
@@ -115,7 +115,7 @@ describe('ClaudeTrustService', () => {
     });
 
     const settingsWrite = mockWriteFile.mock.calls.find(([tmpPath]) =>
-      String(tmpPath).startsWith('/home/local-user/.claude/settings.json.')
+      String(tmpPath).startsWith('/tmp/worktree/.claude/settings.local.json.')
     );
     expect(settingsWrite).toBeDefined();
     expect(JSON.parse(String(settingsWrite?.[1]))).toEqual({
@@ -126,7 +126,7 @@ describe('ClaudeTrustService', () => {
   it('leaves Claude settings alone when the bypass warning is already accepted', async () => {
     const service = makeService();
     mockReadFile.mockImplementation(async (target: string) =>
-      String(target).endsWith('.claude/settings.json')
+      String(target).endsWith('.claude/settings.local.json')
         ? JSON.stringify({ skipDangerousModePermissionPrompt: true, model: 'opus' })
         : null
     );
@@ -138,7 +138,7 @@ describe('ClaudeTrustService', () => {
       force: true,
     });
 
-    expect(renamedTo()).not.toContain('/home/local-user/.claude/settings.json');
+    expect(renamedTo()).not.toContain('/tmp/worktree/.claude/settings.local.json');
   });
 
   it('writes local config atomically when missing', async () => {
@@ -167,6 +167,25 @@ describe('ClaudeTrustService', () => {
       hasTrustDialogAccepted: true,
       hasCompletedProjectOnboarding: true,
     });
+  });
+
+  it('leaves the global first-run setup wizard for the user to answer', async () => {
+    const service = makeService();
+
+    await service.maybeAutoTrustLocal({
+      providerId: 'claude',
+      cwd: '/tmp/worktree',
+      homedir: '/home/local-user',
+      force: true,
+    });
+
+    const claudeJson = mockWriteFile.mock.calls.find(([tmpPath]) =>
+      String(tmpPath).startsWith('/home/local-user/.claude.json.')
+    );
+    // That wizard is where a fresh install is told to connect an account.
+    // Skipping it would trade a prompt that says what is missing for a session
+    // that fails later without saying anything.
+    expect(JSON.parse(String(claudeJson?.[1]))).not.toHaveProperty('hasCompletedOnboarding');
   });
 
   it('adds Copilot trusted folders', async () => {
@@ -210,7 +229,6 @@ describe('ClaudeTrustService', () => {
     const trustedPath = '/already/trusted';
     mockReadFile.mockResolvedValue(
       JSON.stringify({
-        hasCompletedOnboarding: true,
         projects: {
           [trustedPath]: {
             hasTrustDialogAccepted: true,
