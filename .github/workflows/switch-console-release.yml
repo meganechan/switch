@@ -227,7 +227,18 @@ jobs:
         working-directory: console/apps/switch-console-desktop
         run: |
           app="$(find release -maxdepth 2 -type d -name '*.app' | head -1)"
+          if [ -z "$app" ]; then
+            echo "::error::no .app under release/ — nothing to check"
+            exit 1
+          fi
           codesign --verify --deep --strict --verbose=2 "$app"
+          # The stapled ticket is what lets a Mac clear the app offline; without it
+          # the first launch is a Gatekeeper prompt however well-signed the bundle is.
+          xcrun stapler validate "$app"
+          # And the assessment a user's Mac actually makes on first open. Printed
+          # first because `spctl` reports "assessments disabled" rather than failing,
+          # which would otherwise make a rejected build look accepted.
+          spctl --status
           spctl --assess --type execute --verbose=4 "$app"
 
       - name: Upload to GitHub Release
