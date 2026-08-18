@@ -34,6 +34,7 @@ function makeService(overrides: { autoTrustWorktrees?: boolean } = {}): CodexTru
   return new CodexTrustService({
     getSessionSettings: () =>
       Promise.resolve({ autoTrustWorktrees: overrides.autoTrustWorktrees ?? true }),
+    log: { warn: mockWarn },
   });
 }
 

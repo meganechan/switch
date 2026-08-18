@@ -64,8 +64,13 @@ export interface SessionSpawner {
   launch(roomId: string, startCursor?: number): Promise<void>;
 }
 
-/** Post a message to a room on the agent's behalf (the spawn-failure notice). Throws on non-OK. */
-async function postRoomMessage(
+/**
+ * Post a message to a room on the agent's behalf. Throws on non-OK.
+ *
+ * Used for the two notices this VM owes a room it cannot serve: a spawn that
+ * failed outright, and one that succeeded into a session which never started.
+ */
+export async function postRoomMessage(
   creds: SwitchAgentCredentials,
   roomId: string,
   content: string

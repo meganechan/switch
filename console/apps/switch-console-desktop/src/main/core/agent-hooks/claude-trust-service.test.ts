@@ -40,6 +40,7 @@ function makeService(overrides: { autoTrustWorktrees?: boolean } = {}): ClaudeTr
   return new ClaudeTrustService({
     getSessionSettings: () =>
       Promise.resolve({ autoTrustWorktrees: overrides.autoTrustWorktrees ?? true }),
+    log: { warn: mockWarn },
   });
 }
 

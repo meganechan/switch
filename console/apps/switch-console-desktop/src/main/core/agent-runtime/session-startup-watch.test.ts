@@ -1,14 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SessionStartupWatch, type StartupStall } from './session-startup-watch';
 
-vi.mock('@main/lib/logger', () => ({
-  log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
-
 const TIMEOUT_MS = 45_000;
 
 function makeWatch(): { watch: SessionStartupWatch; stalls: StartupStall[] } {
-  const watch = new SessionStartupWatch(TIMEOUT_MS);
+  const watch = new SessionStartupWatch(TIMEOUT_MS, { warn: vi.fn(), error: vi.fn() });
   const stalls: StartupStall[] = [];
   watch.onStall((stall) => stalls.push(stall));
   return { watch, stalls };

@@ -2,6 +2,23 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+/**
+ * The logging surface the trust writers need.
+ *
+ * Injected rather than imported so they can run in the sidecar bundle, which
+ * must not pull in the Electron-bound main-process file logger — the same
+ * reason the hook-event parser takes its logger as a parameter. The sidecar
+ * writes these same files on the VM before it spawns a session there.
+ */
+export interface TrustLogger {
+  warn(message: string, meta?: Record<string, unknown>): void;
+}
+
+export interface TrustServiceDeps {
+  getSessionSettings: () => Promise<{ autoTrustWorktrees: boolean }>;
+  log: TrustLogger;
+}
+
 export async function readLocalConfig(configPath: string): Promise<string | null> {
   try {
     return await fs.readFile(configPath, 'utf8');

@@ -1,12 +1,12 @@
 import path from 'node:path';
 import * as toml from 'smol-toml';
-import { appSettingsService } from '@main/core/settings/settings-service';
-import { log } from '@main/lib/logger';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
   configWriteLock,
   isPlainObject,
   readLocalConfig,
+  type TrustLogger,
+  type TrustServiceDeps,
   writeLocalConfigAtomic,
 } from './trust-config-io';
 
@@ -25,11 +25,7 @@ const CODEX_CONFIG_NAME = '.codex/config.toml';
  * own working directory and never an ancestor.
  */
 export class CodexTrustService {
-  constructor(
-    private readonly deps: {
-      getSessionSettings: () => Promise<{ autoTrustWorktrees: boolean }>;
-    }
-  ) {}
+  constructor(private readonly deps: TrustServiceDeps) {}
 
   async maybeAutoTrustLocal({
     providerId,
@@ -54,11 +50,11 @@ export class CodexTrustService {
     await configWriteLock.run(configPath, async () => {
       try {
         const raw = (await readLocalConfig(configPath)) ?? '';
-        const next = withCodexTrustedProject(raw, normalizedPath);
+        const next = withCodexTrustedProject(raw, normalizedPath, this.deps.log);
         if (next === null) return;
         await writeLocalConfigAtomic(configPath, next);
       } catch (error: unknown) {
-        log.warn('CodexTrustService: failed to auto-trust worktree', {
+        this.deps.log.warn('CodexTrustService: failed to auto-trust worktree', {
           path: normalizedPath,
           configPath,
           error: String(error),
@@ -67,10 +63,6 @@ export class CodexTrustService {
     });
   }
 }
-
-export const codexTrustService = new CodexTrustService({
-  getSessionSettings: () => appSettingsService.get('sessions'),
-});
 
 /**
  * Returns the config text with `<worktreePath>` trusted, or null to leave the
@@ -81,7 +73,11 @@ export const codexTrustService = new CodexTrustService({
  * commented, and re-serialising it would silently drop all of that on a write
  * they did not ask for.
  */
-export function withCodexTrustedProject(raw: string, worktreePath: string): string | null {
+export function withCodexTrustedProject(
+  raw: string,
+  worktreePath: string,
+  log: TrustLogger
+): string | null {
   let config: Record<string, unknown>;
   try {
     config = toml.parse(raw) as Record<string, unknown>;

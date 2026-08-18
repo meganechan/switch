@@ -1,11 +1,11 @@
 import path from 'node:path';
-import { appSettingsService } from '@main/core/settings/settings-service';
-import { log } from '@main/lib/logger';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
   configWriteLock,
   isPlainObject,
   readLocalConfig,
+  type TrustLogger,
+  type TrustServiceDeps,
   writeLocalConfigAtomic,
 } from './trust-config-io';
 
@@ -17,11 +17,7 @@ const CLAUDE_SKIP_BYPASS_PROMPT_KEY = 'skipDangerousModePermissionPrompt';
 const COPILOT_CONFIG_NAME = '.copilot/config.json';
 
 export class ClaudeTrustService {
-  constructor(
-    private readonly deps: {
-      getSessionSettings: () => Promise<{ autoTrustWorktrees: boolean }>;
-    }
-  ) {}
+  constructor(private readonly deps: TrustServiceDeps) {}
 
   async maybeAutoTrustLocal({
     providerId,
@@ -73,7 +69,11 @@ export class ClaudeTrustService {
     const settingsPath = path.join(worktreePath, CLAUDE_LOCAL_SETTINGS_NAME);
     await configWriteLock.run(settingsPath, async () => {
       try {
-        const settings = parseConfig(await readLocalConfig(settingsPath), 'Claude settings');
+        const settings = parseConfig(
+          await readLocalConfig(settingsPath),
+          'Claude settings',
+          this.deps.log
+        );
         if (!settings) return;
         if (settings[CLAUDE_SKIP_BYPASS_PROMPT_KEY] === true) return;
         await writeLocalConfigAtomic(
@@ -81,7 +81,7 @@ export class ClaudeTrustService {
           JSON.stringify({ ...settings, [CLAUDE_SKIP_BYPASS_PROMPT_KEY]: true }, null, 2) + '\n'
         );
       } catch (error: unknown) {
-        log.warn('ClaudeTrustService: failed to accept bypass-permissions mode', {
+        this.deps.log.warn('ClaudeTrustService: failed to accept bypass-permissions mode', {
           settingsPath,
           error: String(error),
         });
@@ -124,23 +124,19 @@ export class ClaudeTrustService {
   ): Promise<void> {
     try {
       const rawConfig = await io.readConfig();
-      const config = parseConfig(rawConfig, io.trustConfig.parseWarningName);
+      const config = parseConfig(rawConfig, io.trustConfig.parseWarningName, this.deps.log);
       if (!config) return;
       const nextConfig = io.trustConfig.withTrustedPath(config, normalizedPath);
       if (!nextConfig) return;
       await io.writeConfig(JSON.stringify(nextConfig, null, 2) + '\n');
     } catch (error: unknown) {
-      log.warn('ClaudeTrustService: failed to auto-trust worktree', {
+      this.deps.log.warn('ClaudeTrustService: failed to auto-trust worktree', {
         path: normalizedPath,
         error: String(error),
       });
     }
   }
 }
-
-export const claudeTrustService = new ClaudeTrustService({
-  getSessionSettings: () => appSettingsService.get('sessions'),
-});
 
 type TrustConfig = {
   configName: string;
@@ -151,7 +147,11 @@ type TrustConfig = {
   ) => Record<string, unknown> | null;
 };
 
-function parseConfig(raw: string | null, warningName: string): Record<string, unknown> | null {
+function parseConfig(
+  raw: string | null,
+  warningName: string,
+  log: TrustLogger
+): Record<string, unknown> | null {
   if (!raw || raw.trim() === '') return {};
 
   try {

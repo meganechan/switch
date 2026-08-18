@@ -1,5 +1,3 @@
-import { log } from '@main/lib/logger';
-
 /**
  * How long a spawned session may go without reporting that it is up before
  * Switch Console treats it as stalled.
@@ -16,6 +14,17 @@ export type StartupStall = {
   sessionId: string;
   providerId: string;
 };
+
+/**
+ * The logging surface this needs, injected rather than imported so the watch
+ * can run in the sidecar bundle — which must not pull in the Electron-bound
+ * main-process file logger, and which is where a remote session's startup is
+ * actually observed.
+ */
+export interface StartupWatchLogger {
+  warn(message: string, meta?: Record<string, unknown>): void;
+  error(message: string, meta?: Record<string, unknown>): void;
+}
 
 type Watch = {
   sessionId: string;
@@ -44,7 +53,10 @@ export class SessionStartupWatch {
   private readonly watches = new Map<string, Watch>();
   private readonly stallHandlers = new Set<(stall: StartupStall) => void>();
 
-  constructor(private readonly timeoutMs: number) {}
+  constructor(
+    private readonly timeoutMs: number,
+    private readonly log: StartupWatchLogger
+  ) {}
 
   /** Subscribe to sessions that never reported a start. Returns an unsubscribe. */
   onStall(handler: (stall: StartupStall) => void): () => void {
@@ -101,6 +113,20 @@ export class SessionStartupWatch {
     return new Promise<boolean>((resolve) => watch.settle.push(resolve));
   }
 
+  /**
+   * True when this pty is being watched and has not reported yet — the window
+   * in which its pane may still be showing a startup prompt, so nothing should
+   * be typed into it.
+   *
+   * A pty with no watch is not blocked. Only a spawn arms one, so an adopted or
+   * already-running session must not be held mute waiting for a report that was
+   * never expected of it.
+   */
+  blocksInjection(ptyId: string): boolean {
+    const watch = this.watches.get(ptyId);
+    return watch !== undefined && !watch.started;
+  }
+
   private settleAll(watch: Watch, started: boolean): void {
     const waiters = watch.settle.splice(0);
     for (const resolve of waiters) resolve(started);
@@ -110,7 +136,7 @@ export class SessionStartupWatch {
     const watch = this.watches.get(ptyId);
     if (!watch || watch.started) return;
 
-    log.error('AgentRuntime: session never reported that it started', {
+    this.log.error('AgentRuntime: session never reported that it started', {
       event: 'switch_session_startup_stalled',
       sessionId: watch.sessionId,
       providerId: watch.providerId,
@@ -122,7 +148,7 @@ export class SessionStartupWatch {
       try {
         handler(stall);
       } catch (error) {
-        log.warn('AgentRuntime: startup-stall handler failed', {
+        this.log.warn('AgentRuntime: startup-stall handler failed', {
           sessionId: watch.sessionId,
           error: String(error),
         });
@@ -130,5 +156,3 @@ export class SessionStartupWatch {
     }
   }
 }
-
-export const sessionStartupWatch = new SessionStartupWatch(STARTUP_SIGNAL_TIMEOUT_MS);

@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { type AgentBridgeEvent, SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
-import {
-  sessionStartupWatch,
-  STARTUP_SIGNAL_TIMEOUT_MS,
-} from '@main/core/agent-runtime/session-startup-watch';
+import { sessionStartupWatch } from '@main/core/agent-runtime/desktop-session-startup-watch';
+import { STARTUP_SIGNAL_TIMEOUT_MS } from '@main/core/agent-runtime/session-startup-watch';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import {

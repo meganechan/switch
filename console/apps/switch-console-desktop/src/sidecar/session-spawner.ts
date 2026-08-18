@@ -4,9 +4,12 @@ import { mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { promisify } from 'node:util';
+import { createDirTrustService } from '@main/core/agent-hooks/dir-trust';
+import type { SessionStartupWatch } from '@main/core/agent-runtime/session-startup-watch';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { quoteShellArg } from '@main/utils/shellEscape';
+import { asAgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { buildAgentHookEnv } from '@shared/core/pty/hookEnv';
 import { asPtyProviderId, makePtyId } from '@shared/core/pty/ptyId';
 import {
@@ -19,6 +22,12 @@ import type { SessionSpawner, WatcherLogger } from './notification-watcher';
 import { makeAgentTmuxSessionName } from './vm-tmux';
 
 const execFileAsync = promisify(execFile);
+
+/** Whether this provider fires a hook when its session comes up. */
+function reportsSessionStart(providerId: string): boolean {
+  const hooks = getPlugin(providerId).capabilities.hooks;
+  return hooks.kind !== 'none' && hooks.reportsSessionStart;
+}
 
 /** The runtime slice the spawner needs to tell whether a room is already served. */
 export interface RoomLivenessSource {
@@ -55,6 +64,8 @@ export interface InProcessSessionSpawnerDeps {
   /** Whether a given tmux target is currently live (poller-backed cache). */
   isPaneLive: (tmuxTarget: string) => boolean;
   log: WatcherLogger;
+  /** Shared with the runtime, which receives the sessions' reports. */
+  startupWatch: SessionStartupWatch;
   /** Run a command on the VM. Injected so tests can drive it without a real host. */
   exec?: (command: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 }
@@ -115,7 +126,7 @@ export class InProcessSessionSpawner implements SessionSpawner {
     }
   }
 
-  /** The room a launched (not-yet-connected) session was started for, or null. */
+  /** The room a launched session was started for, or null if we did not start it. */
   roomIdForSession(sessionId: string): string | null {
     for (const [roomId, session] of this.launched) {
       if (session.sessionId === sessionId) return roomId;
@@ -170,13 +181,15 @@ export class InProcessSessionSpawner implements SessionSpawner {
     const connectionId =
       this.deps.openConnectionFor?.(sessionId, spec.providerId, roomId, startCursor) ?? null;
 
+    // The spec is JSON off the host's disk, so its provider id is only a
+    // string until something checks it.
+    const ptyId = makePtyId(asPtyProviderId(spec.providerId), sessionId);
+
     const hookEnv = {
       ...this.deps.switchEnv,
       ...buildAgentHookEnv({
         port: hookPort,
-        // The spec is JSON off the host's disk, so its provider id is only a
-        // string until something checks it.
-        ptyId: makePtyId(asPtyProviderId(spec.providerId), sessionId),
+        ptyId,
         token: hookToken,
         endpointFile,
       }),
@@ -191,6 +204,13 @@ export class InProcessSessionSpawner implements SessionSpawner {
 
     await this.writeLaunchFiles();
     await this.installHooks();
+    await this.clearStartupPrompts();
+    // Armed only for a session this sidecar is spawning right now, so an
+    // adopted or already-running pane is never held mute waiting for a report
+    // that was never expected of it.
+    if (reportsSessionStart(spec.providerId)) {
+      this.deps.startupWatch.begin({ ptyId, sessionId, providerId: spec.providerId });
+    }
     await this.startDetachedTmux(tmuxTarget, spec.cwd, command.env, command.command, command.args);
     this.launched.set(roomId, { sessionId, tmuxTarget });
     log.info('InProcessSessionSpawner: launched session for room', {
@@ -214,6 +234,34 @@ export class InProcessSessionSpawner implements SessionSpawner {
       // without knowing this VM's home.
       await atomicWriteFile(absPath, file.content.split(HOME_PLACEHOLDER).join(homedir()));
     }
+  }
+
+  /**
+   * Answer the CLI's own first-run prompts for this directory before spawning
+   * into it — workspace trust, and the confirmation a bypass-permissions launch
+   * provokes.
+   *
+   * Has to happen here rather than on the desktop: the entries go in config
+   * files belonging to the machine the session runs on, and this is that
+   * machine. Without it a VM session stops on a prompt with nobody in front of
+   * the terminal to answer it, which is worse here than locally — the pane is
+   * on a host nobody is looking at.
+   *
+   * Best-effort by design (the writers log and continue), because an unwritable
+   * config is not a reason to refuse to start a session that may well come up
+   * fine; the startup watch reports it if it does not.
+   */
+  private async clearStartupPrompts(): Promise<void> {
+    const spec = this.spec;
+    await createDirTrustService({
+      getSessionSettings: async () => ({ autoTrustWorktrees: spec.autoTrustWorktrees }),
+      log: this.deps.log,
+    }).maybeAutoTrustLocal({
+      providerId: asAgentProviderId(spec.providerId),
+      cwd: spec.cwd,
+      homedir: homedir(),
+      force: spec.autoApprove,
+    });
   }
 
   /**

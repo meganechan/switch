@@ -1,6 +1,6 @@
 import type { IDisposable, IInitializable } from '@switch-console/shared';
 import { eq } from 'drizzle-orm';
-import { sessionStartupWatch } from '@main/core/agent-runtime/session-startup-watch';
+import { sessionStartupWatch } from '@main/core/agent-runtime/desktop-session-startup-watch';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { saveProviderSessionId } from '@main/core/sessions/operations/save-provider-session-id';
 import { setProviderSessionId } from '@main/core/sessions/operations/set-provider-session-id';

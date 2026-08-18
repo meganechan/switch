@@ -35,6 +35,7 @@ function makeService(overrides: { autoTrustWorktrees?: boolean } = {}): CursorTr
   return new CursorTrustService({
     getSessionSettings: () =>
       Promise.resolve({ autoTrustWorktrees: overrides.autoTrustWorktrees ?? true }),
+    log: { warn: mockWarn },
   });
 }
 

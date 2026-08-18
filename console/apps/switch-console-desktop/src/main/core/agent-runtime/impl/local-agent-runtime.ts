@@ -34,7 +34,7 @@ import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
 import type { Session } from '@shared/core/sessions/sessions';
-import { sessionStartupWatch } from '../session-startup-watch';
+import { sessionStartupWatch } from '../desktop-session-startup-watch';
 import { scheduleInitialPromptInjection } from './keystroke-injection';
 import { resolveAgentExecutable } from './resolve-agent-executable';
 
