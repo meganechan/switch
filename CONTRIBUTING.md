@@ -44,30 +44,6 @@ CLA instead of each employee signing individually:
 To add or remove authorized contributors later, the company emails an updated,
 signed copy to the same address.
 
-## Development setup
-
-```bash
-uv sync            # install dependencies
-just up            # start Switch locally (Docker Compose)
-just migrate       # apply database migrations
-```
-
-## Before you open a pull request
-
-- **Format & lint:** `just check` (CI runs `ruff format --check` + `ruff check`).
-- **Type-check:** `just typecheck` (mypy over `core/switch_core/`).
-- **Test:** `just test` (pytest; store tests run against a real PostgreSQL
-  instance, not mocks or SQLite).
-
-## Conventions
-
-Code style, import rules, and the error-handling philosophy ("fail loud, never
-fake") are documented in [CLAUDE.md](CLAUDE.md). That file is written as
-instructions for AI coding agents working in this repository, but the
-conventions it describes are the ones the project follows, so it is worth
-reading before making substantial changes — matching the surrounding code keeps
-review fast.
-
 ## License
 
 By contributing, you agree that your contributions will be licensed under the
