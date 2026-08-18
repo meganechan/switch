@@ -1,5 +1,6 @@
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { claudeTrustService } from './claude-trust-service';
+import { codexTrustService } from './codex-trust-service';
 import { cursorTrustService } from './cursor-trust-service';
 
 type DirTrustLocalArgs = {
@@ -23,4 +24,8 @@ export class DirTrustService {
   }
 }
 
-export const dirTrustService = new DirTrustService([claudeTrustService, cursorTrustService]);
+export const dirTrustService = new DirTrustService([
+  claudeTrustService,
+  codexTrustService,
+  cursorTrustService,
+]);

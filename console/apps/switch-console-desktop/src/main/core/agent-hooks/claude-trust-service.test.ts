@@ -32,6 +32,10 @@ vi.mock('@main/lib/logger', () => ({
   },
 }));
 
+function renamedTo(): string[] {
+  return mockRename.mock.calls.map(([, target]) => String(target));
+}
+
 function makeService(overrides: { autoTrustWorktrees?: boolean } = {}): ClaudeTrustService {
   return new ClaudeTrustService({
     getSessionSettings: () =>
@@ -53,7 +57,7 @@ describe('ClaudeTrustService', () => {
     const service = makeService();
 
     await service.maybeAutoTrustLocal({
-      providerId: 'codex',
+      providerId: 'opencode',
       cwd: '/tmp/worktree',
       homedir: '/home/local-user',
     });
@@ -86,7 +90,55 @@ describe('ClaudeTrustService', () => {
     });
 
     expect(mockReadFile).toHaveBeenCalledWith('/home/local-user/.claude.json', 'utf8');
-    expect(mockWriteFile).toHaveBeenCalledTimes(1);
+    expect(renamedTo()).toContain('/home/local-user/.claude.json');
+  });
+
+  it('accepts the bypass-permissions warning only when auto-approve forced the launch', async () => {
+    const service = makeService();
+
+    await service.maybeAutoTrustLocal({
+      providerId: 'claude',
+      cwd: '/tmp/worktree',
+      homedir: '/home/local-user',
+    });
+
+    expect(renamedTo()).not.toContain('/home/local-user/.claude/settings.json');
+
+    vi.clearAllMocks();
+    mockReadFile.mockRejectedValue(Object.assign(new Error('not found'), { code: 'ENOENT' }));
+
+    await service.maybeAutoTrustLocal({
+      providerId: 'claude',
+      cwd: '/tmp/worktree',
+      homedir: '/home/local-user',
+      force: true,
+    });
+
+    const settingsWrite = mockWriteFile.mock.calls.find(([tmpPath]) =>
+      String(tmpPath).startsWith('/home/local-user/.claude/settings.json.')
+    );
+    expect(settingsWrite).toBeDefined();
+    expect(JSON.parse(String(settingsWrite?.[1]))).toEqual({
+      skipDangerousModePermissionPrompt: true,
+    });
+  });
+
+  it('leaves Claude settings alone when the bypass warning is already accepted', async () => {
+    const service = makeService();
+    mockReadFile.mockImplementation(async (target: string) =>
+      String(target).endsWith('.claude/settings.json')
+        ? JSON.stringify({ skipDangerousModePermissionPrompt: true, model: 'opus' })
+        : null
+    );
+
+    await service.maybeAutoTrustLocal({
+      providerId: 'claude',
+      cwd: '/tmp/worktree',
+      homedir: '/home/local-user',
+      force: true,
+    });
+
+    expect(renamedTo()).not.toContain('/home/local-user/.claude/settings.json');
   });
 
   it('writes local config atomically when missing', async () => {
@@ -111,9 +163,9 @@ describe('ClaudeTrustService', () => {
     expect(renameTo).toBe('/home/local-user/.claude.json');
 
     const written = JSON.parse(String(content));
-    expect(written.locations[path.resolve(relPath)]).toEqual({
+    expect(written.projects[path.resolve(relPath)]).toEqual({
       hasTrustDialogAccepted: true,
-      hasCompletedLocationOnboarding: true,
+      hasCompletedProjectOnboarding: true,
     });
   });
 
@@ -158,10 +210,11 @@ describe('ClaudeTrustService', () => {
     const trustedPath = '/already/trusted';
     mockReadFile.mockResolvedValue(
       JSON.stringify({
-        locations: {
+        hasCompletedOnboarding: true,
+        projects: {
           [trustedPath]: {
             hasTrustDialogAccepted: true,
-            hasCompletedLocationOnboarding: true,
+            hasCompletedProjectOnboarding: true,
           },
         },
       })
@@ -237,13 +290,13 @@ describe('ClaudeTrustService', () => {
 
     expect(mockWriteFile).toHaveBeenCalledTimes(2);
     const secondWriteContent = JSON.parse(String(mockWriteFile.mock.calls[1][1]));
-    expect(secondWriteContent.locations[path.resolve('/worktree/a')]).toEqual({
+    expect(secondWriteContent.projects[path.resolve('/worktree/a')]).toEqual({
       hasTrustDialogAccepted: true,
-      hasCompletedLocationOnboarding: true,
+      hasCompletedProjectOnboarding: true,
     });
-    expect(secondWriteContent.locations[path.resolve('/worktree/b')]).toEqual({
+    expect(secondWriteContent.projects[path.resolve('/worktree/b')]).toEqual({
       hasTrustDialogAccepted: true,
-      hasCompletedLocationOnboarding: true,
+      hasCompletedProjectOnboarding: true,
     });
   });
 });
