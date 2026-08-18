@@ -99,10 +99,12 @@ const config: Configuration = {
     hardenedRuntime: true,
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.plist',
-    target: [
-      { target: 'dmg', arch: ['arm64'] },
-      { target: 'zip', arch: ['arm64'] },
-    ],
+    // No `arch` here, for the same reason as `linux` below: naming an arch makes
+    // every invocation build it and ignore the `--x64` / `--arm64` flag, and
+    // `npmRebuild: false` means the package carries whatever native modules the
+    // earlier `pnpm rebuild` produced for the host. The release workflow builds
+    // each arch on a runner of that arch and passes the matching flag.
+    target: ['dmg', 'zip'],
     icon: 'src/assets/images/switch-console/switch-console-beta.icns',
     // electron-builder reads the App Store Connect API key from APPLE_API_KEY
     // (path to .p8) / APPLE_API_KEY_ID / APPLE_API_ISSUER when notarize is on.
