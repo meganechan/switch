@@ -680,6 +680,8 @@ version of their own to them without also giving them a release of their own.
 
 #### Changed
 
+- **Windows builds are now signed** with Azure Trusted Signing, so the installer
+  and app no longer trip SmartScreen's unknown-publisher warning (CHOO-1468).
 - Local-server mode now bundles and pulls **switch-core `0.17.2`** (was
   `0.17.1`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
   current core release.
