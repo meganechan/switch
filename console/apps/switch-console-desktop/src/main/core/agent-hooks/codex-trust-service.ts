@@ -2,6 +2,7 @@ import path from 'node:path';
 import * as toml from 'smol-toml';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
+  canonicalTrustPath,
   configWriteLock,
   isPlainObject,
   readLocalConfig,
@@ -45,7 +46,7 @@ export class CodexTrustService {
       if (!autoTrustWorktrees) return;
     }
 
-    const normalizedPath = path.resolve(cwd);
+    const normalizedPath = await canonicalTrustPath(cwd);
     const configPath = path.join(homedir, CODEX_CONFIG_NAME);
     await configWriteLock.run(configPath, async () => {
       try {

@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import {
+  canonicalTrustPath,
   configWriteLock,
   isPlainObject,
   readLocalConfig,
@@ -31,12 +32,13 @@ export class ClaudeTrustService {
     force?: boolean;
   }): Promise<void> {
     if (!cwd) return;
+    if (providerId !== CLAUDE_PROVIDER_ID && providerId !== COPILOT_PROVIDER_ID) return;
+    const normalizedPath = await canonicalTrustPath(cwd);
     if (providerId === CLAUDE_PROVIDER_ID && force) {
-      await this.acceptBypassPermissionsMode(path.resolve(cwd));
+      await this.acceptBypassPermissionsMode(normalizedPath);
     }
     const trustConfig = await this.getTrustConfig(providerId, force);
     if (!trustConfig) return;
-    const normalizedPath = path.resolve(cwd);
     const configPath = path.join(homedir, trustConfig.configName);
     await configWriteLock.run(configPath, () =>
       this.ensureTrusted(normalizedPath, {

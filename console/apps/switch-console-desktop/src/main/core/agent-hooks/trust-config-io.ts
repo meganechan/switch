@@ -19,6 +19,29 @@ export interface TrustServiceDeps {
   log: TrustLogger;
 }
 
+/**
+ * The path an agent CLI will recognise as its own working directory.
+ *
+ * Symlinks have to be resolved, not just relative segments: a process asks the
+ * kernel where it is and gets the real path back, so a CLI comparing its cwd
+ * against a trust entry never sees the link. Verified against Claude Code
+ * 2.1.234 and codex-cli 0.146.0 — running in a symlinked directory, an entry
+ * written under the link is ignored and the prompt appears, while the same
+ * entry under the resolved path clears it.
+ *
+ * Falls back to the unresolved path only when the directory does not exist
+ * yet, which is not a case a session can be launched into anyway.
+ */
+export async function canonicalTrustPath(cwd: string): Promise<string> {
+  const resolved = path.resolve(cwd);
+  try {
+    return await fs.realpath(resolved);
+  } catch (error: unknown) {
+    if (isNodeNotFound(error)) return resolved;
+    throw error;
+  }
+}
+
 export async function readLocalConfig(configPath: string): Promise<string | null> {
   try {
     return await fs.readFile(configPath, 'utf8');

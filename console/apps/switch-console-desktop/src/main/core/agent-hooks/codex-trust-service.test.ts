@@ -9,6 +9,8 @@ const mockMkdir = vi.hoisted(() => vi.fn());
 const mockRename = vi.hoisted(() => vi.fn());
 const mockRm = vi.hoisted(() => vi.fn());
 const mockWarn = vi.hoisted(() => vi.fn());
+// Trust keys are the resolved path; identity here keeps the fixtures literal.
+const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
 
 vi.mock('node:fs', () => ({
   promises: {
@@ -17,6 +19,7 @@ vi.mock('node:fs', () => ({
     mkdir: mockMkdir,
     rename: mockRename,
     rm: mockRm,
+    realpath: mockRealpath,
   },
 }));
 

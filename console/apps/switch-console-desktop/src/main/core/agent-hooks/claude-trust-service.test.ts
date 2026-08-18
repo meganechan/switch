@@ -8,6 +8,8 @@ const mockMkdir = vi.hoisted(() => vi.fn());
 const mockRename = vi.hoisted(() => vi.fn());
 const mockRm = vi.hoisted(() => vi.fn());
 const mockWarn = vi.hoisted(() => vi.fn());
+// Trust keys are the resolved path; identity here keeps the fixtures literal.
+const mockRealpath = vi.hoisted(() => vi.fn(async (p: string) => p));
 
 vi.mock('node:fs', () => ({
   promises: {
@@ -16,6 +18,7 @@ vi.mock('node:fs', () => ({
     mkdir: mockMkdir,
     rename: mockRename,
     rm: mockRm,
+    realpath: mockRealpath,
   },
 }));
 
@@ -168,6 +171,24 @@ describe('ClaudeTrustService', () => {
       hasTrustDialogAccepted: true,
       hasCompletedProjectOnboarding: true,
     });
+  });
+
+  it('keys trust to the resolved directory, not the symlink used to reach it', async () => {
+    const service = makeService();
+    mockRealpath.mockImplementation(async (p: string) =>
+      p === '/link/to/worktree' ? '/real/worktree' : p
+    );
+
+    await service.maybeAutoTrustLocal({
+      providerId: 'claude',
+      cwd: '/link/to/worktree',
+      homedir: '/home/local-user',
+    });
+
+    // A process asks the kernel where it is and gets the real path back, so a
+    // CLI comparing its cwd against a trust entry never sees the link.
+    const written = JSON.parse(String(mockWriteFile.mock.calls[0][1]));
+    expect(Object.keys(written.projects)).toEqual(['/real/worktree']);
   });
 
   it('leaves the global first-run setup wizard for the user to answer', async () => {

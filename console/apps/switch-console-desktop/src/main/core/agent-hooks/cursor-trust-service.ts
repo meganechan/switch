@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
-import type { TrustServiceDeps } from './trust-config-io';
+import { canonicalTrustPath, type TrustServiceDeps } from './trust-config-io';
 
 const CURSOR_PROVIDER_ID: AgentProviderId = 'cursor';
 const CURSOR_DATA_DIR_NAME = '.cursor';
@@ -25,7 +25,7 @@ export class CursorTrustService {
     if (!cwd) return;
     if (!(await this.shouldAutoTrust(providerId, force))) return;
 
-    const workspacePath = path.resolve(cwd);
+    const workspacePath = await canonicalTrustPath(cwd);
     const dataDir = path.join(homedir, CURSOR_DATA_DIR_NAME);
     const markerPath = path.join(
       cursorLocationDir(workspacePath, dataDir, path),
