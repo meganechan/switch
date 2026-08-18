@@ -193,11 +193,19 @@ jobs:
             x64) expected=x86_64 ;;
             *) echo "::error::unhandled arch '${{ matrix.arch }}'"; exit 1 ;;
           esac
-          app="$(find release -maxdepth 2 -type d -name '*.app' | head -1)"
-          if [ -z "$app" ]; then
-            echo "::error::no .app under release/ — nothing to check"
+          apps=()
+          while IFS= read -r found; do
+            apps+=("$found")
+          done < <(find release -maxdepth 2 -type d -name '*.app')
+          if [ "${#apps[@]}" -ne 1 ]; then
+            # One target arch means one bundle. More than one means the config
+            # started building both again, and checking an arbitrary bundle would
+            # make this assertion a coin flip on the wrong one.
+            echo "::error::expected exactly one .app under release/, found ${#apps[@]}"
+            printf '%s\n' "${apps[@]}"
             exit 1
           fi
+          app="${apps[0]}"
           binaries=("$app/Contents/MacOS/$(basename "$app" .app)")
           while IFS= read -r module; do
             binaries+=("$module")
@@ -226,19 +234,29 @@ jobs:
         if: ${{ env.HAS_DEVELOPER_ID == 'true' }}
         working-directory: console/apps/switch-console-desktop
         run: |
-          app="$(find release -maxdepth 2 -type d -name '*.app' | head -1)"
-          if [ -z "$app" ]; then
-            echo "::error::no .app under release/ — nothing to check"
+          apps=()
+          while IFS= read -r found; do
+            apps+=("$found")
+          done < <(find release -maxdepth 2 -type d -name '*.app')
+          if [ "${#apps[@]}" -ne 1 ]; then
+            echo "::error::expected exactly one .app under release/, found ${#apps[@]}"
+            printf '%s\n' "${apps[@]}"
             exit 1
           fi
+          app="${apps[0]}"
           codesign --verify --deep --strict --verbose=2 "$app"
           # The stapled ticket is what lets a Mac clear the app offline; without it
           # the first launch is a Gatekeeper prompt however well-signed the bundle is.
           xcrun stapler validate "$app"
-          # And the assessment a user's Mac actually makes on first open. Printed
-          # first because `spctl` reports "assessments disabled" rather than failing,
-          # which would otherwise make a rejected build look accepted.
-          spctl --status
+          # `spctl --assess` reports a rejected build as accepted when assessment is
+          # switched off on the machine, so the assessment is worth nothing until
+          # this says it is on.
+          status="$(spctl --status 2>&1)"
+          echo "$status"
+          case "$status" in
+            *"assessments enabled"*) ;;
+            *) echo "::error::Gatekeeper assessment is off on this runner ($status) — spctl --assess cannot be trusted here"; exit 1 ;;
+          esac
           spctl --assess --type execute --verbose=4 "$app"
 
       - name: Upload to GitHub Release

@@ -22,9 +22,11 @@
  *
  * The first input is the base document: its `version`, `releaseDate` and the
  * legacy top-level `path`/`sha512` survive, and every other input contributes
- * only its `files` entries. Pass arm64 first to leave those top-level fields
- * pointing where they have always pointed, for any client old enough to read them
- * instead of `files`.
+ * only its `files` entries. Pass arm64 first, so those top-level fields keep
+ * naming what they have always named. They can only ever name one architecture,
+ * so they are wrong for the other by construction — which is harmless because
+ * every client reads `files`; `path` is only consulted for a manifest that has no
+ * `files` at all.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -80,6 +82,11 @@ function parseManifest(input: ManifestInput): UpdateManifest {
   for (const file of manifest.files) {
     if (file === null || typeof file !== 'object' || typeof file.url !== 'string') {
       fail(`${input.source} has a file entry without a url`);
+    }
+    // electron-updater rejects a checksum-less entry with ERR_UPDATER_NO_CHECKSUM
+    // on the user's machine. Catch it while it is still a build failure.
+    if (typeof file.sha512 !== 'string' || file.sha512 === '') {
+      fail(`${input.source} lists '${file.url}' without a sha512`);
     }
   }
   return manifest;

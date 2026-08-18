@@ -4,7 +4,7 @@ import {
   type ManifestInput,
   type UpdateManifest,
   mergeMacUpdateManifests,
-} from './merge-mac-update-manifest.ts';
+} from './merge-mac-update-manifest';
 
 function manifest(arch: string, version = '0.28.0'): string {
   return [
@@ -94,6 +94,22 @@ describe('mergeMacUpdateManifests', () => {
 
     expect(() => mergeMacUpdateManifests([input('arm64'), input('x64', dmgOnly)])).toThrow(
       /lists no .zip/
+    );
+  });
+
+  it('refuses a file entry with no checksum', () => {
+    const noChecksum = [
+      'version: 0.28.0',
+      'files:',
+      '  - url: switch-console-x64.zip',
+      '    size: 147344955',
+      'path: switch-console-x64.zip',
+      "releaseDate: '2026-08-18T08:53:14.463Z'",
+      '',
+    ].join('\n');
+
+    expect(() => mergeMacUpdateManifests([input('arm64'), input('x64', noChecksum)])).toThrow(
+      /without a sha512/
     );
   });
 
