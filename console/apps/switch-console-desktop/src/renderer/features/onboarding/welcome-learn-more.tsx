@@ -55,7 +55,7 @@ export function WelcomeFooter() {
   return (
     <div className="flex items-center justify-center gap-2 pt-6 text-xs text-foreground-muted">
       <span>
-        Switch is an open source project of <span className="text-foreground">Flint AI</span> by
+        Switch is a project of <span className="text-foreground">Flint AI</span> by
         SandboxAQ
       </span>
       <span aria-hidden>|</span>
