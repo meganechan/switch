@@ -83,7 +83,19 @@ export function requesterNameOf(event: AgentBridgeEvent): string | null {
  * looking at. That is the whole point of a notice saying nobody is coming.
  */
 export function addressedTo(requesterName: string | null, body: string): string {
-  return requesterName ? `@${requesterName} ${body}` : body;
+  return requesterName ? `${body} (FYI @${requesterName})` : body;
+}
+
+/**
+ * What the room is told when a session never came up.
+ *
+ * Deliberately short and undramatic: the reader is waiting on an answer, and
+ * what they need is that one is not coming and where to look — not a diagnosis
+ * of a CLI they may not run. The link opens the session itself, which is where
+ * the unanswered prompt is sitting.
+ */
+export function startupStallNotice(sessionLink: string): string {
+  return `My session seems to be blocked on something and never started — most likely a prompt only a human can answer. Open it: ${sessionLink}`;
 }
 
 /**

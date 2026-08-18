@@ -13,7 +13,7 @@
  * pane opens the moment the report lands either way. A stall never resolves
  * itself, so the only thing a longer wait buys is a later notice.
  */
-export const STARTUP_SIGNAL_TIMEOUT_MS = 4_000;
+export const STARTUP_SIGNAL_TIMEOUT_MS = 6_000;
 
 export type StartupStall = {
   sessionId: string;

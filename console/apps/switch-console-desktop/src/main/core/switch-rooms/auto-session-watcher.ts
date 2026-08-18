@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { type AgentBridgeEvent, SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
+import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
 import { sessionStartupWatch } from '@main/core/agent-runtime/desktop-session-startup-watch';
 import { STARTUP_SIGNAL_TIMEOUT_MS } from '@main/core/agent-runtime/session-startup-watch';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
@@ -20,6 +21,7 @@ import {
   setAutoSessionAgent,
   setAutoSessionSubagent,
 } from './auto-session-store';
+import { buildSessionDeeplink } from './session-deeplink';
 import {
   readSwitchAgentCredentials,
   readSwitchAgentCredentialsFromSettings,
@@ -145,11 +147,20 @@ function requesterNameOf(event: AgentBridgeEvent): string | null {
  * looking at. That is the whole point of a notice saying nobody is coming.
  */
 function addressedTo(requesterName: string | null, body: string): string {
-  return requesterName ? `@${requesterName} ${body}` : body;
+  return requesterName ? `${body} (FYI @${requesterName})` : body;
 }
 
-const STARTUP_STALL_NOTICE =
-  "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look.";
+/**
+ * What the room is told when a session never came up.
+ *
+ * Deliberately short and undramatic: the reader is waiting on an answer, and
+ * what they need is that one is not coming and where to look — not a diagnosis
+ * of a CLI they may not run. The link opens the session itself, which is where
+ * the unanswered prompt is sitting.
+ */
+function startupStallNotice(sessionLink: string): string {
+  return `My session seems to be blocked on something and never started — most likely a prompt only a human can answer. Open it: ${sessionLink}`;
+}
 
 const SPAWN_FAILED_NOTICE =
   "I tried to start a session to handle this but couldn't — my operator may need to start one manually.";
@@ -321,7 +332,18 @@ class AutoSessionWatcher {
       void postRoomMessage(
         spawned.creds,
         spawned.roomId,
-        addressedTo(spawned.requesterName, STARTUP_STALL_NOTICE)
+        addressedTo(
+          spawned.requesterName,
+          startupStallNotice(
+            buildSessionDeeplink({
+              scheme: DEEPLINK_SCHEME,
+              apiEndpoint: spawned.creds.apiEndpoint,
+              agentId: spawned.creds.agentId,
+              roomId: spawned.roomId,
+              sessionId,
+            })
+          )
+        )
       ).catch((error) => {
         log.warn('AutoSessionWatcher: failed to post startup-stall notice', {
           roomId: spawned.roomId,

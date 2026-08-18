@@ -10,6 +10,7 @@ import {
   STARTUP_SIGNAL_TIMEOUT_MS,
 } from '@main/core/agent-runtime/session-startup-watch';
 import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
+import { buildSessionDeeplink } from '@main/core/switch-rooms/session-deeplink';
 import {
   readSwitchAgentCredentials,
   readSwitchAgentCredentialsFromSettings,
@@ -21,6 +22,7 @@ import {
   addressedTo,
   NotificationWatcher,
   postRoomMessage,
+  startupStallNotice,
   type WatcherLogger,
 } from './notification-watcher';
 import { InProcessSessionSpawner } from './session-spawner';
@@ -225,7 +227,15 @@ async function main(): Promise<void> {
       roomId,
       addressedTo(
         requesterName,
-        "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look."
+        startupStallNotice(
+          buildSessionDeeplink({
+            scheme: deeplinkScheme,
+            apiEndpoint: creds.apiEndpoint,
+            agentId: creds.agentId,
+            roomId,
+            sessionId,
+          })
+        )
       )
     ).catch((error) => {
       log.warn('sidecar: failed to post startup-stall notice', { roomId, error: String(error) });
