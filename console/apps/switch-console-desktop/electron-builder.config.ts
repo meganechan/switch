@@ -160,26 +160,36 @@ const config: Configuration = {
   rpm: {
     packageName: APP_NAME_LOWER,
   },
-  // `publisherName` is deliberately unset. electron-updater verifies a downloaded
-  // installer's Authenticode signature against the publisher named in
-  // app-update.yml, and the name has to match the certificate subject exactly —
-  // a wrong value rejects every update rather than failing at build time. Until
-  // the certificate's common name is known verbatim, leaving it unset writes no
-  // publisher into app-update.yml, which makes the updater skip that check.
-  // Signing itself is unaffected; setting the real string later strengthens it.
   win: {
     icon: 'src/assets/images/switch-console/app-icon-beta.png',
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'msi', arch: ['x64'] },
     ],
-    azureSignOptions: hasAzureSigning
+    // Off until the certificate's subject common name is known verbatim. This
+    // flag is what decides whether `publisherName` below is copied into
+    // app-update.yml, and electron-updater rejects any update whose signature
+    // does not match the name it finds there. A wrong name therefore breaks
+    // updating for everyone already installed, and does so silently and later —
+    // whereas leaving the field out of the manifest merely skips the check.
+    // Turn this on in the same change that sets the real name.
+    verifyUpdateCodeSignature: false,
+    ...(hasAzureSigning
       ? {
-          endpoint: 'https://eus.codesigning.azure.net/',
-          codeSigningAccountName: 'cg-asa-basic-eastus',
-          certificateProfileName: 'cg-public',
+          azureSignOptions: {
+            endpoint: 'https://eus.codesigning.azure.net/',
+            codeSigningAccountName: 'cg-asa-basic-eastus',
+            certificateProfileName: 'cg-public',
+            // Required by electron-builder's schema, so it cannot be omitted, but
+            // it is stripped before the signing call and never reaches the
+            // certificate — the signature's real publisher comes from the
+            // certificate itself. Its only effect is on app-update.yml, which
+            // verifyUpdateCodeSignature: false above suppresses. Treat it as
+            // unverified until a signed build confirms the actual subject.
+            publisherName: 'SandboxAQ',
+          },
         }
-      : undefined,
+      : {}),
   },
   msi: {
     oneClick: false,

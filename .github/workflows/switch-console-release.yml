@@ -569,6 +569,11 @@ jobs:
           ')"
           if [ "$signed" != "0" ]; then
             echo "Authenticode signature present ($signed bytes)."
+            # The subject's CN is the string `publisherName` has to match before
+            # verifyUpdateCodeSignature can be turned on, and the certificate is
+            # the only authoritative source for it.
+            powershell -NoProfile -Command \
+              '$s = Get-AuthenticodeSignature "release\switch-console-x64.exe"; Write-Host "status: $($s.Status)"; Write-Host "subject: $($s.SignerCertificate.Subject)"'
           elif [ -n "$AZURE_CLIENT_ID" ]; then
             echo "::error::Azure credentials were present but the installer is unsigned."
             exit 1
