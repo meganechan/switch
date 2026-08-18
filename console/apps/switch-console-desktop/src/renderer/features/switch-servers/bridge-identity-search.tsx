@@ -203,7 +203,7 @@ function DirectoryResults({
       <p className="text-xs text-foreground-muted">
         {hasDirectory
           ? `Type at least ${MIN_QUERY_LENGTH} characters to search the workspace directory.`
-          : `Type at least ${MIN_QUERY_LENGTH} characters to search the people Switch has seen on ${platform}. It has no directory to search — someone appears here once they have sent a message.`}
+          : `Type at least ${MIN_QUERY_LENGTH} characters to search the people Switch has seen on ${platform}. It has no directory to search — you appear here once you have sent a message in a chat the bot is in.`}
       </p>
     );
   }

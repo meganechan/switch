@@ -216,11 +216,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
     runHostReady &&
     submitState === 'idle';
 
-  const finishWith = (locationId: string) => {
+  /** `agentName` is what picks the agent out of the location — a location can
+   * hold several, so navigating on `locationId` alone opens the directory
+   * rather than the agent that was just created. */
+  const finishWith = (agent: { locationId: string; name: string }) => {
     setCloseGuard(false);
     setSubmitState('idle');
     onClose();
-    navigate('location', { locationId });
+    navigate('location', { locationId: agent.locationId, agentName: agent.name });
   };
 
   const reportProvisionError = (result: ProvisionAgentResult) => {
@@ -238,6 +241,14 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
         title: 'Agent name already taken',
         description:
           'An agent with this name already exists in this directory or on the server. Pick another name.',
+        variant: 'destructive',
+      });
+      return;
+    }
+    if (result.kind === 'credentials-conflict') {
+      toast({
+        title: 'That name belongs to another Switch server here',
+        description: `This directory already holds credentials for an agent of that name on ${result.endpoint}. Overwriting them would destroy that agent's API token, so nothing was created — pick another name, or a different directory.`,
         variant: 'destructive',
       });
       return;
@@ -293,8 +304,8 @@ export const AddAgentModal = observer(function AddAgentModal({ onClose }: AddLoc
           policy: form.addressingPolicy,
         });
       }
-      void agentsStore.load();
-      finishWith(result.agent.locationId);
+      await agentsStore.load();
+      finishWith(result.agent);
     } catch (error) {
       log.error(error);
       setCloseGuard(false);

@@ -645,6 +645,34 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+
+- Switch Console now asks, the first time you open it, whether you are happy to
+  share anonymous usage data, and states plainly what that would and would not
+  include. The choice is saved per install and can be changed at any time from
+  **Settings → General** (CHOO-1955).
+- The app still sends nothing: there is no telemetry to consent to yet. What
+  this adds is the control and the contract — a single gate that any future
+  collection must ask before sending, which fails closed, so a fresh install
+  that has not reached the prompt sends nothing regardless of how the toggle
+  reads. Because the toggle defaults to on, `console/AGENTS.md` now pins what a
+  payload may ever contain: anonymous counters, and no identifier of any kind.
+
+#### Fixed
+
+- Two Switch Console installs sharing a host no longer destroy each other's
+  agents. Per-agent credentials live at `.switch/agents/<name>.json`, keyed by
+  name alone, and each install's uniqueness check only sees its own database —
+  so an agent created with a name another install had already used in that
+  directory overwrote its credentials file. Because the write merged into what
+  was there, the result was one file carrying the new agent's identity and the
+  old one's remaining keys: the displaced agent's sessions authenticated as the
+  new agent rather than failing, and its API token, issued once, was gone.
+  Creating, provisioning and renaming an agent now refuse a name whose
+  credentials in that directory belong to a different Switch server, and say
+  which one. Refusal happens before the identity is minted, so nothing is left
+  stranded on the server.
+
 ### [0.27.1] - 2026-08-17
 
 #### Changed
@@ -2045,6 +2073,15 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+#### Fixed
+
+- The `configure` skill no longer overwrites a credentials file that belongs to
+  another Switch setup. Its script writes `.switch/agents/<name>.json` by name
+  alone and truncated whatever was there, which in a directory shared with a
+  Switch Console install (or an earlier run against a different server) destroyed
+  a token that is issued once and stored nowhere else. It now stops before
+  registering if that file names a different Switch server, and reports which.
 
 ### [0.3.5] - 2026-08-15
 

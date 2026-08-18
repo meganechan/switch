@@ -183,31 +183,39 @@ function RoomHeading({ room }: { room: RemoteRoomDetail }) {
   );
 }
 
-/** What the field is doing, once the user has stopped typing in it. */
+/** What the section is doing, once the user has stopped typing in it. */
 type SaveState = { phase: 'idle' | 'saving' | 'saved' } | { phase: 'failed'; message: string };
 
 /**
- * Description and instructions, saved when the field is left.
+ * Description and instructions, written when Save is pressed.
  *
- * There is no Save button, so the saving has to be visible: a field says when it
- * is writing, when it has written, and — in the field's own words rather than a
- * toast that has already gone — when the server refused. Silence would leave a
- * typed value looking stored when it is not.
+ * They used to commit when a field lost focus, which meant the moment they were
+ * stored was the moment you looked away — and leaving the tab was the only
+ * thing that reliably did it. Editing and storing are now separate acts, and
+ * the button says which state the section is in: changed and unsaved, writing,
+ * written, or refused in the server's own words.
+ *
+ * One request carries both fields, so the pair is stored together or not at all.
  */
 function GeneralSection({ serverId, room }: { serverId: string; room: RemoteRoomDetail }) {
   const queryClient = useQueryClient();
-  const [description, setDescription] = useState(room.description);
-  const [instructions, setInstructions] = useState(room.instructions ?? '');
-  const [descriptionSave, setDescriptionSave] = useState<SaveState>({ phase: 'idle' });
-  const [instructionsSave, setInstructionsSave] = useState<SaveState>({ phase: 'idle' });
+  const savedDescription = room.description;
+  const savedInstructions = room.instructions ?? '';
+  const [description, setDescription] = useState(savedDescription);
+  const [instructions, setInstructions] = useState(savedInstructions);
+  const [state, setState] = useState<SaveState>({ phase: 'idle' });
 
-  async function save(
-    changes: { description: string } | { instructions: string },
-    setState: (state: SaveState) => void
-  ) {
+  const dirty = description !== savedDescription || instructions !== savedInstructions;
+
+  async function save() {
     setState({ phase: 'saving' });
     try {
-      const updated = await rpc.switchServers.updateRoom({ serverId, roomId: room.id, ...changes });
+      const updated = await rpc.switchServers.updateRoom({
+        serverId,
+        roomId: room.id,
+        description,
+        instructions,
+      });
       queryClient.setQueryData(roomDetailKey(serverId, room.id), updated);
       setState({ phase: 'saved' });
     } catch (cause) {
@@ -222,7 +230,6 @@ function GeneralSection({ serverId, room }: { serverId: string; room: RemoteRoom
       <Field
         label="Description"
         hint="Helps other people and agents understand what this room is for."
-        state={descriptionSave}
       >
         <Input
           className="h-9"
@@ -230,60 +237,68 @@ function GeneralSection({ serverId, room }: { serverId: string; room: RemoteRoom
           value={description}
           onChange={(e) => {
             setDescription(e.target.value);
-            setDescriptionSave({ phase: 'idle' });
-          }}
-          onBlur={() => {
-            if (description === room.description) return;
-            void save({ description }, setDescriptionSave);
+            setState({ phase: 'idle' });
           }}
         />
       </Field>
 
-      <Field
-        label="Instructions"
-        hint="Sent to every agent as it joins the room."
-        state={instructionsSave}
-      >
+      <Field label="Instructions" hint="Sent to every agent as it joins the room.">
         <Textarea
           rows={4}
           placeholder="Optional guidance shown to agents when they enter the room"
           value={instructions}
           onChange={(e) => {
             setInstructions(e.target.value);
-            setInstructionsSave({ phase: 'idle' });
-          }}
-          onBlur={() => {
-            if (instructions === (room.instructions ?? '')) return;
-            void save({ instructions }, setInstructionsSave);
+            setState({ phase: 'idle' });
           }}
         />
       </Field>
+
+      {/* The status sits beside the button rather than under a field: one
+          request covers both, so there is one answer to report. */}
+      <div className="flex items-center justify-end gap-3">
+        <SaveStatus state={state} dirty={dirty} />
+        <Button
+          type="button"
+          size="sm"
+          disabled={!dirty || state.phase === 'saving'}
+          onClick={() => void save()}
+        >
+          {state.phase === 'saving' ? 'Saving…' : 'Save'}
+        </Button>
+      </div>
     </section>
   );
+}
+
+/** Says where the edits stand, so an unsaved change is never silent. */
+function SaveStatus({ state, dirty }: { state: SaveState; dirty: boolean }) {
+  if (state.phase === 'failed') {
+    return <span className="text-destructive text-xs">Not saved — {state.message}</span>;
+  }
+  if (state.phase === 'saved' && !dirty) {
+    return <span className="text-xs text-foreground-muted">Saved.</span>;
+  }
+  if (dirty) {
+    return <span className="text-xs text-foreground-muted">Unsaved changes.</span>;
+  }
+  return null;
 }
 
 function Field({
   label,
   hint,
-  state,
   children,
 }: {
   label: string;
   hint: string;
-  state: SaveState;
   children: React.ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-1.5">
       <span className="text-sm text-foreground-muted">{label}</span>
       {children}
-      {state.phase === 'failed' ? (
-        <span className="text-destructive text-xs">Not saved — {state.message}</span>
-      ) : (
-        <span className="text-xs text-foreground-muted">
-          {state.phase === 'saving' ? 'Saving…' : state.phase === 'saved' ? 'Saved.' : hint}
-        </span>
-      )}
+      <span className="text-xs text-foreground-muted">{hint}</span>
     </div>
   );
 }

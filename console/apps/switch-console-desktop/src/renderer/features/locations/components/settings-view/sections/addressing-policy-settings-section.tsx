@@ -151,10 +151,10 @@ function AddressingPolicyRow({
         onChange={change}
         inlineLabel={
           <span className="flex items-center gap-1.5 text-sm leading-snug font-medium">
-            Who can send instructions
+            Who can talk to your agent
             <InfoTooltip
               label="More info about addressing"
-              content="Sending instructions means an @mention, a targeted message, or a delegated task. Only you, anyone in the agent's rooms, or whoever a rule admits."
+              content="Talking to an agent means an @mention, a targeted message, or a delegated task. Only you, anyone in the agent's rooms, or whoever a rule admits."
             />
           </span>
         }
