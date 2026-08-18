@@ -189,8 +189,8 @@ jobs:
         working-directory: console/apps/switch-console-desktop
         run: |
           case "${{ matrix.arch }}" in
-            arm64) expected=arm64 ;;
-            x64) expected=x86_64 ;;
+            arm64) expected=arm64; foreign=darwin-x64 ;;
+            x64) expected=x86_64; foreign=darwin-arm64 ;;
             *) echo "::error::unhandled arch '${{ matrix.arch }}'"; exit 1 ;;
           esac
           apps=()
@@ -207,15 +207,31 @@ jobs:
           fi
           app="${apps[0]}"
           binaries=("$app/Contents/MacOS/$(basename "$app" .app)")
+          modules=0
+          skipped=0
           while IFS= read -r module; do
+            # Dependencies vendor a prebuilt binary per target — node-pty ships
+            # Windows ones, which are not Mach-O at all, next to both macOS
+            # arches. A path naming a target other than ours says nothing about
+            # what this build produced. The binaries that do — the electron-rebuild
+            # output under `build/Release` — name no target, so they are always
+            # checked.
+            case "$module" in
+              *win32*|*linux*|*"$foreign"*)
+                skipped=$((skipped + 1))
+                continue
+                ;;
+            esac
             binaries+=("$module")
+            modules=$((modules + 1))
           done < <(find "$app" -type f -name '*.node')
-          if [ "${#binaries[@]}" -lt 2 ]; then
+          if [ "$modules" -eq 0 ]; then
             # asarUnpack is what leaves the native modules on disk to inspect. If
             # they stop appearing, this check has quietly stopped checking.
-            echo "::error::found no unpacked .node under $app — cannot verify native module arch"
+            echo "::error::found no unpacked .node to check under $app — cannot verify native module arch"
             exit 1
           fi
+          echo "checking ${#binaries[@]} binaries ($skipped vendored non-$expected prebuild(s) skipped)"
           failed=""
           for binary in "${binaries[@]}"; do
             archs="$(lipo -archs "$binary" 2>/dev/null || echo "unreadable")"
