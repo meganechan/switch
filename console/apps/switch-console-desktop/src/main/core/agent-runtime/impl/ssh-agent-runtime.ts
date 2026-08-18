@@ -909,6 +909,13 @@ export class SshAgentRuntime implements AgentRuntimeProvider, AttachableRuntime 
         session,
         initialPrompt,
         isResuming: agentSession.isResuming,
+        // An SSH session's hooks fire on the remote host, and whether they
+        // reach this hook server has not been established. Until it has, keep
+        // the settle heuristic rather than gating the pane on a signal that
+        // may never arrive. Startup prompts are also unhandled here: this
+        // runtime writes no trust entries, because they belong on the far side
+        // of the connection.
+        awaitStartupSignal: null,
         onOpenForInjection: () => ptySessionRegistry.markOpenForInjection(ptySessionId),
       });
     } catch (error) {

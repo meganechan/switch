@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { type AgentBridgeEvent, SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
+import {
+  sessionStartupWatch,
+  STARTUP_SIGNAL_TIMEOUT_MS,
+} from '@main/core/agent-runtime/session-startup-watch';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import {
@@ -42,6 +46,12 @@ function spawnTurnOf(event: AgentBridgeEvent): SpawnTurn | null {
 
 const SPAWN_MAX_ATTEMPTS = 3;
 const SPAWN_RETRY_DELAY_MS = 2000;
+
+/**
+ * How long a spawn stays eligible for a startup-stall notice. Comfortably past
+ * STARTUP_SIGNAL_TIMEOUT_MS, which is when the verdict actually lands.
+ */
+const SPAWN_STALL_WATCH_TTL_MS = STARTUP_SIGNAL_TIMEOUT_MS + 30_000;
 // How long a room stays "spawn in flight" before the guard is cleared.
 //
 // This covers the window the server cannot: it learns a session exists only
@@ -149,10 +159,21 @@ async function postRoomMessage(
 class AutoSessionWatcher {
   private readonly watchers = new Map<string, AgentWatcher>();
   private roomChangeUnsub: (() => void) | null = null;
+  private startupStallUnsub: (() => void) | null = null;
+  /**
+   * Rooms whose waiting message is riding on a session this watcher spawned,
+   * so a session that never starts can be reported to the people waiting on
+   * it. Sessions spawned any other way have no room to answer to.
+   */
+  private readonly spawnedForRoom = new Map<
+    string,
+    { roomId: string; creds: SwitchAgentCredentials; expiry: ReturnType<typeof setTimeout> }
+  >();
 
   /** Start watchers for every agent and subagent currently mirrored as auto_session. */
   async initialize(): Promise<void> {
     this.subscribeToRoomConnections();
+    this.subscribeToStartupStalls();
     const ids = await listAutoSessionAgentIds();
     for (const agentId of ids) {
       // Self-heal stale mirror entries: an agent deleted by a build that did not
@@ -213,6 +234,64 @@ class AutoSessionWatcher {
       for (const watcher of this.watchers.values()) {
         if (watcher.creds.agentId === agentId) this.clearInFlight(watcher, roomId);
       }
+    });
+  }
+
+  /**
+   * A session spawned to answer a room never reported that it started, so the
+   * message that triggered it is going unanswered and the room has been told
+   * one is coming. Say so there instead of leaving the human waiting on a
+   * session that looks alive.
+   *
+   * The in-flight guard is cleared too, so the next message can try again
+   * rather than being suppressed by a spawn that went nowhere.
+   */
+  private rememberSpawn(sessionId: string, roomId: string, creds: SwitchAgentCredentials): void {
+    this.forgetSpawn(sessionId);
+    // Only the stall verdict is of interest, and it lands within the watch's
+    // own timeout; past that the entry is dead weight on a session that came up
+    // fine.
+    const expiry = setTimeout(() => this.forgetSpawn(sessionId), SPAWN_STALL_WATCH_TTL_MS);
+    expiry.unref?.();
+    this.spawnedForRoom.set(sessionId, { roomId, creds, expiry });
+  }
+
+  private forgetSpawn(sessionId: string): void {
+    const spawned = this.spawnedForRoom.get(sessionId);
+    if (!spawned) return;
+    clearTimeout(spawned.expiry);
+    this.spawnedForRoom.delete(sessionId);
+  }
+
+  private subscribeToStartupStalls(): void {
+    if (this.startupStallUnsub) return;
+    this.startupStallUnsub = sessionStartupWatch.onStall(({ sessionId, providerId }) => {
+      const spawned = this.spawnedForRoom.get(sessionId);
+      if (!spawned) return;
+      this.forgetSpawn(sessionId);
+
+      for (const watcher of this.watchers.values()) {
+        if (watcher.creds.agentId === spawned.creds.agentId) {
+          this.clearInFlight(watcher, spawned.roomId);
+        }
+      }
+
+      log.error('AutoSessionWatcher: spawned session never started', {
+        roomId: spawned.roomId,
+        sessionId,
+        providerId,
+      });
+
+      void postRoomMessage(
+        spawned.creds,
+        spawned.roomId,
+        "I started a session to handle this but it never came up — it's most likely stopped on a prompt from the CLI that only a human can answer. My operator needs to take a look."
+      ).catch((error) => {
+        log.warn('AutoSessionWatcher: failed to post startup-stall notice', {
+          roomId: spawned.roomId,
+          error: String(error),
+        });
+      });
     });
   }
 
@@ -355,6 +434,9 @@ class AutoSessionWatcher {
   dispose(): void {
     this.roomChangeUnsub?.();
     this.roomChangeUnsub = null;
+    this.startupStallUnsub?.();
+    this.startupStallUnsub = null;
+    for (const sessionId of [...this.spawnedForRoom.keys()]) this.forgetSpawn(sessionId);
     for (const id of [...this.watchers.keys()]) this.stopForAgent(id);
   }
 
@@ -569,6 +651,7 @@ class AutoSessionWatcher {
             roomId,
             sessionId: result.data.session.id,
           });
+          this.rememberSpawn(result.data.session.id, roomId, watcher.creds);
           // createSession provisions the runtime inline but emits only
           // session:created — not session:provisioned. Without the latter an
           // open renderer leaves the session stuck "Setting up session…"

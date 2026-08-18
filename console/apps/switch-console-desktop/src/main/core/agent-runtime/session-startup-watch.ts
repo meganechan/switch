@@ -1,0 +1,134 @@
+import { log } from '@main/lib/logger';
+
+/**
+ * How long a spawned session may go without reporting that it is up before
+ * Switch Console treats it as stalled.
+ *
+ * Generous on purpose. A cold start pays for the CLI's own boot, auth and MCP
+ * server startup, and calling a slow start a failure is its own kind of wrong
+ * — the report goes to a room where a human reads it. A session parked on a
+ * startup prompt stays parked, so waiting longer costs only how late the
+ * notice is, never whether it arrives.
+ */
+export const STARTUP_SIGNAL_TIMEOUT_MS = 45_000;
+
+export type StartupStall = {
+  sessionId: string;
+  providerId: string;
+};
+
+type Watch = {
+  sessionId: string;
+  providerId: string;
+  started: boolean;
+  timer: ReturnType<typeof setTimeout>;
+  settle: ((started: boolean) => void)[];
+};
+
+/**
+ * Tracks whether a spawned session ever reported that it was really running.
+ *
+ * The gap this closes: a CLI that stops on a first-run prompt — workspace
+ * trust, setup, a bypass warning — has spawned, is alive, and will never
+ * answer. Nothing about the process says so, and the terminal cannot be asked
+ * without pattern-matching the text of a security prompt, which fails silently
+ * and wrongly the moment the wording changes. A hook the CLI fires when its
+ * session comes up says it directly: it arrives when the session is running
+ * and not at all when it is parked.
+ *
+ * Only for providers that declare `reportsSessionStart`. Everywhere else there
+ * is no signal to wait on, and inventing one from terminal output is the thing
+ * this exists to avoid.
+ */
+export class SessionStartupWatch {
+  private readonly watches = new Map<string, Watch>();
+  private readonly stallHandlers = new Set<(stall: StartupStall) => void>();
+
+  constructor(private readonly timeoutMs: number) {}
+
+  /** Subscribe to sessions that never reported a start. Returns an unsubscribe. */
+  onStall(handler: (stall: StartupStall) => void): () => void {
+    this.stallHandlers.add(handler);
+    return () => this.stallHandlers.delete(handler);
+  }
+
+  begin(args: { ptyId: string; sessionId: string; providerId: string }): void {
+    this.end(args.ptyId);
+    const timer = setTimeout(() => this.reportStall(args.ptyId), this.timeoutMs);
+    // The wait outlives the timeout: a session that is merely slow still
+    // reports eventually, and its pane should open when it does.
+    timer.unref?.();
+    this.watches.set(args.ptyId, {
+      sessionId: args.sessionId,
+      providerId: args.providerId,
+      started: false,
+      timer,
+      settle: [],
+    });
+  }
+
+  /**
+   * A hook fired for this pty, so the CLI is past its startup prompts and
+   * running. Any hook proves it, not only the session-start one.
+   */
+  markStarted(ptyId: string): void {
+    const watch = this.watches.get(ptyId);
+    if (!watch || watch.started) return;
+    watch.started = true;
+    clearTimeout(watch.timer);
+    this.settleAll(watch, true);
+  }
+
+  /** The pty is gone; nothing is coming. */
+  end(ptyId: string): void {
+    const watch = this.watches.get(ptyId);
+    if (!watch) return;
+    this.watches.delete(ptyId);
+    clearTimeout(watch.timer);
+    this.settleAll(watch, watch.started);
+  }
+
+  /**
+   * Resolves true once the session reports it is up, or false if the pty exits
+   * first. Deliberately has no timeout of its own: a stall is worth reporting
+   * but is not proof the session is dead, and typing into a pane that may still
+   * be showing a security prompt is the failure this is here to prevent.
+   */
+  waitForStart(ptyId: string): Promise<boolean> {
+    const watch = this.watches.get(ptyId);
+    if (!watch) return Promise.resolve(false);
+    if (watch.started) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => watch.settle.push(resolve));
+  }
+
+  private settleAll(watch: Watch, started: boolean): void {
+    const waiters = watch.settle.splice(0);
+    for (const resolve of waiters) resolve(started);
+  }
+
+  private reportStall(ptyId: string): void {
+    const watch = this.watches.get(ptyId);
+    if (!watch || watch.started) return;
+
+    log.error('AgentRuntime: session never reported that it started', {
+      event: 'switch_session_startup_stalled',
+      sessionId: watch.sessionId,
+      providerId: watch.providerId,
+      waitedMs: this.timeoutMs,
+    });
+
+    const stall: StartupStall = { sessionId: watch.sessionId, providerId: watch.providerId };
+    for (const handler of this.stallHandlers) {
+      try {
+        handler(stall);
+      } catch (error) {
+        log.warn('AgentRuntime: startup-stall handler failed', {
+          sessionId: watch.sessionId,
+          error: String(error),
+        });
+      }
+    }
+  }
+}
+
+export const sessionStartupWatch = new SessionStartupWatch(STARTUP_SIGNAL_TIMEOUT_MS);
