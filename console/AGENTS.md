@@ -181,7 +181,8 @@ Package desktop artifacts locally:
 
 ```bash
 pnpm run package
-pnpm run package:mac
+pnpm run package:mac           # arm64
+pnpm run package:mac:x64
 pnpm run package:linux         # x64
 pnpm run package:linux:arm64
 pnpm run package:win
@@ -198,9 +199,19 @@ Two things these scripts do NOT do for you:
   `pnpm --filter @switch-console/desktop run rebuild` last produced is what
   gets copied into the package.
 
-The Linux scripts name an arch for that second reason: the natives are built for
-the host, so packaging the other arch yields a package that installs, launches,
-and dies on the first wrong-arch `.node`. Build each arch on that arch.
+The macOS and Linux scripts name an arch for that second reason: the natives are
+built for the host, so packaging the other arch yields a package that installs,
+launches, and dies on the first wrong-arch `.node`. Build each arch on that arch
+— which is also why the release workflow runs macOS twice, on an Apple silicon
+runner and an Intel one, rather than passing both flags to one job.
+
+The two macOS builds share one auto-update channel file. electron-builder writes
+`latest-mac.yml` for every macOS arch (the per-arch suffix it gives Linux is
+Linux-only), so neither release job publishes its own — `merge-mac-manifest`
+combines them into one manifest listing both, which is what electron-updater
+reads and how it routes each Mac to its own build. Anything that changes macOS
+artifact names has to keep `arm64` in the Apple silicon file names: that
+substring is the whole of the updater's routing rule.
 
 Run formatting, linting, type checks, and tests:
 
