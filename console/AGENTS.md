@@ -428,14 +428,36 @@ pnpm run lint
     export scrub. Never read the raw log file from outside `file-logger.ts`.
 - **An agent's Switch API token lives in exactly one file:**
   `<working dir>/.switch/agents/<slug>.json`, beside a generated `.gitignore`
-  containing `*`. `.claude/settings.local.json` carries the endpoint and agent
-  id only — it is Claude Code's own file, read by every session in the
-  directory, and does not need the credential. Do not add a token back to it:
-  two copies is how one goes stale and authenticates as the wrong agent.
-  - Three consumers read this layout: switchdash, the sidecar, and
-    `@sandboxaq/switch-agent-runtime` (which reads it directly when
-    nothing sets `SWITCH_*` in the environment). Changing the shape means
-    changing all three.
+  containing `*`. For the agents **Switch Console** manages it also writes
+  `.claude/settings.local.json` carrying the endpoint and agent id only — Claude
+  Code's own file, read by every session in the directory, which does not need
+  the credential. Do not add a token back to it: two copies is how one goes stale
+  and authenticates as the wrong agent.
+  - **That write is Switch Console's alone.** The connector's `configure` skill
+    deliberately writes no `SWITCH_*` into any settings file — a directory it
+    sets up carries the store and nothing else, which is the resolution path that
+    works on every runtime. Do not "restore" the env block there to match this
+    layout; the skill strips it on sight.
+  - **Where Switch Console does write it, Claude Code makes it live.** Its `env`
+    block becomes real process environment for everything a session spawns, the
+    Switch runtime and the connector's hooks included — so the agent id in it
+    decides who a hand-started session is, and an id naming no entry under
+    `.switch/agents/` fails every session in that directory rather than falling
+    back. Keep the two in step; changing one means changing the other.
+  - Four consumers read this layout: switchdash, the sidecar,
+    `@sandboxaq/switch-agent-runtime`, and the Claude connector's
+    `hooks/switch_hook.py`. The runtime and the hook read it whenever the
+    environment does not already carry a complete identity — including when it
+    carries a *partial* one, which is the ordinary case above. Changing the
+    shape means changing all four.
+  - The runtime and the hook are the same resolution written twice, in two
+    languages, over the same directory. They must agree: where they don't, a
+    session acts as one agent and is mediated as another, and nothing fails to
+    say so. The hook keys on the agent id the session recorded when it joined a
+    room — not on the settings file — so a directory holding several agents
+    still resolves exactly. Change one and change the other, and keep the paired
+    cases in `bin.handshake.test.ts` and `test_claude_connector_hook.py`
+    matching.
   - The token being in a working tree at all is a known exposure — a
     `.gitignore` stops `git add` and not an archive, a sync or `git add -f`.
     Moving it out is tracked separately; it is deliberately not solved by

@@ -692,6 +692,13 @@ version of their own to them without also giving them a release of their own.
 
 #### Fixed
 
+- A directory configured by the connector's `configure` skill is recognised as
+  an agent again. Detection read the identity only out of
+  `.claude/settings.local.json`, which the skill deliberately no longer writes
+  into — writing two of the three `SWITCH_*` values there is what broke
+  standalone sessions. It now falls back to the credentials store, and names no
+  agent when the store holds several, since choosing between them is
+  `select_agent`'s job and not detection's.
 - An auto-started session now receives the message it was started for. Its room
   connection opens before the terminal is spawned, so the replayed trigger had
   nowhere to go and — unlike the other wait paths — never retried: the agent
@@ -1862,6 +1869,33 @@ The Switch protocol client and MCP runtime
 
 ### [Unreleased]
 
+#### Fixed
+- An environment naming an agent but carrying no token now resolves against the
+  local agent store instead of refusing to start. Any partial `SWITCH_*`
+  environment was treated as a broken config, but that is the exact shape a host
+  settings file produces when the credential is deliberately kept out of the
+  working tree — and Claude Code exports its settings `env` block into the
+  process, MCP subprocesses included. Switch Console writes exactly that shape for its own
+  agents, so a session started by hand in a directory it set up degraded to
+  `switch_unavailable` with a perfectly good store on disk beside it. The
+  `configure` skill used to write it too; it no longer does, so this is a safety
+  net for the Switch Console case rather than how the standalone path works.
+
+  The agent id makes the lookup exact, so nothing is guessed: an id that matches
+  no store entry, one belonging to a different server, or one claimed by two
+  entries at once all still refuse. A token missing either of the others also
+  still refuses — inferring where to send a credential is a different order of
+  risk from inferring which one to send.
+- Refuses a *partly* expanded environment instead of filling the gap from disk.
+  Some `${SWITCH_*}` still literal while others resolved means a substitution
+  step did not finish, which is not the same as a value deliberately omitted —
+  and silently completing it from the store would authenticate as whatever is on
+  disk without saying so. All three unexpanded is still the host's ordinary
+  pre-expansion spawn.
+- `normalizeEndpoint` folds scheme and host case. It went from grouping
+  endpoints for display to gating whether an identity binds, and a
+  differently-cased host is the same server.
+
 ### [0.3.1] - 2026-08-12
 
 #### Changed
@@ -2017,6 +2051,78 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+#### Fixed
+- **The `configure` skill no longer breaks the standalone path it exists to set
+  up.** It wrote `SWITCH_API_ENDPOINT` and `SWITCH_AGENT_ID` into
+  `.claude/settings.local.json`, and Claude Code turns that `env` block into real
+  environment variables for everything it spawns — so every session it configured
+  started with two of the three values set. The runtime takes a complete
+  environment or none at all and refuses anything in between, deliberately, so
+  those sessions got no Switch tools whatsoever while the token sat unread in
+  `.switch/agents/<name>.json` beside them. The skill now writes the store and
+  nothing else, which is the mode the runtime already supports on every published
+  version; Step 1 strips any `SWITCH_*` an earlier run left in either settings
+  file, and Step 9 writes `permissions.allow` alone.
+- The hook no longer skips mediation on a standalone install. It read its
+  credentials from the environment only, and the `configure` skill deliberately
+  keeps the token out of there, so it reported itself unconfigured and returned
+  without reporting or mediating anything — silently, on every tool call. It now
+  falls back to the same `.switch/agents/*.json` store the runtime reads, keyed
+  on the agent id the session recorded when it joined a room, and names the
+  cause on stderr when it cannot resolve one instead of skipping quietly.
+- The runtime resolves an agent id carrying no token against the store rather
+  than refusing outright. The skill no longer produces that state, but Switch
+  Console writes the same two keys for its own agents, so a session started by
+  hand in a directory Switch Console set up hit the identical dead end.
+- The `configure` skill read a `401` from the health probe as the wrong server
+  and sent the user off to find a different URL. The bridge authenticates
+  everything but a few public routes, so a path left on the end of an otherwise
+  correct base URL answers 401 rather than 404 — the host was right and only
+  needed stripping back.
+- The hook resolves an identity the same way the runtime does in three more
+  cases, each of which let a session run while its governance quietly did not.
+  It folds endpoint case, as the runtime does, so a differently-cased host no
+  longer binds in one and matches nothing in the other. It refuses a partly
+  unexpanded `${SWITCH_*}` environment instead of completing it from disk. And
+  it refuses a token that is missing either of the other two, rather than
+  substituting a different credential from the store while the session itself
+  refuses to start — a test had asserted that substitution as correct.
+- A failed mediation check says so. Any error reaching the bridge — a revoked
+  token, an unreachable server, a timeout — was swallowed and the tool call
+  proceeded with nothing printed, which is indistinguishable from approval. The
+  call still proceeds, because a bridge outage must not wedge a session, but it
+  now says on stderr that it was not checked.
+- The `configure` skill no longer overwrites a credentials file that belongs to
+  another Switch setup. Its script writes `.switch/agents/<name>.json` by name
+  alone and truncated whatever was there, which in a directory shared with a
+  Switch Console install (or an earlier run against a different server) destroyed
+  a token that is issued once and stored nowhere else. It now stops before
+  registering if that file names a different Switch server, and reports which —
+  the same guard the Codex skill and Switch Console's own write paths got. The
+  subagent step gets it too, over
+  `.claude/switch-subagents/<name>.settings.json`: that path is Claude-only, so
+  it was outside that sweep, and it is checked across the whole batch before the
+  bulk registration, since refusing afterwards would strand every agent in it.
+
+#### Changed
+- The `configure` skill is rebuilt on the standalone shape the Codex connector
+  uses: registering and writing the credentials are separate steps that still run
+  as one command (the API key is returned once), the env-var expansion pitfall
+  sits beside the request it applies to rather than after the script that trips
+  on it, the heredoc wrapper is shown rather than described, and the server URL is
+  probed before anything depends on it. It also writes `permissions.allow` for the
+  connector's tools, which Switch Console always did and a skill-configured
+  install went without — so every room action stopped for an approval prompt.
+- The per-project vs global scope choice is gone. Global wrote the identity
+  machine-wide, but credentials are only ever read from the session's working
+  directory, so it behaved as per-project with extra steps.
+- The skill no longer asks for or sends `notify_user`, which left the platform
+  when owner-linked addressing arrived. It had survived here as a step collecting
+  a value the server no longer reads.
+- Both room-workflow skills list the full set of reasons `switch_unavailable`
+  can be the only tool, and both now point at the `configure` skill as the remedy
+  for the ones it can fix.
+
 ### [0.9.5] - 2026-08-18
 
 #### Changed
@@ -2106,8 +2212,10 @@ compatibility signal. History for those is in the git log.
   conclude anything from a truncated read.
 
 #### Removed
-- Dropped the bundled `configure` skill as part of removing the private-repo /
-  `gh` setup machinery now that the repository is public (CHOO-2023).
+- Dropped the `configure` skill's Step 0, which installed the private-repo /
+  `gh` setup machinery, now that the repository is public. The skill itself
+  stays; an earlier version of this entry said it had been removed wholesale,
+  which it had not.
 
 ### [0.7.9] - 2026-08-09
 
@@ -2149,6 +2257,14 @@ manifest history.
   Switch Console install (or an earlier run against a different server) destroyed
   a token that is issued once and stored nowhere else. It now stops before
   registering if that file names a different Switch server, and reports which.
+
+#### Changed
+- Skill: list the full set of reasons `switch_unavailable` can be the only tool.
+  The runtime is shared, so the identity failures added there apply here too;
+  three of the six were missing.
+- Skill: point at the `configure` skill as the remedy for the causes it can fix,
+  rather than saying the state is unfixable from inside the session — the Codex
+  `configure` skill shipped in 0.3.2, so the remedy now exists on both hosts.
 
 ### [0.3.5] - 2026-08-15
 
