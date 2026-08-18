@@ -379,7 +379,13 @@ class AgentClient(ClientBase[ClientConfig]):
                     body,
                     format="markdown",
                     mentions=[event.sender],
-                    thread_root_id=reply_thread_root,
+                    # Answer where the question was asked: `thread_id`, not the
+                    # reply root. They differ for a message at the conversation
+                    # root, where the reply root is the message itself — which
+                    # opens a thread off it, so a one-line "starting a session"
+                    # buries itself somewhere nobody is looking, away from the
+                    # answer that follows it.
+                    thread_root_id=thread_id,
                     extra_content={AUTO_REPLY_FLAG: True},
                 )
 
