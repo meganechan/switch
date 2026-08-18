@@ -15,6 +15,7 @@ import { observer } from 'mobx-react-lite';
 import { useEffect, useMemo, useState } from 'react';
 import { BridgeIcon, hasBridgeIcon } from '@renderer/lib/components/bridge-icon';
 import { bridgePlatformLabel } from '@renderer/lib/components/bridge-platform';
+import { failureText } from '@renderer/lib/errors/describe-failure';
 import { useToast } from '@renderer/lib/hooks/use-toast';
 import { rpc } from '@renderer/lib/ipc';
 import { useShowModal } from '@renderer/lib/modal/modal-provider';
@@ -164,9 +165,7 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
       }
       await queryClient.invalidateQueries({ queryKey: ['remote-bridges', serverId] });
     } catch (cause) {
-      setToggleError(
-        `Could not update ${bridge.displayName}: ${cause instanceof Error ? cause.message : String(cause)}`
-      );
+      setToggleError(failureText(cause, `Could not update ${bridge.displayName}.`));
     } finally {
       setSavingBridgeId(null);
     }
@@ -256,17 +255,19 @@ export const MessagingAppsCard = observer(function MessagingAppsCard({
 
       {identitiesError !== null && (
         <p className="text-destructive mt-2 text-xs">
-          Could not load your linked accounts:{' '}
-          {identitiesError instanceof Error ? identitiesError.message : String(identitiesError)}
+          {failureText(
+            identitiesError,
+            'Could not load which messaging accounts are linked to you, so this list may be incomplete.'
+          )}
         </p>
       )}
 
       {bridgesQuery.isError ? (
         <p className="text-destructive mt-3 text-xs">
-          Could not load messaging apps:{' '}
-          {bridgesQuery.error instanceof Error
-            ? bridgesQuery.error.message
-            : String(bridgesQuery.error)}
+          {failureText(
+            bridgesQuery.error,
+            'Could not load this server’s messaging apps. Re-check the server, or reload the page.'
+          )}
         </p>
       ) : bridges.length === 0 && !bridgesQuery.isLoading ? (
         <p className="mt-3 text-xs text-foreground-muted">
@@ -373,7 +374,7 @@ export function MessagingAppRow({
       });
       onReleased();
     } catch (cause) {
-      setReleaseError(cause instanceof Error ? cause.message : String(cause));
+      setReleaseError(failureText(cause, 'Could not unlink this account.'));
     } finally {
       setReleasing(false);
     }
