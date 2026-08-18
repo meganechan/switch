@@ -1,10 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { observer } from 'mobx-react-lite';
 import { agentsStore } from '@renderer/features/locations/stores/agents-store';
-import {
-  getLocationStore,
-  locationDisplayName,
-} from '@renderer/features/locations/stores/location-selectors';
 import { AgentAvatar } from '@renderer/lib/components/agent-avatar';
 import { AgentIconPicker } from '@renderer/lib/components/agent-icon-picker';
 import { useToast } from '@renderer/lib/hooks/use-toast';
@@ -33,7 +29,10 @@ export const AgentPageHeader = observer(function AgentPageHeader() {
   const showAddToRoom = useShowModal('addAgentToRoomModal');
 
   const agent = agentsStore.agentAtLocation(locationId, agentName);
-  const title = agent?.name ?? agentName ?? locationDisplayName(getLocationStore(locationId)) ?? '';
+  // Never the location's name: a directory is not an agent, and standing its
+  // basename in here also seeds the generated avatar from it, so the page
+  // presents a whole identity that belongs to no agent.
+  const title = agent?.name ?? agentName ?? 'Agent';
   const provider = agent?.providerId ? providerDisplayName(agent.providerId) : null;
 
   const serverId = agent?.serverId ?? null;
