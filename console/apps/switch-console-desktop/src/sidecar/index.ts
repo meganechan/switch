@@ -10,7 +10,6 @@ import {
   STARTUP_SIGNAL_TIMEOUT_MS,
 } from '@main/core/agent-runtime/session-startup-watch';
 import { agentSettingsPath } from '@main/core/agents/switch-settings-paths';
-import { buildSessionDeeplink } from '@main/core/switch-rooms/session-deeplink';
 import {
   readSwitchAgentCredentials,
   readSwitchAgentCredentialsFromSettings,
@@ -19,13 +18,12 @@ import { createTmuxRun } from '@main/core/switch-rooms/tmux-injection-sink';
 import { type AgentLaunchSpec } from './agent-launch-spec';
 import { atomicWriteFile } from './atomic-file';
 import {
-  addressedTo,
   NotificationWatcher,
   postRoomMessage,
-  startupStallNotice,
+  STARTUP_STALL_NOTICE,
   type WatcherLogger,
 } from './notification-watcher';
-import { InProcessSessionSpawner } from './session-spawner';
+import { clearStartupPromptsFor, InProcessSessionSpawner } from './session-spawner';
 import { createSidecarLogger, requireEnv } from './sidecar-logger';
 import {
   LEGACY_LAUNCH_SPEC_REL_PATH,
@@ -214,30 +212,17 @@ async function main(): Promise<void> {
   // so dropping it would let the next message spawn a second session on top of
   // the first rather than surfacing the one that needs attention.
   startupWatch.onStall(({ sessionId, providerId }) => {
-    const launched = spawner?.launchedFor(sessionId);
-    if (!launched) return;
-    const { roomId, requesterName } = launched;
+    const roomId = spawner?.roomIdForSession(sessionId);
+    if (!roomId) return;
     log.error('sidecar: spawned session never reported that it started', {
       sessionId,
       providerId,
       roomId,
     });
-    void postRoomMessage(
-      creds,
-      roomId,
-      addressedTo(
-        requesterName,
-        startupStallNotice(
-          buildSessionDeeplink({
-            scheme: deeplinkScheme,
-            apiEndpoint: creds.apiEndpoint,
-            agentId: creds.agentId,
-            roomId,
-            sessionId,
-          })
-        )
-      )
-    ).catch((error) => {
+    // The state report is what carries the deeplink and names the owner; the
+    // message only says why. Both, because the report's wording is generic.
+    runtime.reportStartupStalled(sessionId);
+    void postRoomMessage(creds, roomId, STARTUP_STALL_NOTICE).catch((error) => {
       log.warn('sidecar: failed to post startup-stall notice', { roomId, error: String(error) });
     });
   });
@@ -438,6 +423,12 @@ async function main(): Promise<void> {
   // Hash our OWN bytes rather than echoing the hash we were launched with: the
   // launcher can skip an upload it believes is redundant and be wrong, and a
   // sidecar that advertises a build it is not running is undetectable.
+  // Before this sidecar reports ready — which is the signal Switch Console
+  // waits on before opening a session's pane over SSH — clear the CLI prompts
+  // that would stop that pane before it starts. A desktop-started session never
+  // passes through the spawner, so this is the only point that covers it.
+  await clearStartupPromptsFor(launchSpec, log);
+
   const bundleHash = await hashOwnBundle(log);
   const readyLine = `${JSON.stringify({
     event: 'ready',

@@ -89,14 +89,13 @@ export function addressedTo(requesterName: string | null, body: string): string 
 /**
  * What the room is told when a session never came up.
  *
- * Deliberately short and undramatic: the reader is waiting on an answer, and
- * what they need is that one is not coming and where to look — not a diagnosis
- * of a CLI they may not run. The link opens the session itself, which is where
- * the unanswered prompt is sitting.
+ * Says only why, and carries no link: the "Open in Switch Console" link and the
+ * mention of the agent's owner come from the session's runtime state, which
+ * switch-core renders into a clickable line. A `switchdash://` URL written into
+ * a message body is never rewritten and arrives as dead text.
  */
-export function startupStallNotice(sessionLink: string): string {
-  return `My session seems to be blocked on something and never started — most likely a prompt only a human can answer. Open it: ${sessionLink}`;
-}
+export const STARTUP_STALL_NOTICE =
+  'My session seems to be blocked on something and never started — most likely a prompt only a human can answer.';
 
 /**
  * Post a message to a room on the agent's behalf. Throws on non-OK.

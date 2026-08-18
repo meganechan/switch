@@ -23,6 +23,38 @@ import { makeAgentTmuxSessionName } from './vm-tmux';
 
 const execFileAsync = promisify(execFile);
 
+/**
+ * Answer the CLI's own first-run prompts for a spec's directory — workspace
+ * trust, and the confirmation a bypass-permissions launch provokes.
+ *
+ * Has to happen on this machine: the entries go in config files belonging to
+ * the host the session runs on, and writing them on the desktop only clears the
+ * prompts on the wrong computer.
+ *
+ * Run at sidecar startup as well as per spawn, because a session started from
+ * Switch Console over SSH never passes through the spawner — the desktop opens
+ * the pane itself. The sidecar is launched before that pane exists, so doing it
+ * at boot is what covers both ways a session reaches this host.
+ *
+ * Best-effort by design (the writers log and continue): an unwritable config is
+ * not a reason to refuse a session that may well come up fine, and the startup
+ * watch reports it if it does not.
+ */
+export async function clearStartupPromptsFor(
+  spec: AgentLaunchSpec,
+  log: WatcherLogger
+): Promise<void> {
+  await createDirTrustService({
+    getSessionSettings: async () => ({ autoTrustWorktrees: spec.autoTrustWorktrees }),
+    log,
+  }).maybeAutoTrustLocal({
+    providerId: asAgentProviderId(spec.providerId),
+    cwd: spec.cwd,
+    homedir: homedir(),
+    force: spec.autoApprove,
+  });
+}
+
 /** Whether this provider fires a hook when its session comes up. */
 function reportsSessionStart(providerId: string): boolean {
   const hooks = getPlugin(providerId).capabilities.hooks;
@@ -250,32 +282,8 @@ export class InProcessSessionSpawner implements SessionSpawner {
     }
   }
 
-  /**
-   * Answer the CLI's own first-run prompts for this directory before spawning
-   * into it — workspace trust, and the confirmation a bypass-permissions launch
-   * provokes.
-   *
-   * Has to happen here rather than on the desktop: the entries go in config
-   * files belonging to the machine the session runs on, and this is that
-   * machine. Without it a VM session stops on a prompt with nobody in front of
-   * the terminal to answer it, which is worse here than locally — the pane is
-   * on a host nobody is looking at.
-   *
-   * Best-effort by design (the writers log and continue), because an unwritable
-   * config is not a reason to refuse to start a session that may well come up
-   * fine; the startup watch reports it if it does not.
-   */
   private async clearStartupPrompts(): Promise<void> {
-    const spec = this.spec;
-    await createDirTrustService({
-      getSessionSettings: async () => ({ autoTrustWorktrees: spec.autoTrustWorktrees }),
-      log: this.deps.log,
-    }).maybeAutoTrustLocal({
-      providerId: asAgentProviderId(spec.providerId),
-      cwd: spec.cwd,
-      homedir: homedir(),
-      force: spec.autoApprove,
-    });
+    await clearStartupPromptsFor(this.spec, this.deps.log);
   }
 
   /**

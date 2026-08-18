@@ -355,6 +355,24 @@ export class SidecarRuntime {
    * poll + renew heartbeat that keeps the agent marked live) and forget it, so
    * `/sessions` no longer reports it. Called when Switch Console deletes the session.
    */
+  /**
+   * Report a spawned session as waiting on a human because it never started.
+   *
+   * Goes through the session's runtime state rather than a posted message: the
+   * state report carries the session deeplink, and switch-core turns that into
+   * the clickable "Open in Switch Console" line addressed to the agent's owner.
+   * A `switchdash://` URL written into a message body gets no such treatment —
+   * only `deeplink_url` on the report is rewritten — so it arrives as dead text.
+   *
+   * No-op for a session with no connection yet, which is the common case when a
+   * pane dies before its first `connect_to_room`.
+   */
+  reportStartupStalled(sessionId: string): void {
+    this.sessions
+      .get(sessionId)
+      ?.connection.onAgentStatusChange('awaiting-input', 'startup_prompt');
+  }
+
   stopSession(sessionId: string): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;

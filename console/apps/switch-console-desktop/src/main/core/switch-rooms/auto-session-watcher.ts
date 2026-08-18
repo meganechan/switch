@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { type AgentBridgeEvent, SwitchEventStream } from '@sandboxaq/switch-agent-runtime';
-import { DEEPLINK_SCHEME } from '@main/app/deeplinks';
 import { sessionStartupWatch } from '@main/core/agent-runtime/desktop-session-startup-watch';
 import { STARTUP_SIGNAL_TIMEOUT_MS } from '@main/core/agent-runtime/session-startup-watch';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
@@ -21,7 +20,6 @@ import {
   setAutoSessionAgent,
   setAutoSessionSubagent,
 } from './auto-session-store';
-import { buildSessionDeeplink } from './session-deeplink';
 import {
   readSwitchAgentCredentials,
   readSwitchAgentCredentialsFromSettings,
@@ -153,14 +151,13 @@ function addressedTo(requesterName: string | null, body: string): string {
 /**
  * What the room is told when a session never came up.
  *
- * Deliberately short and undramatic: the reader is waiting on an answer, and
- * what they need is that one is not coming and where to look — not a diagnosis
- * of a CLI they may not run. The link opens the session itself, which is where
- * the unanswered prompt is sitting.
+ * Says only why, and carries no link: the "Open in Switch Console" link and the
+ * mention of the agent's owner come from the session's runtime state, which
+ * switch-core renders into a clickable line. A `switchdash://` URL written into
+ * a message body is never rewritten and arrives as dead text.
  */
-function startupStallNotice(sessionLink: string): string {
-  return `My session seems to be blocked on something and never started — most likely a prompt only a human can answer. Open it: ${sessionLink}`;
-}
+const STARTUP_STALL_NOTICE =
+  'My session seems to be blocked on something and never started — most likely a prompt only a human can answer.';
 
 const SPAWN_FAILED_NOTICE =
   "I tried to start a session to handle this but couldn't — my operator may need to start one manually.";
@@ -329,22 +326,7 @@ class AutoSessionWatcher {
         providerId,
       });
 
-      void postRoomMessage(
-        spawned.creds,
-        spawned.roomId,
-        addressedTo(
-          spawned.requesterName,
-          startupStallNotice(
-            buildSessionDeeplink({
-              scheme: DEEPLINK_SCHEME,
-              apiEndpoint: spawned.creds.apiEndpoint,
-              agentId: spawned.creds.agentId,
-              roomId: spawned.roomId,
-              sessionId,
-            })
-          )
-        )
-      ).catch((error) => {
+      void postRoomMessage(spawned.creds, spawned.roomId, STARTUP_STALL_NOTICE).catch((error) => {
         log.warn('AutoSessionWatcher: failed to post startup-stall notice', {
           roomId: spawned.roomId,
           error: String(error),
