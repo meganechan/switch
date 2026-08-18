@@ -645,6 +645,19 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+
+- Switch Console now asks, the first time you open it, whether you are happy to
+  share anonymous usage data, and states plainly what that would and would not
+  include. The choice is saved per install and can be changed at any time from
+  **Settings → General** (CHOO-1955).
+- The app still sends nothing: there is no telemetry to consent to yet. What
+  this adds is the control and the contract — a single gate that any future
+  collection must ask before sending, which fails closed, so a fresh install
+  that has not reached the prompt sends nothing regardless of how the toggle
+  reads. Because the toggle defaults to on, `console/AGENTS.md` now pins what a
+  payload may ever contain: anonymous counters, and no identifier of any kind.
+
 #### Fixed
 
 - Two Switch Console installs sharing a host no longer destroy each other's
