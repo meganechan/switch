@@ -481,6 +481,14 @@ export const claudeRepoAgentsBehavior: IRepoAgentsBehavior = {
     return CLAUDE_SUBAGENT_FIELDS;
   },
 
+  renderDefinition(attributes: RepoAgentAttributes): string {
+    return serializeDefinition(attributes);
+  },
+
+  definitionPath(name: string): string {
+    return definitionRelPath(name);
+  },
+
   async writeDefinition(workspaceFs, attributes: RepoAgentAttributes): Promise<void> {
     const name = toScalar(attributes.name);
     await workspaceFs.write(definitionRelPath(name), serializeDefinition(attributes));
