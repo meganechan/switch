@@ -1,10 +1,8 @@
 import type { RepoAgentAttributes, RepoAgentField } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
-import { providerConfigFromAttributes } from '@shared/core/agents/agent-provider-config';
 import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
 import { readAgentConfig, setAgentSettings } from './agent-config';
 import { getAgentById } from './getAgentById';
-import { setAgentProviderConfig } from './setAgentProviderConfig';
 
 /**
  * An agent's "advanced configuration" — its per-agent model, reasoning effort,
@@ -63,13 +61,8 @@ export async function readAgentAdvancedConfig(
 
 /**
  * Save new values into the agent's config file, then regenerate whatever its
- * provider reads.
- *
- * A launch-profile provider also gets its `providerConfig` row updated. That is
- * no longer where the values live, but it is what the launch and remote-sidecar
- * paths still read, and writing it carries the side effects a profile change
- * needs (see {@link setAgentProviderConfig}) — a stale profile file removed, a
- * remote launch spec rebuilt.
+ * provider reads — including, for a launch-profile provider, the launch spec a
+ * remote agent's sidecar holds. See `setAgentSettings`.
  */
 export async function updateAgentAdvancedConfig(params: {
   agentId: string;
@@ -83,18 +76,5 @@ export async function updateAgentAdvancedConfig(params: {
     throw new Error(`Agent ${params.agentId} has no editable advanced configuration.`);
   }
 
-  const config = await setAgentSettings({
-    agentId: params.agentId,
-    settings: params.attributes,
-  });
-
-  if (behavior.repoAgents) return;
-
-  await setAgentProviderConfig({
-    agentId: params.agentId,
-    config: providerConfigFromAttributes(agent.providerId, {
-      ...config.settings,
-      instructions: config.instructions ?? '',
-    }),
-  });
+  await setAgentSettings({ agentId: params.agentId, settings: params.attributes });
 }

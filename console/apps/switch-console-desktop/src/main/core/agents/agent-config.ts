@@ -5,6 +5,7 @@ import type {
 } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
 import { log } from '@main/lib/logger';
+import { providerConfigFromAttributes } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentConfigFile } from './agent-config-file';
 import { readAgentConfigFile, writeAgentConfigFile } from './agent-config-file';
@@ -12,6 +13,7 @@ import { syncAgentConfig } from './agent-config-sync';
 import { getAgentLocation } from './agent-location';
 import { resolveWorkspaceFsFor } from './agent-workspace-fs';
 import { getAgentById } from './getAgentById';
+import { setAgentProviderConfig } from './setAgentProviderConfig';
 
 /**
  * An agent's configuration, read and written where it actually lives: the
@@ -150,10 +152,46 @@ async function updateAgentConfig(
   agentId: string,
   change: (config: AgentConfigFile) => AgentConfigFile
 ): Promise<AgentConfigFile> {
-  return withAgentWorkspace(agentId, async (agent, fs) => {
+  const config = await withAgentWorkspace(agentId, async (agent, fs) => {
     const current = await reconcile(agent, fs);
     await writeAgentConfigFile(fs, agent.name, change(current));
     return reconcile(agent, fs);
+  });
+
+  await propagateToLaunchProfile(agentId, config);
+  return config;
+}
+
+/**
+ * Carry a config change into the launch profile, for the providers that read
+ * one.
+ *
+ * A provider with repository definitions (Claude Code) needs nothing here: its
+ * CLI reads the definition file itself at every spawn, and the write above
+ * already put it in place — on a remote host too, over SFTP.
+ *
+ * The others do. Their settings reach a session as a generated profile file,
+ * and on a remote host that file is baked into the launch spec the on-VM
+ * sidecar holds. Writing the config file alone would leave that spec stale, so
+ * an auto-started session would keep running on the previous instructions while
+ * the app showed the new ones. This is what rewrites it.
+ *
+ * Done for every write rather than by each caller, so a new way to change the
+ * config cannot forget it and quietly reintroduce that gap.
+ */
+async function propagateToLaunchProfile(agentId: string, config: AgentConfigFile): Promise<void> {
+  const agent = await getAgentById(agentId);
+  if (!agent) throw new Error(`No agent with id ${agentId}`);
+
+  const behavior = getPlugin(agent.providerId).behavior;
+  if (behavior.repoAgents || !behavior.mcp?.launchProfileFields) return;
+
+  await setAgentProviderConfig({
+    agentId,
+    config: providerConfigFromAttributes(agent.providerId, {
+      ...config.settings,
+      instructions: config.instructions ?? '',
+    }),
   });
 }
 
