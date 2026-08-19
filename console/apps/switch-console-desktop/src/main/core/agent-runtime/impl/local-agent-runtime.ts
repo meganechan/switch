@@ -6,6 +6,7 @@ import { prepareAgentLaunchProfile } from '@main/core/agent-runtime/agent-launch
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
+import { agentLaunchSpecialization } from '@main/core/agents/agent-config';
 import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import { localDependencyManager } from '@main/core/dependencies/dependency-managers';
@@ -29,7 +30,6 @@ import type { ResolvedShellProfile } from '@main/core/terminal-shell/types';
 import { events } from '@main/lib/events';
 import { runWithLogContext } from '@main/lib/log-context';
 import { log } from '@main/lib/logger';
-import { toSwitchSpecialization } from '@shared/core/agents/agent-provider-config';
 import { agentSessionExitedChannel } from '@shared/core/providers/agentEvents';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { makeAgentPtySessionId } from '@shared/core/pty/ptySessionId';
@@ -191,7 +191,7 @@ export class LocalAgentRuntime implements AgentRuntimeProvider {
         homeDir: homedir(),
         slug: agentCredsSlug(session),
         workingDir: this.sessionPath,
-        specialization: toSwitchSpecialization(agentRecord?.providerConfig),
+        specialization: await agentLaunchSpecialization(session.agentId),
       });
 
       const agentCommand = plugin.behavior.prompt!.buildCommand({

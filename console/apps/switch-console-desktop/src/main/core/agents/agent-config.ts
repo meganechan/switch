@@ -1,0 +1,196 @@
+import type {
+  PluginFs,
+  RepoAgentAttributes,
+  SwitchLaunchSpecialization,
+} from '@switch-console/core/agents/plugins';
+import { getPlugin } from '@main/core/providers/plugin-registry';
+import { log } from '@main/lib/logger';
+import type { Agent } from '@shared/core/agents/agents';
+import type { AgentConfigFile } from './agent-config-file';
+import { readAgentConfigFile, writeAgentConfigFile } from './agent-config-file';
+import { syncAgentConfig } from './agent-config-sync';
+import { getAgentLocation } from './agent-location';
+import { resolveWorkspaceFsFor } from './agent-workspace-fs';
+import { getAgentById } from './getAgentById';
+
+/**
+ * An agent's configuration, read and written where it actually lives: the
+ * committed config file in its working directory (CHOO-2228).
+ *
+ * Every caller goes through here rather than touching the file, so the
+ * reconciliation with the provider's own generated file happens on every read
+ * — which is what makes a hand-edited Claude Code subagent definition show up
+ * in the app rather than being quietly replaced the next time anything saves.
+ *
+ * The working directory is where the agent runs, so the file is reachable
+ * whenever launching is possible, including over SFTP for a remote agent.
+ */
+
+/**
+ * The agent's current configuration, reconciled with its provider definition.
+ *
+ * Reading has a side effect by design: if the definition was edited by hand the
+ * edits are adopted into the config, and if the config moved on the definition
+ * is regenerated. Doing this on read is what keeps the app from showing a value
+ * that is not what the agent will actually launch with.
+ */
+export async function readAgentConfig(agentId: string): Promise<AgentConfigFile> {
+  return withAgentWorkspace(agentId, (agent, fs) => reconcile(agent, fs));
+}
+
+/**
+ * Replace the agent's configuration and regenerate whatever its provider reads.
+ *
+ * Write-then-generate, in that order: the config file is the record of what the
+ * user chose, and the provider's file is derived from it. A failure part-way
+ * leaves the choice recorded and the generated file stale, which the next read
+ * repairs — the other order would lose the choice.
+ */
+export async function writeAgentConfig(params: {
+  agentId: string;
+  config: AgentConfigFile;
+}): Promise<AgentConfigFile> {
+  return withAgentWorkspace(params.agentId, async (agent, fs) => {
+    await writeAgentConfigFile(fs, agent.name, params.config);
+    return reconcile(agent, fs);
+  });
+}
+
+/**
+ * The agent's stored configuration, without reconciling it against the
+ * provider's generated file.
+ *
+ * For the paths that only need to know what to launch with — spawning a
+ * session, building a remote launch spec, reporting sidecar diagnostics. Those
+ * run in the background and on a timer, and {@link readAgentConfig} writes
+ * files as part of reading, which is not something a status poll should do.
+ *
+ * Returns an empty config when the agent has no file yet, and when the working
+ * directory cannot be reached: an agent that has never been configured and one
+ * whose host is down both mean "nothing to specialize with", and failing the
+ * launch over a missing optional file would be worse than launching with the
+ * provider's own defaults. The failure is logged rather than swallowed.
+ */
+export async function readAgentConfigForLaunch(agentId: string): Promise<AgentConfigFile> {
+  try {
+    return await withAgentWorkspace(
+      agentId,
+      async (agent, fs) => (await readAgentConfigFile(fs, agent.name)) ?? {}
+    );
+  } catch (error) {
+    log.warn('Could not read agent config; launching with provider defaults', {
+      event: 'agent_config_read_failed',
+      agentId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return {};
+  }
+}
+
+/**
+ * The values a provider's launch profile is built from: the agent's settings
+ * plus its instructions, under the canonical key every provider renders.
+ */
+export async function agentLaunchSpecialization(
+  agentId: string
+): Promise<SwitchLaunchSpecialization | undefined> {
+  const config = await readAgentConfigForLaunch(agentId);
+  const specialization: SwitchLaunchSpecialization = {};
+
+  for (const [key, value] of Object.entries(config.settings ?? {})) {
+    if (value === null || value === undefined) continue;
+    const text = Array.isArray(value) ? value.join(',') : String(value);
+    if (text.trim() === '') continue;
+    specialization[key] = text;
+  }
+  if (config.instructions) specialization.instructions = config.instructions;
+
+  return Object.keys(specialization).length > 0 ? specialization : undefined;
+}
+
+/** The agent's instructions, or empty when it has none. */
+export async function readAgentInstructions(agentId: string): Promise<string> {
+  return (await readAgentConfig(agentId)).instructions ?? '';
+}
+
+/**
+ * Set or clear the agent's instructions, leaving its other settings alone.
+ *
+ * An empty string clears them, which is a real state — the agent then has no
+ * instructions of its own rather than instructions that happen to be blank.
+ */
+export async function setAgentInstructions(params: {
+  agentId: string;
+  instructions: string;
+}): Promise<AgentConfigFile> {
+  return updateAgentConfig(params.agentId, (config) => ({
+    ...config,
+    instructions: params.instructions,
+  }));
+}
+
+/** Set the agent's non-instruction settings, leaving its instructions alone. */
+export async function setAgentSettings(params: {
+  agentId: string;
+  settings: RepoAgentAttributes;
+}): Promise<AgentConfigFile> {
+  return updateAgentConfig(params.agentId, (config) => ({
+    ...config,
+    settings: params.settings,
+  }));
+}
+
+/**
+ * Read, change, write — in one workspace session.
+ *
+ * Not read-then-write through the public helpers: over SSH that opens the
+ * working directory twice, and it would reconcile twice for one edit.
+ */
+async function updateAgentConfig(
+  agentId: string,
+  change: (config: AgentConfigFile) => AgentConfigFile
+): Promise<AgentConfigFile> {
+  return withAgentWorkspace(agentId, async (agent, fs) => {
+    const current = await reconcile(agent, fs);
+    await writeAgentConfigFile(fs, agent.name, change(current));
+    return reconcile(agent, fs);
+  });
+}
+
+/**
+ * Bring the config file and the provider's generated file into agreement.
+ *
+ * The description comes from the definition rather than from the agent's Switch
+ * server: it is the server's to own, and this must not blank it when the server
+ * is unreachable. It round-trips through the definition anyway, so reading it
+ * from there is both correct and one fewer thing that can fail at launch.
+ */
+async function reconcile(agent: Agent, fs: PluginFs): Promise<AgentConfigFile> {
+  const repoAgents = getPlugin(agent.providerId).behavior.repoAgents ?? null;
+  const existing = repoAgents ? await repoAgents.readDefinition(fs, agent.name) : null;
+  const description = typeof existing?.description === 'string' ? existing.description : '';
+
+  const { config } = await syncAgentConfig({
+    workspaceFs: fs,
+    repoAgents,
+    name: agent.name,
+    description,
+  });
+  return config;
+}
+
+async function withAgentWorkspace<T>(
+  agentId: string,
+  run: (agent: Agent, fs: PluginFs) => Promise<T>
+): Promise<T> {
+  const agent = await getAgentById(agentId);
+  if (!agent) throw new Error(`No agent with id ${agentId}`);
+
+  const location = await getAgentLocation(agent);
+  const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
+  try {
+    return await run(agent, workspace.fs);
+  } finally {
+    workspace.close();
+  }
+}

@@ -14,6 +14,7 @@ import { DisclosureRow } from '@renderer/lib/ui/disclosure-row';
 import { Field, FieldGroup, FieldLabel, FieldTitle } from '@renderer/lib/ui/field';
 import { Input } from '@renderer/lib/ui/input';
 import { Switch } from '@renderer/lib/ui/switch';
+import { Textarea } from '@renderer/lib/ui/textarea';
 import { policyNamesOwner } from '@shared/core/switch-servers/owner-policy';
 import type { ConfigureAgentFormState } from './modes';
 
@@ -233,6 +234,7 @@ export const AgentSettingsSection = observer(function AgentSettingsSection({
 export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState }) {
   const nameId = useId();
   const descriptionId = useId();
+  const instructionsId = useId();
   return (
     <FieldGroup>
       {/* Above the name, because it is the first thing the finished agent is
@@ -289,6 +291,21 @@ export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState })
         />
         <span className="text-xs text-foreground-muted">
           Helps other people and agents understand what this agent is for.
+        </span>
+      </Field>
+
+      <Field>
+        <FieldLabel htmlFor={instructionsId}>Instructions</FieldLabel>
+        <Textarea
+          id={instructionsId}
+          rows={5}
+          placeholder="You are a careful reviewer. Prefer small, focused diffs…"
+          value={form.instructions}
+          onChange={(e) => form.setInstructions(e.target.value)}
+        />
+        <span className="text-xs text-foreground-muted">
+          The agent&apos;s system prompt, in its own words. Optional — leave it empty to keep the
+          provider&apos;s defaults.
         </span>
       </Field>
     </FieldGroup>
