@@ -20,6 +20,7 @@ from switch_core.bridges.agent.protocol.types import (
 class RegisterAgentRequest(BaseModel):
     name: str
     description: str
+    instructions: str | None = None
     icon_url: str | None = None
     connector_type: str
     integration_profile: IntegrationProfile
@@ -38,6 +39,7 @@ class RegisterKnownAgentRequest(BaseModel):
     agent_type: str
     name: str
     description: str
+    instructions: str | None = None
     icon_url: str | None = None
     options: dict[str, Any] = {}
     # When set, register this agent as a child of `parent_agent_id` (e.g. a
@@ -87,6 +89,7 @@ class RegisterKnownAgentBulkResponse(BaseModel):
 
 class UpdateAgentRequest(BaseModel):
     description: str | None = None
+    instructions: str | None = None
     integration_profile: IntegrationProfile | None = None
     metadata: dict[str, Any] | None = None
 

@@ -158,6 +158,7 @@ async def register_agent_endpoint(
         result = await protocol.register_agent(
             name=req.name,
             description=req.description,
+            instructions=req.instructions,
             icon_url=req.icon_url,
             connector_type=req.connector_type,
             integration_profile=req.integration_profile,
@@ -182,6 +183,7 @@ async def _register_known(
     agent_type: str,
     name: str,
     description: str,
+    instructions: str | None,
     icon_url: str | None,
     options_raw: dict,
     parent_agent_id: str | None,
@@ -216,6 +218,7 @@ async def _register_known(
         result = await protocol.register_agent(
             name=name,
             description=description,
+            instructions=instructions,
             icon_url=icon_url,
             connector_type=spec.connector_type,
             integration_profile=integration_profile,
@@ -246,6 +249,7 @@ async def register_known_agent_endpoint(
         agent_type=req.agent_type,
         name=req.name,
         description=req.description,
+        instructions=req.instructions,
         icon_url=req.icon_url,
         options_raw=req.options,
         parent_agent_id=req.parent_agent_id,
@@ -332,6 +336,9 @@ async def register_known_agents_bulk_endpoint(
             agent_type=req.agent_type,
             name=name,
             description=description,
+            # A subagent's own system prompt lives in its definition file and
+            # is registered from there, not inherited from the parent.
+            instructions=None,
             # Subagents deliberately do not inherit the parent's icon: sharing
             # one would make every child render identically in a list, whereas
             # no icon lets each fall back to something derived from its own
@@ -368,6 +375,7 @@ async def update_agent(
     await protocol.update_agent(
         agent_id,
         description=req.description,
+        instructions=req.instructions,
         integration_profile=(
             req.integration_profile.model_dump() if req.integration_profile else None
         ),

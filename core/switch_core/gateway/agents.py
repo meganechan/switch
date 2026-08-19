@@ -46,6 +46,7 @@ from switch_core.gateway.schemas import (
     RegisterOtherAgentRequest,
     UpdateAddressingPolicyRequest,
     UpdateAgentIconRequest,
+    UpdateAgentInstructionsRequest,
     UpdateAgentOptionsRequest,
 )
 from switch_core.gateway.subagent_registration import derive_subagent_registrations
@@ -160,6 +161,7 @@ async def register_known_agent(
         result = await protocol.register_agent(
             name=req.name,
             description=req.description,
+            instructions=req.instructions,
             icon_url=req.icon_url,
             connector_type=spec.connector_type,
             integration_profile=integration_profile,
@@ -394,6 +396,52 @@ async def update_agent_icon(
     return await build_agent_summary(session, agent_store, agent, owner_name)
 
 
+@router.put("/{agent_id}/instructions")
+async def update_agent_instructions(
+    agent_id: str,
+    req: UpdateAgentInstructionsRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    agent_store: Annotated[AgentStore, Depends(get_agent_store)],
+    user: Annotated[User, Depends(get_current_user)],
+) -> AgentSummary:
+    """Set or clear an agent's instructions (CHOO-2228).
+
+    Instructions are the agent's provider-agnostic system prompt: one thing
+    the owner writes, which each provider renders into its own mechanism when
+    a session is launched. Like the icon and unlike options, this applies to
+    every agent regardless of how it was registered — an agent with no
+    known-agent type still has something it is for.
+
+    An empty string clears them. Only the agent's owner (or an admin) may
+    change them.
+    """
+    agent = await agent_store.get(session, agent_id)
+    if agent is None:
+        raise HTTPException(status_code=404, detail=f"Agent not found: {agent_id}")
+
+    try:
+        require_manage(Principal(user.id, user.role == "admin"), agent.owner_id)
+    except PermissionError:
+        raise HTTPException(
+            status_code=403,
+            detail="Only the agent's owner or an admin can change its instructions.",
+        )
+
+    await agent_store.update(session, agent_id, instructions=req.instructions)
+    await session.commit()
+    await session.refresh(agent)
+
+    logger.info(
+        "%s instructions for agent %s by user %s",
+        "Cleared" if not req.instructions else "Set",
+        agent.name,
+        user.name,
+    )
+
+    owner_name = user.name if agent.owner_id == user.id else None
+    return await build_agent_summary(session, agent_store, agent, owner_name)
+
+
 @router.post("/register-other")
 async def register_other_agent(
     req: RegisterOtherAgentRequest,
@@ -415,6 +463,7 @@ async def register_other_agent(
         result = await protocol.register_agent(
             name=req.name,
             description=req.description,
+            instructions=req.instructions,
             icon_url=req.icon_url,
             connector_type="external",
             integration_profile=default_profile,

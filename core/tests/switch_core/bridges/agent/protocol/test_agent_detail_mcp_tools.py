@@ -187,7 +187,12 @@ class TestUpdateAgentDetail:
             req_id, target_id = requester.id, target.id
 
         detail = await svc.update_agent_detail(
-            req_id, target_id, {"repo_dir": "/work/dir"}, None, False
+            req_id,
+            target_id,
+            options={"repo_dir": "/work/dir"},
+            instructions=None,
+            parent_agent_id=None,
+            clear_parent=False,
         )
         assert detail.known_agent_options is not None
         # The changed field is applied...
@@ -207,7 +212,12 @@ class TestUpdateAgentDetail:
             req_id, target_id = requester.id, target.id
 
         detail = await svc.update_agent_detail(
-            req_id, target_id, {"channels_enabled": False}, None, False
+            req_id,
+            target_id,
+            options={"channels_enabled": False},
+            instructions=None,
+            parent_agent_id=None,
+            clear_parent=False,
         )
         assert detail.integration_profile["connection_model"] == "session_passive"
 
@@ -225,7 +235,12 @@ class TestUpdateAgentDetail:
 
         with pytest.raises(PermissionError):
             await svc.update_agent_detail(
-                req_id, target_id, {"repo_dir": "/x"}, None, False
+                req_id,
+                target_id,
+                options={"repo_dir": "/x"},
+                instructions=None,
+                parent_agent_id=None,
+                clear_parent=False,
             )
 
     async def test_non_known_agent_options_not_editable(
@@ -243,7 +258,12 @@ class TestUpdateAgentDetail:
 
         with pytest.raises(AgentOptionsNotEditable):
             await svc.update_agent_detail(
-                req_id, target_id, {"repo_dir": "/x"}, None, False
+                req_id,
+                target_id,
+                options={"repo_dir": "/x"},
+                instructions=None,
+                parent_agent_id=None,
+                clear_parent=False,
             )
 
     async def test_set_and_clear_parent(
@@ -259,11 +279,23 @@ class TestUpdateAgentDetail:
             req_id, target_id, parent_id = requester.id, target.id, parent.id
 
         detail = await svc.update_agent_detail(
-            req_id, target_id, None, parent_id, False
+            req_id,
+            target_id,
+            options=None,
+            instructions=None,
+            parent_agent_id=parent_id,
+            clear_parent=False,
         )
         assert detail.parent_agent_id == parent_id
 
-        detail = await svc.update_agent_detail(req_id, target_id, None, None, True)
+        detail = await svc.update_agent_detail(
+            req_id,
+            target_id,
+            options=None,
+            instructions=None,
+            parent_agent_id=None,
+            clear_parent=True,
+        )
         assert detail.parent_agent_id is None
 
     async def test_self_parent_rejected(
@@ -278,7 +310,14 @@ class TestUpdateAgentDetail:
             req_id, target_id = requester.id, target.id
 
         with pytest.raises(ValueError, match="cannot be its own parent"):
-            await svc.update_agent_detail(req_id, target_id, None, target_id, False)
+            await svc.update_agent_detail(
+                req_id,
+                target_id,
+                options=None,
+                instructions=None,
+                parent_agent_id=target_id,
+                clear_parent=False,
+            )
 
     async def test_cycle_rejected(
         self, session_factory: async_sessionmaker[AsyncSession]
@@ -297,4 +336,78 @@ class TestUpdateAgentDetail:
 
         # Re-parenting target under its own descendant would create a cycle.
         with pytest.raises(ValueError, match="descendant"):
-            await svc.update_agent_detail(req_id, target_id, None, child_id, False)
+            await svc.update_agent_detail(
+                req_id,
+                target_id,
+                options=None,
+                instructions=None,
+                parent_agent_id=child_id,
+                clear_parent=False,
+            )
+
+    async def test_sets_and_clears_instructions(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        svc = _service(session_factory)
+        async with session_factory() as session:
+            owner = await _make_user(session, "owner")
+            requester = await _make_agent(session, "req", owner_id=owner.id)
+            target = await _make_agent(session, "target", owner_id=owner.id)
+            await session.commit()
+            req_id, target_id = requester.id, target.id
+
+        detail = await svc.update_agent_detail(
+            req_id,
+            target_id,
+            options=None,
+            instructions="You review pull requests.",
+            parent_agent_id=None,
+            clear_parent=False,
+        )
+        assert detail.instructions == "You review pull requests."
+
+        # Omitting them leaves what is there rather than wiping it.
+        detail = await svc.update_agent_detail(
+            req_id,
+            target_id,
+            options={"repo_dir": "/work"},
+            instructions=None,
+            parent_agent_id=None,
+            clear_parent=False,
+        )
+        assert detail.instructions == "You review pull requests."
+
+        # An empty string is how the owner says "no instructions".
+        detail = await svc.update_agent_detail(
+            req_id,
+            target_id,
+            options=None,
+            instructions="",
+            parent_agent_id=None,
+            clear_parent=False,
+        )
+        assert detail.instructions == ""
+
+    async def test_instructions_editable_on_non_known_agent(
+        self, session_factory: async_sessionmaker[AsyncSession]
+    ) -> None:
+        """Unlike options, instructions apply to any agent."""
+        svc = _service(session_factory)
+        async with session_factory() as session:
+            owner = await _make_user(session, "owner")
+            requester = await _make_agent(session, "req", owner_id=owner.id)
+            target = await _make_agent(
+                session, "target", owner_id=owner.id, known=False
+            )
+            await session.commit()
+            req_id, target_id = requester.id, target.id
+
+        detail = await svc.update_agent_detail(
+            req_id,
+            target_id,
+            options=None,
+            instructions="Answer in French.",
+            parent_agent_id=None,
+            clear_parent=False,
+        )
+        assert detail.instructions == "Answer in French."

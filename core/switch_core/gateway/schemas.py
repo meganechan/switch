@@ -214,6 +214,9 @@ class AgentSummary(BaseModel):
     id: str
     name: str
     description: str
+    # The agent's provider-agnostic system prompt (CHOO-2228). Empty when the
+    # owner has not written any — a real state, not a missing value.
+    instructions: str = ""
     # Absolute https URL of the agent's icon, or null when none is set. Null is
     # not an error: the caller renders its own fallback rather than Switch
     # inventing a default, so the fallback can change without a data migration.
@@ -318,6 +321,16 @@ class UpdateAgentIconRequest(BaseModel):
     icon_url: str | None
 
 
+class UpdateAgentInstructionsRequest(BaseModel):
+    """Set or clear an agent's instructions (CHOO-2228).
+
+    The field is required rather than defaulted so clearing the instructions
+    is always something the client said, never something it forgot to send.
+    An empty string means the agent has no instructions."""
+
+    instructions: str
+
+
 class KnownAgentType(BaseModel):
     key: str
     connector_type: str
@@ -329,6 +342,9 @@ class RegisterKnownAgentRequest(BaseModel):
     agent_type: str
     name: str
     description: str
+    # Omitted means the caller is saying nothing about instructions: a new
+    # agent gets none, and a re-registration keeps whatever it already has.
+    instructions: str | None = None
     # Optional at registration: an agent may be given its icon later, and a
     # re-registration that omits it keeps whatever icon the agent already has
     # rather than clearing it.
@@ -392,6 +408,7 @@ class UpdateAgentOptionsRequest(BaseModel):
 class RegisterOtherAgentRequest(BaseModel):
     name: str
     description: str
+    instructions: str | None = None
     icon_url: str | None = None
     overwrite: bool = False
 

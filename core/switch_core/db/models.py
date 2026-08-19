@@ -99,6 +99,15 @@ class Agent(Base):
     id: Mapped[str] = mapped_column(Text, primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    # What this agent is for, in its own words — the provider-agnostic system
+    # prompt (CHOO-2228). `description` says what the agent is to other
+    # participants; `instructions` is addressed to the agent itself, and each
+    # provider renders it into whatever mechanism it has (Claude Code's
+    # subagent body, Codex's developer instructions, OpenCode's instructions
+    # file). Empty means the agent has none, which is a legitimate state.
+    instructions: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default="", default=""
+    )
     # Absolute https URL of the agent's icon (CHOO-2171). Switch stores the
     # link, never image bytes: whatever produces the picture — a generated-
     # avatar service, the operator's own host — is the client's concern. NULL
