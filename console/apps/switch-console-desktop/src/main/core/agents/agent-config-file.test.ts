@@ -4,6 +4,8 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createPluginFs } from '@main/core/providers/plugin-fs';
 import {
+  decideArtifactSync,
+  fingerprintArtifact,
   parseAgentConfigFile,
   readAgentConfigFile,
   serialiseAgentConfigFile,
@@ -131,5 +133,78 @@ describe('readAgentConfigFile / writeAgentConfigFile', () => {
     await writeAgentConfigFile(pluginFs, 'coder', { instructions: 'You review code.' });
 
     expect(await readRaw('coder')).not.toMatch(/token|api_key|apiKey/i);
+  });
+});
+
+describe('settings', () => {
+  it('keeps a false or zero value, which are choices, not absences', () => {
+    const out = JSON.parse(
+      serialiseAgentConfigFile({ settings: { background: false, maxTurns: 0 } })
+    );
+    expect(out.settings).toEqual({ background: false, maxTurns: 0 });
+  });
+
+  it('drops blanks, empty lists and nulls, which are not choices', () => {
+    const out = JSON.parse(
+      serialiseAgentConfigFile({ settings: { model: '', tools: [], effort: null, keep: 'yes' } })
+    );
+    expect(out.settings).toEqual({ keep: 'yes' });
+  });
+
+  it('omits the settings key entirely when nothing is set', () => {
+    expect(JSON.parse(serialiseAgentConfigFile({ settings: { model: '' } }))).toEqual({});
+  });
+
+  it('round-trips through parse', () => {
+    const config = { instructions: 'be terse', settings: { model: 'opus', tools: ['Read'] } };
+    expect(parseAgentConfigFile(serialiseAgentConfigFile(config))).toEqual(config);
+  });
+});
+
+describe('decideArtifactSync', () => {
+  const generated = 'GENERATED';
+
+  it('writes when the artifact does not exist yet', () => {
+    expect(decideArtifactSync({ current: null, generated, lastRendered: undefined })).toBe('write');
+  });
+
+  it('reports in-sync when the artifact already matches', () => {
+    expect(
+      decideArtifactSync({
+        current: generated,
+        generated,
+        lastRendered: fingerprintArtifact(generated),
+      })
+    ).toBe('in-sync');
+  });
+
+  it('writes when the artifact is exactly what we last generated', () => {
+    // The config moved on; nothing local would be lost by regenerating.
+    const previous = 'WHAT WE WROTE LAST TIME';
+    expect(
+      decideArtifactSync({
+        current: previous,
+        generated,
+        lastRendered: fingerprintArtifact(previous),
+      })
+    ).toBe('write');
+  });
+
+  it('adopts when the artifact was edited since we generated it', () => {
+    expect(
+      decideArtifactSync({
+        current: 'SOMEONE EDITED THIS BY HAND',
+        generated,
+        lastRendered: fingerprintArtifact('WHAT WE WROTE LAST TIME'),
+      })
+    ).toBe('adopt');
+  });
+
+  it('adopts an existing artifact we have never generated', () => {
+    // An agent set up before this existed, or by someone else. Treating it as
+    // ours to overwrite would discard a prompt this app never wrote.
+    expect(
+      decideArtifactSync({ current: 'HAND WRITTEN', generated, lastRendered: undefined })
+    ).toBe('adopt');
   });
 });
