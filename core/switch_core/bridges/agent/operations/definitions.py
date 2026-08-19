@@ -1593,7 +1593,6 @@ async def get_agent_detail(agent_id: str) -> dict[str, Any]:
 async def update_agent_detail(
     agent_id: str,
     options: dict[str, Any] | None = None,
-    instructions: str | None = None,
     parent_agent_id: str | None = None,
     clear_parent: bool = False,
 ) -> dict[str, Any]:
@@ -1611,10 +1610,6 @@ async def update_agent_detail(
           directory), `channels_enabled`, and `subagent_name`.
           The merged options are validated against the agent type's schema and
           its integration profile is rebuilt to match.
-        - `instructions`: the agent's system prompt, written once and rendered
-          into whatever mechanism each provider has. Replaces what is there;
-          pass an empty string to clear it. Unlike `options` this applies to
-          any agent, not only known-agent types.
         - `parent_agent_id`: set the agent's parent (e.g. to make it a subagent
           of another agent). Validated against self-parenting and cycles.
         - `clear_parent`: pass True to detach the agent from its parent (make it
@@ -1626,12 +1621,7 @@ async def update_agent_detail(
     caller_id = get_agent_id()
     protocol = get_protocol()
     detail = await protocol.update_agent_detail(
-        caller_id,
-        agent_id,
-        options=options,
-        instructions=instructions,
-        parent_agent_id=parent_agent_id,
-        clear_parent=clear_parent,
+        caller_id, agent_id, options, parent_agent_id, clear_parent
     )
     return detail.model_dump()
 

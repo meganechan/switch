@@ -188,7 +188,6 @@ class ProtocolService:
         *,
         name: str,
         description: str,
-        instructions: str | None = None,
         icon_url: str | None = None,
         connector_type: str,
         integration_profile: IntegrationProfile,
@@ -227,12 +226,6 @@ class ProtocolService:
         no icon. On re-registration None leaves any existing icon alone rather
         than clearing it, so re-registering an agent does not silently discard
         a picture the owner chose.
-
-        ``instructions`` behaves the same way: None means the caller is not
-        saying anything about them, so a new agent starts with none and a
-        re-registered one keeps what it has. Pass an empty string to clear
-        them. Callers that know nothing about instructions must not wipe a
-        prompt the owner wrote.
 
         Raises:
             ValueError: name is invalid (lowercase alphanumeric, dots, hyphens,
@@ -273,7 +266,6 @@ class ProtocolService:
                     api_key_hash=api_key_hash,
                     encrypted_key=encrypted_key,
                     description=description,
-                    instructions=instructions,
                     icon_url=validated_icon_url,
                     agent_type=agent_type,
                     connector_type=connector_type,
@@ -291,7 +283,6 @@ class ProtocolService:
                     session=session,
                     name=name,
                     description=description,
-                    instructions=instructions or "",
                     icon_url=validated_icon_url,
                     agent_type=agent_type,
                     connector_type=connector_type,
@@ -326,7 +317,6 @@ class ProtocolService:
         registration_token: str,
         name: str,
         description: str,
-        instructions: str | None = None,
         connector_type: str,
         integration_profile: IntegrationProfile,
         tools: list[ToolSpec] | None = None,
@@ -350,7 +340,6 @@ class ProtocolService:
         return await self.register_agent(
             name=name,
             description=description,
-            instructions=instructions,
             connector_type=connector_type,
             integration_profile=integration_profile,
             tools=tools,
@@ -368,7 +357,6 @@ class ProtocolService:
         session: AsyncSession,
         name: str,
         description: str,
-        instructions: str,
         icon_url: str | None,
         agent_type: str,
         connector_type: str,
@@ -400,7 +388,6 @@ class ProtocolService:
         agent = Agent(
             name=name,
             description=description,
-            instructions=instructions,
             icon_url=icon_url,
             agent_type=agent_type,
             connector_type=connector_type,
@@ -451,7 +438,6 @@ class ProtocolService:
         api_key_hash: str,
         encrypted_key: str,
         description: str,
-        instructions: str | None,
         icon_url: str | None,
         agent_type: str,
         connector_type: str,
@@ -477,9 +463,6 @@ class ProtocolService:
         # rotates credentials and rebuilds the profile, and callers that know
         # nothing about icons must not wipe one the owner chose.
         icon_fields = {} if icon_url is None else {"icon_url": icon_url}
-        instruction_fields = (
-            {} if instructions is None else {"instructions": instructions}
-        )
         await self.agent_store.update(
             session,
             existing.id,
@@ -492,7 +475,6 @@ class ProtocolService:
             oauth_client_id=oauth_client_id,
             parent_agent_id=parent_agent_id,
             **icon_fields,
-            **instruction_fields,
         )
         await self.api_key_store.delete(session, old_api_key_id)
 
@@ -590,7 +572,6 @@ class ProtocolService:
         self,
         agent_id: str,
         description: str | None = None,
-        instructions: str | None = None,
         integration_profile: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
@@ -599,8 +580,6 @@ class ProtocolService:
             updates: dict[str, object] = {}
             if description is not None:
                 updates["description"] = description
-            if instructions is not None:
-                updates["instructions"] = instructions
             if integration_profile is not None:
                 updates["integration_profile"] = integration_profile
             if metadata is not None:
@@ -3006,9 +2985,7 @@ class ProtocolService:
         self,
         agent_id: str,
         target_agent_id: str,
-        *,
         options: dict[str, Any] | None,
-        instructions: str | None,
         parent_agent_id: str | None,
         clear_parent: bool,
     ) -> AgentDetail:
@@ -3018,8 +2995,6 @@ class ProtocolService:
         `options` is a PARTIAL payload merged over the agent's current options
         (only the keys provided are changed), and the agent's parent can be
         changed (`parent_agent_id`) or cleared (`clear_parent`).
-        `instructions` replaces the agent's system prompt outright; an empty
-        string clears it, and None leaves it alone.
 
         Authorization is owner-only: the calling agent's owner must match the
         target agent's owner. Raises ValueError if either agent is missing or
@@ -3040,10 +3015,6 @@ class ProtocolService:
             if options is not None:
                 await apply_agent_options(
                     session, self.agent_store, target, options, merge=True
-                )
-            if instructions is not None:
-                await self.agent_store.update(
-                    session, target_agent_id, instructions=instructions
                 )
             if clear_parent:
                 await reparent_agent(session, self.agent_store, target, None)
