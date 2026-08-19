@@ -11,7 +11,7 @@ import type { PluginFs } from '@switch-console/core/agents/plugins';
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const setAgentProviderConfig = vi.hoisted(() => vi.fn(async () => {}));
+const setAgentProviderConfig = vi.hoisted(() => vi.fn(async (_params: unknown) => {}));
 const state = vi.hoisted(() => ({
   providerId: 'codex',
   files: new Map<string, string>(),
