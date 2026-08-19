@@ -295,18 +295,16 @@ export function AgentIdentityFields({ form }: { form: ConfigureAgentFormState })
       </Field>
 
       <Field>
-        <FieldLabel htmlFor={instructionsId}>Instructions</FieldLabel>
+        <FieldLabel htmlFor={instructionsId}>
+          Agent instructions <span className="text-foreground-muted">(optional)</span>
+        </FieldLabel>
         <Textarea
           id={instructionsId}
-          rows={5}
-          placeholder="You are a careful reviewer. Prefer small, focused diffs…"
+          rows={4}
+          placeholder="How this agent should work"
           value={form.instructions}
           onChange={(e) => form.setInstructions(e.target.value)}
         />
-        <span className="text-xs text-foreground-muted">
-          The agent&apos;s system prompt, in its own words. Optional — leave it empty to keep the
-          provider&apos;s defaults.
-        </span>
       </Field>
     </FieldGroup>
   );
