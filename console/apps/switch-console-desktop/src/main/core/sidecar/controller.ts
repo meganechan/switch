@@ -7,7 +7,7 @@ import {
   restartAgentSidecar,
   stopAgentSidecar,
 } from '@main/core/agent-runtime/impl/ensure-agent-sidecar';
-import { agentLaunchSpecialization } from '@main/core/agents/agent-config';
+import { agentLaunchSpecialization } from '@main/core/agents/agent-launch-config';
 import { getRemoteAgentLocation } from '@main/core/agents/agent-location';
 import { connectRemoteAgent } from '@main/core/agents/connect-remote-agent';
 import { getAgentById } from '@main/core/agents/getAgentById';

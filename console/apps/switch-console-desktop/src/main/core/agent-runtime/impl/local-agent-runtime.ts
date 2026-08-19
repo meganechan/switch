@@ -6,8 +6,8 @@ import { prepareAgentLaunchProfile } from '@main/core/agent-runtime/agent-launch
 import { AgentRuntimeSupervisor } from '@main/core/agent-runtime/agent-runtime-supervisor';
 import { resolveAgentSessionCommandArgs } from '@main/core/agent-runtime/resolve-agent-session-command';
 import type { AgentRuntimeProvider } from '@main/core/agent-runtime/types';
-import { agentLaunchSpecialization } from '@main/core/agents/agent-config';
 import { agentCredsSlug } from '@main/core/agents/agent-creds-slug';
+import { agentLaunchSpecialization } from '@main/core/agents/agent-launch-config';
 import { getAgentById } from '@main/core/agents/getAgentById';
 import { localDependencyManager } from '@main/core/dependencies/dependency-managers';
 import { hostDependencyStore } from '@main/core/dependencies/host-dependency-store';

@@ -1,17 +1,11 @@
-import type {
-  PluginFs,
-  RepoAgentAttributes,
-  SwitchLaunchSpecialization,
-} from '@switch-console/core/agents/plugins';
+import type { PluginFs, RepoAgentAttributes } from '@switch-console/core/agents/plugins';
 import { getPlugin } from '@main/core/providers/plugin-registry';
-import { log } from '@main/lib/logger';
 import { providerConfigFromAttributes } from '@shared/core/agents/agent-provider-config';
 import type { Agent } from '@shared/core/agents/agents';
 import type { AgentConfigFile } from './agent-config-file';
-import { readAgentConfigFile, writeAgentConfigFile } from './agent-config-file';
+import { writeAgentConfigFile } from './agent-config-file';
 import { syncAgentConfig } from './agent-config-sync';
-import { getAgentLocation } from './agent-location';
-import { resolveWorkspaceFsFor } from './agent-workspace-fs';
+import { withAgentWorkspace } from './agent-launch-config';
 import { getAgentById } from './getAgentById';
 import { setAgentProviderConfig } from './setAgentProviderConfig';
 
@@ -56,58 +50,6 @@ export async function writeAgentConfig(params: {
     await writeAgentConfigFile(fs, agent.name, params.config);
     return reconcile(agent, fs);
   });
-}
-
-/**
- * The agent's stored configuration, without reconciling it against the
- * provider's generated file.
- *
- * For the paths that only need to know what to launch with — spawning a
- * session, building a remote launch spec, reporting sidecar diagnostics. Those
- * run in the background and on a timer, and {@link readAgentConfig} writes
- * files as part of reading, which is not something a status poll should do.
- *
- * Returns an empty config when the agent has no file yet, and when the working
- * directory cannot be reached: an agent that has never been configured and one
- * whose host is down both mean "nothing to specialize with", and failing the
- * launch over a missing optional file would be worse than launching with the
- * provider's own defaults. The failure is logged rather than swallowed.
- */
-export async function readAgentConfigForLaunch(agentId: string): Promise<AgentConfigFile> {
-  try {
-    return await withAgentWorkspace(
-      agentId,
-      async (agent, fs) => (await readAgentConfigFile(fs, agent.name)) ?? {}
-    );
-  } catch (error) {
-    log.warn('Could not read agent config; launching with provider defaults', {
-      event: 'agent_config_read_failed',
-      agentId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return {};
-  }
-}
-
-/**
- * The values a provider's launch profile is built from: the agent's settings
- * plus its instructions, under the canonical key every provider renders.
- */
-export async function agentLaunchSpecialization(
-  agentId: string
-): Promise<SwitchLaunchSpecialization | undefined> {
-  const config = await readAgentConfigForLaunch(agentId);
-  const specialization: SwitchLaunchSpecialization = {};
-
-  for (const [key, value] of Object.entries(config.settings ?? {})) {
-    if (value === null || value === undefined) continue;
-    const text = Array.isArray(value) ? value.join(',') : String(value);
-    if (text.trim() === '') continue;
-    specialization[key] = text;
-  }
-  if (config.instructions) specialization.instructions = config.instructions;
-
-  return Object.keys(specialization).length > 0 ? specialization : undefined;
 }
 
 /** The agent's instructions, or empty when it has none. */
@@ -215,20 +157,4 @@ async function reconcile(agent: Agent, fs: PluginFs): Promise<AgentConfigFile> {
     description,
   });
   return config;
-}
-
-async function withAgentWorkspace<T>(
-  agentId: string,
-  run: (agent: Agent, fs: PluginFs) => Promise<T>
-): Promise<T> {
-  const agent = await getAgentById(agentId);
-  if (!agent) throw new Error(`No agent with id ${agentId}`);
-
-  const location = await getAgentLocation(agent);
-  const workspace = await resolveWorkspaceFsFor(location.sshHost, location.dir);
-  try {
-    return await run(agent, workspace.fs);
-  } finally {
-    workspace.close();
-  }
 }

@@ -3,7 +3,7 @@ import { ensureAgentSidecar } from '@main/core/agent-runtime/impl/ensure-agent-s
 import { writeWatchEnabled } from '@main/core/agent-runtime/impl/remote-sidecar-launcher';
 import { listAutoSessionAgentIds } from '@main/core/switch-rooms/auto-session-store';
 import { log } from '@main/lib/logger';
-import { agentLaunchSpecialization } from './agent-config';
+import { agentLaunchSpecialization } from './agent-launch-config';
 import { getRemoteAgentLocation } from './agent-location';
 import { connectRemoteAgent } from './connect-remote-agent';
 import { getAgentById } from './getAgentById';

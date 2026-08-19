@@ -18,7 +18,7 @@ import type { Agent } from '@shared/core/agents/agents';
 import { makePtyId } from '@shared/core/pty/ptyId';
 import { HostUnreachableError } from '@shared/core/remote-hosts/reachability';
 import { sessionDeletedChannel } from '@shared/core/sessions/sessionEvents';
-import { agentLaunchSpecialization } from './agent-config';
+import { agentLaunchSpecialization } from './agent-launch-config';
 import { getRemoteAgentLocation } from './agent-location';
 import { connectRemoteAgent } from './connect-remote-agent';
 import { getAgentById } from './getAgentById';
