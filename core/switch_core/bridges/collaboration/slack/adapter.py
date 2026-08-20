@@ -92,6 +92,10 @@ def _group_description(agent_description: str) -> str:
 # cannot work must not warn on every turn for the life of the bridge.
 _AGENT_SESSIONS_FAILURE_LIMIT = 3
 
+# Prefix on the temporary trace lines that follow a turn through the session
+# status, so they can be grepped for and stripped once it is proven out.
+_TRACE = "[agent-sessions] "
+
 _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
     "not_an_agent": (
         "the Slack app is not declared as an Agent — enable the Agents feature "
@@ -245,6 +249,10 @@ class SlackAdapter(CollaborationAdapter):
         )
         await self._socket_client.connect()
         logger.info("Slack Socket Mode connected")
+        logger.info(
+            _TRACE + "build carries agent sessions; config agent_sessions=%s",
+            self._config.agent_sessions,
+        )
 
     async def stop(self) -> None:
         if self._socket_client:
@@ -670,10 +678,27 @@ class SlackAdapter(CollaborationAdapter):
         A session is scoped to a thread, so a turn at the channel root has
         nowhere to attach one and is left to the posted messages alone.
         """
-        if not self._agent_sessions_available() or not self._web_client:
+        if not self._config.agent_sessions:
+            logger.info(_TRACE + "skipped for %s: turned off in config", agent_name)
+            return
+        if self._agent_sessions_off_reason:
+            logger.info(
+                _TRACE + "skipped for %s: given up earlier on '%s'",
+                agent_name,
+                self._agent_sessions_off_reason,
+            )
+            return
+        if not self._web_client:
+            logger.info(_TRACE + "skipped for %s: Slack not connected", agent_name)
             return
         thread_ts = self._thread_ts_of(thread_root_id)
         if not thread_ts:
+            logger.info(
+                _TRACE + "skipped for %s: state '%s' has no thread (root %r)",
+                agent_name,
+                state,
+                thread_root_id,
+            )
             return
 
         working = state in ("working", "awaiting-input")
@@ -683,13 +708,21 @@ class SlackAdapter(CollaborationAdapter):
         else:
             self._session_owner.pop(key, None)
 
+        status = "processing" if working else "active"
+        logger.info(
+            _TRACE + "setting %s for %s on %s/%s",
+            status,
+            agent_name,
+            channel_id,
+            thread_ts,
+        )
         try:
             await self._web_client.api_call(
                 "agents.sessions.setStatus",
                 json={
                     "channel_id": channel_id,
                     "thread_ts": thread_ts,
-                    "status": "processing" if working else "active",
+                    "status": status,
                     "username": agent_name,
                     "icon_url": await self.agent_icon_url(agent_name),
                 },
@@ -699,6 +732,7 @@ class SlackAdapter(CollaborationAdapter):
                 str(e.response.get("error", "")), agent_name, channel_id
             )
         else:
+            logger.info(_TRACE + "Slack accepted %s for %s", status, agent_name)
             self._session_failures = 0
 
     def _note_session_failure(
@@ -731,9 +765,6 @@ class SlackAdapter(CollaborationAdapter):
         )
         if self._session_failures >= _AGENT_SESSIONS_FAILURE_LIMIT:
             self._disable_agent_sessions(error)
-
-    def _agent_sessions_available(self) -> bool:
-        return self._config.agent_sessions and not self._agent_sessions_off_reason
 
     def _disable_agent_sessions(self, error: str) -> None:
         if self._agent_sessions_off_reason:
