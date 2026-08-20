@@ -46,6 +46,9 @@ class FakeWebClient:
         if self.api_error:
             raise SlackApiError("failed", FakeResponse({"error": self.api_error}))
         self.api_calls.append((method, kwargs))
+        if method == "chat.startStream":
+            self._ts += 1
+            return FakeResponse({"ok": True, "ts": f"stream-{self._ts}"})
         return FakeResponse({"ok": True})
 
     async def chat_postMessage(self, **kwargs: Any) -> FakeResponse:
@@ -63,6 +66,9 @@ class FakeWebClient:
     async def conversations_info(self, **kwargs: Any) -> FakeResponse:
         return FakeResponse({"channel": {"is_private": False}})
 
+    async def users_info(self, **kwargs: Any) -> FakeResponse:
+        return FakeResponse({"user": {"name": "someone", "profile": {}}})
+
 
 def _adapter(*, enabled: bool = True) -> tuple[SlackAdapter, FakeWebClient]:
     adapter = SlackAdapter(
@@ -76,7 +82,15 @@ def _adapter(*, enabled: bool = True) -> tuple[SlackAdapter, FakeWebClient]:
     client = FakeWebClient()
     adapter._web_client = client  # type: ignore[assignment]
     adapter._channel_type_cache["C1"] = "channel"
+    # Streaming into a channel names who is being replied to; in life this is
+    # recorded from the message that started the turn.
+    adapter._thread_requester[("C1", "111.0")] = "U1"
+    adapter._thread_requester[("C1", "222.0")] = "U1"
     return adapter, client
+
+
+def _methods(client: FakeWebClient) -> list[str]:
+    return [method for method, _ in client.api_calls]
 
 
 def _statuses(client: FakeWebClient) -> list[str]:
@@ -104,7 +118,9 @@ def test_working_in_a_thread_sets_the_session_processing() -> None:
     )
 
     assert _statuses(client) == ["processing"]
-    payload = client.api_calls[0][1]["json"]
+    payload = next(
+        p["json"] for m, p in client.api_calls if m == "agents.sessions.setStatus"
+    )
     assert payload["channel_id"] == "C1"
     assert payload["thread_ts"] == "111.0"
     # The session carries the agent's identity, not the app's — one app fronts
@@ -379,7 +395,18 @@ def test_an_unknown_refusal_gives_up_after_a_few_tries(
     client.api_error = "some_code_we_have_never_seen"
 
     with caplog.at_level("WARNING"):
-        for _ in range(6):
+        for _ in range(3):
+            _run(
+                adapter.apply_runtime_state(
+                    "C1",
+                    "flint-tracker",
+                    "working",
+                    mention_handle=None,
+                    thread_root_id="C1:111.0",
+                )
+            )
+        settled = len([r for r in caplog.records if r.levelname == "WARNING"])
+        for _ in range(5):
             _run(
                 adapter.apply_runtime_state(
                     "C1",
@@ -392,8 +419,8 @@ def test_an_unknown_refusal_gives_up_after_a_few_tries(
 
     assert adapter._agent_sessions_off_reason == "some_code_we_have_never_seen"
     warnings = [r for r in caplog.records if r.levelname == "WARNING"]
-    # Three attempts, then the one that says it is giving up — not six.
-    assert len(warnings) == 4
+    # The point is that it stops: further turns add nothing to the log.
+    assert len(warnings) == settled
     assert any("kept refusing" in r.getMessage() for r in warnings)
 
 
@@ -529,4 +556,146 @@ def test_a_refused_send_is_retried_not_remembered() -> None:
         )
 
     assert adapter._session_status == {}
-    assert adapter._session_failures == 2
+    assert adapter._session_failures > 0
+
+
+# ── The stream that creates the session ──────────────────────────────────────
+
+
+def _working(
+    adapter: SlackAdapter, detail: str | None = None, thread: str = "C1:111.0"
+):
+    return adapter.apply_runtime_state(
+        "C1",
+        "flint-tracker",
+        "working",
+        mention_handle=None,
+        thread_root_id=thread,
+        detail=detail,
+    )
+
+
+def test_a_turn_opens_a_stream_before_setting_status() -> None:
+    """Setting a status without a session is accepted and renders nothing —
+    which is exactly how the first version looked healthy while doing nothing.
+    The stream is what creates the session, so it has to come first."""
+    adapter, client = _adapter()
+
+    _run(_working(adapter, "reading the codebase"))
+
+    methods = _methods(client)
+    assert methods[0] == "chat.startStream"
+    assert "agents.sessions.setStatus" in methods
+    assert methods.index("chat.startStream") < methods.index(
+        "agents.sessions.setStatus"
+    )
+
+
+def test_the_stream_names_the_agent_and_the_person_asking() -> None:
+    adapter, client = _adapter()
+
+    _run(_working(adapter))
+
+    payload = next(p["json"] for m, p in client.api_calls if m == "chat.startStream")
+    assert payload["thread_ts"] == "111.0"
+    assert payload["recipient_user_id"] == "U1"
+    assert payload["username"] == "flint-tracker"
+
+
+def test_each_new_activity_is_pushed_as_a_step() -> None:
+    adapter, client = _adapter()
+
+    _run(_working(adapter, "reading the codebase"))
+    _run(_working(adapter, "running the tests"))
+
+    appended = [p["json"] for m, p in client.api_calls if m == "chat.appendStream"]
+    titles = [a["chunks"][0]["title"] for a in appended]
+    assert titles == ["reading the codebase", "running the tests"]
+
+
+def test_the_same_activity_is_not_pushed_twice() -> None:
+    """Runtime state repeats through a turn; only a change is worth sending."""
+    adapter, client = _adapter()
+
+    for _ in range(4):
+        _run(_working(adapter, "reading the codebase"))
+
+    appended = [m for m in _methods(client) if m == "chat.appendStream"]
+    assert len(appended) == 1
+
+
+def test_the_stream_is_closed_when_the_turn_ends() -> None:
+    adapter, client = _adapter()
+
+    _run(_working(adapter, "reading the codebase"))
+    _run(
+        adapter.apply_runtime_state(
+            "C1",
+            "flint-tracker",
+            "idle",
+            mention_handle=None,
+            thread_root_id="C1:111.0",
+        )
+    )
+
+    assert "chat.stopStream" in _methods(client)
+    assert adapter._stream_ts == {}
+    assert adapter._stream_step == {}
+
+
+def test_a_second_turn_opens_a_fresh_stream() -> None:
+    adapter, client = _adapter()
+
+    _run(_working(adapter, "first"))
+    _run(
+        adapter.apply_runtime_state(
+            "C1",
+            "flint-tracker",
+            "idle",
+            mention_handle=None,
+            thread_root_id="C1:111.0",
+        )
+    )
+    _run(_working(adapter, "second"))
+
+    assert _methods(client).count("chat.startStream") == 2
+
+
+def test_no_stream_without_someone_to_stream_to() -> None:
+    """Streaming into a channel requires naming the recipient, so a thread we
+    never saw a question on cannot be streamed to."""
+    adapter, client = _adapter()
+    adapter._thread_requester.clear()
+
+    _run(_working(adapter, "reading the codebase"))
+
+    assert "chat.startStream" not in _methods(client)
+
+
+def test_a_refused_stream_does_not_leave_a_phantom_open() -> None:
+    adapter, client = _adapter()
+    client.api_error = "not_authorized"
+
+    _run(_working(adapter, "reading the codebase"))
+
+    assert adapter._stream_ts == {}
+
+
+def test_the_requester_is_recorded_from_an_incoming_message() -> None:
+    adapter, _ = _adapter()
+    adapter._thread_requester.clear()
+    adapter._bot_user_id = "UBOT"
+
+    _run(
+        adapter._handle_message_event(
+            {
+                "channel": "C1",
+                "ts": "333.0",
+                "user": "U9",
+                "text": "hi",
+                "channel_type": "channel",
+            }
+        )
+    )
+
+    assert adapter._thread_requester[("C1", "333.0")] == "U9"

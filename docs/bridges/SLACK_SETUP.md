@@ -228,9 +228,18 @@ warning on every startup.
 
 **On by default**, and additive: the "working on it…" message Switch posts is
 unchanged and still carries the detail. Where a turn happens **in a thread**,
-Switch also sets Slack's own agent session status, which renders the client's
-native loading UX and a **stop button** on that thread. A turn at the channel
-root has no thread to attach a session to, so it shows the posted message only.
+Switch also opens a Slack **agent session**, which renders the client's native
+progress card and a **stop button** on that thread. A turn at the channel root
+has no thread to attach a session to, so it shows the posted message only.
+
+A session exists because a **stream** is opened for it — setting a session's
+status without one is accepted by Slack and renders nothing at all. So each
+turn opens a stream, pushes a step into it whenever the agent's activity
+changes, and closes it when the turn ends.
+
+Streaming into a channel has to name the person being replied to, which Switch
+takes from the message that started the thread. A thread Switch never saw a
+question on therefore gets no session — it falls back to the posted message.
 
 The stop button is wired to the same interrupt an operator can type, so
 pressing it stops the agent whose turn it is. Setting `agent_sessions: false`

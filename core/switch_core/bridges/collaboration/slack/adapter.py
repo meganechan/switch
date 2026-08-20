@@ -101,6 +101,27 @@ _TRACE = "[agent-sessions] "
 # runtime-state report.
 _SESSION_REFRESH_SECONDS = 20 * 60
 
+# Slack caps a task chunk's text; keep well inside it.
+_STREAM_STEP_MAX = 200
+
+
+def _task_chunk(title: str) -> dict[str, Any]:
+    """One step in a streamed session.
+
+    Slack documents this payload three mutually incompatible ways — the method
+    reference, the guide's sample, and the guide's full example all differ. The
+    method reference is the one followed here, and the shape is kept in this
+    single function so correcting it against the live API is a one-line change
+    rather than a hunt.
+    """
+    return {
+        "type": "task_update",
+        "id": "current",
+        "title": title,
+        "status": "in_progress",
+    }
+
+
 _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
     "not_an_agent": (
         "the Slack app is not declared as an Agent — enable the Agents feature "
@@ -213,6 +234,14 @@ class SlackAdapter(CollaborationAdapter):
         # (channel_id, thread_ts) -> (status last sent, when). Runtime state is
         # reported repeatedly through a turn; Slack only needs the changes.
         self._session_status: dict[tuple[str, str], tuple[str, float]] = {}
+        # (channel_id, thread_ts) -> the open stream's ts, and the last step
+        # pushed into it. A stream is what creates the session Slack renders.
+        self._stream_ts: dict[tuple[str, str], str] = {}
+        self._stream_step: dict[tuple[str, str], str] = {}
+        # (channel_id, thread_ts) -> who asked. Streaming into a channel has to
+        # name the person being replied to, which the runtime-state path does
+        # not carry, so it is remembered from the message that started it.
+        self._thread_requester: dict[tuple[str, str], str] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -628,7 +657,7 @@ class SlackAdapter(CollaborationAdapter):
         # the working branch returns early when it only has to refresh the
         # message in place — and the session still has to track the turn.
         await self._set_session_status(
-            channel_id, thread_root_id, agent_name, state=state
+            channel_id, thread_root_id, agent_name, state=state, detail=detail
         )
 
         key = (channel_id, agent_name)
@@ -675,13 +704,20 @@ class SlackAdapter(CollaborationAdapter):
         agent_name: str,
         *,
         state: str,
+        detail: str | None = None,
     ) -> None:
-        """Mirror the turn onto Slack's own agent session status.
+        """Mirror the turn onto Slack's own agent session.
 
         This is additive: the status messages Switch posts are what actually
         carry the detail, and they are unchanged. This adds Slack's native
-        loading UX and its stop button, which look like the rest of the client
-        rather than like a bot imitating it.
+        rendering — a live message of what the agent is doing, and a stop
+        button on the thread.
+
+        A turn opens a stream, which is what creates the session: setting a
+        status without one is accepted and shows nothing, which is exactly how
+        the first version of this looked healthy while rendering nothing. Each
+        change of activity is pushed into the stream as a step, and the stream
+        is closed when the turn ends.
 
         A session is scoped to a thread, so a turn at the channel root has
         nowhere to attach one and is left to the posted messages alone.
@@ -715,6 +751,10 @@ class SlackAdapter(CollaborationAdapter):
             self._session_owner[key] = agent_name
         else:
             self._session_owner.pop(key, None)
+
+        await self._drive_stream(
+            channel_id, thread_ts, agent_name, working=working, detail=detail
+        )
 
         status = "processing" if working else "active"
         # Runtime state is reported repeatedly through a turn, not only when it
@@ -796,6 +836,101 @@ class SlackAdapter(CollaborationAdapter):
         )
         if self._session_failures >= _AGENT_SESSIONS_FAILURE_LIMIT:
             self._disable_agent_sessions(error)
+
+    async def _drive_stream(
+        self,
+        channel_id: str,
+        thread_ts: str,
+        agent_name: str,
+        *,
+        working: bool,
+        detail: str | None,
+    ) -> None:
+        """Open, extend and close the stream that backs the session."""
+        key = (channel_id, thread_ts)
+        open_ts = self._stream_ts.get(key)
+
+        if not working:
+            if open_ts:
+                await self._call_session_api(
+                    "chat.stopStream",
+                    {"channel": channel_id, "ts": open_ts},
+                    agent_name=agent_name,
+                    channel_id=channel_id,
+                )
+                self._stream_ts.pop(key, None)
+                self._stream_step.pop(key, None)
+                logger.info(_TRACE + "closed stream for %s on %s", agent_name, key[1])
+            return
+
+        step = (detail or "Working").strip()[:_STREAM_STEP_MAX]
+        if open_ts is None:
+            requester = self._thread_requester.get(key)
+            if not requester:
+                logger.info(
+                    _TRACE + "no stream for %s on %s: nobody recorded to stream to",
+                    agent_name,
+                    thread_ts,
+                )
+                return
+            result = await self._call_session_api(
+                "chat.startStream",
+                {
+                    "channel": channel_id,
+                    "thread_ts": thread_ts,
+                    "recipient_user_id": requester,
+                    "task_display_mode": "timeline",
+                    "username": agent_name,
+                    "icon_url": await self.agent_icon_url(agent_name),
+                },
+                agent_name=agent_name,
+                channel_id=channel_id,
+            )
+            if result is None:
+                return
+            open_ts = str(result.get("ts", ""))
+            if not open_ts:
+                logger.warning(
+                    _TRACE + "Slack opened a stream for %s with no ts", agent_name
+                )
+                return
+            self._stream_ts[key] = open_ts
+            logger.info(_TRACE + "opened stream %s for %s", open_ts, agent_name)
+        elif self._stream_step.get(key) == step:
+            return
+
+        await self._call_session_api(
+            "chat.appendStream",
+            {
+                "channel": channel_id,
+                "ts": open_ts,
+                "chunks": [_task_chunk(step)],
+            },
+            agent_name=agent_name,
+            channel_id=channel_id,
+        )
+        self._stream_step[key] = step
+
+    async def _call_session_api(
+        self, method: str, payload: dict[str, Any], *, agent_name: str, channel_id: str
+    ) -> dict[str, Any] | None:
+        """Make a session call, routing a refusal through the same give-up path.
+
+        Returns None when the call did not succeed, so a caller that needs the
+        response does not act on a failure it cannot see."""
+        if not self._web_client:
+            return None
+        try:
+            result = await self._web_client.api_call(method, json=payload)
+        except SlackApiError as e:
+            self._note_session_failure(
+                str(e.response.get("error", "")), agent_name, channel_id
+            )
+            return None
+        self._session_failures = 0
+        # The SDK's response is mapping-like rather than a dict; read what is
+        # needed through it instead of copying it wholesale.
+        return {"ts": str(result.get("ts", ""))}
 
     def _disable_agent_sessions(self, error: str) -> None:
         if self._agent_sessions_off_reason:
@@ -1535,6 +1670,10 @@ class SlackAdapter(CollaborationAdapter):
         # Remember the thread this message belongs to so the "thinking"
         # indicator can be posted into the same conversation.
         self._last_thread_ts[channel_id] = thread_ts or message_ts
+        # Streaming a reply into a channel has to name who it is for, and the
+        # runtime-state path never sees the asker — so keep it per thread.
+        if user_id and not bot_id:
+            self._thread_requester[(channel_id, thread_ts or message_ts)] = user_id
 
         message_ref = f"{channel_id}:{message_ts}"
         stripped = text.strip()
