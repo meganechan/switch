@@ -21,7 +21,7 @@ class ContractRange(NamedTuple):
 # CONTRACTS below. The two must never be derived from one another.
 ARTIFACT_VERSIONS: Final[dict[str, str]] = {
     "switch-core": "0.17.3",
-    "switch-console": "0.27.3",
+    "switch-console": "0.27.4",
     "agent-runtime": "0.3.2",
     "sidecar": "1.9.4",
     "gateway": "0.17.3",
