@@ -131,6 +131,12 @@ class SlackAdapter(CollaborationAdapter):
         # Retired agents keep their group in a disabled state — Slack has no
         # delete — so re-adding an agent re-enables rather than colliding.
         self._agent_groups_disabled: dict[str, str] = {}
+        # Every group in the workspace, id → handle, so a mention of one we do
+        # not own still renders as a handle instead of raw markup.
+        self._group_handles: dict[str, str] = {}
+        # Groups without our marker, keyed by folded handle and folded name, so
+        # an agent can claim one that was created by hand.
+        self._unadopted_groups: dict[str, str] = {}
         self._agent_groups_loaded = False
         # Set to Slack's error code once the workspace has told us it cannot
         # host user groups, so the bridge stops asking and says so only once.
@@ -748,6 +754,14 @@ class SlackAdapter(CollaborationAdapter):
         if folded in self._agent_group_ids:
             return
 
+        handle = self._usergroup_handle(agent_name)
+        adopted_id = self._unadopted_groups.get(folded) or self._unadopted_groups.get(
+            handle.casefold()
+        )
+        if adopted_id:
+            await self._adopt_group(adopted_id, agent_name)
+            return
+
         disabled_id = self._agent_groups_disabled.get(folded)
         if disabled_id:
             await self._web_client.usergroups_enable(usergroup=disabled_id)
@@ -758,7 +772,6 @@ class SlackAdapter(CollaborationAdapter):
             )
             return
 
-        handle = self._usergroup_handle(agent_name)
         try:
             result = await self._rate_limited(
                 lambda: self._require_web_client().usergroups_create(
@@ -892,6 +905,44 @@ class SlackAdapter(CollaborationAdapter):
                 await asyncio.sleep(delay)
         raise RuntimeError(f"Unreachable: exhausted retries to {what}")
 
+    async def _adopt_group(self, group_id: str, agent_name: str) -> None:
+        """Claim a user group someone made by hand for this agent.
+
+        Where a workspace will not let the bot create groups, making them by
+        hand is the only way to use the feature — so a group whose handle or
+        name is exactly an agent's is taken to be that agent's. The match has to
+        be exact: a workspace's own group must never be captured by an agent
+        that happens to be named similarly.
+
+        The marker is stamped on so later loads recognise it without needing
+        the agent list. That is an optimisation, not a requirement — adoption
+        happens per agent at startup either way — so failing to write it is
+        worth a warning rather than abandoning the adoption.
+        """
+        for key in (agent_name.casefold(), self._usergroup_handle(agent_name)):
+            self._unadopted_groups.pop(key, None)
+        self._remember_agent_group(group_id, agent_name)
+        logger.info(
+            "Adopted existing Slack user group %s for agent %s", group_id, agent_name
+        )
+
+        try:
+            await self._rate_limited(
+                lambda: self._require_web_client().usergroups_update(
+                    usergroup=group_id,
+                    description=f"{_AGENT_GROUP_MARKER}{agent_name}",
+                ),
+                what=f"mark the adopted user group for agent '{agent_name}'",
+            )
+        except (SlackApiError, RuntimeError):
+            logger.warning(
+                "Adopted Slack user group %s for agent %s but could not mark it "
+                "as ours; it will be re-adopted on each start.",
+                group_id,
+                agent_name,
+                exc_info=True,
+            )
+
     def _remember_agent_group(self, group_id: str, agent_name: str) -> None:
         self._agent_group_ids[agent_name.casefold()] = group_id
         self._agent_group_names[group_id] = agent_name
@@ -946,24 +997,38 @@ class SlackAdapter(CollaborationAdapter):
         self._agent_group_ids = {}
         self._agent_group_names = {}
         self._agent_groups_disabled = {}
+        self._group_handles = {}
+        self._unadopted_groups = {}
         for group in groups:
-            description = str(group.get("description", ""))
-            if not description.startswith(_AGENT_GROUP_MARKER):
-                continue
             group_id = str(group.get("id", ""))
-            agent_name = str(group.get("name", ""))
-            if not group_id or not agent_name:
+            handle = str(group.get("handle", ""))
+            name = str(group.get("name", ""))
+            if not group_id:
+                continue
+            if handle:
+                self._group_handles[group_id] = handle
+
+            if not str(group.get("description", "")).startswith(_AGENT_GROUP_MARKER):
+                # Not ours — but it may still be an agent's, made by hand. Keyed
+                # both ways so an agent can claim it by either field.
+                for key in (handle.casefold(), name.casefold()):
+                    if key:
+                        self._unadopted_groups[key] = group_id
+                continue
+
+            if not name:
                 continue
             if group.get("date_delete"):
-                self._agent_groups_disabled[agent_name.casefold()] = group_id
+                self._agent_groups_disabled[name.casefold()] = group_id
             else:
-                self._remember_agent_group(group_id, agent_name)
+                self._remember_agent_group(group_id, name)
 
         self._agent_groups_loaded = True
         logger.info(
-            "Loaded %d Slack agent user groups (%d disabled)",
+            "Loaded %d Slack agent user groups (%d disabled, %d other groups seen)",
             len(self._agent_group_ids),
             len(self._agent_groups_disabled),
+            len(self._group_handles) - len(self._agent_group_ids),
         )
 
     async def get_channel_agent_names(self, channel_id: str) -> list[str]:
@@ -1567,7 +1632,14 @@ class SlackAdapter(CollaborationAdapter):
             if agent_name:
                 return f"@{agent_name}"
             label = match.group(2)
-            return label.lstrip("|") if label else match.group(0)
+            if label:
+                return label.lstrip("|")
+            # Not an agent's group, or one we have not adopted yet. Its handle
+            # still reads as a mention, where the raw tag is just broken output
+            # in the room — and if the handle is an agent's name, the ordinary
+            # text matching downstream picks it up anyway.
+            handle = self._group_handles.get(group_id)
+            return f"@{handle}" if handle else match.group(0)
 
         # `<!subteam^S123>` is the documented form; the `|@handle` variant is
         # what Slack actually sends on some paths, so accept both.

@@ -204,6 +204,12 @@ The groups are created empty and stay empty: they exist to be completable, and
 mentioning one notifies nobody. Switch recognises its own groups by a marker on
 their description and ignores the workspace's own.
 
+**Groups made by hand are adopted.** Where a workspace will not let the bot
+create them, making them manually is the only way to use the feature — so a
+group whose **handle or name is exactly an agent's name** is taken to be that
+agent's, and the marker is stamped on it. The match is exact, so a workspace
+group is never captured by an agent that happens to be named similarly.
+
 Two things gate it, both outside Switch:
 
 - **A paid plan.** User groups do not exist on Slack's free tier.

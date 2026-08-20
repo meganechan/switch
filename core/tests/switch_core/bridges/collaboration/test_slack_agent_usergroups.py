@@ -45,6 +45,8 @@ class FakeWebClient:
         # condition (throttling) rather than a permanent one.
         self.clear_error_after: int | None = None
         self.create_attempts = 0
+        self.updated: list[tuple[str, str]] = []
+        self.update_error: str | None = None
 
     async def usergroups_list(self, **kwargs: Any) -> FakeResponse:
         self.list_calls += 1
@@ -79,6 +81,16 @@ class FakeWebClient:
 
     async def usergroups_enable(self, *, usergroup: str) -> FakeResponse:
         self.enabled.append(usergroup)
+        return FakeResponse({"ok": True})
+
+    async def usergroups_update(
+        self, *, usergroup: str, description: str
+    ) -> FakeResponse:
+        if self.update_error:
+            raise SlackApiError(
+                "update failed", FakeResponse({"error": self.update_error})
+            )
+        self.updated.append((usergroup, description))
         return FakeResponse({"ok": True})
 
 
@@ -182,7 +194,9 @@ def test_workspace_groups_are_not_mistaken_for_agents() -> None:
     _run(adapter._load_agent_usergroups())
 
     assert adapter._agent_group_ids == {}
-    assert adapter._translate_usergroup_mentions("<!subteam^S999>") == "<!subteam^S999>"
+    # It renders as its own handle rather than raw markup, but as the group's
+    # handle — never as an agent, which is what would misroute a message.
+    assert adapter._translate_usergroup_mentions("<!subteam^S999>") == "@designers"
 
 
 def test_an_unusual_agent_name_still_yields_a_legal_handle() -> None:
@@ -411,3 +425,105 @@ def test_rate_limiting_does_not_disable_the_feature() -> None:
     adapter, _ = _adapter()
 
     assert adapter._agent_usergroups_off_reason is None
+
+
+# ── Groups created by hand ───────────────────────────────────────────────────
+
+
+def _plain_group(group_id: str, handle: str, name: str) -> dict[str, Any]:
+    """A group with no marker — what an admin creating one by hand produces."""
+    return {
+        "id": group_id,
+        "name": name,
+        "handle": handle,
+        "description": "",
+    }
+
+
+def test_a_hand_made_group_is_adopted_by_handle() -> None:
+    """Where a workspace will not let the bot create groups, making them by hand
+    is the only way to use the feature, so an exact handle match is claimed."""
+    adapter, client = _adapter(
+        groups=[_plain_group("S0BRK25CG86", "switch-usecase-builder", "Use case bot")]
+    )
+
+    _run(adapter.create_agent_identity("switch-usecase-builder", "Builds use cases"))
+
+    assert client.created == []
+    assert adapter._agent_group_ids["switch-usecase-builder"] == "S0BRK25CG86"
+    assert adapter._agent_group_names["S0BRK25CG86"] == "switch-usecase-builder"
+
+
+def test_a_hand_made_group_is_adopted_by_name() -> None:
+    adapter, client = _adapter(
+        groups=[_plain_group("S001", "some-other-handle", "flint-tracker")]
+    )
+
+    _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+    assert client.created == []
+    assert adapter._agent_group_ids["flint-tracker"] == "S001"
+
+
+def test_adoption_stamps_the_marker_so_it_is_recognised_later() -> None:
+    adapter, client = _adapter(
+        groups=[_plain_group("S001", "flint-tracker", "flint-tracker")]
+    )
+
+    _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+    assert client.updated == [("S001", "Switch agent — flint-tracker")]
+
+
+def test_adoption_survives_a_failed_marker_write() -> None:
+    """Marking is an optimisation — adoption happens per agent at startup
+    regardless — so losing the write must not lose the adoption."""
+    adapter, client = _adapter(
+        groups=[_plain_group("S001", "flint-tracker", "flint-tracker")]
+    )
+    client.update_error = "permission_denied"
+
+    _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+    assert adapter._agent_group_ids["flint-tracker"] == "S001"
+
+
+def test_a_hand_made_group_resolves_to_the_agent_after_adoption() -> None:
+    adapter, _ = _adapter(
+        groups=[_plain_group("S0BRK25CG86", "switch-usecase-builder", "Use case bot")]
+    )
+
+    _run(adapter.create_agent_identity("switch-usecase-builder", "Builds use cases"))
+
+    assert (
+        adapter.translate_inbound("<!subteam^S0BRK25CG86> hi there")
+        == "@switch-usecase-builder hi there"
+    )
+
+
+def test_a_similar_name_does_not_capture_a_workspace_group() -> None:
+    """Adoption matches exactly; anything looser would let an agent capture a
+    real group and silently swallow messages meant for people."""
+    adapter, client = _adapter(groups=[_plain_group("S999", "designers", "Designers")])
+
+    _run(adapter.create_agent_identity("designer", "Not the design team"))
+
+    assert adapter._agent_group_ids.get("designer") != "S999"
+    assert len(client.created) == 1
+
+
+def test_an_unknown_group_renders_as_its_handle_not_raw_markup() -> None:
+    """The bug behind the pilot report: a bare tag reached Matrix verbatim."""
+    adapter, _ = _adapter(groups=[_plain_group("S999", "designers", "Designers")])
+    _run(adapter._load_agent_usergroups())
+
+    assert adapter.translate_inbound("<!subteam^S999> ping") == "@designers ping"
+
+
+def test_a_group_we_have_never_seen_is_left_alone() -> None:
+    adapter, _ = _adapter()
+
+    assert (
+        adapter._translate_usergroup_mentions("<!subteam^SNEVER>")
+        == "<!subteam^SNEVER>"
+    )
