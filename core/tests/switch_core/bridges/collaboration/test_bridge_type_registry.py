@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 
 from switch_core.bridges.collaboration.discord.adapter import (
     DiscordAdapter,
@@ -182,3 +183,38 @@ def test_teams_adapter_registers_with_expected_required_fields() -> None:
     assert "listen_host" not in schema["properties"]
     assert "listen_port" not in schema["properties"]
     assert "service_url" not in schema["properties"]
+
+
+# ── Connection config validation ─────────────────────────────────────────────
+
+
+def test_validate_connection_config_accepts_a_valid_edit() -> None:
+    service = _service()
+    service.register_adapter("slack", SlackAdapter, SlackConnectionConfig)
+
+    service.validate_connection_config(
+        "slack",
+        {
+            "bot_token": "xoxb-1",
+            "app_token": "xapp-1",
+            "workspace_id": "T1",
+            "agent_usergroups": True,
+        },
+    )
+
+
+def test_validate_connection_config_rejects_a_broken_edit() -> None:
+    # Editing a connection is checked before it is stored: a config the adapter
+    # cannot parse would otherwise take the bridge down at its next start, long
+    # after the request that caused it.
+    service = _service()
+    service.register_adapter("slack", SlackAdapter, SlackConnectionConfig)
+
+    with pytest.raises(PydanticValidationError):
+        service.validate_connection_config("slack", {"bot_token": "xoxb-1"})
+
+
+def test_validate_connection_config_unknown_type_raises() -> None:
+    service = _service()
+    with pytest.raises(ValueError, match="Unknown bridge type"):
+        service.validate_connection_config("does-not-exist", {})

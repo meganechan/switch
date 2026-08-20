@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -42,6 +43,42 @@ logger = logging.getLogger(__name__)
 # reload can tell ours apart from the workspace's own groups.
 _AGENT_GROUP_MARKER = "Switch agent — "
 
+# User group calls are rate-limited at roughly 20/minute, and the Slack client
+# retries connection errors but not throttling.
+_RATE_LIMIT_MAX_ATTEMPTS = 5
+_RATE_LIMIT_DEFAULT_DELAY = 30
+
+# Slack refusals that mean this workspace cannot host agent user groups at all,
+# rather than that one particular call went wrong. Each maps to what an operator
+# would have to change to get autocomplete working.
+_USERGROUPS_UNAVAILABLE_ERRORS = {
+    "permission_denied": (
+        "this workspace restricts managing user groups to admins — allow the "
+        "Switch bot to manage them under Workspace settings → Roles & "
+        "permissions → Account types."
+    ),
+    "no_permission": (
+        "this workspace restricts managing user groups to admins — allow the "
+        "Switch bot to manage them under Workspace settings → Roles & "
+        "permissions → Account types."
+    ),
+    "plan_upgrade_required": ("user groups need a paid Slack plan (Pro or above)."),
+    "paid_teams_only": ("user groups need a paid Slack plan (Pro or above)."),
+    "missing_scope": (
+        "the Slack app is missing the usergroups:read / usergroups:write "
+        "scopes — reinstall it with the scopes from SLACK_SETUP.md."
+    ),
+}
+
+
+def _retry_after_seconds(error: SlackApiError) -> int:
+    """Seconds Slack asked us to wait, falling back to a safe default."""
+    headers = getattr(error.response, "headers", None) or {}
+    try:
+        return max(1, int(headers.get("Retry-After", _RATE_LIMIT_DEFAULT_DELAY)))
+    except (TypeError, ValueError):
+        return _RATE_LIMIT_DEFAULT_DELAY
+
 
 class SlackUser(BaseModel):
     name: str
@@ -53,10 +90,12 @@ class SlackConnectionConfig(BridgeConnectionConfig):
     app_token: str
     workspace_id: str
     # Give each agent a Slack user group so its name completes in the composer's
-    # `@` menu. Off by default: user groups need a paid plan, and most
-    # workspaces restrict managing them to admins, so the bot token is refused
-    # until someone widens that permission.
-    agent_usergroups: bool = False
+    # `@` menu. On by default, because a workspace that can do it wants it: the
+    # alternative is typing agent names from memory with no completion and no
+    # feedback on a typo. A workspace that cannot — no paid plan, or user groups
+    # restricted to admins — says so on the first attempt, and the bridge
+    # reports that once and carries on without them.
+    agent_usergroups: bool = True
 
 
 class SlackAdapter(CollaborationAdapter):
@@ -93,6 +132,9 @@ class SlackAdapter(CollaborationAdapter):
         # delete — so re-adding an agent re-enables rather than colliding.
         self._agent_groups_disabled: dict[str, str] = {}
         self._agent_groups_loaded = False
+        # Set to Slack's error code once the workspace has told us it cannot
+        # host user groups, so the bridge stops asking and says so only once.
+        self._agent_usergroups_off_reason: str | None = None
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -694,12 +736,14 @@ class SlackAdapter(CollaborationAdapter):
         completable and to arrive as a structured mention, and mentioning it
         notifies nobody.
         """
-        if not self._config.agent_usergroups:
+        if not self._agent_usergroups_available():
             return
         if not self._web_client:
             raise RuntimeError("Cannot create agent user group: Slack not connected")
 
         await self._ensure_agent_groups_loaded()
+        if not self._agent_usergroups_available():
+            return
         folded = agent_name.casefold()
         if folded in self._agent_group_ids:
             return
@@ -716,10 +760,13 @@ class SlackAdapter(CollaborationAdapter):
 
         handle = self._usergroup_handle(agent_name)
         try:
-            result = await self._web_client.usergroups_create(
-                name=agent_name,
-                handle=handle,
-                description=f"{_AGENT_GROUP_MARKER}{agent_description}".strip(),
+            result = await self._rate_limited(
+                lambda: self._require_web_client().usergroups_create(
+                    name=agent_name,
+                    handle=handle,
+                    description=f"{_AGENT_GROUP_MARKER}{agent_description}".strip(),
+                ),
+                what=f"create a Slack user group for agent '{agent_name}'",
             )
         except SlackApiError as e:
             error = e.response.get("error", "")
@@ -736,19 +783,9 @@ class SlackAdapter(CollaborationAdapter):
                     "person or group that is not ours. Rename the agent or free "
                     "the handle."
                 ) from e
-            if error in ("permission_denied", "no_permission"):
-                raise RuntimeError(
-                    f"Slack refused to create a user group for agent "
-                    f"'{agent_name}': this workspace restricts managing user "
-                    "groups to admins. Allow the Switch bot to manage them, or "
-                    "turn off `agent_usergroups` for this bridge."
-                ) from e
-            if error in ("plan_upgrade_required", "paid_teams_only"):
-                raise RuntimeError(
-                    f"Slack refused to create a user group for agent "
-                    f"'{agent_name}': user groups need a paid plan (Pro or "
-                    "above). Turn off `agent_usergroups` for this bridge."
-                ) from e
+            if error in _USERGROUPS_UNAVAILABLE_ERRORS:
+                self._disable_agent_usergroups(error)
+                return
             raise
 
         group = result.get("usergroup") or {}
@@ -767,12 +804,14 @@ class SlackAdapter(CollaborationAdapter):
         )
 
     async def remove_agent_identity(self, agent_name: str) -> None:
-        if not self._config.agent_usergroups:
+        if not self._agent_usergroups_available():
             return
         if not self._web_client:
             raise RuntimeError("Cannot remove agent user group: Slack not connected")
 
         await self._ensure_agent_groups_loaded()
+        if not self._agent_usergroups_available():
+            return
         folded = agent_name.casefold()
         group_id = self._agent_group_ids.get(folded)
         if not group_id:
@@ -787,6 +826,71 @@ class SlackAdapter(CollaborationAdapter):
         logger.info("Disabled Slack user group %s for agent %s", group_id, agent_name)
 
     # ── Agent user groups ────────────────────────────────────────────────────
+
+    def _agent_usergroups_available(self) -> bool:
+        return self._config.agent_usergroups and not self._agent_usergroups_off_reason
+
+    def _disable_agent_usergroups(self, error: str) -> None:
+        """Stop attempting user groups on this bridge, saying why, once.
+
+        The setting is on by default, so a workspace that simply cannot host
+        user groups is an ordinary situation rather than a misconfiguration —
+        but it must not be a silent one, and it must not repeat the complaint
+        for every agent on every startup. Latching turns it into one warning
+        that names the cause and the consequence.
+        """
+        if self._agent_usergroups_off_reason:
+            return
+        self._agent_usergroups_off_reason = error
+        logger.warning(
+            "Slack agent user groups are unavailable on this workspace (%s): %s "
+            "Agent names will not autocomplete in the Slack composer; agents "
+            "remain addressable by typing their name.",
+            error,
+            _USERGROUPS_UNAVAILABLE_ERRORS[error],
+        )
+
+    def _require_web_client(self) -> AsyncWebClient:
+        if not self._web_client:
+            raise RuntimeError("Slack client not connected")
+        return self._web_client
+
+    async def _rate_limited(
+        self, call: Callable[[], Awaitable[Any]], *, what: str
+    ) -> Any:
+        """Run a Slack call, waiting out rate limits rather than losing it.
+
+        Provisioning runs once per agent at startup, so a workspace with more
+        agents than the per-minute allowance would otherwise come up with some
+        agents mentionable and some not — and the caller only logs, so nothing
+        would say which. Waiting keeps the backfill whole; giving up after a
+        bounded number of attempts keeps a persistently throttled workspace
+        from hanging startup, and says so rather than continuing quietly.
+        """
+        for attempt in range(_RATE_LIMIT_MAX_ATTEMPTS):
+            try:
+                return await call()
+            except SlackApiError as e:
+                if e.response.get("error") != "ratelimited":
+                    raise
+                if attempt == _RATE_LIMIT_MAX_ATTEMPTS - 1:
+                    raise RuntimeError(
+                        f"Slack kept rate-limiting the attempt to {what} after "
+                        f"{_RATE_LIMIT_MAX_ATTEMPTS} tries. Some agents may have "
+                        "no user group and so will not autocomplete; restart the "
+                        "bridge to finish provisioning."
+                    ) from e
+                delay = _retry_after_seconds(e)
+                logger.warning(
+                    "Slack rate-limited the attempt to %s; retrying in %ss "
+                    "(attempt %d/%d)",
+                    what,
+                    delay,
+                    attempt + 1,
+                    _RATE_LIMIT_MAX_ATTEMPTS,
+                )
+                await asyncio.sleep(delay)
+        raise RuntimeError(f"Unreachable: exhausted retries to {what}")
 
     def _remember_agent_group(self, group_id: str, agent_name: str) -> None:
         self._agent_group_ids[agent_name.casefold()] = group_id
@@ -820,7 +924,23 @@ class SlackAdapter(CollaborationAdapter):
         if not self._web_client:
             raise RuntimeError("Cannot load Slack user groups: Slack not connected")
 
-        result = await self._web_client.usergroups_list(include_disabled=True)
+        try:
+            result = await self._rate_limited(
+                lambda: self._require_web_client().usergroups_list(
+                    include_disabled=True
+                ),
+                what="list Slack user groups",
+            )
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            if error in _USERGROUPS_UNAVAILABLE_ERRORS:
+                # The first call is where a workspace without the plan or the
+                # permission finds out, so it is the natural place to give up.
+                self._disable_agent_usergroups(error)
+                self._agent_groups_loaded = True
+                return
+            raise
+
         groups: list[dict[str, Any]] = result.get("usergroups") or []
 
         self._agent_group_ids = {}

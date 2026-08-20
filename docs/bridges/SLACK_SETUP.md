@@ -185,12 +185,13 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**:
 - `reactions:read`, `reactions:write` — reaction-based acknowledgements.
 - `assistant:write` — assistant/app-home surface.
 - `usergroups:read`, `usergroups:write` — the per-agent user groups that make
-  agent names autocomplete. Only needed with `agent_usergroups` on; see below.
+  agent names autocomplete. See below.
 
 ### Agent name autocomplete (`agent_usergroups`)
 
-Off by default. Set `agent_usergroups: true` in the bridge's connection config
-to give every agent a Slack **user group** whose handle is its name.
+**On by default.** Every agent gets a Slack **user group** whose handle is its
+name. Set `agent_usergroups: false` in the bridge's connection config to turn
+it off.
 
 Slack autocompletes only things it knows about, and an agent is not a Slack
 user — one app serves all of them, so a typed `@agent-name` is just text that
@@ -211,9 +212,23 @@ Two things gate it, both outside Switch:
   *Workspace settings → Roles & permissions → Account types → "Create and edit
   user groups"*.
 
-If either is missing, agent creation logs the refusal and the reason. Leave the
-setting off rather than running with it failing — agents stay addressable by
-typed name either way, exactly as before.
+A workspace missing either is a normal case, not a misconfiguration: the bridge
+logs **one** warning naming the cause and what it costs, then runs without user
+groups. Agents stay addressable by typing their name, exactly as before — you
+lose the autocomplete, nothing else. It does not retry per agent or repeat the
+warning on every startup.
+
+### Turning it on for an existing bridge
+
+`PATCH /collaborations/{bridge_id}` accepts `connection_config`, merged over the
+stored one — so you change a setting without re-sending the platform's tokens:
+
+```json
+{ "connection_config": { "agent_usergroups": true } }
+```
+
+The bridge restarts to pick it up, and provisioning at startup covers every
+agent that already exists. There is no separate migration step.
 
 ### Event subscriptions (over Socket Mode)
 

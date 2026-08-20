@@ -40,12 +40,25 @@ class FakeWebClient:
         self.enabled: list[str] = []
         self.list_calls = 0
         self.create_error: str | None = None
+        self.list_error: str | None = None
+        # Clear create_error after this many failures, to model a transient
+        # condition (throttling) rather than a permanent one.
+        self.clear_error_after: int | None = None
+        self.create_attempts = 0
 
     async def usergroups_list(self, **kwargs: Any) -> FakeResponse:
         self.list_calls += 1
+        if self.list_error:
+            raise SlackApiError("list failed", FakeResponse({"error": self.list_error}))
         return FakeResponse({"usergroups": self.groups})
 
     async def usergroups_create(self, **kwargs: Any) -> FakeResponse:
+        self.create_attempts += 1
+        if (
+            self.clear_error_after is not None
+            and self.create_attempts > self.clear_error_after
+        ):
+            self.create_error = None
         if self.create_error:
             raise SlackApiError(
                 "create failed", FakeResponse({"error": self.create_error})
@@ -183,22 +196,72 @@ def test_an_unusual_agent_name_still_yields_a_legal_handle() -> None:
     assert client.created[0]["name"] == "Flint Tracker!"
 
 
-# ── Refusals stay loud ───────────────────────────────────────────────────────
+# ── A workspace that cannot host user groups ─────────────────────────────────
 
 
 @pytest.mark.parametrize(
     "error,expected",
     [
-        ("permission_denied", "restricts managing user"),
-        ("plan_upgrade_required", "paid plan"),
-        ("paid_teams_only", "paid plan"),
+        ("permission_denied", "restricts managing user groups to admins"),
+        ("no_permission", "restricts managing user groups to admins"),
+        ("plan_upgrade_required", "paid Slack plan"),
+        ("paid_teams_only", "paid Slack plan"),
+        ("missing_scope", "usergroups:read"),
     ],
 )
-def test_refusals_raise_with_the_reason(error: str, expected: str) -> None:
+def test_a_workspace_refusal_is_reported_once_and_not_retried(
+    error: str, expected: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The setting is on by default, so a workspace that simply cannot host user
+    groups is ordinary — but it must say so, and only once, rather than
+    complaining per agent on every startup."""
     adapter, client = _adapter()
     client.create_error = error
 
-    with pytest.raises(RuntimeError, match=expected):
+    with caplog.at_level("WARNING"):
+        _run(adapter.create_agent_identity("agent-one", "One"))
+        _run(adapter.create_agent_identity("agent-two", "Two"))
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert expected in message
+    # The consequence, not just the cause: someone reading the log should know
+    # what stopped working and that agents still answer to a typed name.
+    assert "autocomplete" in message
+    assert "addressable" in message
+
+
+def test_a_refusal_stops_further_slack_calls() -> None:
+    adapter, client = _adapter()
+    client.create_error = "plan_upgrade_required"
+
+    _run(adapter.create_agent_identity("agent-one", "One"))
+    calls_after_first = len(client.created) + client.list_calls
+    _run(adapter.create_agent_identity("agent-two", "Two"))
+
+    assert len(client.created) + client.list_calls == calls_after_first
+
+
+def test_a_refusal_on_listing_disables_it_too() -> None:
+    """A free workspace fails at the very first call — listing — so that path
+    has to give up the same way rather than raising past the caller."""
+    adapter, client = _adapter()
+    client.list_error = "plan_upgrade_required"
+
+    _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+    assert client.created == []
+    assert adapter._agent_usergroups_off_reason == "plan_upgrade_required"
+
+
+def test_an_unexpected_slack_error_still_propagates() -> None:
+    """Only the refusals that mean 'this workspace cannot' are swallowed; a
+    genuine fault must still reach the caller."""
+    adapter, client = _adapter()
+    client.create_error = "internal_error"
+
+    with pytest.raises(SlackApiError):
         _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
 
 
@@ -294,3 +357,57 @@ def test_outbound_prefers_a_real_person_over_an_agent_group() -> None:
     adapter.prime_mention_targets({"ambiguous": "U123"})
 
     assert adapter._translate_mentions_to_slack("@ambiguous") == "<@U123>"
+
+
+# ── Rate limiting ────────────────────────────────────────────────────────────
+
+
+def test_a_rate_limited_create_is_retried_rather_than_lost(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Provisioning runs once per agent at startup and the allowance is about
+    20/minute, so a workspace with more agents than that would otherwise come up
+    with some mentionable and some not — and the caller only logs."""
+    slept: list[float] = []
+
+    async def _no_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(
+        "switch_core.bridges.collaboration.slack.adapter.asyncio.sleep", _no_sleep
+    )
+
+    adapter, client = _adapter()
+    client.create_error = "ratelimited"
+    client.clear_error_after = 2
+
+    _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+    assert len(client.created) == 1
+    assert len(slept) == 2
+    assert adapter._agent_group_ids["flint-tracker"]
+
+
+def test_persistent_rate_limiting_says_provisioning_is_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _no_sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "switch_core.bridges.collaboration.slack.adapter.asyncio.sleep", _no_sleep
+    )
+
+    adapter, client = _adapter()
+    client.create_error = "ratelimited"
+
+    with pytest.raises(RuntimeError, match="restart the bridge"):
+        _run(adapter.create_agent_identity("flint-tracker", "Tracks flint"))
+
+
+def test_rate_limiting_does_not_disable_the_feature() -> None:
+    """Throttling is temporary; it must not be mistaken for a workspace that
+    cannot host user groups at all."""
+    adapter, _ = _adapter()
+
+    assert adapter._agent_usergroups_off_reason is None
