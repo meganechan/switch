@@ -236,6 +236,12 @@ stored one — so you change a setting without re-sending the platform's tokens:
 The bridge restarts to pick it up, and provisioning at startup covers every
 agent that already exists. There is no separate migration step.
 
+Provisioning runs **in the background**: it is one Slack call per agent against
+a rate limit of roughly 20/minute, so a few hundred agents take minutes. The
+bridge is online and relaying throughout, and agents stay addressable by typed
+name while their groups are still being made — autocomplete is what arrives
+late, nothing else. Watch the per-group log lines for progress.
+
 ### Event subscriptions (over Socket Mode)
 
 Subscribe the **bot** to (no request URL is needed with Socket Mode):
