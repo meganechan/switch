@@ -96,6 +96,11 @@ _AGENT_SESSIONS_FAILURE_LIMIT = 3
 # status, so they can be grepped for and stripped once it is proven out.
 _TRACE = "[agent-sessions] "
 
+# How long a processing session may go unrefreshed. Slack drops one back to
+# active after an hour, so this is well inside that without resending on every
+# runtime-state report.
+_SESSION_REFRESH_SECONDS = 20 * 60
+
 _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
     "not_an_agent": (
         "the Slack app is not declared as an Agent — enable the Agents feature "
@@ -205,6 +210,9 @@ class SlackAdapter(CollaborationAdapter):
         # (channel_id, thread_ts) -> agent whose turn owns that session, so the
         # stop button can be routed to the agent it belongs to.
         self._session_owner: dict[tuple[str, str], str] = {}
+        # (channel_id, thread_ts) -> (status last sent, when). Runtime state is
+        # reported repeatedly through a turn; Slack only needs the changes.
+        self._session_status: dict[tuple[str, str], tuple[str, float]] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -709,6 +717,23 @@ class SlackAdapter(CollaborationAdapter):
             self._session_owner.pop(key, None)
 
         status = "processing" if working else "active"
+        # Runtime state is reported repeatedly through a turn, not only when it
+        # changes, so sending on every event means the same status over and over
+        # — one long turn was re-sending every few seconds. Slack only needs to
+        # be told when the answer changes, plus a refresh often enough to beat
+        # the hour at which it drops a processing session by itself.
+        last = self._session_status.get(key)
+        now = time.monotonic()
+        if last is not None and last[0] == status:
+            if status != "processing" or now - last[1] < _SESSION_REFRESH_SECONDS:
+                logger.info(
+                    _TRACE + "unchanged (%s) for %s on %s/%s — not resending",
+                    status,
+                    agent_name,
+                    channel_id,
+                    thread_ts,
+                )
+                return
         logger.info(
             _TRACE + "setting %s for %s on %s/%s",
             status,
@@ -734,6 +759,12 @@ class SlackAdapter(CollaborationAdapter):
         else:
             logger.info(_TRACE + "Slack accepted %s for %s", status, agent_name)
             self._session_failures = 0
+            # Recorded only once Slack has it, so a refused send is retried
+            # rather than remembered as though it had landed.
+            if status == "processing":
+                self._session_status[key] = (status, now)
+            else:
+                self._session_status.pop(key, None)
 
     def _note_session_failure(
         self, error: str, agent_name: str, channel_id: str

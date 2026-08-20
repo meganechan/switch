@@ -424,3 +424,109 @@ def test_a_success_resets_the_failure_count() -> None:
         )
 
     assert adapter._agent_sessions_off_reason is None
+
+
+# ── Not resending an unchanged status ────────────────────────────────────────
+
+
+def test_a_repeated_working_state_is_not_resent() -> None:
+    """Runtime state is reported through a turn, not only when it changes. One
+    long turn was re-sending the same status to Slack every few seconds."""
+    adapter, client = _adapter()
+
+    for _ in range(5):
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                "working",
+                mention_handle=None,
+                thread_root_id="C1:111.0",
+            )
+        )
+
+    assert _statuses(client) == ["processing"]
+
+
+def test_a_change_is_still_sent() -> None:
+    adapter, client = _adapter()
+
+    for state in ("working", "working", "idle", "working"):
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                state,
+                mention_handle=None,
+                thread_root_id="C1:111.0",
+            )
+        )
+
+    assert _statuses(client) == ["processing", "active", "processing"]
+
+
+def test_a_long_turn_refreshes_before_slack_drops_it() -> None:
+    """Slack drops a processing session after an hour, so silence for the whole
+    turn would lose the indicator on anything long-running."""
+    adapter, client = _adapter()
+
+    _run(
+        adapter.apply_runtime_state(
+            "C1",
+            "flint-tracker",
+            "working",
+            mention_handle=None,
+            thread_root_id="C1:111.0",
+        )
+    )
+    # Pretend the turn has been going for a while.
+    adapter._session_status[("C1", "111.0")] = ("processing", 0.0)
+    _run(
+        adapter.apply_runtime_state(
+            "C1",
+            "flint-tracker",
+            "working",
+            mention_handle=None,
+            thread_root_id="C1:111.0",
+        )
+    )
+
+    assert _statuses(client) == ["processing", "processing"]
+
+
+def test_separate_threads_keep_separate_status() -> None:
+    adapter, client = _adapter()
+
+    for thread in ("C1:111.0", "C1:222.0"):
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                "working",
+                mention_handle=None,
+                thread_root_id=thread,
+            )
+        )
+
+    assert _statuses(client) == ["processing", "processing"]
+
+
+def test_a_refused_send_is_retried_not_remembered() -> None:
+    """Recording the status before Slack accepted it would mean a refusal was
+    never retried — and the give-up counter would never reach its limit."""
+    adapter, client = _adapter()
+    client.api_error = "transient"
+
+    for _ in range(2):
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                "working",
+                mention_handle=None,
+                thread_root_id="C1:111.0",
+            )
+        )
+
+    assert adapter._session_status == {}
+    assert adapter._session_failures == 2
