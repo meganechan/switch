@@ -85,6 +85,25 @@ def _group_description(agent_description: str) -> str:
     return full[: _GROUP_DESCRIPTION_MAX - 1].rstrip() + "…"
 
 
+# Slack refusals that mean this app cannot host agent sessions at all, rather
+# than that one call went wrong. Each says what an operator would have to change.
+_AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
+    "not_an_agent": (
+        "the Slack app is not declared as an Agent — enable the Agents feature "
+        "in the app's settings. Note that doing so removes access for workspace "
+        "guests and cannot be undone."
+    ),
+    "unknown_method": ("this Slack deployment does not offer the agent sessions API."),
+    "missing_scope": (
+        "the Slack app is missing the assistant:write scope — reinstall it with "
+        "the scopes from SLACK_SETUP.md."
+    ),
+    "method_not_supported_for_channel_type": (
+        "agent sessions are not supported in this kind of conversation."
+    ),
+}
+
+
 def _retry_after_seconds(error: SlackApiError) -> int:
     """Seconds Slack asked us to wait, falling back to a safe default."""
     headers = getattr(error.response, "headers", None) or {}
@@ -110,6 +129,13 @@ class SlackConnectionConfig(BridgeConnectionConfig):
     # restricted to admins — says so on the first attempt, and the bridge
     # reports that once and carries on without them.
     agent_usergroups: bool = True
+    # Also surface a turn's progress as Slack's native agent session status —
+    # its own loading UX and stop button on the thread — alongside the status
+    # messages Switch posts itself. On by default: this only says to use the
+    # feature where the app has it. Whether the app *is* an Agent is decided in
+    # Slack's own app config, so a workspace that has not made that change is
+    # refused on the first call and carries on with the posted status messages.
+    agent_sessions: bool = True
 
 
 class SlackAdapter(CollaborationAdapter):
@@ -155,6 +181,12 @@ class SlackAdapter(CollaborationAdapter):
         # Set to Slack's error code once the workspace has told us it cannot
         # host user groups, so the bridge stops asking and says so only once.
         self._agent_usergroups_off_reason: str | None = None
+        # Set once Slack has told us it will not host agent sessions, so the
+        # bridge stops asking and says so only once.
+        self._agent_sessions_off_reason: str | None = None
+        # (channel_id, thread_ts) -> agent whose turn owns that session, so the
+        # stop button can be routed to the agent it belongs to.
+        self._session_owner: dict[tuple[str, str], str] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -596,6 +628,129 @@ class SlackAdapter(CollaborationAdapter):
         else:
             await self._clear_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
+
+        await self._set_session_status(
+            channel_id, thread_root_id, agent_name, state=state
+        )
+
+    # ── Native agent session status ──────────────────────────────────────────
+
+    async def _set_session_status(
+        self,
+        channel_id: str,
+        thread_root_id: str | None,
+        agent_name: str,
+        *,
+        state: str,
+    ) -> None:
+        """Mirror the turn onto Slack's own agent session status.
+
+        This is additive: the status messages Switch posts are what actually
+        carry the detail, and they are unchanged. This adds Slack's native
+        loading UX and its stop button, which look like the rest of the client
+        rather than like a bot imitating it.
+
+        A session is scoped to a thread, so a turn at the channel root has
+        nowhere to attach one and is left to the posted messages alone.
+        """
+        if not self._agent_sessions_available() or not self._web_client:
+            return
+        thread_ts = self._thread_ts_of(thread_root_id)
+        if not thread_ts:
+            return
+
+        working = state in ("working", "awaiting-input")
+        key = (channel_id, thread_ts)
+        if working:
+            self._session_owner[key] = agent_name
+        else:
+            self._session_owner.pop(key, None)
+
+        try:
+            await self._web_client.api_call(
+                "agents.sessions.setStatus",
+                json={
+                    "channel_id": channel_id,
+                    "thread_ts": thread_ts,
+                    "status": "processing" if working else "active",
+                    "username": agent_name,
+                    "icon_url": await self.agent_icon_url(agent_name),
+                },
+            )
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            if error in _AGENT_SESSIONS_UNAVAILABLE_ERRORS:
+                self._disable_agent_sessions(error)
+                return
+            # One turn's status failing is not worth losing the turn over — the
+            # posted indicator still says what is happening.
+            logger.warning(
+                "Could not set the Slack session status for agent %s in %s: %s",
+                agent_name,
+                channel_id,
+                error or e,
+            )
+
+    def _agent_sessions_available(self) -> bool:
+        return self._config.agent_sessions and not self._agent_sessions_off_reason
+
+    def _disable_agent_sessions(self, error: str) -> None:
+        if self._agent_sessions_off_reason:
+            return
+        self._agent_sessions_off_reason = error
+        logger.warning(
+            "Slack agent sessions are unavailable for this app (%s): %s "
+            "Turns still show Switch's own status messages; only Slack's native "
+            "loading UX and stop button are missing.",
+            error,
+            _AGENT_SESSIONS_UNAVAILABLE_ERRORS[error],
+        )
+
+    @staticmethod
+    def _thread_ts_of(thread_root_id: str | None) -> str | None:
+        if not thread_root_id:
+            return None
+        return (
+            thread_root_id.split(":", 1)[1] if ":" in thread_root_id else thread_root_id
+        )
+
+    async def _handle_session_stopped(self, event: dict[str, object]) -> None:
+        """Route Slack's stop button to the agent whose turn it belongs to.
+
+        Setting a session to `processing` puts a stop button on the thread. A
+        button that does nothing is worse than no button, so it is wired to the
+        same interrupt an operator can type — anything less would be a control
+        that lies about what it does.
+        """
+        channel_id = str(event.get("channel_id") or event.get("channel") or "")
+        thread_ts = str(event.get("thread_ts") or "")
+        if not channel_id or not thread_ts or self._on_command is None:
+            return
+
+        agent_name = self._session_owner.pop((channel_id, thread_ts), None)
+        if not agent_name:
+            logger.info(
+                "Slack session stopped in %s (%s) with no agent turn to interrupt",
+                channel_id,
+                thread_ts,
+            )
+            return
+
+        user_id = str(event.get("user_id") or event.get("user") or "")
+        user = await self._resolve_user_name(user_id) if user_id else None
+        await self._on_command(
+            InboundCommand(
+                channel_id=channel_id,
+                channel_type=await self.get_channel_type(channel_id),
+                sender_id=user_id,
+                sender_name=user.name if user else "slack",
+                command="interrupt",
+                args=f"@{agent_name}",
+                message_ref=None,
+                root_id=f"{channel_id}:{thread_ts}",
+                channel_name=await self._resolve_channel_name(channel_id),
+            )
+        )
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
         live = self._working_msg.pop((channel_id, agent_name), None)
@@ -1154,6 +1309,8 @@ class SlackAdapter(CollaborationAdapter):
                 await self._handle_message_event(event)
         elif event_type == "member_joined_channel":
             await self._handle_member_joined_channel(event)
+        elif event_type == "agent_session_stopped":
+            await self._handle_session_stopped(event)
 
     async def _handle_member_joined_channel(self, event: dict[str, object]) -> None:
         user_id = str(event.get("user", ""))

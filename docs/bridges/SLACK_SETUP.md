@@ -224,6 +224,29 @@ groups. Agents stay addressable by typing their name, exactly as before — you
 lose the autocomplete, nothing else. It does not retry per agent or repeat the
 warning on every startup.
 
+### Native session status (`agent_sessions`)
+
+**On by default**, and additive: the "working on it…" message Switch posts is
+unchanged and still carries the detail. Where a turn happens **in a thread**,
+Switch also sets Slack's own agent session status, which renders the client's
+native loading UX and a **stop button** on that thread. A turn at the channel
+root has no thread to attach a session to, so it shows the posted message only.
+
+The stop button is wired to the same interrupt an operator can type, so
+pressing it stops the agent whose turn it is. Setting `agent_sessions: false`
+turns the whole thing off.
+
+**Sessions only work if the Slack app is declared an Agent** (the Agents
+feature in the app's settings, which brings `assistant:write` with it). The
+default being on only means "use this where the app has it" — it does not make
+that change for you. Until it is made, the first call is refused, the bridge
+logs one warning naming the reason, and turns carry on showing Switch's own
+status messages.
+
+Think before enabling the Agents feature in Slack: it **removes access to the
+app for workspace guests**, turns every DM with it into a thread, and **cannot
+be reverted**.
+
 ### Turning it on for an existing bridge
 
 `PATCH /collaborations/{bridge_id}` accepts `connection_config`, merged over the

@@ -50,6 +50,7 @@ class _FakeWebClient:
         self.calls: list[dict[str, Any]] = []
         self.deletes: list[dict[str, Any]] = []
         self.updates: list[dict[str, Any]] = []
+        self.api_calls: list[tuple[str, dict[str, Any]]] = []
         # ts values actually handed back, in order — lets a test assert that
         # everything posted was also removed.
         self.issued: list[str] = []
@@ -70,6 +71,13 @@ class _FakeWebClient:
 
     async def chat_update(self, **kwargs: Any) -> dict[str, bool]:
         self.updates.append(kwargs)
+        return {"ok": True}
+
+    async def api_call(self, method: str, **kwargs: Any) -> dict[str, bool]:
+        # Slack's agent session status, which the pinned SDK has no typed
+        # method for. Captured rather than ignored so a test can assert the
+        # native status tracks the turn.
+        self.api_calls.append((method, kwargs))
         return {"ok": True}
 
 
