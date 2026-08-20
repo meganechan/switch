@@ -71,6 +71,20 @@ _USERGROUPS_UNAVAILABLE_ERRORS = {
 }
 
 
+# Slack caps a user group's description but does not publish the limit, so this
+# is a conservative guess; the create path falls back to a bare marker if Slack
+# refuses it anyway.
+_GROUP_DESCRIPTION_MAX = 140
+
+
+def _group_description(agent_description: str) -> str:
+    """The marker, plus as much of the agent's description as will fit."""
+    full = f"{_AGENT_GROUP_MARKER}{agent_description}".strip()
+    if len(full) <= _GROUP_DESCRIPTION_MAX:
+        return full
+    return full[: _GROUP_DESCRIPTION_MAX - 1].rstrip() + "…"
+
+
 def _retry_after_seconds(error: SlackApiError) -> int:
     """Seconds Slack asked us to wait, falling back to a safe default."""
     headers = getattr(error.response, "headers", None) or {}
@@ -774,11 +788,7 @@ class SlackAdapter(CollaborationAdapter):
 
         try:
             result = await self._rate_limited(
-                lambda: self._require_web_client().usergroups_create(
-                    name=agent_name,
-                    handle=handle,
-                    description=f"{_AGENT_GROUP_MARKER}{agent_description}".strip(),
-                ),
+                lambda: self._create_usergroup(agent_name, handle, agent_description),
                 what=f"create a Slack user group for agent '{agent_name}'",
             )
         except SlackApiError as e:
@@ -904,6 +914,39 @@ class SlackAdapter(CollaborationAdapter):
                 )
                 await asyncio.sleep(delay)
         raise RuntimeError(f"Unreachable: exhausted retries to {what}")
+
+    async def _create_usergroup(
+        self, agent_name: str, handle: str, agent_description: str
+    ) -> Any:
+        """Create the group, retrying without the blurb if Slack rejects it.
+
+        An agent's description is free text and can run to a paragraph, while
+        Slack caps a user group's description and does not publish the limit —
+        so a conservative truncation can still be refused. The description is
+        decoration; the marker is the part that carries meaning. Losing an
+        agent's autocomplete over the length of its blurb would be absurd, so
+        the blurb is what gets dropped.
+        """
+        client = self._require_web_client()
+        try:
+            return await client.usergroups_create(
+                name=agent_name,
+                handle=handle,
+                description=_group_description(agent_description),
+            )
+        except SlackApiError as e:
+            if e.response.get("error") != "description_too_long":
+                raise
+            logger.warning(
+                "Slack rejected the description for agent %s's user group as too "
+                "long; creating it with just the marker instead.",
+                agent_name,
+            )
+            return await client.usergroups_create(
+                name=agent_name,
+                handle=handle,
+                description=f"{_AGENT_GROUP_MARKER}{agent_name}",
+            )
 
     async def _adopt_group(self, group_id: str, agent_name: str) -> None:
         """Claim a user group someone made by hand for this agent.

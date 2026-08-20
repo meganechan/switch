@@ -527,3 +527,49 @@ def test_a_group_we_have_never_seen_is_left_alone() -> None:
         adapter._translate_usergroup_mentions("<!subteam^SNEVER>")
         == "<!subteam^SNEVER>"
     )
+
+
+# ── Long descriptions ────────────────────────────────────────────────────────
+
+
+def test_a_long_description_is_truncated_but_keeps_the_marker() -> None:
+    adapter, client = _adapter()
+
+    _run(adapter.create_agent_identity("flint-tracker", "x" * 500))
+
+    description = client.created[0]["description"]
+    assert description.startswith("Switch agent — ")
+    assert len(description) <= 140
+
+
+def test_a_rejected_description_falls_back_to_the_marker() -> None:
+    """Slack does not publish the limit, so a conservative truncation can still
+    be refused. Losing the agent's autocomplete over its blurb would be absurd —
+    the blurb is what gets dropped."""
+    adapter, client = _adapter()
+    client.create_error = "description_too_long"
+    client.clear_error_after = 1
+
+    _run(adapter.create_agent_identity("flint-tracker", "a long blurb"))
+
+    assert len(client.created) == 1
+    assert client.created[0]["description"] == "Switch agent — flint-tracker"
+    assert adapter._agent_group_ids["flint-tracker"]
+
+
+def test_a_marker_only_group_is_still_recognised_on_reload() -> None:
+    """The fallback description must not cost us recognition later."""
+    adapter, _ = _adapter(
+        groups=[
+            {
+                "id": "S001",
+                "name": "flint-tracker",
+                "handle": "flint-tracker",
+                "description": "Switch agent — flint-tracker",
+            }
+        ]
+    )
+
+    _run(adapter._load_agent_usergroups())
+
+    assert adapter._agent_group_names["S001"] == "flint-tracker"
