@@ -226,19 +226,36 @@ class BridgeCore:
         async with self._session_factory() as session:
             agents = await self._agent_store.get_all(session)
 
+        failed = 0
         for agent in agents:
             try:
                 await self._adapter.create_agent_identity(agent.name, agent.description)
             except Exception:
+                failed += 1
                 logger.exception(
                     "Failed to create %s identity for agent %s",
                     self._bridge_type,
                     agent.name,
                 )
 
-        logger.info(
-            "Created %s identities for %d agents", self._bridge_type, len(agents)
-        )
+        # Counts calls that returned, not identities that now exist: an adapter
+        # that cannot provision at all reports that itself. Reporting the agent
+        # count regardless of failures would read as success on a run where
+        # every one of them failed.
+        if failed:
+            logger.warning(
+                "Provisioned %s identities for %d of %d agents; %d failed",
+                self._bridge_type,
+                len(agents) - failed,
+                len(agents),
+                failed,
+            )
+        else:
+            logger.info(
+                "Provisioned %s identities for %d agents",
+                self._bridge_type,
+                len(agents),
+            )
 
     async def _ensure_channel_captures(self) -> None:
         """Ask the adapter to (re)establish server-side message capture for this
