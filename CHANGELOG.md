@@ -670,6 +670,18 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.27.4] - 2026-08-20
+
+#### Fixed
+- Search results show an agent's own icon rather than its provider logo, so two
+  agents on the same provider are no longer the same picture; the provider mark
+  now follows the "Agent type mark" toggle in both the sidebar and the palette
+  (CHOO-2203).
+- A long instruction no longer takes over the agent page. Multi-line boxes cap
+  at roughly a dozen lines and scroll inside themselves, and the agent's
+  instructions field gains an Expand control for when you want the ceiling
+  lifted (CHOO-2203).
+
 ### [0.27.3] - 2026-08-19
 
 #### Added
