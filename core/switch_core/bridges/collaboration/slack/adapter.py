@@ -87,8 +87,18 @@ def _group_description(agent_description: str) -> str:
 
 # Slack refusals that mean this app cannot host agent sessions at all, rather
 # than that one call went wrong. Each says what an operator would have to change.
+# How many identical unrecognised refusals before agent sessions are given up
+# on. Slack returns codes this list does not know about, and a status that
+# cannot work must not warn on every turn for the life of the bridge.
+_AGENT_SESSIONS_FAILURE_LIMIT = 3
+
 _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
     "not_an_agent": (
+        "the Slack app is not declared as an Agent — enable the Agents feature "
+        "in the app's settings. Note that doing so removes access for workspace "
+        "guests and cannot be undone."
+    ),
+    "not_authorized": (
         "the Slack app is not declared as an Agent — enable the Agents feature "
         "in the app's settings. Note that doing so removes access for workspace "
         "guests and cannot be undone."
@@ -184,6 +194,10 @@ class SlackAdapter(CollaborationAdapter):
         # Set once Slack has told us it will not host agent sessions, so the
         # bridge stops asking and says so only once.
         self._agent_sessions_off_reason: str | None = None
+        # Consecutive identical session-status failures, so an error code this
+        # build does not recognise still stops complaining eventually.
+        self._session_failures = 0
+        self._last_session_error: str | None = None
         # (channel_id, thread_ts) -> agent whose turn owns that session, so the
         # stop button can be routed to the agent it belongs to.
         self._session_owner: dict[tuple[str, str], str] = {}
@@ -594,6 +608,13 @@ class SlackAdapter(CollaborationAdapter):
         When the agent was addressed in a thread, messages surface in that
         thread (``thread_root_id``); otherwise at the channel root.
         """
+        # Mirrored onto Slack's own session before the branching below, because
+        # the working branch returns early when it only has to refresh the
+        # message in place — and the session still has to track the turn.
+        await self._set_session_status(
+            channel_id, thread_root_id, agent_name, state=state
+        )
+
         key = (channel_id, agent_name)
         if state == "working":
             # Resuming work means the requested input was provided — clear the
@@ -628,10 +649,6 @@ class SlackAdapter(CollaborationAdapter):
         else:
             await self._clear_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
-
-        await self._set_session_status(
-            channel_id, thread_root_id, agent_name, state=state
-        )
 
     # ── Native agent session status ──────────────────────────────────────────
 
@@ -678,18 +695,42 @@ class SlackAdapter(CollaborationAdapter):
                 },
             )
         except SlackApiError as e:
-            error = e.response.get("error", "")
-            if error in _AGENT_SESSIONS_UNAVAILABLE_ERRORS:
-                self._disable_agent_sessions(error)
-                return
-            # One turn's status failing is not worth losing the turn over — the
-            # posted indicator still says what is happening.
-            logger.warning(
-                "Could not set the Slack session status for agent %s in %s: %s",
-                agent_name,
-                channel_id,
-                error or e,
+            self._note_session_failure(
+                str(e.response.get("error", "")), agent_name, channel_id
             )
+        else:
+            self._session_failures = 0
+
+    def _note_session_failure(
+        self, error: str, agent_name: str, channel_id: str
+    ) -> None:
+        """Log a failed status call, and give up if it is not going to improve.
+
+        A known refusal names its cause immediately. An unrecognised one cannot
+        be told apart from a passing fault on the first sight of it, so it is
+        logged and retried — but only so many times. Slack returns codes this
+        list does not know about (`not_authorized` for an app that is not an
+        agent, found in the pilot), and without a backstop each one means a
+        warning on every turn for as long as the bridge runs.
+        """
+        if error in _AGENT_SESSIONS_UNAVAILABLE_ERRORS:
+            self._disable_agent_sessions(error)
+            return
+
+        # One turn's status failing is not worth losing the turn over — the
+        # posted indicator still says what is happening.
+        self._session_failures = (
+            self._session_failures + 1 if error == self._last_session_error else 1
+        )
+        self._last_session_error = error
+        logger.warning(
+            "Could not set the Slack session status for agent %s in %s: %s",
+            agent_name,
+            channel_id,
+            error or "unknown error",
+        )
+        if self._session_failures >= _AGENT_SESSIONS_FAILURE_LIMIT:
+            self._disable_agent_sessions(error)
 
     def _agent_sessions_available(self) -> bool:
         return self._config.agent_sessions and not self._agent_sessions_off_reason
@@ -698,12 +739,18 @@ class SlackAdapter(CollaborationAdapter):
         if self._agent_sessions_off_reason:
             return
         self._agent_sessions_off_reason = error
+        reason = _AGENT_SESSIONS_UNAVAILABLE_ERRORS.get(
+            error,
+            f"Slack kept refusing with '{error or 'an unknown error'}'. If the "
+            "app is not declared as an Agent in its settings, that is the "
+            "likeliest cause.",
+        )
         logger.warning(
             "Slack agent sessions are unavailable for this app (%s): %s "
             "Turns still show Switch's own status messages; only Slack's native "
             "loading UX and stop button are missing.",
             error,
-            _AGENT_SESSIONS_UNAVAILABLE_ERRORS[error],
+            reason,
         )
 
     @staticmethod

@@ -349,3 +349,78 @@ def test_a_finished_turn_no_longer_answers_the_stop_button() -> None:
     )
 
     assert commands == []
+
+
+def test_not_authorized_latches_immediately() -> None:
+    """The code the pilot actually returned. It was missing from the list, so
+    the warning fired on every turn instead of once."""
+    adapter, client = _adapter()
+    client.api_error = "not_authorized"
+
+    _run(
+        adapter.apply_runtime_state(
+            "C1",
+            "flint-tracker",
+            "working",
+            mention_handle=None,
+            thread_root_id="C1:111.0",
+        )
+    )
+
+    assert adapter._agent_sessions_off_reason == "not_authorized"
+
+
+def test_an_unknown_refusal_gives_up_after_a_few_tries(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A code this build does not recognise cannot be told from a passing fault
+    at first sight, so it is retried — but it must not warn forever."""
+    adapter, client = _adapter()
+    client.api_error = "some_code_we_have_never_seen"
+
+    with caplog.at_level("WARNING"):
+        for _ in range(6):
+            _run(
+                adapter.apply_runtime_state(
+                    "C1",
+                    "flint-tracker",
+                    "working",
+                    mention_handle=None,
+                    thread_root_id="C1:111.0",
+                )
+            )
+
+    assert adapter._agent_sessions_off_reason == "some_code_we_have_never_seen"
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    # Three attempts, then the one that says it is giving up — not six.
+    assert len(warnings) == 4
+    assert any("kept refusing" in r.getMessage() for r in warnings)
+
+
+def test_a_success_resets_the_failure_count() -> None:
+    """An intermittent fault must not accumulate towards giving up."""
+    adapter, client = _adapter()
+
+    for _ in range(2):
+        client.api_error = "transient"
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                "working",
+                mention_handle=None,
+                thread_root_id="C1:111.0",
+            )
+        )
+        client.api_error = None
+        _run(
+            adapter.apply_runtime_state(
+                "C1",
+                "flint-tracker",
+                "idle",
+                mention_handle=None,
+                thread_root_id="C1:111.0",
+            )
+        )
+
+    assert adapter._agent_sessions_off_reason is None
