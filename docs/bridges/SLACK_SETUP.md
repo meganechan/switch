@@ -90,7 +90,9 @@ You need one Slack app for the whole bridge. There are two ways to create it —
                 "mpim:history",
                 "reactions:read",
                 "reactions:write",
-                "users:read"
+                "users:read",
+                "usergroups:read",
+                "usergroups:write"
             ]
         },
         "pkce_enabled": false
@@ -182,6 +184,36 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**:
 - `files:read`, `files:write` — relay attachments (incl. agent image uploads).
 - `reactions:read`, `reactions:write` — reaction-based acknowledgements.
 - `assistant:write` — assistant/app-home surface.
+- `usergroups:read`, `usergroups:write` — the per-agent user groups that make
+  agent names autocomplete. Only needed with `agent_usergroups` on; see below.
+
+### Agent name autocomplete (`agent_usergroups`)
+
+Off by default. Set `agent_usergroups: true` in the bridge's connection config
+to give every agent a Slack **user group** whose handle is its name.
+
+Slack autocompletes only things it knows about, and an agent is not a Slack
+user — one app serves all of them, so a typed `@agent-name` is just text that
+happens to start with `@`. There is no completion, no pill, and a typo is
+indistinguishable from an agent ignoring you. A user group is the one handle an
+app can mint that still appears in the composer's `@` menu, so each agent gets
+one and its name completes like a person's.
+
+The groups are created empty and stay empty: they exist to be completable, and
+mentioning one notifies nobody. Switch recognises its own groups by a marker on
+their description and ignores the workspace's own.
+
+Two things gate it, both outside Switch:
+
+- **A paid plan.** User groups do not exist on Slack's free tier.
+- **Permission to manage user groups.** Most workspaces restrict this to admins,
+  and the bot token is refused until an admin widens it under
+  *Workspace settings → Roles & permissions → Account types → "Create and edit
+  user groups"*.
+
+If either is missing, agent creation logs the refusal and the reason. Leave the
+setting off rather than running with it failing — agents stay addressable by
+typed name either way, exactly as before.
 
 ### Event subscriptions (over Socket Mode)
 

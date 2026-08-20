@@ -87,7 +87,14 @@ def test_get_config_schema_exposes_required_fields() -> None:
 
     schema = service.get_config_schema("slack")
 
-    assert set(schema["properties"]) == {"bot_token", "app_token", "workspace_id"}
+    # agent_usergroups is offered but not required: it needs a paid plan and an
+    # admin-granted permission, so a connection stays valid without it.
+    assert set(schema["properties"]) == {
+        "bot_token",
+        "app_token",
+        "workspace_id",
+        "agent_usergroups",
+    }
     assert set(schema["required"]) == {"bot_token", "app_token", "workspace_id"}
 
 

@@ -38,6 +38,10 @@ from switch_core.bridges.collaboration.slack.avatar import on_slack_background
 
 logger = logging.getLogger(__name__)
 
+# Stamped on the description of every user group we mint for an agent, so a
+# reload can tell ours apart from the workspace's own groups.
+_AGENT_GROUP_MARKER = "Switch agent — "
+
 
 class SlackUser(BaseModel):
     name: str
@@ -48,6 +52,11 @@ class SlackConnectionConfig(BridgeConnectionConfig):
     bot_token: str
     app_token: str
     workspace_id: str
+    # Give each agent a Slack user group so its name completes in the composer's
+    # `@` menu. Off by default: user groups need a paid plan, and most
+    # workspaces restrict managing them to admins, so the bot token is refused
+    # until someone widens that permission.
+    agent_usergroups: bool = False
 
 
 class SlackAdapter(CollaborationAdapter):
@@ -73,6 +82,17 @@ class SlackAdapter(CollaborationAdapter):
         # topped up as new ones are resolved.
         self._username_to_id: dict[str, str] = {}
         self._thinking_ts: dict[tuple[str, str], str] = {}
+        # Agent user groups, when enabled. Slack owns these objects, so the maps
+        # are built by reading them back rather than stored alongside the agent:
+        # a group edited or removed in Slack would otherwise leave us pointing
+        # at an id that no longer means what we think it does.
+        # Folded agent name → subteam id, and subteam id → agent name.
+        self._agent_group_ids: dict[str, str] = {}
+        self._agent_group_names: dict[str, str] = {}
+        # Retired agents keep their group in a disabled state — Slack has no
+        # delete — so re-adding an agent re-enables rather than colliding.
+        self._agent_groups_disabled: dict[str, str] = {}
+        self._agent_groups_loaded = False
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -665,10 +685,166 @@ class SlackAdapter(CollaborationAdapter):
     async def create_agent_identity(
         self, agent_name: str, agent_description: str
     ) -> None:
-        pass
+        """Give the agent a Slack user group so its name completes on `@`.
+
+        Slack only offers autocomplete for things it knows about, and an agent
+        is not a Slack user — one app serves all of them. A user group is the
+        one handle an app can mint that still appears in the composer's `@`
+        menu, so each agent gets one. The group is left empty: it exists to be
+        completable and to arrive as a structured mention, and mentioning it
+        notifies nobody.
+        """
+        if not self._config.agent_usergroups:
+            return
+        if not self._web_client:
+            raise RuntimeError("Cannot create agent user group: Slack not connected")
+
+        await self._ensure_agent_groups_loaded()
+        folded = agent_name.casefold()
+        if folded in self._agent_group_ids:
+            return
+
+        disabled_id = self._agent_groups_disabled.get(folded)
+        if disabled_id:
+            await self._web_client.usergroups_enable(usergroup=disabled_id)
+            self._agent_groups_disabled.pop(folded, None)
+            self._remember_agent_group(disabled_id, agent_name)
+            logger.info(
+                "Re-enabled Slack user group %s for agent %s", disabled_id, agent_name
+            )
+            return
+
+        handle = self._usergroup_handle(agent_name)
+        try:
+            result = await self._web_client.usergroups_create(
+                name=agent_name,
+                handle=handle,
+                description=f"{_AGENT_GROUP_MARKER}{agent_description}".strip(),
+            )
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            if error in ("handle_already_exists", "name_already_exists"):
+                # Something already owns the handle. If it is one of ours the
+                # reload adopts it; if it is a real group or a channel, say so
+                # rather than leaving the agent silently unmentionable.
+                await self._load_agent_usergroups()
+                if folded in self._agent_group_ids:
+                    return
+                raise RuntimeError(
+                    f"Cannot create a Slack user group for agent '{agent_name}': "
+                    f"the handle '@{handle}' is already taken by a channel, "
+                    "person or group that is not ours. Rename the agent or free "
+                    "the handle."
+                ) from e
+            if error in ("permission_denied", "no_permission"):
+                raise RuntimeError(
+                    f"Slack refused to create a user group for agent "
+                    f"'{agent_name}': this workspace restricts managing user "
+                    "groups to admins. Allow the Switch bot to manage them, or "
+                    "turn off `agent_usergroups` for this bridge."
+                ) from e
+            if error in ("plan_upgrade_required", "paid_teams_only"):
+                raise RuntimeError(
+                    f"Slack refused to create a user group for agent "
+                    f"'{agent_name}': user groups need a paid plan (Pro or "
+                    "above). Turn off `agent_usergroups` for this bridge."
+                ) from e
+            raise
+
+        group = result.get("usergroup") or {}
+        group_id = str(group.get("id", ""))
+        if not group_id:
+            raise RuntimeError(
+                f"Slack returned no user group id when creating one for agent "
+                f"'{agent_name}'"
+            )
+        self._remember_agent_group(group_id, agent_name)
+        logger.info(
+            "Created Slack user group @%s (%s) for agent %s",
+            handle,
+            group_id,
+            agent_name,
+        )
 
     async def remove_agent_identity(self, agent_name: str) -> None:
-        pass
+        if not self._config.agent_usergroups:
+            return
+        if not self._web_client:
+            raise RuntimeError("Cannot remove agent user group: Slack not connected")
+
+        await self._ensure_agent_groups_loaded()
+        folded = agent_name.casefold()
+        group_id = self._agent_group_ids.get(folded)
+        if not group_id:
+            return
+
+        # Slack has no delete for user groups — disabling is the documented way
+        # to retire one, and it stops the handle resolving.
+        await self._web_client.usergroups_disable(usergroup=group_id)
+        self._agent_group_ids.pop(folded, None)
+        self._agent_group_names.pop(group_id, None)
+        self._agent_groups_disabled[folded] = group_id
+        logger.info("Disabled Slack user group %s for agent %s", group_id, agent_name)
+
+    # ── Agent user groups ────────────────────────────────────────────────────
+
+    def _remember_agent_group(self, group_id: str, agent_name: str) -> None:
+        self._agent_group_ids[agent_name.casefold()] = group_id
+        self._agent_group_names[group_id] = agent_name
+
+    @staticmethod
+    def _usergroup_handle(agent_name: str) -> str:
+        """Fold an agent name into a Slack handle.
+
+        Agent names already share Slack's handle character class, so this is
+        usually just a lowercase. Anything outside it collapses to a hyphen so
+        an unusual name still yields a mentionable handle; the group's `name`
+        carries the agent name verbatim, so the round trip does not depend on
+        the handle surviving unchanged.
+        """
+        handle = re.sub(r"[^a-z0-9._-]+", "-", agent_name.casefold())
+        return handle.strip("-._") or "switch-agent"
+
+    async def _ensure_agent_groups_loaded(self) -> None:
+        if not self._agent_groups_loaded:
+            await self._load_agent_usergroups()
+
+    async def _load_agent_usergroups(self) -> None:
+        """Rebuild the agent ↔ user group maps from Slack.
+
+        Only groups we created are adopted, recognised by the marker on their
+        description — a workspace's own groups must never be mistaken for an
+        agent, or mentioning one would address an agent that has nothing to do
+        with it.
+        """
+        if not self._web_client:
+            raise RuntimeError("Cannot load Slack user groups: Slack not connected")
+
+        result = await self._web_client.usergroups_list(include_disabled=True)
+        groups: list[dict[str, Any]] = result.get("usergroups") or []
+
+        self._agent_group_ids = {}
+        self._agent_group_names = {}
+        self._agent_groups_disabled = {}
+        for group in groups:
+            description = str(group.get("description", ""))
+            if not description.startswith(_AGENT_GROUP_MARKER):
+                continue
+            group_id = str(group.get("id", ""))
+            agent_name = str(group.get("name", ""))
+            if not group_id or not agent_name:
+                continue
+            if group.get("date_delete"):
+                self._agent_groups_disabled[agent_name.casefold()] = group_id
+            else:
+                self._remember_agent_group(group_id, agent_name)
+
+        self._agent_groups_loaded = True
+        logger.info(
+            "Loaded %d Slack agent user groups (%d disabled)",
+            len(self._agent_group_ids),
+            len(self._agent_groups_disabled),
+        )
 
     async def get_channel_agent_names(self, channel_id: str) -> list[str]:
         return []
@@ -707,13 +883,19 @@ class SlackAdapter(CollaborationAdapter):
 
     def _translate_mentions_to_slack(self, content: str) -> str:
         """Rewrite `@username` to a Slack `<@USER_ID>` mention for users we know,
-        so Slack renders the person's display name. Unknown names (e.g. agents,
-        or users we have not resolved) are left as plain text."""
+        so Slack renders the person's display name, and `@agent-name` to the
+        agent's user group where one exists, so an agent mention renders as a
+        real pill rather than bare text — the same thing a person sees when they
+        pick the agent from autocomplete. The group is empty, so rendering the
+        mention notifies nobody. Unknown names are left as plain text."""
 
         def _replace(match: re.Match[str]) -> str:
             username = match.group(1)
             user_id = self._username_to_id.get(username.casefold())
-            return f"<@{user_id}>" if user_id else match.group(0)
+            if user_id:
+                return f"<@{user_id}>"
+            group_id = self._agent_group_ids.get(username.casefold())
+            return f"<!subteam^{group_id}>" if group_id else match.group(0)
 
         return re.sub(r"@([A-Za-z0-9][A-Za-z0-9._-]*)", _replace, content)
 
@@ -1240,7 +1422,36 @@ class SlackAdapter(CollaborationAdapter):
         # command escapes its text — as `<@U123|username>`. Accept the optional
         # `|label` so escaped slash-command mentions (including the bridge bot's
         # own id, used as its room alias) resolve the same as message mentions.
-        return re.sub(r"<@(U[A-Z0-9]+)(?:\|[^>]+)?>", _replace_mention, message)
+        message = re.sub(r"<@(U[A-Z0-9]+)(?:\|[^>]+)?>", _replace_mention, message)
+        return self._translate_usergroup_mentions(message)
+
+    def _translate_usergroup_mentions(self, message: str) -> str:
+        """Rewrite a user group mention to the plain `@agent-name` text.
+
+        An agent's group is how its name reaches the composer's autocomplete,
+        so a user picking it from the `@` menu sends `<!subteam^S123>` rather
+        than the typed name. Resolving it back to the agent's name is what lets
+        the rest of Switch treat it as an ordinary mention — the addressing
+        layer downstream matches on the name, and knows nothing about Slack.
+
+        The id maps to the agent name we stored on the group, not to the handle,
+        so an agent whose name had to be folded to make a legal handle still
+        resolves to its real name. Groups we do not know are left untouched: a
+        workspace's own group is not an agent, and rewriting it would invent a
+        mention of someone who does not exist.
+        """
+
+        def _replace(match: re.Match[str]) -> str:
+            group_id = match.group(1)
+            agent_name = self._agent_group_names.get(group_id)
+            if agent_name:
+                return f"@{agent_name}"
+            label = match.group(2)
+            return label.lstrip("|") if label else match.group(0)
+
+        # `<!subteam^S123>` is the documented form; the `|@handle` variant is
+        # what Slack actually sends on some paths, so accept both.
+        return re.sub(r"<!subteam\^([A-Z0-9]+)(\|[^>]*)?>", _replace, message)
 
     # ── Markdown → mrkdwn ────────────────────────────────────────────────────
 
