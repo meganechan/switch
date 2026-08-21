@@ -114,7 +114,9 @@ def _plain(text: str) -> str:
     return text.strip()
 
 
-def _task_chunk(title: str, deeplink_url: str | None = None) -> dict[str, Any]:
+def _task_chunk(
+    title: str, deeplink_url: str | None = None, *, done: bool = False
+) -> dict[str, Any]:
     """One step in a streamed session.
 
     Slack documents this payload three mutually incompatible ways — the method
@@ -127,7 +129,7 @@ def _task_chunk(title: str, deeplink_url: str | None = None) -> dict[str, Any]:
         "type": "task_update",
         "id": "current",
         "title": title,
-        "status": "in_progress",
+        "status": "complete" if done else "in_progress",
     }
     if deeplink_url:
         # The way back into the live session. It used to ride on the message
@@ -274,6 +276,9 @@ class SlackAdapter(CollaborationAdapter):
         self._threadless_logged: set[tuple[str, str]] = set()
         # (channel_id, ts) currently carrying the "being worked on" reaction.
         self._eyes: set[tuple[str, str]] = set()
+        # (channel_id, agent_name) -> every thread that agent is working in.
+        # A turn ends once but may have opened several.
+        self._agent_threads: dict[tuple[str, str], set[str]] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -690,12 +695,10 @@ class SlackAdapter(CollaborationAdapter):
         When the agent was addressed in a thread, messages surface in that
         thread (``thread_root_id``); otherwise at the channel root.
         """
-        # Mirrored onto Slack's own session before the branching below, because
-        # the working branch returns early when it only has to refresh the
-        # message in place — and the session still has to track the turn.
-        working_now = state in ("working", "awaiting-input")
-        await self._mark_being_read(channel_id, thread_root_id, working=working_now)
-        await self._update_session(
+        # Handled before the branching below, because the working branch
+        # returns early when it only has to refresh the message in place — and
+        # the session still has to track the turn.
+        await self._track_turn(
             channel_id,
             thread_root_id,
             agent_name,
@@ -746,8 +749,66 @@ class SlackAdapter(CollaborationAdapter):
             await self._clear_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
 
+    async def _track_turn(
+        self,
+        channel_id: str,
+        thread_root_id: str | None,
+        agent_name: str,
+        *,
+        state: str,
+        detail: str | None,
+        deeplink_url: str | None,
+    ) -> None:
+        """Keep every thread this agent has in flight, and end them together.
+
+        An agent asked two things at once works on both, and each message gets
+        its own card and its own eyes — but the turn ends **once**, naming only
+        the thread it last touched. Cleaning up just that one leaves the first
+        message marked as being worked on for good, and its card frozen
+        mid-task. So the threads are remembered per agent and closed together.
+        """
+        akey = (channel_id, agent_name)
+        thread_ts = self._thread_ts_of(thread_root_id)
+
+        if state in ("working", "awaiting-input"):
+            if not thread_ts:
+                await self._update_session(
+                    channel_id,
+                    thread_root_id,
+                    agent_name,
+                    state=state,
+                    detail=detail,
+                    deeplink_url=deeplink_url,
+                )
+                return
+            self._agent_threads.setdefault(akey, set()).add(thread_ts)
+            await self._mark_being_read(channel_id, thread_ts, working=True)
+            await self._update_session(
+                channel_id,
+                thread_root_id,
+                agent_name,
+                state=state,
+                detail=detail,
+                deeplink_url=deeplink_url,
+            )
+            return
+
+        for ts in sorted(self._agent_threads.pop(akey, set())):
+            # Ownership goes with the turn: a stop pressed afterwards must not
+            # interrupt whatever the agent moved on to.
+            self._session_owner.pop((channel_id, ts), None)
+            await self._mark_being_read(channel_id, ts, working=False)
+            await self._drive_stream(
+                channel_id,
+                ts,
+                agent_name,
+                working=False,
+                detail=None,
+                deeplink_url=None,
+            )
+
     async def _mark_being_read(
-        self, channel_id: str, thread_root_id: str | None, *, working: bool
+        self, channel_id: str, thread_ts: str | None, *, working: bool
     ) -> None:
         """Put 👀 on the message an agent is working on, and take it off after.
 
@@ -756,7 +817,7 @@ class SlackAdapter(CollaborationAdapter):
         so it is the one progress signal that is always available. It also says
         *which* message is being handled, which a status elsewhere cannot.
         """
-        ts = self._thread_ts_of(thread_root_id)
+        ts = thread_ts
         if not ts or not self._web_client:
             return
         key = (channel_id, ts)
@@ -919,6 +980,19 @@ class SlackAdapter(CollaborationAdapter):
         if not working:
             if open_ts:
                 closing_ts = open_ts
+                if self._stream_step.get(key):
+                    # Slack draws a step left in progress as a failure, so the
+                    # last one is marked done before the stream closes. Without
+                    # this every finished turn ends under a red error icon.
+                    await self._call_session_api(
+                        lambda: client.chat_appendStream(
+                            channel=channel_id,
+                            ts=closing_ts,
+                            chunks=[_task_chunk(self._stream_step[key], done=True)],
+                        ),
+                        agent_name=agent_name,
+                        channel_id=channel_id,
+                    )
                 await self._call_session_api(
                     lambda: client.chat_stopStream(channel=channel_id, ts=closing_ts),
                     agent_name=agent_name,
@@ -971,12 +1045,16 @@ class SlackAdapter(CollaborationAdapter):
         elif self._stream_step.get(key) == step:
             return
 
+        # Slack accumulates a task's sources across updates rather than
+        # replacing them, so the link goes on the first step only — sending it
+        # every time stacked eight identical links under one card.
+        first_link = deeplink_url if self._stream_step.get(key) is None else None
         stream_ts = open_ts
         await self._call_session_api(
             lambda: client.chat_appendStream(
                 channel=channel_id,
                 ts=stream_ts,
-                chunks=[_task_chunk(step, deeplink_url)],
+                chunks=[_task_chunk(step, first_link)],
             ),
             agent_name=agent_name,
             channel_id=channel_id,

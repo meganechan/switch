@@ -503,3 +503,86 @@ def test_the_requester_is_recorded_from_an_incoming_message() -> None:
     )
 
     assert adapter._thread_requester[("C1", "333.0")] == "U9"
+
+
+# ── Two messages at once ─────────────────────────────────────────────────────
+
+
+def _thread_b(adapter: SlackAdapter) -> None:
+    adapter._thread_requester[("C1", "222.0")] = "U1"
+
+
+def test_both_messages_lose_their_eyes_when_the_turn_ends() -> None:
+    """A turn ends once, naming only the thread it last touched. The first
+    message kept its eyes for good until this was tracked per agent."""
+    adapter, client = _adapter()
+    _thread_b(adapter)
+
+    _run(_state(adapter, "working", detail="first", thread="C1:111.0"))
+    _run(_state(adapter, "working", detail="second", thread="C1:222.0"))
+    _run(_state(adapter, "idle", thread="C1:222.0"))
+
+    removed = {ts for kind, ts, _ in client.reactions if kind == "remove"}
+    assert removed == {"111.0", "222.0"}
+
+
+def test_both_cards_are_closed_when_the_turn_ends() -> None:
+    adapter, client = _adapter()
+    _thread_b(adapter)
+
+    _run(_state(adapter, "working", detail="first", thread="C1:111.0"))
+    _run(_state(adapter, "working", detail="second", thread="C1:222.0"))
+    _run(_state(adapter, "idle", thread="C1:222.0"))
+
+    stopped = {p["ts"] for m, p in client.api_calls if m == "chat.stopStream"}
+    assert len(stopped) == 2
+    assert adapter._stream_ts == {}
+
+
+def test_a_stop_on_either_thread_stops_answering_after_the_turn() -> None:
+    adapter, _ = _adapter()
+    _thread_b(adapter)
+
+    _run(_state(adapter, "working", detail="first", thread="C1:111.0"))
+    _run(_state(adapter, "working", detail="second", thread="C1:222.0"))
+    _run(_state(adapter, "idle", thread="C1:222.0"))
+
+    assert adapter._session_owner == {}
+
+
+# ── The card's own end state ─────────────────────────────────────────────────
+
+
+def test_the_last_step_is_marked_done_before_the_card_closes() -> None:
+    """Slack draws a step left in progress as a failure — every finished turn
+    was ending under a red error icon."""
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading"))
+    _run(_state(adapter, "idle"))
+
+    assert [c["status"] for c in _chunks(client)] == ["in_progress", "complete"]
+    # And the completion lands before the stream is closed, not after.
+    methods = _methods(client)
+    assert methods.index("chat.appendStream") < methods.index("chat.stopStream")
+
+
+def test_a_card_with_no_step_is_just_closed() -> None:
+    adapter, client = _adapter()
+    adapter._stream_ts[("C1", "111.0")] = "stream-1"
+
+    _run(_state(adapter, "idle"))
+
+    assert _chunks(client) == []
+
+
+def test_the_console_link_is_sent_once_per_card() -> None:
+    """Slack accumulates a task's sources rather than replacing them, so
+    sending the link every step stacked eight identical links under one card."""
+    adapter, client = _adapter()
+
+    for detail in ("reading", "running tests", "writing"):
+        _run(_state(adapter, "working", detail=detail, deeplink="https://switch/x"))
+
+    with_sources = [c for c in _chunks(client) if "sources" in c]
+    assert len(with_sources) == 1
