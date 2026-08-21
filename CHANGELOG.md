@@ -44,6 +44,23 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.18.0] - 2026-08-21
+
+#### Added
+- Each agent gets a Slack **user group**, so its `@name` autocompletes in the
+  composer and arrives as a structured mention rather than plain text that only
+  looks like one. A single app still fronts every agent; the groups are minted
+  empty (mentioning one notifies nobody) and exist only to be mentionable.
+  Inbound, a `<!subteam^…>` mention resolves back to the agent's name before the
+  addressing layer sees it — including a name folded into a legal handle — and
+  outbound mentions render as the same pill. Slack owns the objects, so the
+  id↔name maps are rebuilt by reading them back, and only groups carrying
+  Switch's marker are adopted (CHOO-2277).
+- An agent's turn is mirrored onto **Slack's native agent-session status** — the
+  streamed "in progress / complete" indicator Slack renders for an app — pinned
+  to the message being worked on. It needs the app's `assistant:write` scope;
+  without it the bridge says so rather than failing silently (CHOO-2277).
+
 ### [0.17.3] - 2026-08-19
 
 #### Fixed
@@ -669,6 +686,23 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.28.0] - 2026-08-21
+
+#### Added
+- Connecting a Slack app can enable per-agent **user groups** — the mentionable
+  `@name` handles Switch mints for each agent — from the Connect-messaging-app
+  dialog (CHOO-2277).
+
+#### Changed
+- Local-server mode now bundles and pulls **switch-core `0.18.0`** (was
+  `0.17.3`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
+
+#### Fixed
+- The New-agent modal's Cancel / Add-agent footer no longer overlaps the "you
+  have not linked a messaging account" callout at the bottom of the form, which
+  had half-hidden its Open-Messaging-apps link (CHOO-2243).
 
 ### [0.27.4] - 2026-08-20
 
