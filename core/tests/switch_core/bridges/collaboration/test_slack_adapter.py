@@ -50,6 +50,7 @@ class _FakeWebClient:
         self.calls: list[dict[str, Any]] = []
         self.deletes: list[dict[str, Any]] = []
         self.updates: list[dict[str, Any]] = []
+        self.reactions: list[tuple[str, str]] = []
         self.api_calls: list[tuple[str, dict[str, Any]]] = []
         # ts values actually handed back, in order — lets a test assert that
         # everything posted was also removed.
@@ -71,6 +72,15 @@ class _FakeWebClient:
 
     async def chat_update(self, **kwargs: Any) -> dict[str, bool]:
         self.updates.append(kwargs)
+        return {"ok": True}
+
+    async def reactions_add(self, **kwargs: Any) -> dict[str, bool]:
+        # The eyes that mark the message an agent is working on.
+        self.reactions.append(("add", kwargs["timestamp"]))
+        return {"ok": True}
+
+    async def reactions_remove(self, **kwargs: Any) -> dict[str, bool]:
+        self.reactions.append(("remove", kwargs["timestamp"]))
         return {"ok": True}
 
     async def api_call(self, method: str, **kwargs: Any) -> dict[str, bool]:

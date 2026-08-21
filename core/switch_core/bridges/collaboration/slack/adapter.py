@@ -8,7 +8,7 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 from pydantic import BaseModel
@@ -96,16 +96,25 @@ _AGENT_SESSIONS_FAILURE_LIMIT = 3
 # status, so they can be grepped for and stripped once it is proven out.
 _TRACE = "[agent-sessions] "
 
-# How long a processing session may go unrefreshed. Slack drops one back to
-# active after an hour, so this is well inside that without resending on every
-# runtime-state report.
-_SESSION_REFRESH_SECONDS = 20 * 60
+# Put on the message an agent is working on, for the whole turn.
+_WORKING_REACTION = "eyes"
 
 # Slack caps a task chunk's text; keep well inside it.
 _STREAM_STEP_MAX = 200
 
 
-def _task_chunk(title: str) -> dict[str, Any]:
+def _plain(text: str) -> str:
+    """Strip Switch's markup for somewhere that renders none.
+
+    A task card's title is plain text, so markup passed into it arrives as
+    literal `_underscores_` and backticks rather than emphasis."""
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
+    text = re.sub(r"(?<!\w)[*_]([^*_]+)[*_](?!\w)", r"\1", text)
+    return text.strip()
+
+
+def _task_chunk(title: str, deeplink_url: str | None = None) -> dict[str, Any]:
     """One step in a streamed session.
 
     Slack documents this payload three mutually incompatible ways — the method
@@ -114,12 +123,19 @@ def _task_chunk(title: str) -> dict[str, Any]:
     single function so correcting it against the live API is a one-line change
     rather than a hunt.
     """
-    return {
+    chunk: dict[str, Any] = {
         "type": "task_update",
         "id": "current",
         "title": title,
         "status": "in_progress",
     }
+    if deeplink_url:
+        # The way back into the live session. It used to ride on the message
+        # Switch posted; now the card stands alone, so it travels here.
+        chunk["sources"] = [
+            {"type": "url", "text": "Open in Switch Console", "url": deeplink_url}
+        ]
+    return chunk
 
 
 _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
@@ -186,6 +202,12 @@ class SlackConnectionConfig(BridgeConnectionConfig):
 
 
 class SlackAdapter(CollaborationAdapter):
+    # Pin a turn's status to the message being worked on, opening a thread on
+    # it when there is none. Without this a question asked at the channel root
+    # has no thread, so its progress has nowhere to live and no session can be
+    # opened for it — which was most turns.
+    runtime_state_follows_anchor: ClassVar[bool] = True
+
     def __init__(self, *, config: SlackConnectionConfig) -> None:
         super().__init__()
         self._config = config
@@ -239,9 +261,6 @@ class SlackAdapter(CollaborationAdapter):
         # (channel_id, thread_ts) -> agent whose turn owns that session, so the
         # stop button can be routed to the agent it belongs to.
         self._session_owner: dict[tuple[str, str], str] = {}
-        # (channel_id, thread_ts) -> (status last sent, when). Runtime state is
-        # reported repeatedly through a turn; Slack only needs the changes.
-        self._session_status: dict[tuple[str, str], tuple[str, float]] = {}
         # (channel_id, thread_ts) -> the open stream's ts, and the last step
         # pushed into it. A stream is what creates the session Slack renders.
         self._stream_ts: dict[tuple[str, str], str] = {}
@@ -253,6 +272,8 @@ class SlackAdapter(CollaborationAdapter):
         # (channel_id, agent_name) already reported as having no thread, so the
         # trace says it once rather than on every state report.
         self._threadless_logged: set[tuple[str, str]] = set()
+        # (channel_id, ts) currently carrying the "being worked on" reaction.
+        self._eyes: set[tuple[str, str]] = set()
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -672,8 +693,15 @@ class SlackAdapter(CollaborationAdapter):
         # Mirrored onto Slack's own session before the branching below, because
         # the working branch returns early when it only has to refresh the
         # message in place — and the session still has to track the turn.
-        await self._set_session_status(
-            channel_id, thread_root_id, agent_name, state=state, detail=detail
+        working_now = state in ("working", "awaiting-input")
+        await self._mark_being_read(channel_id, thread_root_id, working=working_now)
+        await self._update_session(
+            channel_id,
+            thread_root_id,
+            agent_name,
+            state=state,
+            detail=detail,
+            deeplink_url=deeplink_url,
         )
 
         key = (channel_id, agent_name)
@@ -681,6 +709,13 @@ class SlackAdapter(CollaborationAdapter):
             # Resuming work means the requested input was provided — clear the
             # now-resolved pings, then ensure the working indicator is up.
             await self._clear_input_pings(channel_id, agent_name)
+            if self._streaming(channel_id, thread_root_id):
+                # Slack is drawing this turn itself, and better: the card is
+                # live, named for the agent, and carries the console link. A
+                # posted message beside it would say the same thing twice, so
+                # any earlier one is taken down.
+                await self._clear_working(channel_id, agent_name)
+                return
             # Posted under the agent's own name/icon, so the body just states
             # the activity — no need to repeat the agent name in the text.
             body = self._working_body(detail, deeplink_url)
@@ -711,9 +746,56 @@ class SlackAdapter(CollaborationAdapter):
             await self._clear_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
 
-    # ── Native agent session status ──────────────────────────────────────────
+    async def _mark_being_read(
+        self, channel_id: str, thread_root_id: str | None, *, working: bool
+    ) -> None:
+        """Put 👀 on the message an agent is working on, and take it off after.
 
-    async def _set_session_status(
+        Unlike the session card this needs nothing from Slack beyond a scope we
+        already hold, and it works at the channel root as well as in a thread —
+        so it is the one progress signal that is always available. It also says
+        *which* message is being handled, which a status elsewhere cannot.
+        """
+        ts = self._thread_ts_of(thread_root_id)
+        if not ts or not self._web_client:
+            return
+        key = (channel_id, ts)
+        if working == (key in self._eyes):
+            return
+
+        try:
+            if working:
+                await self._web_client.reactions_add(
+                    channel=channel_id, timestamp=ts, name=_WORKING_REACTION
+                )
+                self._eyes.add(key)
+            else:
+                await self._web_client.reactions_remove(
+                    channel=channel_id, timestamp=ts, name=_WORKING_REACTION
+                )
+                self._eyes.discard(key)
+        except SlackApiError as e:
+            error = e.response.get("error", "")
+            # Already there, or already gone: the end state is what was wanted,
+            # so record it and say nothing.
+            if error in ("already_reacted", "no_reaction"):
+                self._eyes.add(key) if working else self._eyes.discard(key)
+                return
+            logger.warning(
+                "Could not %s the working reaction on %s: %s",
+                "add" if working else "remove",
+                channel_id,
+                error or e,
+            )
+
+    def _streaming(self, channel_id: str, thread_root_id: str | None) -> bool:
+        """Whether Slack is already drawing this turn's progress itself."""
+        thread_ts = self._thread_ts_of(thread_root_id)
+        return bool(thread_ts) and (channel_id, thread_ts) in self._stream_ts
+
+    # ── Native agent session ─────────────────────────────────────────────────
+
+    async def _update_session(
         self,
         channel_id: str,
         thread_root_id: str | None,
@@ -721,22 +803,23 @@ class SlackAdapter(CollaborationAdapter):
         *,
         state: str,
         detail: str | None = None,
+        deeplink_url: str | None = None,
     ) -> None:
-        """Mirror the turn onto Slack's own agent session.
+        """Mirror the turn onto a Slack agent session.
 
         This is additive: the status messages Switch posts are what actually
-        carry the detail, and they are unchanged. This adds Slack's native
-        rendering — a live message of what the agent is doing, and a stop
-        button on the thread.
+        carry the detail, and they are unchanged. This adds Slack's own live
+        card of what the agent is doing, under the agent's name and icon.
 
-        A turn opens a stream, which is what creates the session: setting a
-        status without one is accepted and shows nothing, which is exactly how
-        the first version of this looked healthy while rendering nothing. Each
-        change of activity is pushed into the stream as a step, and the stream
-        is closed when the turn ends.
+        The card is the stream. Slack also has a session *status*, which does
+        render — but as a second element attributed to the app rather than the
+        agent, with Slack's own generic wording and no way to rename it. Two
+        cards for one turn, one of them anonymous, reads worse than one, so it
+        is deliberately not set here. The stop button that hangs off it goes
+        with it.
 
-        A session is scoped to a thread, so a turn at the channel root has
-        nowhere to attach one and is left to the posted messages alone.
+        A session is scoped to a thread, so a turn with none is left to the
+        posted messages alone.
         """
         if not self._config.agent_sessions:
             logger.info(_TRACE + "skipped for %s: turned off in config", agent_name)
@@ -773,63 +856,13 @@ class SlackAdapter(CollaborationAdapter):
             self._session_owner.pop(key, None)
 
         await self._drive_stream(
-            channel_id, thread_ts, agent_name, working=working, detail=detail
-        )
-
-        status = "processing" if working else "active"
-        # Runtime state is reported repeatedly through a turn, not only when it
-        # changes, so sending on every event means the same status over and over
-        # — one long turn was re-sending every few seconds. Slack only needs to
-        # be told when the answer changes, plus a refresh often enough to beat
-        # the hour at which it drops a processing session by itself.
-        last = self._session_status.get(key)
-        now = time.monotonic()
-        if last is not None and last[0] == status:
-            if status != "processing" or now - last[1] < _SESSION_REFRESH_SECONDS:
-                logger.info(
-                    _TRACE + "unchanged (%s) for %s on %s/%s — not resending",
-                    status,
-                    agent_name,
-                    channel_id,
-                    thread_ts,
-                )
-                return
-        logger.info(
-            _TRACE + "setting %s for %s on %s/%s",
-            status,
-            agent_name,
             channel_id,
             thread_ts,
+            agent_name,
+            working=working,
+            detail=detail,
+            deeplink_url=deeplink_url,
         )
-        # No typed method exists for this one in any released slack_sdk, so it
-        # goes through the generic call. `json=` matters: the SDK only sets a
-        # JSON content type for that keyword, and form encoding cannot carry
-        # the nested payloads these session methods use.
-        payload: dict[str, Any] = {
-            "channel_id": channel_id,
-            "thread_ts": thread_ts,
-            "status": status,
-            "username": agent_name,
-            "icon_url": await self.agent_icon_url(agent_name),
-        }
-        requester = self._thread_requester.get(key)
-        if requester:
-            payload["initiator_user_id"] = requester
-        client = self._web_client
-        sent = await self._call_session_api(
-            lambda: client.api_call("agents.sessions.setStatus", json=payload),
-            agent_name=agent_name,
-            channel_id=channel_id,
-        )
-        if sent is None:
-            return
-        logger.info(_TRACE + "Slack accepted %s for %s", status, agent_name)
-        # Recorded only once Slack has it, so a refused send is retried
-        # rather than remembered as though it had landed.
-        if status == "processing":
-            self._session_status[key] = (status, now)
-        else:
-            self._session_status.pop(key, None)
 
     def _note_session_failure(
         self, error: str, agent_name: str, channel_id: str
@@ -870,6 +903,7 @@ class SlackAdapter(CollaborationAdapter):
         *,
         working: bool,
         detail: str | None,
+        deeplink_url: str | None,
     ) -> None:
         """Open, extend and close the stream that backs the session.
 
@@ -895,7 +929,7 @@ class SlackAdapter(CollaborationAdapter):
                 logger.info(_TRACE + "closed stream for %s on %s", agent_name, key[1])
             return
 
-        step = (detail or "Working").strip()[:_STREAM_STEP_MAX]
+        step = (_plain(detail or "") or "Working")[:_STREAM_STEP_MAX]
         if open_ts is None:
             requester = self._thread_requester.get(key)
             if not requester:
@@ -942,7 +976,7 @@ class SlackAdapter(CollaborationAdapter):
             lambda: client.chat_appendStream(
                 channel=channel_id,
                 ts=stream_ts,
-                chunks=[_task_chunk(step)],
+                chunks=[_task_chunk(step, deeplink_url)],
             ),
             agent_name=agent_name,
             channel_id=channel_id,

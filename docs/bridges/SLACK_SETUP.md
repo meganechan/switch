@@ -226,20 +226,35 @@ warning on every startup.
 
 ### Native session status (`agent_sessions`)
 
-**On by default**, and additive: the "working on it…" message Switch posts is
-unchanged and still carries the detail. Where a turn happens **in a thread**,
-Switch also opens a Slack **agent session**, which renders the client's native
-progress card and a **stop button** on that thread. A turn at the channel root
-has no thread to attach a session to, so it shows the posted message only.
+**On by default.** A turn opens a Slack **agent session** and streams its
+progress into the client's own live card, under the agent's name and icon,
+carrying the link back to the session in Switch Console.
+
+**The card replaces the status message Switch used to post**, rather than
+sitting beside it — two indicators for one turn said the same thing twice.
+Where a card cannot be opened, the posted message is still the fallback, so a
+turn always shows its progress somewhere.
 
 A session exists because a **stream** is opened for it — setting a session's
 status without one is accepted by Slack and renders nothing at all. So each
-turn opens a stream, pushes a step into it whenever the agent's activity
-changes, and closes it when the turn ends.
+turn opens a stream, pushes a step whenever the agent's activity changes, and
+closes it at the end.
 
-Streaming into a channel has to name the person being replied to, which Switch
-takes from the message that started the thread. A thread Switch never saw a
-question on therefore gets no session — it falls back to the posted message.
+Switch does **not** set the session *status*. It renders as a second card
+attributed to the app rather than the agent, with Slack's own generic wording
+and no way to rename it. Slack's native stop button hangs off that status, so
+it is not offered either.
+
+Streaming into a channel has to name the person being replied to and their
+team. The person comes from the message that started the thread; the team from
+the app's own identity, which on an Enterprise Grid org is **not** the
+configured workspace id (that is the org). A thread Switch never saw a question
+on gets no card, and falls back to the posted message.
+
+Separately, and needing nothing but the reaction scopes: the message an agent
+is working on is marked with **👀** for the duration of the turn. That works at
+the channel root as well as in a thread, so it is the one progress signal that
+is always available.
 
 The stop button is wired to the same interrupt an operator can type, so
 pressing it stops the agent whose turn it is. Setting `agent_sessions: false`
