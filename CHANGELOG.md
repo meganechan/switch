@@ -44,6 +44,16 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+- Mattermost marks the message an agent is working on with **👀**, added when the
+  turn opens and removed when it ends. Inside a thread the mark goes on the
+  reply that asked rather than the root it hangs off, and an agent handling two
+  messages at once clears both together instead of leaving the first marked for
+  good. The reaction is added by the agent's own bot, so two agents on one
+  message read as two marks naming who is on it. Documented alongside it:
+  Mattermost has no equivalent of Slack's native progress card, and Switch does
+  not approximate one (CHOO-2317).
+
 ### [0.18.0] - 2026-08-21
 
 #### Added
