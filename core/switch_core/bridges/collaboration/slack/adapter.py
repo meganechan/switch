@@ -129,9 +129,16 @@ _AGENT_SESSIONS_UNAVAILABLE_ERRORS = {
         "guests and cannot be undone."
     ),
     "not_authorized": (
-        "the Slack app is not declared as an Agent — enable the Agents feature "
-        "in the app's settings. Note that doing so removes access for workspace "
-        "guests and cannot be undone."
+        "Slack says the app is not a member of that channel. If it plainly is, "
+        "the other cause is that the app is not declared as an Agent — only an "
+        "Agent app may open sessions. Enabling that removes access for "
+        "workspace guests and cannot be undone."
+    ),
+    "feature_disabled": (
+        "the agent tasks feature is not enabled for this Slack workspace."
+    ),
+    "not_allowed_token_type": (
+        "agent sessions need a granular bot token; this app's token is not one."
     ),
     "unknown_method": ("this Slack deployment does not offer the agent sessions API."),
     "missing_scope": (
@@ -794,30 +801,35 @@ class SlackAdapter(CollaborationAdapter):
             channel_id,
             thread_ts,
         )
-        try:
-            await self._web_client.api_call(
-                "agents.sessions.setStatus",
-                json={
-                    "channel_id": channel_id,
-                    "thread_ts": thread_ts,
-                    "status": status,
-                    "username": agent_name,
-                    "icon_url": await self.agent_icon_url(agent_name),
-                },
-            )
-        except SlackApiError as e:
-            self._note_session_failure(
-                str(e.response.get("error", "")), agent_name, channel_id
-            )
+        # No typed method exists for this one in any released slack_sdk, so it
+        # goes through the generic call. `json=` matters: the SDK only sets a
+        # JSON content type for that keyword, and form encoding cannot carry
+        # the nested payloads these session methods use.
+        payload: dict[str, Any] = {
+            "channel_id": channel_id,
+            "thread_ts": thread_ts,
+            "status": status,
+            "username": agent_name,
+            "icon_url": await self.agent_icon_url(agent_name),
+        }
+        requester = self._thread_requester.get(key)
+        if requester:
+            payload["initiator_user_id"] = requester
+        client = self._web_client
+        sent = await self._call_session_api(
+            lambda: client.api_call("agents.sessions.setStatus", json=payload),
+            agent_name=agent_name,
+            channel_id=channel_id,
+        )
+        if sent is None:
+            return
+        logger.info(_TRACE + "Slack accepted %s for %s", status, agent_name)
+        # Recorded only once Slack has it, so a refused send is retried
+        # rather than remembered as though it had landed.
+        if status == "processing":
+            self._session_status[key] = (status, now)
         else:
-            logger.info(_TRACE + "Slack accepted %s for %s", status, agent_name)
-            self._session_failures = 0
-            # Recorded only once Slack has it, so a refused send is retried
-            # rather than remembered as though it had landed.
-            if status == "processing":
-                self._session_status[key] = (status, now)
-            else:
-                self._session_status.pop(key, None)
+            self._session_status.pop(key, None)
 
     def _note_session_failure(
         self, error: str, agent_name: str, channel_id: str
@@ -859,15 +871,22 @@ class SlackAdapter(CollaborationAdapter):
         working: bool,
         detail: str | None,
     ) -> None:
-        """Open, extend and close the stream that backs the session."""
+        """Open, extend and close the stream that backs the session.
+
+        The stream calls go through the SDK's own methods, which send JSON and
+        keep the argument names honest; only the session status has no typed
+        method to use."""
+        client = self._web_client
+        if client is None:
+            return
         key = (channel_id, thread_ts)
         open_ts = self._stream_ts.get(key)
 
         if not working:
             if open_ts:
+                closing_ts = open_ts
                 await self._call_session_api(
-                    "chat.stopStream",
-                    {"channel": channel_id, "ts": open_ts},
+                    lambda: client.chat_stopStream(channel=channel_id, ts=closing_ts),
                     agent_name=agent_name,
                     channel_id=channel_id,
                 )
@@ -892,23 +911,22 @@ class SlackAdapter(CollaborationAdapter):
                     agent_name,
                 )
                 return
-            result = await self._call_session_api(
-                "chat.startStream",
-                {
-                    "channel": channel_id,
-                    "thread_ts": thread_ts,
-                    "recipient_user_id": requester,
-                    "recipient_team_id": self._team_id,
-                    "task_display_mode": "timeline",
-                    "username": agent_name,
-                    "icon_url": await self.agent_icon_url(agent_name),
-                },
+            icon_url = await self.agent_icon_url(agent_name)
+            open_ts = await self._call_session_api(
+                lambda: client.chat_startStream(
+                    channel=channel_id,
+                    thread_ts=thread_ts,
+                    recipient_user_id=requester,
+                    recipient_team_id=self._team_id,
+                    task_display_mode="timeline",
+                    username=agent_name,
+                    icon_url=icon_url,
+                ),
                 agent_name=agent_name,
                 channel_id=channel_id,
             )
-            if result is None:
+            if open_ts is None:
                 return
-            open_ts = str(result.get("ts", ""))
             if not open_ts:
                 logger.warning(
                     _TRACE + "Slack opened a stream for %s with no ts", agent_name
@@ -919,38 +937,39 @@ class SlackAdapter(CollaborationAdapter):
         elif self._stream_step.get(key) == step:
             return
 
+        stream_ts = open_ts
         await self._call_session_api(
-            "chat.appendStream",
-            {
-                "channel": channel_id,
-                "ts": open_ts,
-                "chunks": [_task_chunk(step)],
-            },
+            lambda: client.chat_appendStream(
+                channel=channel_id,
+                ts=stream_ts,
+                chunks=[_task_chunk(step)],
+            ),
             agent_name=agent_name,
             channel_id=channel_id,
         )
         self._stream_step[key] = step
 
     async def _call_session_api(
-        self, method: str, payload: dict[str, Any], *, agent_name: str, channel_id: str
-    ) -> dict[str, Any] | None:
+        self,
+        call: Callable[[], Awaitable[Any]],
+        *,
+        agent_name: str,
+        channel_id: str,
+    ) -> str | None:
         """Make a session call, routing a refusal through the same give-up path.
 
-        Returns None when the call did not succeed, so a caller that needs the
-        response does not act on a failure it cannot see."""
-        if not self._web_client:
-            return None
+        Returns the response's `ts` on success (empty string when it has none)
+        and None on failure, so a caller that needs the stream's id cannot
+        mistake a refusal for a stream it can append to."""
         try:
-            result = await self._web_client.api_call(method, json=payload)
+            result = await call()
         except SlackApiError as e:
             self._note_session_failure(
                 str(e.response.get("error", "")), agent_name, channel_id
             )
             return None
         self._session_failures = 0
-        # The SDK's response is mapping-like rather than a dict; read what is
-        # needed through it instead of copying it wholesale.
-        return {"ts": str(result.get("ts", ""))}
+        return str(result.get("ts", ""))
 
     def _disable_agent_sessions(self, error: str) -> None:
         if self._agent_sessions_off_reason:

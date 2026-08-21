@@ -53,6 +53,25 @@ class FakeWebClient:
             return FakeResponse({"ok": True, "ts": f"stream-{self._ts}"})
         return FakeResponse({"ok": True})
 
+    async def chat_startStream(self, **kwargs: Any) -> FakeResponse:
+        if self.api_error:
+            raise SlackApiError("failed", FakeResponse({"error": self.api_error}))
+        self.api_calls.append(("chat.startStream", {"json": kwargs}))
+        self._ts += 1
+        return FakeResponse({"ok": True, "ts": f"stream-{self._ts}"})
+
+    async def chat_appendStream(self, **kwargs: Any) -> FakeResponse:
+        if self.api_error:
+            raise SlackApiError("failed", FakeResponse({"error": self.api_error}))
+        self.api_calls.append(("chat.appendStream", {"json": kwargs}))
+        return FakeResponse({"ok": True})
+
+    async def chat_stopStream(self, **kwargs: Any) -> FakeResponse:
+        if self.api_error:
+            raise SlackApiError("failed", FakeResponse({"error": self.api_error}))
+        self.api_calls.append(("chat.stopStream", {"json": kwargs}))
+        return FakeResponse({"ok": True})
+
     async def chat_postMessage(self, **kwargs: Any) -> FakeResponse:
         self._ts += 1
         self.posted.append(kwargs)
