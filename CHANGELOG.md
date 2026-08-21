@@ -69,6 +69,9 @@ version of their own to them without also giving them a release of their own.
   and was rejected as "not a single name" — quoting a string the invoker never
   typed. Newly reachable because an agent's name now autocompletes, but the
   typed form was wrong before that too (CHOO-2316).
+#### Changed
+- The gateway's **Docs** button opens the published documentation at
+  `docs.flintai.dev` rather than the GitHub repository (CHOO-2313).
 
 ### [0.18.0] - 2026-08-21
 
@@ -712,6 +715,20 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+#### Changed
+- Every **Docs** affordance opens the published documentation at
+  `docs.flintai.dev` instead of the GitHub repository, deep-linked to the page
+  that answers the question: the sidebar and app-menu Docs entries and the
+  Settings Docs tab go to getting-started, the remote-hosts hint and the
+  hosting cards to *Host remotely*, the messaging-app cards to *Messaging
+  apps*, and the Rooms card to *Rooms and agents*. The welcome footer's GitHub
+  link keeps pointing at the repository (CHOO-2313).
+- The "How to set up {Platform}" link on the connect-messaging-app form opens
+  the platform's published setup page — Slack, Mattermost, Discord, Microsoft
+  Teams or Telegram — rather than the repository's markdown, with the
+  messaging-apps index as the fallback for an unrecognised platform
+  (CHOO-2313, unblocking CHOO-2269).
 
 ### [0.28.0] - 2026-08-21
 
