@@ -186,6 +186,7 @@ class SlackAdapter(CollaborationAdapter):
         self._socket_client: SocketModeClient | None = None
         self._bot_user_id: str = ""
         self._bot_id: str = ""
+        self._team_id: str = ""
         self._user_cache: dict[str, SlackUser] = {}
         self._channel_name_cache: dict[str, str] = {}
         self._seen_ts: OrderedDict[str, None] = OrderedDict()
@@ -242,6 +243,9 @@ class SlackAdapter(CollaborationAdapter):
         # name the person being replied to, which the runtime-state path does
         # not carry, so it is remembered from the message that started it.
         self._thread_requester: dict[tuple[str, str], str] = {}
+        # (channel_id, agent_name) already reported as having no thread, so the
+        # trace says it once rather than on every state report.
+        self._threadless_logged: set[tuple[str, str]] = set()
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -271,6 +275,11 @@ class SlackAdapter(CollaborationAdapter):
             )
         self._bot_user_id = auth["user_id"]
         self._bot_id = str(auth.get("bot_id", ""))
+        # The team this bot is installed in. Not the same as the configured
+        # workspace id on an Enterprise Grid org, where that is the org id
+        # (`E…`) and streaming wants the team (`T…`) — so take it from the
+        # authenticated identity rather than from config.
+        self._team_id = str(auth.get("team_id", ""))
         logger.info(
             "Slack adapter authenticated as %s (workspace %s)",
             auth.get("user", ""),
@@ -726,24 +735,28 @@ class SlackAdapter(CollaborationAdapter):
             logger.info(_TRACE + "skipped for %s: turned off in config", agent_name)
             return
         if self._agent_sessions_off_reason:
-            logger.info(
-                _TRACE + "skipped for %s: given up earlier on '%s'",
-                agent_name,
-                self._agent_sessions_off_reason,
-            )
+            # Silent by design. Giving up is announced once, where it happens;
+            # saying so again per skipped turn produced eleven thousand lines
+            # in a night — an instrument that ruins the thing it measures.
             return
         if not self._web_client:
             logger.info(_TRACE + "skipped for %s: Slack not connected", agent_name)
             return
         thread_ts = self._thread_ts_of(thread_root_id)
         if not thread_ts:
-            logger.info(
-                _TRACE + "skipped for %s: state '%s' has no thread (root %r)",
-                agent_name,
-                state,
-                thread_root_id,
-            )
+            # Once per agent per channel. Runtime state is reported many times
+            # a turn and most turns have no thread, so logging every one buries
+            # everything else.
+            if (channel_id, agent_name) not in self._threadless_logged:
+                self._threadless_logged.add((channel_id, agent_name))
+                logger.info(
+                    _TRACE + "no thread for %s in %s, so no session (state '%s')",
+                    agent_name,
+                    channel_id,
+                    state,
+                )
             return
+        self._threadless_logged.discard((channel_id, agent_name))
 
         working = state in ("working", "awaiting-input")
         key = (channel_id, thread_ts)
@@ -873,12 +886,19 @@ class SlackAdapter(CollaborationAdapter):
                     thread_ts,
                 )
                 return
+            if not self._team_id:
+                logger.info(
+                    _TRACE + "no stream for %s: the bot's team id is unknown",
+                    agent_name,
+                )
+                return
             result = await self._call_session_api(
                 "chat.startStream",
                 {
                     "channel": channel_id,
                     "thread_ts": thread_ts,
                     "recipient_user_id": requester,
+                    "recipient_team_id": self._team_id,
                     "task_display_mode": "timeline",
                     "username": agent_name,
                     "icon_url": await self.agent_icon_url(agent_name),

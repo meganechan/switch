@@ -21,6 +21,8 @@ from switch_core.bridges.collaboration.slack.adapter import (
     SlackUser,
 )
 
+_TRACE_MARKER = "[agent-sessions]"
+
 
 def _run(coro: Any) -> Any:
     loop = asyncio.new_event_loop()
@@ -82,6 +84,9 @@ def _adapter(*, enabled: bool = True) -> tuple[SlackAdapter, FakeWebClient]:
     client = FakeWebClient()
     adapter._web_client = client  # type: ignore[assignment]
     adapter._channel_type_cache["C1"] = "channel"
+    # Learned from auth_test at startup. On an Enterprise Grid org this is not
+    # the configured workspace id, which is the org (`E…`) rather than the team.
+    adapter._team_id = "T02TEAM"
     # Streaming into a channel names who is being replied to; in life this is
     # recorded from the message that started the turn.
     adapter._thread_requester[("C1", "111.0")] = "U1"
@@ -699,3 +704,62 @@ def test_the_requester_is_recorded_from_an_incoming_message() -> None:
     )
 
     assert adapter._thread_requester[("C1", "333.0")] == "U9"
+
+
+def test_the_stream_names_the_team_not_the_configured_workspace() -> None:
+    """Slack rejects the open without a team id. On an Enterprise Grid org the
+    configured workspace id is the org (`E…`), not the team (`T…`), so it comes
+    from the authenticated identity instead."""
+    adapter, client = _adapter()
+
+    _run(_working(adapter, "reading"))
+
+    payload = next(p["json"] for m, p in client.api_calls if m == "chat.startStream")
+    assert payload["recipient_team_id"] == "T02TEAM"
+
+
+def test_no_stream_before_the_team_id_is_known() -> None:
+    """Better no session than one Slack will refuse for a field we could have
+    supplied."""
+    adapter, client = _adapter()
+    adapter._team_id = ""
+
+    _run(_working(adapter, "reading"))
+
+    assert "chat.startStream" not in _methods(client)
+
+
+def test_a_threadless_agent_is_only_reported_once(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The trace must not bury the log: one night of per-turn skips produced
+    eleven thousand lines."""
+    adapter, _ = _adapter()
+
+    with caplog.at_level("INFO"):
+        for _ in range(20):
+            _run(
+                adapter.apply_runtime_state(
+                    "C1",
+                    "flint-tracker",
+                    "working",
+                    mention_handle=None,
+                    thread_root_id=None,
+                )
+            )
+
+    lines = [r for r in caplog.records if "no thread for" in r.getMessage()]
+    assert len(lines) == 1
+
+
+def test_a_given_up_session_says_nothing_further(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    adapter, _ = _adapter()
+    adapter._agent_sessions_off_reason = "not_authorized"
+
+    with caplog.at_level("INFO"):
+        for _ in range(20):
+            _run(_working(adapter, "reading"))
+
+    assert [r for r in caplog.records if _TRACE_MARKER in r.getMessage()] == []
