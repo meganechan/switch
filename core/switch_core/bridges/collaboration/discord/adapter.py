@@ -65,9 +65,7 @@ class DiscordConnectionConfig(BridgeConnectionConfig):
         title="Agent name autocomplete",
         description=(
             "Give each agent a mentionable Discord role so its name completes "
-            "when you type @ in a channel. Needs the bot to have Manage Roles, "
-            "and a server under Discord's 250-role limit; without either, "
-            "agents are still addressed by typing their name."
+            "when you type @. Needs Manage Roles."
         ),
     )
 
