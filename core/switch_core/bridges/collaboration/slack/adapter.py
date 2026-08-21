@@ -92,6 +92,13 @@ def _group_description(agent_description: str) -> str:
 # cannot work must not warn on every turn for the life of the bridge.
 _AGENT_SESSIONS_FAILURE_LIMIT = 3
 
+# How long a give-up over unrecognised errors lasts before the bridge tries
+# again. Long enough that a bad patch is waited out rather than hammered
+# through, short enough that a bridge does not stay dark for a day because of
+# one. A refusal that named its own cause is not covered: nothing about the
+# workspace will have changed, so it is not retried at all.
+_AGENT_SESSIONS_RETRY_AFTER = 600
+
 # Prefix on the trace lines that follow a turn through the session, so a run
 # can be read end to end when something does not render. Debug level: the
 # per-turn detail is only wanted when someone is looking for it.
@@ -265,10 +272,16 @@ class SlackAdapter(CollaborationAdapter):
         # Set once Slack has told us it will not host agent sessions, so the
         # bridge stops asking and says so only once.
         self._agent_sessions_off_reason: str | None = None
+        # When a give-up over unrecognised errors expires. None means the
+        # reason above is a workspace's settled answer and will not improve on
+        # its own, so nothing re-arms it.
+        self._agent_sessions_retry_at: float | None = None
         # Consecutive identical session-status failures, so an error code this
         # build does not recognise still stops complaining eventually.
         self._session_failures = 0
         self._last_session_error: str | None = None
+        # While Slack is throttling us, when it said we may call again.
+        self._sessions_throttled_until: float | None = None
         # (channel_id, thread_ts) -> agent whose turn owns that session, so the
         # stop button can be routed to the agent it belongs to.
         self._session_owner: dict[tuple[str, str], str] = {}
@@ -904,7 +917,7 @@ class SlackAdapter(CollaborationAdapter):
         if not self._config.agent_sessions:
             logger.debug(_TRACE + "skipped for %s: turned off in config", agent_name)
             return
-        if self._agent_sessions_off_reason:
+        if self._agent_sessions_off():
             # Silent by design. Giving up is announced once, where it happens;
             # saying so again per skipped turn produced eleven thousand lines
             # in a night — an instrument that ruins the thing it measures.
@@ -929,6 +942,11 @@ class SlackAdapter(CollaborationAdapter):
         self._threadless_logged.discard((channel_id, agent_name))
 
         working = state in ("working", "awaiting-input")
+        if working and self._sessions_throttled():
+            # A step lost to throttling costs one line of the card. Teardown is
+            # not skipped the same way: dropping it would leave the card open
+            # for good, so it is attempted even while we are being throttled.
+            return
         key = (channel_id, thread_ts)
         if working:
             self._session_owner[key] = agent_name
@@ -945,7 +963,12 @@ class SlackAdapter(CollaborationAdapter):
         )
 
     def _note_session_failure(
-        self, error: str, agent_name: str, channel_id: str
+        self,
+        error: str,
+        agent_name: str,
+        channel_id: str,
+        *,
+        retry_after: int | None = None,
     ) -> None:
         """Log a failed status call, and give up if it is not going to improve.
 
@@ -955,7 +978,15 @@ class SlackAdapter(CollaborationAdapter):
         list does not know about (`not_authorized` for an app that is not an
         agent, found in the pilot), and without a backstop each one means a
         warning on every turn for as long as the bridge runs.
+
+        Throttling is the exception, and is not counted at all: it says the app
+        is busy, not that it is unfit, and counting it turned a burst of
+        traffic into a bridge that never showed a card again.
         """
+        if error == "ratelimited":
+            self._note_session_throttled(retry_after or _RATE_LIMIT_DEFAULT_DELAY)
+            return
+
         if error in _AGENT_SESSIONS_UNAVAILABLE_ERRORS:
             self._disable_agent_sessions(error)
             return
@@ -973,7 +1004,54 @@ class SlackAdapter(CollaborationAdapter):
             error or "unknown error",
         )
         if self._session_failures >= _AGENT_SESSIONS_FAILURE_LIMIT:
-            self._disable_agent_sessions(error)
+            self._disable_agent_sessions(error, retry_in=_AGENT_SESSIONS_RETRY_AFTER)
+
+    def _note_session_throttled(self, delay: int) -> None:
+        """Stand down for as long as Slack asked, and say so once per burst."""
+        already_waiting = self._sessions_throttled()
+        self._sessions_throttled_until = time.monotonic() + delay
+        if already_waiting:
+            logger.debug(_TRACE + "still throttled; waiting %ss more", delay)
+            return
+        logger.warning(
+            "Slack is rate-limiting agent session updates; pausing them for %ss. "
+            "Cards may miss a step until it clears; Switch's own status messages "
+            "are unaffected.",
+            delay,
+        )
+
+    def _sessions_throttled(self) -> bool:
+        until = self._sessions_throttled_until
+        if until is None:
+            return False
+        if time.monotonic() < until:
+            return True
+        self._sessions_throttled_until = None
+        logger.debug(_TRACE + "throttling window elapsed; resuming session updates")
+        return False
+
+    def _agent_sessions_off(self) -> bool:
+        """Whether sessions are given up on — re-arming a lapsed give-up.
+
+        A give-up over errors this build cannot name is a guess, so it expires:
+        the bridge tries again rather than staying dark until someone restarts
+        it. A refusal that named its own cause does not expire, because nothing
+        will have changed without an operator changing it.
+        """
+        if self._agent_sessions_off_reason is None:
+            return False
+        retry_at = self._agent_sessions_retry_at
+        if retry_at is None or time.monotonic() < retry_at:
+            return True
+        logger.info(
+            "Trying Slack agent sessions again after backing off over '%s'.",
+            self._agent_sessions_off_reason,
+        )
+        self._agent_sessions_off_reason = None
+        self._agent_sessions_retry_at = None
+        self._session_failures = 0
+        self._last_session_error = None
+        return False
 
     async def _drive_stream(
         self,
@@ -1100,29 +1178,45 @@ class SlackAdapter(CollaborationAdapter):
         try:
             result = await call()
         except SlackApiError as e:
+            error = str(e.response.get("error", ""))
             self._note_session_failure(
-                str(e.response.get("error", "")), agent_name, channel_id
+                error,
+                agent_name,
+                channel_id,
+                retry_after=_retry_after_seconds(e) if error == "ratelimited" else None,
             )
             return None
         self._session_failures = 0
+        self._sessions_throttled_until = None
         return str(result.get("ts", ""))
 
-    def _disable_agent_sessions(self, error: str) -> None:
+    def _disable_agent_sessions(
+        self, error: str, *, retry_in: int | None = None
+    ) -> None:
         if self._agent_sessions_off_reason:
             return
         self._agent_sessions_off_reason = error
+        self._agent_sessions_retry_at = (
+            time.monotonic() + retry_in if retry_in is not None else None
+        )
         reason = _AGENT_SESSIONS_UNAVAILABLE_ERRORS.get(
             error,
             f"Slack kept refusing with '{error or 'an unknown error'}'. If the "
             "app is not declared as an Agent in its settings, that is the "
             "likeliest cause.",
         )
+        recovery = (
+            f" Trying again in {retry_in}s."
+            if retry_in is not None
+            else " This will not change without an operator changing it."
+        )
         logger.warning(
             "Slack agent sessions are unavailable for this app (%s): %s "
             "Turns still show Switch's own status messages; only Slack's native "
-            "loading UX and stop button are missing.",
+            "loading UX and stop button are missing.%s",
             error,
             reason,
+            recovery,
         )
 
     @staticmethod

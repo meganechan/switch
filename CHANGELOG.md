@@ -69,6 +69,29 @@ version of their own to them without also giving them a release of their own.
   and was rejected as "not a single name" — quoting a string the invoker never
   typed. Newly reachable because an agent's name now autocompletes, but the
   typed form was wrong before that too (CHOO-2316).
+- Telegram marks the message an agent is working on with **👀**, and clears it
+  when the turn ends — in groups, channels and 1:1 chats alike, with no
+  administrator rights needed. Outside forum topics Telegram has no threads, so
+  the mark goes on the last thing a person said, which is what the agent is
+  answering. A chat with reactions switched off loses the mark, not the turn
+  (CHOO-2314).
+- Telegram setup docs now spell out that BotFather shows the bot token **once**,
+  and what to do if it was not saved (CHOO-2314).
+
+#### Known limitations
+- **Telegram cannot autocomplete an agent's name.** Slack's per-agent user
+  groups have no Telegram equivalent: `@` autocomplete offers only real chat
+  members, there is no user-group concept, and every agent posts through one
+  bot. Real per-agent autocomplete would need a Telegram bot account per agent
+  (CHOO-2314).
+- Mattermost marks the message an agent is working on with **👀**, added when the
+  turn opens and removed when it ends. Inside a thread the mark goes on the
+  reply that asked rather than the root it hangs off, and an agent handling two
+  messages at once clears both together instead of leaving the first marked for
+  good. The reaction is added by the agent's own bot, so two agents on one
+  message read as two marks naming who is on it. Documented alongside it:
+  Mattermost has no equivalent of Slack's native progress card, and Switch does
+  not approximate one (CHOO-2317).
 #### Changed
 - The gateway's **Docs** button opens the published documentation at
   `docs.flintai.dev` rather than the GitHub repository (CHOO-2313).
@@ -715,6 +738,11 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+#### Fixed
+- The OpenCode connector the app writes carries its own copy of the
+  room-workflow skill, so it picked up the same wrong claim that a Telegram DM
+  is adopted like Mattermost's. Corrected alongside the connector directory
+  (CHOO-2314).
 
 #### Changed
 - Every **Docs** affordance opens the published documentation at
@@ -2201,6 +2229,13 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.9.6] - 2026-08-19
 
@@ -2395,6 +2430,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.3.7] - 2026-08-19
 
@@ -2543,6 +2585,13 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.1.4] - 2026-08-19
 
