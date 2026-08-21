@@ -92,8 +92,9 @@ def _group_description(agent_description: str) -> str:
 # cannot work must not warn on every turn for the life of the bridge.
 _AGENT_SESSIONS_FAILURE_LIMIT = 3
 
-# Prefix on the temporary trace lines that follow a turn through the session
-# status, so they can be grepped for and stripped once it is proven out.
+# Prefix on the trace lines that follow a turn through the session, so a run
+# can be read end to end when something does not render. Debug level: the
+# per-turn detail is only wanted when someone is looking for it.
 _TRACE = "[agent-sessions] "
 
 # Put on the message an agent is working on, for the whole turn.
@@ -334,7 +335,7 @@ class SlackAdapter(CollaborationAdapter):
         )
         await self._socket_client.connect()
         logger.info("Slack Socket Mode connected")
-        logger.info(
+        logger.debug(
             _TRACE + "build carries agent sessions; config agent_sessions=%s",
             self._config.agent_sessions,
         )
@@ -892,7 +893,7 @@ class SlackAdapter(CollaborationAdapter):
         posted messages alone.
         """
         if not self._config.agent_sessions:
-            logger.info(_TRACE + "skipped for %s: turned off in config", agent_name)
+            logger.debug(_TRACE + "skipped for %s: turned off in config", agent_name)
             return
         if self._agent_sessions_off_reason:
             # Silent by design. Giving up is announced once, where it happens;
@@ -900,7 +901,7 @@ class SlackAdapter(CollaborationAdapter):
             # in a night — an instrument that ruins the thing it measures.
             return
         if not self._web_client:
-            logger.info(_TRACE + "skipped for %s: Slack not connected", agent_name)
+            logger.debug(_TRACE + "skipped for %s: Slack not connected", agent_name)
             return
         thread_ts = self._thread_ts_of(thread_root_id)
         if not thread_ts:
@@ -909,7 +910,7 @@ class SlackAdapter(CollaborationAdapter):
             # everything else.
             if (channel_id, agent_name) not in self._threadless_logged:
                 self._threadless_logged.add((channel_id, agent_name))
-                logger.info(
+                logger.debug(
                     _TRACE + "no thread for %s in %s, so no session (state '%s')",
                     agent_name,
                     channel_id,
@@ -1014,21 +1015,21 @@ class SlackAdapter(CollaborationAdapter):
                 await self.delete_message(channel_id, f"{channel_id}:{closing_ts}")
                 self._stream_ts.pop(key, None)
                 self._stream_step.pop(key, None)
-                logger.info(_TRACE + "closed stream for %s on %s", agent_name, key[1])
+                logger.debug(_TRACE + "closed stream for %s on %s", agent_name, key[1])
             return
 
         step = (_plain(detail or "") or "Working")[:_STREAM_STEP_MAX]
         if open_ts is None:
             requester = self._thread_requester.get(key)
             if not requester:
-                logger.info(
+                logger.debug(
                     _TRACE + "no stream for %s on %s: nobody recorded to stream to",
                     agent_name,
                     thread_ts,
                 )
                 return
             if not self._team_id:
-                logger.info(
+                logger.debug(
                     _TRACE + "no stream for %s: the bot's team id is unknown",
                     agent_name,
                 )
@@ -1055,7 +1056,7 @@ class SlackAdapter(CollaborationAdapter):
                 )
                 return
             self._stream_ts[key] = open_ts
-            logger.info(_TRACE + "opened stream %s for %s", open_ts, agent_name)
+            logger.debug(_TRACE + "opened stream %s for %s", open_ts, agent_name)
         elif self._stream_step.get(key) == step:
             return
 

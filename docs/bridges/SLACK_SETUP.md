@@ -344,6 +344,9 @@ bridge is online and relaying throughout, and agents stay addressable by typed
 name while their groups are still being made — autocomplete is what arrives
 late, nothing else. Watch the per-group log lines for progress.
 
+The session's own trace lines are at debug level: enough to follow a turn end
+to end when something does not render, and out of the way when it does.
+
 ### Event subscriptions (over Socket Mode)
 
 Subscribe the **bot** to (no request URL is needed with Socket Mode):

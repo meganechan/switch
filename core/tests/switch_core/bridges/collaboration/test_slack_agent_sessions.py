@@ -421,7 +421,7 @@ def test_a_given_up_session_says_nothing_further(
     adapter, _ = _adapter()
     adapter._agent_sessions_off_reason = "not_authorized"
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         for _ in range(20):
             _run(_state(adapter, "working", detail="reading"))
 
@@ -433,7 +433,7 @@ def test_a_threadless_agent_is_only_reported_once(
 ) -> None:
     adapter, _ = _adapter()
 
-    with caplog.at_level("INFO"):
+    with caplog.at_level("DEBUG"):
         for _ in range(20):
             _run(_state(adapter, "working", detail="reading", thread=None))
 
