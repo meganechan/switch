@@ -251,10 +251,15 @@ the app's own identity, which on an Enterprise Grid org is **not** the
 configured workspace id (that is the org). A thread Switch never saw a question
 on gets no card, and falls back to the posted message.
 
-Separately, and needing nothing but the reaction scopes: the message an agent
-is working on is marked with **👀** for the duration of the turn. That works at
-the channel root as well as in a thread, so it is the one progress signal that
-is always available.
+The card is a progress indicator, not a record: it is removed when the turn
+ends, the way the posted status message always was. An agent working on two
+messages at once has a card and a mark on each, and both are cleared together
+when its turn finishes.
+
+Separately, and needing nothing but the reaction scopes: the message that asked
+is marked with **👀** for the duration of the turn — the message itself, not the
+thread it sits in. That works at the channel root as well as in a thread, so it
+is the one progress signal that is always available.
 
 The stop button is wired to the same interrupt an operator can type, so
 pressing it stops the agent whose turn it is. Setting `agent_sessions: false`

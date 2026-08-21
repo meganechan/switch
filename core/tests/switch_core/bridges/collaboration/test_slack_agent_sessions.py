@@ -586,3 +586,85 @@ def test_the_console_link_is_sent_once_per_card() -> None:
 
     with_sources = [c for c in _chunks(client) if "sources" in c]
     assert len(with_sources) == 1
+
+
+# ── Nothing left behind ──────────────────────────────────────────────────────
+
+
+def test_the_card_is_deleted_when_the_turn_ends() -> None:
+    """It is a progress indicator, not a record — once the turn is over the
+    agent's own reply is the thing worth reading."""
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading"))
+    _run(_state(adapter, "idle"))
+
+    assert [d["ts"] for d in client.deleted] == ["stream-1"]
+
+
+def test_every_card_is_deleted_when_two_were_open() -> None:
+    adapter, client = _adapter()
+    adapter._thread_requester[("C1", "222.0")] = "U1"
+
+    _run(_state(adapter, "working", detail="first", thread="C1:111.0"))
+    _run(_state(adapter, "working", detail="second", thread="C1:222.0"))
+    _run(_state(adapter, "idle", thread="C1:222.0"))
+
+    assert sorted(d["ts"] for d in client.deleted) == ["stream-1", "stream-2"]
+
+
+# ── Which message gets the eyes ──────────────────────────────────────────────
+
+
+def test_the_eyes_go_on_the_message_that_asked_not_the_thread_root() -> None:
+    """Inside a thread the question is a reply. Marking the root says the
+    conversation is busy; marking the reply says which request is being run."""
+    adapter, client = _adapter()
+    adapter._bot_user_id = "UBOT"
+
+    _run(
+        adapter._handle_message_event(
+            {
+                "channel": "C1",
+                "ts": "555.0",
+                "thread_ts": "111.0",
+                "user": "U1",
+                "text": "hi",
+                "channel_type": "channel",
+            }
+        )
+    )
+    _run(_state(adapter, "working", detail="reading"))
+
+    assert ("add", "555.0", "eyes") in client.reactions
+    assert not any(ts == "111.0" for _, ts, _ in client.reactions)
+
+
+def test_the_eyes_come_off_the_message_that_asked() -> None:
+    adapter, client = _adapter()
+    adapter._bot_user_id = "UBOT"
+
+    _run(
+        adapter._handle_message_event(
+            {
+                "channel": "C1",
+                "ts": "555.0",
+                "thread_ts": "111.0",
+                "user": "U1",
+                "text": "hi",
+                "channel_type": "channel",
+            }
+        )
+    )
+    _run(_state(adapter, "working", detail="reading"))
+    _run(_state(adapter, "idle"))
+
+    assert ("remove", "555.0", "eyes") in client.reactions
+
+
+def test_a_root_question_is_marked_on_itself() -> None:
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading"))
+
+    assert ("add", "111.0", "eyes") in client.reactions

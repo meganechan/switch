@@ -279,6 +279,12 @@ class SlackAdapter(CollaborationAdapter):
         # (channel_id, agent_name) -> every thread that agent is working in.
         # A turn ends once but may have opened several.
         self._agent_threads: dict[tuple[str, str], set[str]] = {}
+        # (channel_id, agent_name) -> every message that agent has marked. Not
+        # the same as the threads: the mark goes on the message that asked,
+        # which inside a thread is a reply rather than the root.
+        self._agent_eyes: dict[tuple[str, str], set[str]] = {}
+        # (channel_id, thread_ts) -> ts of the last message asking in it.
+        self._thread_trigger: dict[tuple[str, str], str] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -782,7 +788,9 @@ class SlackAdapter(CollaborationAdapter):
                 )
                 return
             self._agent_threads.setdefault(akey, set()).add(thread_ts)
-            await self._mark_being_read(channel_id, thread_ts, working=True)
+            asked_on = self._thread_trigger.get((channel_id, thread_ts), thread_ts)
+            self._agent_eyes.setdefault(akey, set()).add(asked_on)
+            await self._mark_being_read(channel_id, asked_on, working=True)
             await self._update_session(
                 channel_id,
                 thread_root_id,
@@ -793,11 +801,12 @@ class SlackAdapter(CollaborationAdapter):
             )
             return
 
+        for ts in sorted(self._agent_eyes.pop(akey, set())):
+            await self._mark_being_read(channel_id, ts, working=False)
         for ts in sorted(self._agent_threads.pop(akey, set())):
             # Ownership goes with the turn: a stop pressed afterwards must not
             # interrupt whatever the agent moved on to.
             self._session_owner.pop((channel_id, ts), None)
-            await self._mark_being_read(channel_id, ts, working=False)
             await self._drive_stream(
                 channel_id,
                 ts,
@@ -981,9 +990,10 @@ class SlackAdapter(CollaborationAdapter):
             if open_ts:
                 closing_ts = open_ts
                 if self._stream_step.get(key):
-                    # Slack draws a step left in progress as a failure, so the
-                    # last one is marked done before the stream closes. Without
-                    # this every finished turn ends under a red error icon.
+                    # Marked done before closing. The card is deleted a moment
+                    # later, so this only shows if that delete is refused — and
+                    # a leftover reading "finished" beats one reading "failed",
+                    # which is what an unfinished step renders as.
                     await self._call_session_api(
                         lambda: client.chat_appendStream(
                             channel=channel_id,
@@ -998,6 +1008,10 @@ class SlackAdapter(CollaborationAdapter):
                     agent_name=agent_name,
                     channel_id=channel_id,
                 )
+                # The card is a progress indicator, not a record. Once the turn
+                # is over the agent's own reply is the thing worth reading, so
+                # the card goes the way the posted status message always did.
+                await self.delete_message(channel_id, f"{channel_id}:{closing_ts}")
                 self._stream_ts.pop(key, None)
                 self._stream_step.pop(key, None)
                 logger.info(_TRACE + "closed stream for %s on %s", agent_name, key[1])
@@ -1824,7 +1838,12 @@ class SlackAdapter(CollaborationAdapter):
         # Streaming a reply into a channel has to name who it is for, and the
         # runtime-state path never sees the asker — so keep it per thread.
         if user_id and not bot_id:
-            self._thread_requester[(channel_id, thread_ts or message_ts)] = user_id
+            root = thread_ts or message_ts
+            self._thread_requester[(channel_id, root)] = user_id
+            # The message that actually asked. Inside a thread this is a reply,
+            # not the root, and the mark belongs on what was said — not on the
+            # conversation it happens to sit in.
+            self._thread_trigger[(channel_id, root)] = message_ts
 
         message_ref = f"{channel_id}:{message_ts}"
         stripped = text.strip()
