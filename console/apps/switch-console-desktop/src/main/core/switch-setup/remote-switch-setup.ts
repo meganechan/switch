@@ -5,8 +5,10 @@ import { createRemoteHomePluginFs } from '@main/core/agent-runtime/impl/remote-h
 import { SshExecutionContext } from '@main/core/execution-context/ssh-execution-context';
 import { sshConnectionIdForHost } from '@main/core/locations/location-transport';
 import { ensureSshConnected } from '@main/core/ssh/connect/connect-agent-ssh';
+import { trackEvent } from '@main/core/telemetry/telemetry-service';
 import { log } from '@main/lib/logger';
 import { isNewerVersion } from '@main/lib/semver';
+import { isValidProviderId } from '@shared/core/providers/agent-provider-registry';
 import { getPlugin, listPlugins } from '../providers/plugin-registry';
 import { cliRulesFor, type SwitchSetupCliRules } from './switch-setup-cli-dialect';
 import type { SwitchSetupResult, SwitchSetupStatus } from './switch-setup-service';
@@ -361,23 +363,60 @@ export class RemoteSwitchSetupService {
   }
 
   async install(agentId: string): Promise<SwitchSetupResult> {
+    const { result, attempted } = await this.runInstall(agentId);
+    // An agent type with no connector to install did not fail to install one.
+    if (attempted) {
+      trackEvent('connector_installed', {
+        agent_type: isValidProviderId(agentId) ? agentId : 'unknown',
+        target: 'remote',
+        outcome: result.success ? 'success' : 'failure',
+      });
+    }
+    return result;
+  }
+
+  private async runInstall(
+    agentId: string
+  ): Promise<{ result: SwitchSetupResult; attempted: boolean }> {
     if (getPlugin(agentId).capabilities.switchSetup.kind === 'files') {
-      const version = connectorVersion(agentId);
-      return this.runFiles(agentId, (files, fs) => files.install(fs, { version }));
+      // `runFiles` resolves the behavior outside its own try, and that throws
+      // for a connector that declares files and implements none. An install the
+      // user asked for must come back as a failed result either way — a
+      // rejection here would skip the report and reach the UI as a stack.
+      try {
+        const version = connectorVersion(agentId);
+        const result = await this.runFiles(agentId, (files, fs) => files.install(fs, { version }));
+        return { result, attempted: true };
+      } catch (err) {
+        return {
+          result: { success: false, message: String(err) },
+          attempted: true,
+        };
+      }
     }
     const resolved = await this.resolve(agentId);
     if (!resolved)
-      return { success: false, message: 'Switch setup is not supported for this agent.' };
+      return {
+        result: { success: false, message: 'Switch setup is not supported for this agent.' },
+        attempted: false,
+      };
     const { descriptor, bin, ref, marketplaceSource, rules } = resolved;
     try {
       await this.ensureMarketplace(bin, descriptor.marketplaceName, marketplaceSource, rules);
     } catch (err) {
-      return { success: false, message: `Could not add marketplace: ${String(err)}` };
+      return {
+        result: { success: false, message: `Could not add marketplace: ${String(err)}` },
+        attempted: true,
+      };
     }
     const res = await this.run(bin, rules.installArgs(ref, descriptor.scope));
-    return res.code === 0
-      ? { success: true }
-      : { success: false, message: res.stderr.trim() || 'Install failed.' };
+    return {
+      result:
+        res.code === 0
+          ? { success: true }
+          : { success: false, message: res.stderr.trim() || 'Install failed.' },
+      attempted: true,
+    };
   }
 
   /**
