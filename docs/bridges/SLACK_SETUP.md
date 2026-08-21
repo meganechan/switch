@@ -45,6 +45,9 @@ You need one Slack app for the whole bridge. There are two ways to create it —
             "display_name": "Agent Switch",
             "always_online": false
         },
+        "agent_view": {
+            "agent_description": "Switch agents. Mention one by name in a channel and it answers there; its progress appears on the message while it works."
+        },
         "slash_commands": [
             { "command": "/admin", "description": "Toggle admin mode on/off for this room", "should_escape": false },
             { "command": "/help", "description": "Show the list of available in-room commands", "should_escape": false },
@@ -182,10 +185,30 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**:
 - `im:read`, `im:write` — direct messages.
 - `users:read` — resolve user display names.
 - `files:read`, `files:write` — relay attachments (incl. agent image uploads).
-- `reactions:read`, `reactions:write` — reaction-based acknowledgements.
-- `assistant:write` — assistant/app-home surface.
+- `reactions:read`, `reactions:write` — reaction-based acknowledgements, and
+  the 👀 that marks the message an agent is working on.
+- `assistant:write` — declares the app an Agent, which is what lets it open the
+  session its progress card lives in. Slack adds this scope itself when the
+  Agents feature is switched on.
 - `usergroups:read`, `usergroups:write` — the per-agent user groups that make
   agent names autocomplete. See below.
+
+### Declaring the app an Agent (`agent_view`)
+
+The manifest's `features.agent_view` is what makes the app an **Agent**, and
+only an Agent app may open the sessions the progress card is drawn in. Without
+it, the calls are refused and turns fall back to a status message Switch posts
+itself — everything still works, it just looks like a bot rather than part of
+Slack.
+
+⚠️ **Two consequences, and neither can be walked back.** Enabling the Agents
+feature **removes access to the app for workspace guests**, and turns every DM
+with it into a thread. The switch from the older `assistant_view` to
+`agent_view` is **irreversible**, and a distributed app needs re-review. Decide
+deliberately; a workspace with external collaborators as guests loses them.
+
+On the from-scratch path this is the **Agents** toggle in the app's settings
+rather than a scope you tick.
 
 ### Agent name autocomplete (`agent_usergroups`)
 
@@ -275,6 +298,33 @@ status messages.
 Think before enabling the Agents feature in Slack: it **removes access to the
 app for workspace guests**, turns every DM with it into a thread, and **cannot
 be reverted**.
+
+### Running without a paid Slack plan
+
+Two of the features above lean on things a Slack workspace may not have, and
+each has its own switch on the bridge connection. Both default to on.
+
+- **`agent_usergroups`** needs a **paid plan** — user groups do not exist on the
+  free tier — and an admin willing to let the bot manage them.
+- **`agent_sessions`** needs the app to be declared an **Agent**. Slack
+  documents that some AI features require a paid plan without saying which, so
+  treat the plan question there as answered by trying it: a refusal names its
+  own cause.
+
+**Neither has to be switched off to be safe.** A refusal is caught, reported
+once with what would fix it, and the feature is dropped for the life of the
+process — it is not retried per turn and nothing else is affected. Setting them
+to `false` on a workspace that cannot host them simply skips the attempt and
+the warning.
+
+What a workspace still gets with both off:
+
+- Agents are addressed by typing `@agent-name`, exactly as before. What is lost
+  is the autocomplete, not the addressing.
+- An agent's progress appears as a status message posted under its own name and
+  icon, carrying the **Open in Switch Console** link.
+- The message being worked on is marked with **👀** for the turn. That needs
+  only the reaction scopes, so it works on any plan and in any channel.
 
 ### Turning it on for an existing bridge
 
