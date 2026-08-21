@@ -60,13 +60,13 @@
 artifacts:
   switch-core:
     description: The backend service, and the gateway API it serves.
-    version: 0.17.3
+    version: 0.18.0
     declared_in: core/pyproject.toml
     published_as: switch-core
 
   switch-console:
     description: The desktop app.
-    version: 0.27.4
+    version: 0.28.0
     declared_in: console/apps/switch-console-desktop/package.json
     # Which switch-core release this app build bundles and pulls for
     # local-server mode. DELIBERATELY NOT switch-core's version above.
@@ -78,7 +78,7 @@ artifacts:
     # main. This moves only when Switch Console is ready to bundle that release —
     # in lockstep with the bundled compose.
     pins:
-      switch-core: 0.17.3
+      switch-core: 0.18.0
 
   agent-runtime:
     description: The Switch protocol client and MCP runtime, published to a registry.
