@@ -45,6 +45,21 @@ version of their own to them without also giving them a release of their own.
 ### [Unreleased]
 
 #### Added
+- Telegram marks the message an agent is working on with **👀**, and clears it
+  when the turn ends — in groups, channels and 1:1 chats alike, with no
+  administrator rights needed. Outside forum topics Telegram has no threads, so
+  the mark goes on the last thing a person said, which is what the agent is
+  answering. A chat with reactions switched off loses the mark, not the turn
+  (CHOO-2314).
+- Telegram setup docs now spell out that BotFather shows the bot token **once**,
+  and what to do if it was not saved (CHOO-2314).
+
+#### Known limitations
+- **Telegram cannot autocomplete an agent's name.** Slack's per-agent user
+  groups have no Telegram equivalent: `@` autocomplete offers only real chat
+  members, there is no user-group concept, and every agent posts through one
+  bot. Real per-agent autocomplete would need a Telegram bot account per agent
+  (CHOO-2314).
 - Mattermost marks the message an agent is working on with **👀**, added when the
   turn opens and removed when it ends. Inside a thread the mark goes on the
   reply that asked rather than the root it hangs off, and an agent handling two
