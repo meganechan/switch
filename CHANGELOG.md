@@ -61,6 +61,15 @@ version of their own to them without also giving them a release of their own.
   without it the bridge warns and posts no reaction rather than faking one
   (CHOO-2316).
 
+#### Fixed
+- A Discord command argument naming someone picked from the composer's `@` menu
+  is resolved to their name instead of being refused. Both the slash and typed
+  `!` forms branch off before the translation an ordinary message gets, so an
+  agent or person chosen from the menu arrived as raw `<@&…>` / `<@…>` markup
+  and was rejected as "not a single name" — quoting a string the invoker never
+  typed. Newly reachable because an agent's name now autocompletes, but the
+  typed form was wrong before that too (CHOO-2316).
+
 ### [0.18.0] - 2026-08-21
 
 #### Added

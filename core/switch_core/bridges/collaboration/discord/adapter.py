@@ -1040,10 +1040,18 @@ class DiscordAdapter(CollaborationAdapter):
             reason,
         )
 
+    def _guild_from_cache(self) -> Any:
+        return self._client.get_guild(self._guild_id) if self._client else None
+
     def _role_name(self, role_id: int) -> str | None:
-        guild = self._client.get_guild(self._guild_id) if self._client else None
+        guild = self._guild_from_cache()
         role = guild.get_role(role_id) if guild else None
         return getattr(role, "name", None)
+
+    def _member_name(self, user_id: int) -> str | None:
+        guild = self._guild_from_cache()
+        member = guild.get_member(user_id) if guild else None
+        return getattr(member, "name", None)
 
     async def get_channel_agent_names(self, channel_id: str) -> list[str]:
         return []
@@ -1067,7 +1075,10 @@ class DiscordAdapter(CollaborationAdapter):
 
     def translate_inbound(self, raw_message: str) -> str:
         def _replace_user(match: re.Match[str]) -> str:
-            name = self._user_names.get(int(match.group(1)))
+            # The cache only knows people who have posted. Someone picked from
+            # the `@` menu may not have, so fall back to the guild.
+            user_id = int(match.group(1))
+            name = self._user_names.get(user_id) or self._member_name(user_id)
             return f"@{name}" if name else match.group(0)
 
         def _replace_role(match: re.Match[str]) -> str:
@@ -1146,6 +1157,11 @@ class DiscordAdapter(CollaborationAdapter):
         stripped = content.strip()
         if stripped.startswith("!") and self._on_command:
             parts = stripped.split(None, 1)
+            # An ordinary message is translated downstream, but a command
+            # branches off before that — and its arguments are exactly where a
+            # mention picked from the `@` menu lands, as `<@&123>` markup the
+            # dispatcher cannot match a name against.
+            args = self.translate_inbound(parts[1].strip()) if len(parts) > 1 else ""
             await self._on_command(
                 InboundCommand(
                     channel_id=channel_id,
@@ -1153,7 +1169,7 @@ class DiscordAdapter(CollaborationAdapter):
                     sender_id=str(author.id),
                     sender_name=username,
                     command=parts[0].lstrip("!"),
-                    args=parts[1].strip() if len(parts) > 1 else "",
+                    args=args,
                     message_ref=message_ref,
                     root_id=root_id,
                     channel_name=channel_name,
@@ -1211,6 +1227,15 @@ class DiscordAdapter(CollaborationAdapter):
         the Slack slash path, which posts the same visible notice because a
         slash invocation is otherwise invisible to the channel.
         """
+        # An option is a text field, and Discord offers its `@` autocomplete
+        # inside one — so picking the agent from the menu submits the raw
+        # `<@&123>` markup rather than the name it renders as. The commands
+        # downstream read names, and every other inbound path already goes
+        # through this, so a slash argument does too.
+        values = {
+            name: self.translate_inbound(value) if isinstance(value, str) else value
+            for name, value in values.items()
+        }
         shown = self._format_invocation(command, values)
 
         # Reassembly is pure and instant, so it runs before the ack: a bad
