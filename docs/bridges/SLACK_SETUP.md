@@ -45,6 +45,9 @@ You need one Slack app for the whole bridge. There are two ways to create it —
             "display_name": "Agent Switch",
             "always_online": false
         },
+        "agent_view": {
+            "agent_description": "Switch agents. Mention one by name in a channel and it answers there; its progress appears on the message while it works."
+        },
         "slash_commands": [
             { "command": "/admin", "description": "Toggle admin mode on/off for this room", "should_escape": false },
             { "command": "/help", "description": "Show the list of available in-room commands", "should_escape": false },
@@ -182,10 +185,30 @@ Under **OAuth & Permissions → Scopes → Bot Token Scopes**:
 - `im:read`, `im:write` — direct messages.
 - `users:read` — resolve user display names.
 - `files:read`, `files:write` — relay attachments (incl. agent image uploads).
-- `reactions:read`, `reactions:write` — reaction-based acknowledgements.
-- `assistant:write` — assistant/app-home surface.
+- `reactions:read`, `reactions:write` — reaction-based acknowledgements, and
+  the 👀 that marks the message an agent is working on.
+- `assistant:write` — declares the app an Agent, which is what lets it open the
+  session its progress card lives in. Slack adds this scope itself when the
+  Agents feature is switched on.
 - `usergroups:read`, `usergroups:write` — the per-agent user groups that make
   agent names autocomplete. See below.
+
+### Declaring the app an Agent (`agent_view`)
+
+The manifest's `features.agent_view` is what makes the app an **Agent**, and
+only an Agent app may open the sessions the progress card is drawn in. Without
+it, the calls are refused and turns fall back to a status message Switch posts
+itself — everything still works, it just looks like a bot rather than part of
+Slack.
+
+⚠️ **Two consequences, and neither can be walked back.** Enabling the Agents
+feature **removes access to the app for workspace guests**, and turns every DM
+with it into a thread. The switch from the older `assistant_view` to
+`agent_view` is **irreversible**, and a distributed app needs re-review. Decide
+deliberately; a workspace with external collaborators as guests loses them.
+
+On the from-scratch path this is the **Agents** toggle in the app's settings
+rather than a scope you tick.
 
 ### Agent name autocomplete (`agent_usergroups`)
 
@@ -224,6 +247,85 @@ groups. Agents stay addressable by typing their name, exactly as before — you
 lose the autocomplete, nothing else. It does not retry per agent or repeat the
 warning on every startup.
 
+### Native session status (`agent_sessions`)
+
+**On by default.** A turn opens a Slack **agent session** and streams its
+progress into the client's own live card, under the agent's name and icon,
+carrying the link back to the session in Switch Console.
+
+**The card replaces the status message Switch used to post**, rather than
+sitting beside it — two indicators for one turn said the same thing twice.
+Where a card cannot be opened, the posted message is still the fallback, so a
+turn always shows its progress somewhere.
+
+A session exists because a **stream** is opened for it — setting a session's
+status without one is accepted by Slack and renders nothing at all. So each
+turn opens a stream, pushes a step whenever the agent's activity changes, and
+closes it at the end.
+
+Switch does **not** set the session *status*. It renders as a second card
+attributed to the app rather than the agent, with Slack's own generic wording
+and no way to rename it. Slack's native stop button hangs off that status, so
+it is not offered either.
+
+Streaming into a channel has to name the person being replied to and their
+team. The person comes from the message that started the thread; the team from
+the app's own identity, which on an Enterprise Grid org is **not** the
+configured workspace id (that is the org). A thread Switch never saw a question
+on gets no card, and falls back to the posted message.
+
+The card is a progress indicator, not a record: it is removed when the turn
+ends, the way the posted status message always was. An agent working on two
+messages at once has a card and a mark on each, and both are cleared together
+when its turn finishes.
+
+Separately, and needing nothing but the reaction scopes: the message that asked
+is marked with **👀** for the duration of the turn — the message itself, not the
+thread it sits in. That works at the channel root as well as in a thread, so it
+is the one progress signal that is always available.
+
+The stop button is wired to the same interrupt an operator can type, so
+pressing it stops the agent whose turn it is. Setting `agent_sessions: false`
+turns the whole thing off.
+
+**Sessions only work if the Slack app is declared an Agent** (the Agents
+feature in the app's settings, which brings `assistant:write` with it). The
+default being on only means "use this where the app has it" — it does not make
+that change for you. Until it is made, the first call is refused, the bridge
+logs one warning naming the reason, and turns carry on showing Switch's own
+status messages.
+
+Think before enabling the Agents feature in Slack: it **removes access to the
+app for workspace guests**, turns every DM with it into a thread, and **cannot
+be reverted**.
+
+### Running without a paid Slack plan
+
+Two of the features above lean on things a Slack workspace may not have, and
+each has its own switch on the bridge connection. Both default to on.
+
+- **`agent_usergroups`** needs a **paid plan** — user groups do not exist on the
+  free tier — and an admin willing to let the bot manage them.
+- **`agent_sessions`** needs the app to be declared an **Agent**. Slack
+  documents that some AI features require a paid plan without saying which, so
+  treat the plan question there as answered by trying it: a refusal names its
+  own cause.
+
+**Neither has to be switched off to be safe.** A refusal is caught, reported
+once with what would fix it, and the feature is dropped for the life of the
+process — it is not retried per turn and nothing else is affected. Setting them
+to `false` on a workspace that cannot host them simply skips the attempt and
+the warning.
+
+What a workspace still gets with both off:
+
+- Agents are addressed by typing `@agent-name`, exactly as before. What is lost
+  is the autocomplete, not the addressing.
+- An agent's progress appears as a status message posted under its own name and
+  icon, carrying the **Open in Switch Console** link.
+- The message being worked on is marked with **👀** for the turn. That needs
+  only the reaction scopes, so it works on any plan and in any channel.
+
 ### Turning it on for an existing bridge
 
 `PATCH /collaborations/{bridge_id}` accepts `connection_config`, merged over the
@@ -241,6 +343,9 @@ a rate limit of roughly 20/minute, so a few hundred agents take minutes. The
 bridge is online and relaying throughout, and agents stay addressable by typed
 name while their groups are still being made — autocomplete is what arrives
 late, nothing else. Watch the per-group log lines for progress.
+
+The session's own trace lines are at debug level: enough to follow a turn end
+to end when something does not render, and out of the way when it does.
 
 ### Event subscriptions (over Socket Mode)
 
