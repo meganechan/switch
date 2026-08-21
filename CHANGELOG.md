@@ -699,6 +699,11 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+#### Fixed
+- The OpenCode connector the app writes carries its own copy of the
+  room-workflow skill, so it picked up the same wrong claim that a Telegram DM
+  is adopted like Mattermost's. Corrected alongside the connector directory
+  (CHOO-2314).
 
 #### Changed
 - Every **Docs** affordance opens the published documentation at
@@ -2185,6 +2190,13 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.9.6] - 2026-08-19
 
@@ -2379,6 +2391,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.3.7] - 2026-08-19
 
@@ -2527,6 +2546,13 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.1.4] - 2026-08-19
 
