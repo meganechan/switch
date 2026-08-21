@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 
 import discord
 from discord import app_commands
+from pydantic import Field
 
 from switch_core.bridges.agent.commands import COMMANDS_BY_NAME
 from switch_core.bridges.agent.commands import Command as InRoomCommand
@@ -46,10 +47,29 @@ _WEBHOOK_NAME = "Switch Bridge"
 
 _READY_TIMEOUT = 30.0
 
+# Put on the message an agent is working on for as long as its turn lasts.
+_WORKING_REACTION = "👀"
+
+# Discord's error code for "Maximum number of guild roles reached" (250).
+_MAX_GUILD_ROLES_CODE = 30005
+
 
 class DiscordConnectionConfig(BridgeConnectionConfig):
     bot_token: str
     guild_id: str
+    # Both registration forms build themselves from this schema, so what is
+    # written here is the only explanation an operator gets next to the
+    # checkbox.
+    agent_roles: bool = Field(
+        default=True,
+        title="Agent name autocomplete",
+        description=(
+            "Give each agent a mentionable Discord role so its name completes "
+            "when you type @ in a channel. Needs the bot to have Manage Roles, "
+            "and a server under Discord's 250-role limit; without either, "
+            "agents are still addressed by typing their name."
+        ),
+    )
 
 
 class DiscordAdapter(CollaborationAdapter):
@@ -92,6 +112,20 @@ class DiscordAdapter(CollaborationAdapter):
         # Webhook messages delete cleanly on Discord, so runtime state renders
         # as a persistent message (see the base class's _working_msg) rather
         # than the one-shot typing indicator.
+        # Message refs currently carrying the "being worked on" reaction, and
+        # per agent the set it has marked — a turn ends once but may have
+        # marked several messages.
+        self._eyes: set[str] = set()
+        self._agent_eyes: dict[tuple[str, str], set[str]] = {}
+        # Set once Discord has told us it will not host agent roles, so the
+        # bridge stops asking and says so only once.
+        self._agent_roles_off_reason: str | None = None
+        # Folded agent name -> the guild role that agent is mentioned by, for
+        # the roles this bridge has minted or adopted. Only these are rendered
+        # as role pills on the way out: a role carries no metadata on Discord,
+        # so anything wider would risk turning a passing "@moderators" into a
+        # real ping of somebody's real role.
+        self._agent_role_ids: dict[str, int] = {}
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -577,6 +611,7 @@ class DiscordAdapter(CollaborationAdapter):
         deeplink_url: str | None = None,
         detail: str | None = None,
         trigger_thread_root_id: str | None = None,
+        anchor_message_ref: str | None = None,
     ) -> None:
         """Render runtime state as persistent, truly-deletable status messages.
 
@@ -587,7 +622,17 @@ class DiscordAdapter(CollaborationAdapter):
         mid-turn, just paused) and the pings are removed alongside it when
         the turn goes idle or resumes to `working`. When the agent was
         addressed in a thread, messages surface in that thread.
+
+        Alongside them the message the agent is answering carries 👀 for as long
+        as the turn lasts. The status sits where the conversation is, so the
+        reaction is the only thing that says *which* message is being handled —
+        and it needs nothing from Discord but a permission, so it is there at
+        the channel root as well as inside a thread.
         """
+        # Marked before the branching below, because the working branch returns
+        # early when it only has to refresh the message in place.
+        await self._track_turn(channel_id, anchor_message_ref, agent_name, state=state)
+
         key = (channel_id, agent_name)
         if state == "working":
             await self._clear_input_pings(channel_id, agent_name)
@@ -616,6 +661,75 @@ class DiscordAdapter(CollaborationAdapter):
         else:
             await self._clear_working(channel_id, agent_name)
             await self._clear_input_pings(channel_id, agent_name)
+
+    async def _track_turn(
+        self,
+        channel_id: str,
+        anchor_message_ref: str | None,
+        agent_name: str,
+        *,
+        state: str,
+    ) -> None:
+        """Mark every message this agent is working on, and unmark them together.
+
+        An agent asked two things at once works on both, and each message gets
+        its own 👀 — but the turn ends **once**, naming only the message it last
+        touched. Clearing just that one leaves the first marked as being worked
+        on for good, so they are remembered per agent and cleared together.
+        """
+        akey = (channel_id, agent_name)
+        if state in ("working", "awaiting-input"):
+            if anchor_message_ref is None:
+                return
+            self._agent_eyes.setdefault(akey, set()).add(anchor_message_ref)
+            await self._mark_being_read(anchor_message_ref, working=True)
+            return
+
+        for ref in sorted(self._agent_eyes.pop(akey, set())):
+            await self._mark_being_read(ref, working=False)
+
+    async def _mark_being_read(self, message_ref: str, *, working: bool) -> None:
+        """Put 👀 on the message an agent is working on, and take it off after.
+
+        Needs only the Add Reactions permission, and works at the channel root
+        as well as inside a thread — so it is the progress signal that is always
+        available. A guild that has not granted the permission gets one warning
+        and no reaction, rather than a mark that is not there.
+        """
+        location_id, message_id = self._parse_message_ref(message_ref)
+        if not message_id or self._client is None:
+            return
+        if working == (message_ref in self._eyes):
+            return
+
+        try:
+            channel = await self._get_channel(int(location_id))
+            message = channel.get_partial_message(int(message_id))
+            if working:
+                await message.add_reaction(_WORKING_REACTION)
+                self._eyes.add(message_ref)
+            else:
+                await message.remove_reaction(_WORKING_REACTION, self._client.user)
+                self._eyes.discard(message_ref)
+        except discord.NotFound:
+            # The message (or the reaction) is gone; the end state is what was
+            # wanted either way.
+            self._eyes.discard(message_ref)
+        except discord.Forbidden:
+            logger.warning(
+                "Discord refused the working reaction on %s — the bot is missing "
+                "the Add Reactions permission here. Turns show the posted status "
+                "message; only the mark on the message being answered is missing. "
+                "Re-invite the bot with the permissions in DISCORD_SETUP.md.",
+                message_ref,
+            )
+        except (discord.HTTPException, ValueError) as e:
+            logger.warning(
+                "Could not %s the working reaction on Discord message %s: %s",
+                "add" if working else "remove",
+                message_ref,
+                e,
+            )
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
         live = self._working_msg.pop((channel_id, agent_name), None)
@@ -809,10 +923,129 @@ class DiscordAdapter(CollaborationAdapter):
     async def create_agent_identity(
         self, agent_name: str, agent_description: str
     ) -> None:
-        pass
+        """Give the agent a mentionable guild role so its name completes on `@`.
+
+        Discord only autocompletes things it knows about, and an agent is not a
+        Discord member — one bot serves all of them, differentiated per message
+        by the webhook override. A role is the one handle a bot can mint that
+        still appears in the composer's `@` menu, so each agent gets one. The
+        role is left empty and carries no permissions: it exists to be
+        completable and to arrive as a structured mention, and mentioning it
+        notifies nobody.
+        """
+        if not self._agent_roles_available():
+            return
+        if agent_name.casefold() in self._agent_role_ids:
+            return
+
+        guild = await self._get_guild()
+        # A role whose name is exactly the agent's is taken to be that agent's,
+        # so a role made by hand — the only way to use this where the bot may
+        # not manage roles — is adopted rather than duplicated. The match has to
+        # be exact: a server's own role must never be captured by an agent that
+        # happens to be named similarly.
+        existing = discord.utils.get(guild.roles, name=agent_name)
+        if existing is not None:
+            self._agent_role_ids[agent_name.casefold()] = existing.id
+            logger.info(
+                "Adopted existing Discord role %s for agent %s", existing.id, agent_name
+            )
+            return
+
+        try:
+            role = await guild.create_role(
+                name=agent_name,
+                mentionable=True,
+                hoist=False,
+                permissions=discord.Permissions.none(),
+                reason="Switch agent name autocomplete",
+            )
+        except discord.Forbidden:
+            self._disable_agent_roles(
+                "the bot is missing the Manage Roles permission — re-invite it "
+                "with the permissions in DISCORD_SETUP.md."
+            )
+            return
+        except discord.HTTPException as e:
+            if e.code != _MAX_GUILD_ROLES_CODE:
+                raise
+            self._disable_agent_roles(
+                "this server has reached Discord's hard limit of 250 roles — "
+                "free some, or turn agent name autocomplete off for this bridge."
+            )
+            return
+
+        self._agent_role_ids[agent_name.casefold()] = role.id
+        logger.info("Created Discord role %s for agent %s", role.id, agent_name)
 
     async def remove_agent_identity(self, agent_name: str) -> None:
-        pass
+        """Delete the agent's role, unless people are wearing it.
+
+        A Discord role carries no metadata, so an agent's role is recognised by
+        its name alone. That is fine for mentioning — the worst case is a stale
+        pill — but not for deleting: a role that happens to share an agent's
+        name may be somebody's real role. One with members is therefore left
+        alone and said so, since an agent's own role never has any.
+        """
+        if not self._agent_roles_available():
+            return
+
+        guild = await self._get_guild()
+        role_id = self._agent_role_ids.pop(agent_name.casefold(), None)
+        role = (
+            guild.get_role(role_id)
+            if role_id is not None
+            else discord.utils.get(guild.roles, name=agent_name)
+        )
+        if role is None:
+            return
+        if role.members:
+            logger.warning(
+                "Left the Discord role %s in place: agent %s is gone but %d "
+                "member(s) hold that role, so it is not ours to delete.",
+                role.id,
+                agent_name,
+                len(role.members),
+            )
+            return
+
+        try:
+            await role.delete(reason="Switch agent removed")
+        except discord.Forbidden:
+            self._disable_agent_roles(
+                "the bot is missing the Manage Roles permission — re-invite it "
+                "with the permissions in DISCORD_SETUP.md."
+            )
+            return
+        logger.info("Deleted Discord role %s for agent %s", role.id, agent_name)
+
+    # ── Agent roles ──────────────────────────────────────────────────────────
+
+    def _agent_roles_available(self) -> bool:
+        return self._config.agent_roles and not self._agent_roles_off_reason
+
+    def _disable_agent_roles(self, reason: str) -> None:
+        """Stop attempting agent roles on this bridge, saying why, once.
+
+        The setting is on by default, so a server that simply cannot host them
+        is an ordinary situation rather than a misconfiguration — but it must
+        not be a silent one, and it must not repeat the complaint for every
+        agent on every startup.
+        """
+        if self._agent_roles_off_reason:
+            return
+        self._agent_roles_off_reason = reason
+        logger.warning(
+            "Discord agent roles are unavailable on this server: %s Agent names "
+            "will not autocomplete in the Discord composer; agents remain "
+            "addressable by typing their name.",
+            reason,
+        )
+
+    def _role_name(self, role_id: int) -> str | None:
+        guild = self._client.get_guild(self._guild_id) if self._client else None
+        role = guild.get_role(role_id) if guild else None
+        return getattr(role, "name", None)
 
     async def get_channel_agent_names(self, channel_id: str) -> list[str]:
         return []
@@ -821,18 +1054,32 @@ class DiscordAdapter(CollaborationAdapter):
 
     def translate_outbound(self, content: str) -> str:
         # Discord renders markdown natively (bold, code, headers, masked
-        # links), so only @username mentions need rewriting to real Discord
-        # mentions for users we have resolved. Agents and unknown names stay
-        # plain text.
+        # links), so only @name mentions need rewriting to real Discord
+        # mentions: a resolved user, or an agent that has a role of its own so
+        # it reads as the same pill a person would have picked from the `@`
+        # menu. Unknown names stay plain text.
         def _replace(match: re.Match[str]) -> str:
             user_id = self._username_to_id.get(match.group(1))
-            return f"<@{user_id}>" if user_id else match.group(0)
+            if user_id:
+                return f"<@{user_id}>"
+            role_id = self._agent_role_ids.get(match.group(1).casefold())
+            return f"<@&{role_id}>" if role_id else match.group(0)
 
         return re.sub(r"@([a-z0-9][a-z0-9._-]*)", _replace, content)
 
     def translate_inbound(self, raw_message: str) -> str:
         def _replace_user(match: re.Match[str]) -> str:
             name = self._user_names.get(int(match.group(1)))
+            return f"@{name}" if name else match.group(0)
+
+        def _replace_role(match: re.Match[str]) -> str:
+            # An agent's role is how its name reaches the composer's `@` menu,
+            # so picking it there sends `<@&123>` rather than the typed name.
+            # Resolving it back to the role's name is what lets the rest of
+            # Switch treat it as an ordinary mention — the addressing layer
+            # matches on the name and knows nothing about Discord. A role that
+            # is not an agent's still reads better as its name than as markup.
+            name = self._role_name(int(match.group(1)))
             return f"@{name}" if name else match.group(0)
 
         def _replace_channel(match: re.Match[str]) -> str:
@@ -842,7 +1089,8 @@ class DiscordAdapter(CollaborationAdapter):
             name = getattr(channel, "name", None)
             return f"#{name}" if name else match.group(0)
 
-        message = re.sub(r"<@!?(\d+)>", _replace_user, raw_message)
+        message = re.sub(r"<@&(\d+)>", _replace_role, raw_message)
+        message = re.sub(r"<@!?(\d+)>", _replace_user, message)
         return re.sub(r"<#(\d+)>", _replace_channel, message)
 
     # ── Gateway event handling ───────────────────────────────────────────────

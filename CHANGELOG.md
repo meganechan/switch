@@ -44,6 +44,23 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Added
+- Each agent gets a mentionable **Discord role**, so its `@name` autocompletes
+  in the composer and arrives as a real pill rather than plain text that only
+  looks like one. The roles are minted empty and permissionless — mentioning one
+  notifies nobody — and an inbound `<@&…>` resolves back to the agent's name
+  before the addressing layer sees it. A Discord role carries no metadata, so an
+  agent's role is the one named exactly after it: a role made by hand is adopted
+  rather than duplicated, and one that has members is never deleted. Off with
+  `agent_roles: false`, and it turns itself off, saying why, on a server missing
+  Manage Roles or at Discord's 250-role cap (CHOO-2316).
+- Discord puts **👀 on the message an agent is answering** for as long as its
+  turn lasts. The posted status says an agent is busy; the reaction is what says
+  which message it is busy with, and an agent answering two people at once marks
+  both and clears both together. Needs the bot's Add Reactions permission;
+  without it the bridge warns and posts no reaction rather than faking one
+  (CHOO-2316).
+
 ### [0.18.0] - 2026-08-21
 
 #### Added
