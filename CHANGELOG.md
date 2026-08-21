@@ -60,6 +60,17 @@ version of their own to them without also giving them a release of their own.
   members, there is no user-group concept, and every agent posts through one
   bot. Real per-agent autocomplete would need a Telegram bot account per agent
   (CHOO-2314).
+- Mattermost marks the message an agent is working on with **👀**, added when the
+  turn opens and removed when it ends. Inside a thread the mark goes on the
+  reply that asked rather than the root it hangs off, and an agent handling two
+  messages at once clears both together instead of leaving the first marked for
+  good. The reaction is added by the agent's own bot, so two agents on one
+  message read as two marks naming who is on it. Documented alongside it:
+  Mattermost has no equivalent of Slack's native progress card, and Switch does
+  not approximate one (CHOO-2317).
+#### Changed
+- The gateway's **Docs** button opens the published documentation at
+  `docs.flintai.dev` rather than the GitHub repository (CHOO-2313).
 
 ### [0.18.0] - 2026-08-21
 
@@ -703,6 +714,25 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+#### Fixed
+- The OpenCode connector the app writes carries its own copy of the
+  room-workflow skill, so it picked up the same wrong claim that a Telegram DM
+  is adopted like Mattermost's. Corrected alongside the connector directory
+  (CHOO-2314).
+
+#### Changed
+- Every **Docs** affordance opens the published documentation at
+  `docs.flintai.dev` instead of the GitHub repository, deep-linked to the page
+  that answers the question: the sidebar and app-menu Docs entries and the
+  Settings Docs tab go to getting-started, the remote-hosts hint and the
+  hosting cards to *Host remotely*, the messaging-app cards to *Messaging
+  apps*, and the Rooms card to *Rooms and agents*. The welcome footer's GitHub
+  link keeps pointing at the repository (CHOO-2313).
+- The "How to set up {Platform}" link on the connect-messaging-app form opens
+  the platform's published setup page — Slack, Mattermost, Discord, Microsoft
+  Teams or Telegram — rather than the repository's markdown, with the
+  messaging-apps index as the fallback for an unrecognised platform
+  (CHOO-2313, unblocking CHOO-2269).
 
 ### [0.28.0] - 2026-08-21
 
@@ -2175,6 +2205,13 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.9.6] - 2026-08-19
 
@@ -2369,6 +2406,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.3.7] - 2026-08-19
 
@@ -2517,6 +2561,13 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+#### Fixed
+- The room-workflow skill said a Telegram DM is adopted the way Mattermost's
+  is, so an agent asked for a 1:1 on Telegram would tell the user to message
+  the bot and wait for a room that never arrives. Telegram has no DM: a private
+  chat with the bot is the lobby, which answers with setup guidance and
+  provisions nothing. The skill now says so, and points at a group of two as
+  the way to get DM-like behaviour (CHOO-2314).
 
 ### [0.1.4] - 2026-08-19
 

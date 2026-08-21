@@ -9,6 +9,7 @@ matters here is which of the two appears, and that exactly one of them does.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
 import pytest
@@ -16,6 +17,7 @@ from slack_sdk.errors import SlackApiError
 
 from switch_core.bridges.collaboration.models import InboundCommand
 from switch_core.bridges.collaboration.slack.adapter import (
+    _AGENT_SESSIONS_FAILURE_LIMIT,
     SlackAdapter,
     SlackConnectionConfig,
     SlackUser,
@@ -34,7 +36,9 @@ def _run(coro: Any) -> Any:
 
 
 class FakeResponse(dict):
-    pass
+    def __init__(self, *args: Any, headers: dict[str, str] | None = None) -> None:
+        super().__init__(*args)
+        self.headers = headers or {}
 
 
 class FakeWebClient:
@@ -44,12 +48,16 @@ class FakeWebClient:
         self.deleted: list[dict[str, Any]] = []
         self.reactions: list[tuple[str, str, str]] = []
         self.stream_error: str | None = None
+        self.error_headers: dict[str, str] = {}
         self.reaction_error: str | None = None
         self._ts = 0
 
     def _fail(self) -> None:
         if self.stream_error:
-            raise SlackApiError("failed", FakeResponse({"error": self.stream_error}))
+            raise SlackApiError(
+                "failed",
+                FakeResponse({"error": self.stream_error}, headers=self.error_headers),
+            )
 
     async def chat_startStream(self, **kwargs: Any) -> FakeResponse:
         self._fail()
@@ -668,3 +676,104 @@ def test_a_root_question_is_marked_on_itself() -> None:
     _run(_state(adapter, "working", detail="reading"))
 
     assert ("add", "111.0", "eyes") in client.reactions
+
+
+# ── Throttling and give-ups that expire ──────────────────────────────────────
+
+
+def test_throttling_never_counts_towards_giving_up() -> None:
+    """A busy workspace is not a broken one.
+
+    Counting rate limits as refusals turned a burst of traffic into a bridge
+    that showed no card again until someone restarted it."""
+    adapter, client = _adapter()
+    client.stream_error = "ratelimited"
+
+    for _ in range(_AGENT_SESSIONS_FAILURE_LIMIT + 5):
+        adapter._sessions_throttled_until = None
+        _run(_state(adapter, "working", detail="reading"))
+
+    assert adapter._agent_sessions_off_reason is None
+
+
+def test_throttling_pauses_updates_for_as_long_as_slack_asked() -> None:
+    adapter, client = _adapter()
+    client.stream_error = "ratelimited"
+    client.error_headers = {"Retry-After": "45"}
+
+    _run(_state(adapter, "working", detail="reading"))
+    assert adapter._sessions_throttled_until is not None
+    assert adapter._sessions_throttled_until - time.monotonic() > 40
+
+    client.stream_error = None
+    _run(_state(adapter, "working", detail="still reading"))
+
+    assert "chat.startStream" not in _methods(client)
+
+
+def test_the_card_comes_back_once_the_throttling_window_passes() -> None:
+    adapter, client = _adapter()
+    client.stream_error = "ratelimited"
+    _run(_state(adapter, "working", detail="reading"))
+
+    client.stream_error = None
+    adapter._sessions_throttled_until = time.monotonic() - 1
+    _run(_state(adapter, "working", detail="reading again"))
+
+    assert "chat.startStream" in _methods(client)
+
+
+def test_throttling_is_announced_once_per_burst(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    adapter, client = _adapter()
+    client.stream_error = "ratelimited"
+
+    with caplog.at_level("WARNING"):
+        for _ in range(10):
+            _run(_state(adapter, "working", detail="reading"))
+
+    warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert "rate-limiting" in warnings[0].getMessage()
+
+
+def test_a_turn_still_ends_while_we_are_being_throttled() -> None:
+    """Skipping teardown would leave the card open for good."""
+    adapter, client = _adapter()
+    _run(_state(adapter, "working", detail="reading"))
+    adapter._sessions_throttled_until = time.monotonic() + 600
+
+    _run(_state(adapter, "idle"))
+
+    assert "chat.stopStream" in _methods(client)
+
+
+def test_a_give_up_over_an_unknown_error_is_retried_later() -> None:
+    adapter, client = _adapter()
+    client.stream_error = "some_code_we_have_never_seen"
+    for _ in range(_AGENT_SESSIONS_FAILURE_LIMIT):
+        _run(_state(adapter, "working", detail="reading"))
+    assert adapter._agent_sessions_off_reason == "some_code_we_have_never_seen"
+
+    client.stream_error = None
+    adapter._agent_sessions_retry_at = time.monotonic() - 1
+    _run(_state(adapter, "working", detail="reading again"))
+
+    assert adapter._agent_sessions_off_reason is None
+    assert "chat.startStream" in _methods(client)
+
+
+def test_a_refusal_that_named_its_cause_is_not_retried() -> None:
+    """Nothing about the workspace changes on its own, so nothing re-arms."""
+    adapter, client = _adapter()
+    client.stream_error = "not_an_agent"
+    _run(_state(adapter, "working", detail="reading"))
+
+    assert adapter._agent_sessions_off_reason == "not_an_agent"
+    assert adapter._agent_sessions_retry_at is None
+
+    client.stream_error = None
+    _run(_state(adapter, "working", detail="reading again"))
+
+    assert "chat.startStream" not in _methods(client)
