@@ -216,6 +216,11 @@ rather than a scope you tick.
 name. Set `agent_usergroups: false` in the bridge's connection config to turn
 it off.
 
+This is a workaround and worth naming as one: Slack offers no way to make an
+app's agents mentionable, so Switch borrows the one mentionable object an app
+can create and uses it as a name. Turning `agent_usergroups` off is a
+reasonable choice for a workspace that does not want a group per agent.
+
 Slack autocompletes only things it knows about, and an agent is not a Slack
 user — one app serves all of them, so a typed `@agent-name` is just text that
 happens to start with `@`. There is no completion, no pill, and a typo is

@@ -11,7 +11,7 @@ from dataclasses import replace
 from typing import Any, ClassVar
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slack_sdk.errors import SlackApiError
 from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
@@ -188,20 +188,28 @@ class SlackConnectionConfig(BridgeConnectionConfig):
     bot_token: str
     app_token: str
     workspace_id: str
-    # Give each agent a Slack user group so its name completes in the composer's
-    # `@` menu. On by default, because a workspace that can do it wants it: the
-    # alternative is typing agent names from memory with no completion and no
-    # feedback on a typo. A workspace that cannot — no paid plan, or user groups
-    # restricted to admins — says so on the first attempt, and the bridge
-    # reports that once and carries on without them.
-    agent_usergroups: bool = True
-    # Also surface a turn's progress as Slack's native agent session status —
-    # its own loading UX and stop button on the thread — alongside the status
-    # messages Switch posts itself. On by default: this only says to use the
-    # feature where the app has it. Whether the app *is* an Agent is decided in
-    # Slack's own app config, so a workspace that has not made that change is
-    # refused on the first call and carries on with the posted status messages.
-    agent_sessions: bool = True
+    # The descriptions are not decoration: both registration forms build
+    # themselves from this schema, so what is written here is the only
+    # explanation an operator gets next to the checkbox.
+    agent_usergroups: bool = Field(
+        default=True,
+        title="Agent name autocomplete",
+        description=(
+            "Give each agent a Slack user group so its name completes when you "
+            "type @ in a channel. Needs a paid Slack plan and permission for "
+            "the bot to manage user groups; without either, agents are still "
+            "addressed by typing their name."
+        ),
+    )
+    agent_sessions: bool = Field(
+        default=True,
+        title="Native progress card",
+        description=(
+            "Show an agent's progress in Slack's own live card instead of a "
+            "message Switch posts. Needs the Slack app to be declared an "
+            "Agent; without that, the posted message is used instead."
+        ),
+    )
 
 
 class SlackAdapter(CollaborationAdapter):
