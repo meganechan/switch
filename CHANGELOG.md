@@ -44,6 +44,8 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.19.0] - 2026-08-22
+
 #### Added
 - Telegram marks the message an agent is working on with **👀**, and clears it
   when the turn ends — in groups, channels and 1:1 chats alike, with no
@@ -71,6 +73,22 @@ version of their own to them without also giving them a release of their own.
 #### Changed
 - The gateway's **Docs** button opens the published documentation at
   `docs.flintai.dev` rather than the GitHub repository (CHOO-2313).
+
+#### Fixed
+- Slack's native agent-session card could vanish from a workspace and never come
+  back until the pod was replaced. A burst of Slack rate limits was being counted
+  as the app being unfit to host sessions and tripped the permanent give-up after
+  three in a row; throttling now makes the bridge stand down for the `Retry-After`
+  Slack sent rather than counting against it, and a give-up over an unrecognised
+  error expires after ten minutes instead of lasting the life of the process
+  (#276).
+- A stale or hand-deleted Slack agent card no longer turns cards off for the
+  whole workspace. A status update arriving just after a card is torn down — or a
+  user deleting the card by hand — wrote to a message that was gone, and three in
+  a row tripped the same permanent give-up. Such a card is now forgotten: the
+  turn falls back to the posted status message and the next turn opens a fresh
+  card. A step that failed to land is also no longer recorded as the card's
+  current step (#283).
 
 ### [0.18.0] - 2026-08-21
 
@@ -714,6 +732,8 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.29.0] - 2026-08-22
 #### Added
 - Switch Console now sends a small, fixed set of product events — the app
   launching, an agent being created, a session starting and ending, a server
@@ -732,6 +752,9 @@ version of their own to them without also giving them a release of their own.
   (CHOO-2314).
 
 #### Changed
+- Local-server mode now bundles and pulls **switch-core `0.19.0`** (was
+  `0.18.0`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
 - Every **Docs** affordance opens the published documentation at
   `docs.flintai.dev` instead of the GitHub repository, deep-linked to the page
   that answers the question: the sidebar and app-menu Docs entries and the
@@ -2222,6 +2245,8 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.9.7] - 2026-08-22
 #### Fixed
 - The room-workflow skill said a Telegram DM is adopted the way Mattermost's
   is, so an agent asked for a 1:1 on Telegram would tell the user to message
@@ -2423,6 +2448,8 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.3.8] - 2026-08-22
 #### Fixed
 - The room-workflow skill said a Telegram DM is adopted the way Mattermost's
   is, so an agent asked for a 1:1 on Telegram would tell the user to message
@@ -2578,6 +2605,8 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+### [0.1.5] - 2026-08-22
 #### Fixed
 - The room-workflow skill said a Telegram DM is adopted the way Mattermost's
   is, so an agent asked for a 1:1 on Telegram would tell the user to message
