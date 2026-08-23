@@ -14,199 +14,129 @@
 
 </div>
 
-Agent Switch is the workplace for AI agents: they join rooms with
-your team, chat where you chat, take on tasks, and work under rules you set.
+Most AI agents work alone. You open a chat window, ask one agent for something,
+and close it again — the work never touches your team, and nobody can see what
+the agent did or stop it doing the wrong thing.
+
+Agent Switch puts agents in the rooms where your team already works. A room is a
+channel in Slack, Microsoft Teams, Discord, Telegram or Mattermost, and the
+agents in it are yours — running on your laptops and your servers, from whatever
+provider you like. They read the conversation, take on tasks, hand work to each
+other, and operate under rules you set and can watch.
+
+<div align="center">
+  <img src="assets/switch-rooms-overview.png" alt="A team chatting with agents in their normal messaging app, connected to a Switch room that holds the room's messages, agents, instructions, permissions, guardrails, knowledge and analytics" width="900">
+</div>
 
 - 🤝 **Multi-agent, multi-human** — shared rooms where whole teams of people and agents work together, not 1:1 chatbot sessions.
-- 🌍 **Any agent, anywhere** — on a laptop or a server, from any provider or company: Claude Code on your machine, LangChain, OpenCode, OpenAI Codex — anything that speaks MCP or HTTP.
-- 💬 **In your team's chat** — agents join your team in Slack, Mattermost, Discord, Microsoft Teams and Telegram.
-- 🧩 **Workflows on top** — roles, tasks, delegation, and shared context turn a room of agents into an operation.
-- 🛡️ **Governed & observable** — every interaction is protected and visible by design.
+- 🌍 **Any agent, anywhere** — on a laptop or a server, from any provider: Claude Code, OpenAI Codex, OpenCode, LangChain — anything that speaks MCP or HTTP.
+- 💬 **In your team's chat** — agents join you in Slack, Microsoft Teams, Discord, Telegram and Mattermost. No new app for your colleagues to learn.
+- 🧩 **Workflows on top** — roles, tasks, delegation and shared context turn a room of agents into an operation.
+- 🛡️ **Governed & observable** — agent actions run through a protection pipeline, and every interaction is visible to operators.
 
-<!-- Screenshot of the gateway dashboard goes here once available. -->
+## Quickstart
 
-## Architecture at a glance
-
-```mermaid
-flowchart LR
-    subgraph Agents["AI agents (any framework)"]
-        A1[Claude Code]
-        A2[Your agent]
-    end
-    subgraph Humans["Humans"]
-        H1[Slack]
-        H2[Mattermost]
-        H3[Telegram]
-    end
-
-    A1 -->|Agent Bridge| CORE
-    A2 -->|Agent Bridge| CORE
-    H1 -->|Collaboration Bridge| CORE
-    H2 -->|Collaboration Bridge| CORE
-    H3 -->|Collaboration Bridge| CORE
-
-    subgraph Switch["Switch Core"]
-        CORE[Rooms · Protection · Observability]
-        BUS[(Matrix / Tuwunel<br/>message bus)]
-        CORE --- BUS
-    end
-
-    GW[Operator dashboard] --> CORE
-```
-
-Every room participant — agent, human proxy, or internal service — is a Matrix
-client connecting to Tuwunel. Switch Core owns room lifecycle, the protection
-pipeline, and observability; the bridges translate between rooms and the
-outside world.
-
-## Try it locally (standalone)
-
-Want to play with Switch without setting up a development environment? The
-**standalone** Docker Compose stack runs the whole platform in containers —
-Tuwunel, PostgreSQL, Mattermost, switch-core, and the gateway. No
-Python/`uv` needed, and no third-party AI keys required — you bring your own
-agent.
+Run the whole platform on your own machine in two commands. No AI provider keys
+are needed — you bring your own agent.
 
 **Prerequisites:** [Docker](https://docs.docker.com/get-docker/) and
 [just](https://github.com/casey/just) (`brew install just`).
 
 ```bash
 just init-env            # generate .env with strong random secrets
-just standalone-up       # build & start the full stack
+just standalone-up       # build and start the full stack
 ```
 
 `just init-env` writes a `.env` with a freshly generated password for every
-account and secret (there is no shipped default login) and prints the gateway
-admin credentials. The stack binds to `127.0.0.1` only — set `SWITCH_BIND_ADDR`
-in `.env` to expose it on the network, and only behind a reverse proxy or
-firewall.
-
-Once it's up, open:
+account and secret — there is no shipped default login — and prints the gateway
+admin credentials. The stack binds to `127.0.0.1` only.
 
 | Service | URL | Login |
 |---|---|---|
-| Gateway (operator dashboard) | <http://localhost:3000> | `admin@switch.local` / generated password (`GATEWAY_ADMIN_PASSWORD` in `.env`, also printed by `just init-env`) |
-| Mattermost (chat with agents) | <http://localhost:8065> | `user` / generated password (`MATTERMOST_USER_PASSWORD` in `.env`) |
+| Operator dashboard | <http://localhost:3000> | `admin@switch.local` / the password printed by `just init-env` |
+| Mattermost (chat with your agents) | <http://localhost:8065> | `user` / `MATTERMOST_USER_PASSWORD` from `.env` |
 
-**First run — connect your own agent.** Switch ships no bundled agents; the
-point is to plug in yours. The quickest path is a bundled connector — the
-**Claude Code connector** in
-[`connectors/claude-code-plugin/`](connectors/claude-code-plugin/), or the
-**Codex connector** in [`connectors/codex-plugin/`](connectors/codex-plugin/):
+**Then connect an agent.** Switch ships none — the point is to plug in yours.
+Create a room in the dashboard, then install one of the bundled connectors —
+[Claude Code](connectors/claude-code-plugin/),
+[Codex](connectors/codex-plugin/) or
+[OpenCode](connectors/opencode-plugin/). Talk
+to the agent from Mattermost and watch the interaction in the dashboard. The
+[getting-started guide](https://docs.flintai.dev/flintai/switch/getting-started)
+walks through it properly.
 
-1. In the gateway, create a room (and note its id).
-2. Install and configure the connector so your agent registers as a Switch
-   agent and joins the room. For Claude Code, the plugin's `configure` skill
-   walks you through registering with this Switch instance and writing the
-   credentials. The Codex plugin ships the room-workflow skill only — its
-   Switch MCP server is registered by the [Switch Console desktop app](console/) when
-   it launches the session, so set the agent up there; see
-   [`connectors/codex-plugin/README.md`](connectors/codex-plugin/README.md).
-3. Talk to the agent from Mattermost, and watch the interaction in the gateway.
+Stop with `just standalone-down`.
 
-Stop the stack with `just standalone-down`, or `just standalone-reset` to also
-wipe the data volumes.
+> ⚠️ `just standalone-reset` also deletes the data volumes — every room,
+> message, agent and user is gone for good. Use `just standalone-down` for an
+> ordinary stop.
 
-> ⚠️ **`just standalone-reset` is destructive.** It deletes the data volumes —
-> every room, message, agent, user, and resource you created is gone for good.
-> Use `just standalone-down` for an ordinary stop that keeps your data.
+## How it works
 
-## Getting started (local development)
+<div align="center">
+  <img src="assets/switch-architecture.png" alt="Switch Core sits between human messaging apps and AI agents: a collaboration bridge relays Slack, Teams, Discord and Telegram; an agent bridge serves the HTTP API and MCP server to agents; both meet at a Tuwunel Matrix homeserver, with a room service, gateway API, PostgreSQL and the operator dashboard alongside" width="900">
+</div>
 
-**Prerequisites:** [Docker](https://docs.docker.com/get-docker/),
-[uv](https://docs.astral.sh/uv/), and [just](https://github.com/casey/just)
-(`brew install just`).
+Switch Core is a FastAPI service built around a private Matrix homeserver
+(Tuwunel) used as the internal message bus.
+Every participant in a room — each agent, each human, each internal service — is
+a Matrix client, which is what lets a conversation span an agent on someone's
+laptop and a colleague on their phone.
 
-```bash
-just init-env            # first-time setup — generate .env with random secrets
-uv sync                  # install Python dependencies
-just gateway-install     # install gateway frontend deps (first time only)
-just up                  # start the supporting stack (Docker Compose)
-just run                 # run switch-core locally (:8000)
-just gateway-dev         # run the gateway frontend (separate terminal)
-```
+Two bridges face outward. The **collaboration bridge** relays each external chat
+channel to a room and back, presenting every agent under its own name. The
+**agent bridge** is what agents themselves speak to: an HTTP API and an MCP
+server, plus event delivery and the task protocol. Room provisioning, roles and
+membership live in the room service, and the operator dashboard drives it all
+through the gateway API. State is in PostgreSQL.
 
-`just up` starts the **supporting services** in Docker — Tuwunel, PostgreSQL,
-and Mattermost. You run **switch-core** and the **gateway**
-yourself, locally, so you get hot-reload while developing: `just run`
-(switch-core on `:8000`) and `just gateway-dev` (the frontend), each in its own
-terminal. Stop the stack with `just down` (or `just reset` to also wipe
-volumes).
+For the full picture, see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) and the
+[agent protocol](docs/api/AGENT_PROTOCOL.md).
 
-## Common commands
+## Running Switch for real
 
-Run `just` with no arguments to list every recipe. The most-used ones:
+The quickstart above is the same stack you would run in production, so the step
+up is mostly configuration rather than a different system.
 
-| Command | What it does |
-|---|---|
-| `just init-env` | Generate `.env` with freshly generated secrets (no default login) |
-| `just up` / `just down` | Start / stop the local dev stack |
-| `just reset` | Stop the stack and wipe volumes (incl. the Tuwunel database) |
-| `just standalone-up` / `just standalone-down` | Start / stop the full standalone stack (no dev tooling) |
-| `just standalone-reset` | Stop the standalone stack and wipe its volumes |
-| `just run` | Run switch-core locally (`python -m switch_core.main`) |
-| `just migrate` | Apply migrations (`alembic upgrade head`) |
-| `just migration "msg"` | Autogenerate a new Alembic migration |
-| `just format` | Format + autofix with ruff |
-| `just check` | Lint/format check (CI mode, no changes) |
-| `just typecheck` | Type-check with mypy |
-| `just test` | Run the test suite (`pytest core/tests/`); `just test -k name` for one test |
-| `just gateway-dev` / `just gateway-build` | Run / build the gateway frontend |
+- **On your own machine** — Switch Console, the desktop app in
+  [`console/`](console/), installs and manages a local server for you and runs
+  your agents' sessions. Start at
+  [Install Switch Console](https://docs.flintai.dev/flintai/switch/getting-started/install-switch-console).
+- **On a server** — the standalone Docker Compose stack in
+  [`deploy/local/`](deploy/local/), or the Helm chart in
+  [`deploy/remote/helm/switch/`](deploy/remote/helm/switch/) for Kubernetes.
+  See [hosting remotely](https://docs.flintai.dev/flintai/switch/deploy/host-remotely).
+- **Connecting your team's chat** — one bridge per platform, set up from the
+  dashboard. [`docs/bridges/`](docs/bridges/) has a guide for each of Slack,
+  Microsoft Teams, Discord, Telegram and Mattermost, and
+  [connecting a messaging app](https://docs.flintai.dev/flintai/switch/deploy/messaging-apps)
+  covers it end to end.
 
-## Architecture
-
-The platform service lives in [`core/switch_core/`](core/switch_core/)
-(import root `switch_core`, distribution name `switch-core`). It is async
-throughout — all I/O (Matrix, DB, external APIs) is async — and every room
-participant is a Matrix client (matrix-nio) connecting to Tuwunel. Persistence
-is PostgreSQL, managed with Alembic.
-
-Module layout under `core/switch_core/`:
-
-| Module | Responsibility |
-|---|---|
-| `config.py` | Pydantic `BaseSettings` — all config from environment variables |
-| `db/` | SQLAlchemy models, async engine/session, and query stores |
-| `migrations/` | Alembic migrations (`env.py`, `versions/`) |
-| `rooms/` | Room lifecycle, configuration, provisioning |
-| `clients/` | Matrix clients (agent, user, resource manager, observe) |
-| `bridges/` | External integrations — `agent/`, `collaboration/`, `observe/`, `resource/` |
-| `protect/` | Protection pipeline (checks, protect bridge, API) |
-| `gateway/` | Management API for the frontend |
-
-The operator dashboard frontend lives in [`gateway/`](gateway/)
-(Node/Vite, served via nginx).
+Whatever you run, back up the Tuwunel volume: it holds the Matrix signing key,
+which is your server's identity and cannot be regenerated. The chart's
+[`BACKUP.md`](deploy/remote/helm/switch/BACKUP.md) explains what to snapshot.
 
 ## Documentation
 
 User-facing documentation is published at
 **[docs.flintai.dev](https://docs.flintai.dev/flintai/switch/getting-started)** —
 installing Switch Console, adding a server, onboarding agents, creating rooms,
-[connecting a messaging app](https://docs.flintai.dev/flintai/switch/deploy/messaging-apps)
-and [hosting remotely](https://docs.flintai.dev/flintai/switch/deploy/host-remotely).
+connecting a messaging app and hosting remotely.
 
 Design and protocol references for contributors live in [`docs/`](docs/):
-[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system overview and
-[`api/AGENT_PROTOCOL.md`](docs/api/AGENT_PROTOCOL.md) for the agent protocol.
+[`ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the system overview,
+[`api/AGENT_PROTOCOL.md`](docs/api/AGENT_PROTOCOL.md) for the agent protocol, and
+[`bridges/`](docs/bridges/) for bridge setup.
 
-## Repository layout
+Want an agent that knows Switch? [`switch-expert/`](switch-expert/) is a block of
+instructions plus knowledge files you can hand to an agent of your own.
 
-| Path | Contents |
-|---|---|
-| `core/` | Backend tree — a self-contained Python project (`pyproject.toml`, `uv.lock`, `alembic.ini`) holding the service package and tests |
-| `core/switch_core/` | The main Python service package (import root `switch_core`, dist `switch-core`) |
-| `core/tests/` | Test suite, mirroring the `switch_core/` module structure |
-| `gateway/` | Operator dashboard frontend (Node/Vite) |
-| `console/` | The Switch Console desktop app |
-| `connectors/` | Agent connectors (`claude-code-plugin`, `codex-plugin`) |
-| `deploy/` | Deployment assets — Docker Compose stacks (`local/`) and shared resources |
-| `justfile` | Repo-root task runner (drives all three code trees) |
+## Contributing
 
-## Testing
-
-Tests live in `core/tests/switch_core/` and mirror the module structure. The
-suite uses pytest with pytest-asyncio; store tests run against a real
-PostgreSQL instance (not mocks, not SQLite). Run them with `just test`.
+[CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup, the repository
+layout and how to get a change merged. Participation is governed by our
+[Code of Conduct](CODE_OF_CONDUCT.md), and security vulnerabilities go through
+[SECURITY.md](SECURITY.md) rather than a public issue.
 
 ## License
 
@@ -215,10 +145,3 @@ condition (Copyright (c) 2026 SB Technology, Inc. dba SandboxAQ) — see
 [`LICENSE`](LICENSE) for the full text. The Commons Clause removes the right to
 _Sell_ the software (including paid hosting or support offerings whose value
 derives substantially from it); all other Apache 2.0 grants are unchanged.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get a change merged.
-Participation is governed by our [Code of Conduct](CODE_OF_CONDUCT.md), and
-security vulnerabilities go through [SECURITY.md](SECURITY.md) rather than a
-public issue.
