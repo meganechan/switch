@@ -757,6 +757,15 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+#### Changed
+
+- **Windows in-app updates now verify the installer's Authenticode signature**
+  before installing it, against SandboxAQ's certificate. The check was held off
+  until a signed release confirmed the certificate's subject verbatim; a
+  mismatched name would have blocked updates for every existing install rather
+  than warning. The release build now fails if the signature and the name it
+  ships for the updater ever diverge (CHOO-1468).
+
 ### [0.29.0] - 2026-08-22
 #### Added
 - Switch Console now sends a small, fixed set of product events — the app
