@@ -52,7 +52,7 @@ def _fake_self(
     async def _is_available(_room_id: str) -> bool:
         return False  # no live session → triggers the auto-reply
 
-    async def _reply_when_unavailable_here(_meta: object) -> str:
+    async def _reply_when_unavailable_here(_meta: object, _asker_handle: str) -> str:
         return unavailable_reply
 
     ns = SimpleNamespace(
