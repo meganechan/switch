@@ -1,14 +1,13 @@
 import { agentEvents } from '@main/core/agents/agent-events';
 import { getAgentById } from '@main/core/agents/getAgentById';
-import { getLocationById } from '@main/core/locations/store';
 import { getSession } from '@main/core/sessions/operations/getSession';
 import { sessionHooks } from '@main/core/sessions/session-hooks';
 import { sessionService } from '@main/core/sessions/session-service';
-import {
-  isValidProviderId,
-  type AgentProviderId,
-} from '@shared/core/providers/agent-provider-registry';
+import type { AgentProviderId } from '@shared/core/providers/agent-provider-registry';
+import { agentTypeOf } from './agent-type';
 import type { TelemetryEventMap, TelemetryLocationKind } from './events';
+import { entryPointOf, startSourceOf } from './narrow';
+import { locationKindOf } from './shape';
 import { trackEvent } from './telemetry-service';
 
 type SessionShape = {
@@ -37,17 +36,6 @@ const liveSessions = new Map<string, SessionShape>();
  * same session counts as both a failure and a normal end.
  */
 const endedSessions = new Set<string>();
-
-/** A provider id straight from the database is typed, not validated. */
-function agentTypeOf(providerId: string): AgentProviderId | 'unknown' {
-  return isValidProviderId(providerId) ? providerId : 'unknown';
-}
-
-async function locationKindOf(locationId: string): Promise<TelemetryLocationKind> {
-  const location = await getLocationById(locationId);
-  if (!location) return 'unknown';
-  return location.sshHost ? 'remote' : 'local';
-}
 
 function rememberEnded(sessionId: string): void {
   endedSessions.add(sessionId);
@@ -109,14 +97,17 @@ async function rememberSession(sessionId: string, locationId: string): Promise<v
  * connector being installed — call `trackEvent` at their own site.
  */
 export function registerTelemetryListeners(): void {
-  agentEvents.on('agent:created', async (agent) => {
+  agentEvents.on('agent:created', async (agent, entryPoint) => {
     trackEvent('agent_created', {
       agent_type: agentTypeOf(agent.providerId),
       location: await locationKindOf(agent.locationId),
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: entryPointOf(entryPoint),
     });
   });
 
-  sessionService.on('session:created', async (session) => {
+  sessionService.on('session:created', async (session, params) => {
     const agent = await getAgentById(session.agentId);
     const shape: SessionShape = {
       agent_type: agentTypeOf(session.providerId),
@@ -130,7 +121,21 @@ export function registerTelemetryListeners(): void {
     if (endedSessions.has(session.id)) return;
 
     liveSessions.set(session.id, shape);
-    trackEvent('session_started', shape);
+    trackEvent('session_started', {
+      ...shape,
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: entryPointOf(params.entryPoint),
+      start_source: startSourceOf(params.startSource),
+      // The same test `createSession` itself applies, so the reported flag and
+      // the prompt the session actually launched with cannot disagree.
+      has_initial_prompt: (params.initialPrompt?.trim().length ?? 0) > 0,
+      // Declared by whoever asked for the session. Not read back from the
+      // poller: its record of the intended room is consumed during the launch,
+      // before this hook runs, so asking here answers no for every session that
+      // actually started.
+      connected_to_room: params.connectedToRoom === true,
+    });
   });
 
   sessionService.on('session:runtime-ready', async (sessionId, result) => {
@@ -139,6 +144,14 @@ export function registerTelemetryListeners(): void {
 
   sessionService.on('session:deleted', (sessionId) => endSession(sessionId, 'normal'));
   sessionService.on('session:archived', (sessionId) => endSession(sessionId, 'normal'));
+
+  // Un-archiving puts a session that has already reported an end back into use.
+  // Forgetting that it ended is what lets it report the next one: the record is
+  // there to collapse two endings moments apart, not to retire a session id for
+  // the life of the run.
+  sessionService.on('session:restored', (sessionId) => {
+    endedSessions.delete(sessionId);
+  });
 
   // Rows deleted outside the sessionService path — the remote-session
   // reconciler pruning a session that has gone from its VM, or one terminated

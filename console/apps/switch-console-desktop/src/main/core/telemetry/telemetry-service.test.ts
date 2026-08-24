@@ -82,7 +82,13 @@ describe('the consent gate', () => {
   it('sends once consent is given', async () => {
     vi.mocked(isTelemetryAllowed).mockResolvedValue(true);
 
-    await telemetryService.track('agent_created', { agent_type: 'codex', location: 'remote' });
+    await telemetryService.track('agent_created', {
+      agent_type: 'codex',
+      location: 'remote',
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: 'sidebar',
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url] = fetchMock.mock.calls[0] as [string];
@@ -130,6 +136,41 @@ describe('a build that cannot send', () => {
   });
 });
 
+describe('asking in advance whether a send would arrive', () => {
+  /**
+   * The once-per-install events spend a record that is never given back, so they
+   * ask before they claim. The answer has to be the same two refusals `track`
+   * applies, or the question is worse than not asking.
+   */
+  it('is no when the build cannot send, without asking the user', async () => {
+    delete process.env.SWITCHDASH_TELEMETRY_DEV;
+    vi.mocked(isTelemetryAllowed).mockResolvedValue(true);
+
+    expect(await telemetryService.canSend()).toBe(false);
+    expect(isTelemetryAllowed).not.toHaveBeenCalled();
+  });
+
+  it('is no when the user has not agreed', async () => {
+    vi.mocked(isTelemetryAllowed).mockResolvedValue(false);
+
+    expect(await telemetryService.canSend()).toBe(false);
+  });
+
+  it('is yes when the build can send and the user has agreed', async () => {
+    vi.mocked(isTelemetryAllowed).mockResolvedValue(true);
+
+    expect(await telemetryService.canSend()).toBe(true);
+  });
+
+  it('answers without sending anything', async () => {
+    vi.mocked(isTelemetryAllowed).mockResolvedValue(true);
+
+    await telemetryService.canSend();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('the payload', () => {
   beforeEach(() => {
     vi.mocked(isTelemetryAllowed).mockResolvedValue(true);
@@ -138,7 +179,16 @@ describe('the payload', () => {
   it('identifies the install, and no user', async () => {
     // The relay reads this as Amplitude's device id. It sets a user id only
     // for a caller that sends one, which this is not.
-    await telemetryService.track('session_started', { agent_type: 'claude', location: 'local' });
+    await telemetryService.track('session_started', {
+      agent_type: 'claude',
+      location: 'local',
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: 'sidebar',
+      start_source: 'user',
+      has_initial_prompt: false,
+      connected_to_room: false,
+    });
 
     expect(sentResource()['flint.client_id']).toBe('install-abc');
     expect(sentResource()).not.toHaveProperty('flint.user_id');

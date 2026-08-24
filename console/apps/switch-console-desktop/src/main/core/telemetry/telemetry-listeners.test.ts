@@ -57,8 +57,28 @@ function onLocation(kind: 'local' | 'remote' | 'missing') {
 
 function startSession(id: string, providerId = 'claude') {
   vi.mocked(getAgentById).mockResolvedValue({ id: 'agent', locationId: 'loc' } as never);
-  return emit('sessionService', 'session:created', { id, agentId: 'agent', providerId });
+  return emit(
+    'sessionService',
+    'session:created',
+    { id, agentId: 'agent', providerId },
+    { id, agentId: 'agent', title: 'Session', entryPoint: 'sidebar' }
+  );
 }
+
+/**
+ * What every session start reports beyond the two dimensions under test.
+ *
+ * The helper above declares no start source, and that is reported as `unknown`:
+ * a caller that said nothing is not evidence a person was there.
+ */
+const SESSION_START_CONTEXT = {
+  outcome: 'success',
+  failure_reason: 'none',
+  entry_point: 'sidebar',
+  start_source: 'unknown',
+  has_initial_prompt: false,
+  connected_to_room: false,
+} as const;
 
 registerTelemetryListeners();
 
@@ -70,22 +90,28 @@ describe('agent_created', () => {
   it('reports where the agent runs', async () => {
     onLocation('remote');
 
-    await emit('agents', 'agent:created', { providerId: 'codex', locationId: 'loc' });
+    await emit('agents', 'agent:created', { providerId: 'codex', locationId: 'loc' }, 'sidebar');
 
     expect(trackEvent).toHaveBeenCalledWith('agent_created', {
       agent_type: 'codex',
       location: 'remote',
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: 'sidebar',
     });
   });
 
   it('says unknown rather than guessing when the location has gone', async () => {
     onLocation('missing');
 
-    await emit('agents', 'agent:created', { providerId: 'codex', locationId: 'gone' });
+    await emit('agents', 'agent:created', { providerId: 'codex', locationId: 'gone' }, 'sidebar');
 
     expect(trackEvent).toHaveBeenCalledWith('agent_created', {
       agent_type: 'codex',
       location: 'unknown',
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: 'sidebar',
     });
   });
 
@@ -94,15 +120,52 @@ describe('agent_created', () => {
     // value would otherwise become free text in a payload.
     onLocation('local');
 
-    await emit('agents', 'agent:created', {
-      providerId: '/Users/someone/custom-agent',
-      locationId: 'loc',
-    });
+    await emit(
+      'agents',
+      'agent:created',
+      { providerId: '/Users/someone/custom-agent', locationId: 'loc' },
+      'sidebar'
+    );
 
     expect(trackEvent).toHaveBeenCalledWith('agent_created', {
       agent_type: 'unknown',
       location: 'local',
+      outcome: 'success',
+      failure_reason: 'none',
+      entry_point: 'sidebar',
     });
+  });
+});
+
+describe('a session started in a room', () => {
+  it('reports that a room was asked for, and who asked, never which room', async () => {
+    onLocation('local');
+    vi.mocked(getAgentById).mockResolvedValue({ id: 'agent', locationId: 'loc' } as never);
+
+    await emit(
+      'sessionService',
+      'session:created',
+      { id: 's-room', agentId: 'agent', providerId: 'claude' },
+      {
+        id: 's-room',
+        agentId: 'agent',
+        title: 'Session',
+        entryPoint: 'sidebar',
+        startSource: 'user',
+        initialPrompt: 'connect to switch room alpha and audit the deploy',
+        connectedToRoom: true,
+      }
+    );
+
+    expect(trackEvent).toHaveBeenCalledWith('session_started', {
+      ...SESSION_START_CONTEXT,
+      agent_type: 'claude',
+      location: 'local',
+      start_source: 'user',
+      has_initial_prompt: true,
+      connected_to_room: true,
+    });
+    expect(JSON.stringify(vi.mocked(trackEvent).mock.calls)).not.toContain('alpha');
   });
 });
 
@@ -113,6 +176,7 @@ describe('a session ending', () => {
     expect(trackEvent).toHaveBeenCalledWith('session_started', {
       agent_type: 'claude',
       location: 'local',
+      ...SESSION_START_CONTEXT,
     });
 
     await emit('sessionService', 'session:archived', 's-normal');
@@ -165,6 +229,28 @@ describe('a session ending', () => {
     await emit('sessionService', 'session:deleted', 's-twice');
 
     expect(trackEvent).not.toHaveBeenCalled();
+  });
+
+  it('ends a second time once a restore has put it back into use', async () => {
+    // The record of the first ending is there to collapse two endings moments
+    // apart, not to retire a session id for the life of the run — an archived
+    // session that is un-archived and later deleted has ended twice.
+    onLocation('local');
+    await startSession('s-unarchived');
+    await emit('sessionService', 'session:archived', 's-unarchived');
+    vi.mocked(trackEvent).mockClear();
+
+    await emit('sessionService', 'session:restored', 's-unarchived');
+    await emit('sessionService', 'session:deleted', 's-unarchived');
+
+    // Unknown because a restore is the row coming back, not the session
+    // running again: what it is gets re-learned when its runtime does.
+    expect(trackEvent).toHaveBeenCalledTimes(1);
+    expect(trackEvent).toHaveBeenCalledWith('session_ended', {
+      agent_type: 'unknown',
+      location: 'unknown',
+      outcome: 'normal',
+    });
   });
 
   it('reports one pruned from its remote host, which arrives on the other bus', async () => {

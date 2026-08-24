@@ -417,9 +417,11 @@ pnpm run lint
   Flipping the default back to on is a product decision that requires the id to go first,
   not a code change.
 - **What a telemetry payload may contain.** Add an event only by adding it to the closed
-  catalogue in `src/main/core/telemetry/events.ts`: its property types are literal unions
-  and numbers, and `TELEMETRY_EVENT_PROPERTIES` names the same fields as data, which the
-  emitter uses to drop anything else before it builds a payload. The types alone are not
+  catalogue in `src/main/core/telemetry/events.ts`: its property types are literal unions,
+  numbers and booleans, and `TELEMETRY_EVENT_PROPERTIES` names the same fields as data, which
+  the emitter uses to drop anything else before it builds a payload. A count goes as a number
+  and a yes/no as a boolean rather than as text, so both stay usable at the far end; anything
+  else — an object, an array, `null`, a non-finite number — is refused rather than encoded. The types alone are not
   enough — excess-property checking does not apply through a spread — so the runtime
   filter is what makes "nothing free-text can reach a payload" true rather than intended.
   Permitted: which of the catalogued things happened, agent type, local-vs-remote,
@@ -429,10 +431,47 @@ pnpm run lint
   agent, room, project, location or server names or ids. Widening this is a consent
   decision — the user-facing wording lives in
   `src/renderer/features/telemetry/telemetry-copy.ts` and must be kept in step with it.
+- **The interface may report only through the one gate.** Almost everything is
+  reported from the main process, where a call site is type-checked against the
+  catalogue. The exceptions are moments that exist only in the UI — a screen
+  opened, a command run, a checklist abandoned — and they go through
+  `rpc.telemetry.track` into `src/main/core/telemetry/renderer-events.ts`, which
+  checks the event is one of the few permitted and every value against the set
+  the catalogue allows. That check is not ceremony: a type does not survive a
+  process boundary, so it is the only thing standing between a received value
+  and a payload. Do not add a second path, and if a moment can be observed from
+  the main process, observe it there.
+- **Report a moment, not a state — and if you must report a state, claim it after
+  the gate.** A condition that is true from the instant it becomes true is true
+  again on every later launch, so reporting it directly counts it forever;
+  `ONCE_PER_INSTALL` in `renderer-events.ts` exists for that case and keeps the
+  record beside the emitter rather than in the user's settings, which would
+  report a setting nobody changed. The record is spent once and never given
+  back, so it must not be claimed until a send is actually possible: the app
+  renders behind the first-run consent prompt, so anything claiming before the
+  consent check spends its one chance while the answer is still unset and
+  retires the event for the life of the install.
+- **Prefer a value the caller declares to one you read back.** Several
+  dimensions describe an intent that only the caller has — which button, which
+  source, whether a room was chosen — and the state that would answer is often
+  consumed by the very operation being reported. Pass it through the params;
+  narrow it at the emitter, because it crossed a process boundary.
+- **A fallback must not assert something.** `unknown` is the right default for a
+  dimension nobody supplied. Falling back to a real variant — `user` for "who
+  started this" — reports a claim the code has no evidence for, and it lands in
+  the bucket a human would read as deliberate.
 - **Telemetry never affects the user.** It is fire-and-forget with a short timeout and no
   retry: a send that fails is logged with an `errorCode` and dropped. It must never block,
   delay or fail an operation, and must never surface in the UI. It is off in a dev build,
   which is logged once so a build that is not reporting says why.
+- **The compile-time guards are load-bearing; keep them in the `[X] extends
+  [never]` form.** An indexed access by a union distributes and then collapses,
+  so `Map[Union]` yields `true | never` — which is `true`, and passes while
+  every member but one is wrong. Two assertions in this area were written that
+  way and asserted nothing. Wrapping both sides in a tuple stops the
+  distribution. Note also that `satisfies { [K in Name]: readonly (keyof T[K])[] }`
+  constrains what an array *may* contain, never what it *must* — that is why
+  `_everyPropertyIsAllowListed` is a separate check.
 - **The sidecar sends nothing.** It runs headless on a user's VM with no consent prompt
   and no access to this setting, so sessions it starts are not counted. Do not "fix" that
   by having it report; the gate is not reachable from there.
