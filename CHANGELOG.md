@@ -772,7 +772,15 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
-### [0.29.1] - 2026-08-24
+### [0.30.0] - 2026-08-24
+
+#### Changed
+- **Windows in-app updates now verify the installer's Authenticode signature**
+  before installing it, against SandboxAQ's certificate. The check was held off
+  until a signed release confirmed the certificate's subject verbatim; a
+  mismatched name would have blocked updates for every existing install rather
+  than warning. The release build now fails if the signature and the name it
+  ships for the updater ever diverge (CHOO-1468).
 
 #### Fixed
 - The first-run **Share usage data** prompt no longer opens with focus on the
