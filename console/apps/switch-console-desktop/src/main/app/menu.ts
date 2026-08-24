@@ -40,15 +40,23 @@ function requestQuit(): void {
 export function setupApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
 
+  // `app.name` is the name announced to the OS, which is frozen at `Switchdash`
+  // because `safeStorage` keys its encryption off it \u2014 see the docblock in
+  // `@shared/app-identity`. It is not what the user should read, so anywhere a
+  // name is shown uses PRODUCT_NAME. The `hide` role and the About panel both
+  // build their own text from `app.name`, so both are overridden rather than
+  // left to default (CHOO-2344).
+  app.setAboutPanelOptions({ applicationName: PRODUCT_NAME });
+
   const template: Electron.MenuItemConstructorOptions[] = [
     // macOS app menu
     ...(isMac
       ? [
           {
-            label: app.name,
+            label: PRODUCT_NAME,
             submenu: [
               {
-                label: `About ${app.name}`,
+                label: `About ${PRODUCT_NAME}`,
                 click: () => app.showAboutPanel(),
               },
               { type: 'separator' as const },
@@ -64,12 +72,12 @@ export function setupApplicationMenu(): void {
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
-              { role: 'hide' as const },
+              { role: 'hide' as const, label: `Hide ${PRODUCT_NAME}` },
               { role: 'hideOthers' as const },
               { role: 'unhide' as const },
               { type: 'separator' as const },
               {
-                label: `Quit ${app.name}`,
+                label: `Quit ${PRODUCT_NAME}`,
                 accelerator: 'CmdOrCtrl+Q',
                 click: requestQuit,
               },
