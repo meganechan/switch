@@ -60,13 +60,13 @@
 artifacts:
   switch-core:
     description: The backend service, and the gateway API it serves.
-    version: 0.19.0
+    version: 0.20.0
     declared_in: core/pyproject.toml
     published_as: switch-core
 
   switch-console:
     description: The desktop app.
-    version: 0.29.0
+    version: 0.30.0
     declared_in: console/apps/switch-console-desktop/package.json
     # Which switch-core release this app build bundles and pulls for
     # local-server mode. DELIBERATELY NOT switch-core's version above.
@@ -127,12 +127,12 @@ artifacts:
 
   switch-connector:
     description: The Claude Code connector plugin.
-    version: 0.9.7
+    version: 0.9.8
     declared_in: connectors/claude-code-plugin/.claude-plugin/plugin.json
 
   switch-connector-codex:
     description: The Codex connector plugin.
-    version: 0.3.8
+    version: 0.3.9
     declared_in: connectors/codex-plugin/.codex-plugin/plugin.json
 
   switch-connector-opencode:

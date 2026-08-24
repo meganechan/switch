@@ -44,7 +44,7 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
-### [0.19.0] - 2026-08-22
+### [0.20.0] - 2026-08-24
 
 #### Added
 - Each agent gets a mentionable **Discord role**, so its `@name` autocompletes
@@ -71,6 +71,21 @@ version of their own to them without also giving them a release of their own.
   and was rejected as "not a single name" — quoting a string the invoker never
   typed. Newly reachable because an agent's name now autocompletes, but the
   typed form was wrong before that too (CHOO-2316).
+- Disconnecting a messaging app no longer fails with a 500 when a room member
+  has already left. Deleting a bridge kicks every client of every room it had,
+  and one that had already left answered a 403; "already not a member" is now
+  treated as done, while every other failure — permission denials included —
+  still raises (CHOO-2344).
+- An addressed **auto-session agent that is offline** now asks its **owner** to
+  open Switch Console — the person who can actually bring it online — instead of
+  telling the whole room to run a terminal command. The reply threads off the
+  triggering message, names the asker as the reason (dropped when they are the
+  owner), and the connect command names the agent it was generated for, so a
+  directory holding several agents answers `select_agent` on its own (CHOO-2344).
+
+### [0.19.0] - 2026-08-22
+
+#### Added
 - Telegram marks the message an agent is working on with **👀**, and clears it
   when the turn ends — in groups, channels and 1:1 chats alike, with no
   administrator rights needed. Outside forum topics Telegram has no threads, so
@@ -757,14 +772,27 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
-#### Changed
+### [0.30.0] - 2026-08-24
 
+#### Changed
 - **Windows in-app updates now verify the installer's Authenticode signature**
   before installing it, against SandboxAQ's certificate. The check was held off
   until a signed release confirmed the certificate's subject verbatim; a
   mismatched name would have blocked updates for every existing install rather
   than warning. The release build now fails if the signature and the name it
   ships for the updater ever diverge (CHOO-1468).
+
+#### Fixed
+- The first-run **Share usage data** prompt no longer opens with focus on the
+  consent toggle. Base UI focused the dialog's first tabbable element, which drew
+  a highlighted band around the row that read as a pre-selected answer and
+  vanished on the first click; focus now goes to the dialog itself, so nothing is
+  pre-selected (CHOO-2344).
+- Error toasts no longer pile up or repeat on every refresh. The agent-icon
+  backfill is reported once per server keyed by outcome — a signed-out or too-old
+  server that could not store icons was raising a toast every few seconds for one
+  standing condition — and `toast` now replaces a toast it already shows rather
+  than stacking another copy (CHOO-2344).
 
 ### [0.29.0] - 2026-08-22
 #### Added
@@ -2279,6 +2307,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+### [0.9.8] - 2026-08-24
+#### Changed
+- The `configure` skill's generated connect command now names the agent it was
+  set up for, so a session started in a directory holding several agents answers
+  `select_agent` on its own instead of asking the operator. Plugin version bumped
+  so installs re-download (CHOO-2344).
+
 ### [0.9.7] - 2026-08-22
 #### Fixed
 - The room-workflow skill said a Telegram DM is adopted the way Mattermost's
@@ -2481,6 +2516,13 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.3.9] - 2026-08-24
+#### Changed
+- The `configure` skill's generated connect command now names the agent it was
+  set up for, so a session started in a directory holding several agents answers
+  `select_agent` on its own instead of asking the operator; the plugin README is
+  updated to match. Plugin version bumped so installs re-download (CHOO-2344).
 
 ### [0.3.8] - 2026-08-22
 #### Fixed
