@@ -307,6 +307,11 @@ class SlackAdapter(CollaborationAdapter):
         self._agent_eyes: dict[tuple[str, str], set[str]] = {}
         # (channel_id, thread_ts) -> ts of the last message asking in it.
         self._thread_trigger: dict[tuple[str, str], str] = {}
+        # (channel_id, ts) Slack says it cannot find. Retrying it on every
+        # progress report of a long turn is how one unmarkable message became
+        # a warning a second for as long as the agent worked.
+        self._unmarkable: OrderedDict[tuple[str, str], None] = OrderedDict()
+        self._unmarkable_max = 500
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -855,6 +860,8 @@ class SlackAdapter(CollaborationAdapter):
         key = (channel_id, ts)
         if working == (key in self._eyes):
             return
+        if key in self._unmarkable:
+            return
 
         try:
             if working:
@@ -874,9 +881,15 @@ class SlackAdapter(CollaborationAdapter):
             if error in ("already_reacted", "no_reaction"):
                 self._eyes.add(key) if working else self._eyes.discard(key)
                 return
+            if error == "message_not_found":
+                # There is no message to mark, and there will not be one later.
+                self._unmarkable[key] = None
+                if len(self._unmarkable) > self._unmarkable_max:
+                    self._unmarkable.popitem(last=False)
             logger.warning(
-                "Could not %s the working reaction on %s: %s",
+                "Could not %s the working reaction on %s in %s: %s",
                 "add" if working else "remove",
+                ts,
                 channel_id,
                 error or e,
             )
@@ -1972,15 +1985,21 @@ class SlackAdapter(CollaborationAdapter):
         # Remember the thread this message belongs to so the "thinking"
         # indicator can be posted into the same conversation.
         self._last_thread_ts[channel_id] = thread_ts or message_ts
+        root = thread_ts or message_ts
+        # The message that actually asked. Inside a thread this is a reply, not
+        # the root, and the mark belongs on what was said — not on the
+        # conversation it happens to sit in. An app's post counts: a Slack
+        # workflow asking an agent something is a request like any other, and
+        # treating it as nobody asking left the mark aimed at a thread root
+        # that need not be a message at all.
+        self._thread_trigger[(channel_id, root)] = message_ts
         # Streaming a reply into a channel has to name who it is for, and the
-        # runtime-state path never sees the asker — so keep it per thread.
+        # runtime-state path never sees the asker — so keep it per thread. This
+        # one does need a person: Slack will not open a session addressed to an
+        # app, so a workflow-triggered turn has the posted status message and
+        # the mark, and no card.
         if user_id and not bot_id:
-            root = thread_ts or message_ts
             self._thread_requester[(channel_id, root)] = user_id
-            # The message that actually asked. Inside a thread this is a reply,
-            # not the root, and the mark belongs on what was said — not on the
-            # conversation it happens to sit in.
-            self._thread_trigger[(channel_id, root)] = message_ts
 
         message_ref = f"{channel_id}:{message_ts}"
         stripped = text.strip()
