@@ -416,13 +416,25 @@ class AgentClient(ClientBase[ClientConfig]):
                     body,
                     format="markdown",
                     mentions=[event.sender],
-                    # Answer where the question was asked: `thread_id`, not the
-                    # reply root. They differ for a message at the conversation
-                    # root, where the reply root is the message itself — which
-                    # opens a thread off it, so a one-line "starting a session"
-                    # buries itself somewhere nobody is looking, away from the
-                    # answer that follows it.
-                    thread_root_id=thread_id,
+                    # Where this lands depends on whether an answer follows it.
+                    #
+                    # "Starting a session" is a preamble: the real answer arrives
+                    # after it, in the room the question was asked in. Threading
+                    # it off the trigger buries the notice away from the answer
+                    # it introduces, so it goes where the question was —
+                    # `thread_id`, which is None for a message at the root
+                    # (CHOO-2173).
+                    #
+                    # Everything else here is the whole reply and nothing
+                    # follows it, so it threads off the triggering message: an
+                    # owner mention and a paste-ready command are a wall of text
+                    # to drop into a channel for something only one person can
+                    # act on (CHOO-2344).
+                    thread_root_id=(
+                        thread_id
+                        if msg == _STARTING_SESSION_MESSAGE
+                        else reply_thread_root
+                    ),
                     extra_content={AUTO_REPLY_FLAG: True},
                 )
 
