@@ -830,3 +830,55 @@ def test_a_step_that_never_landed_is_not_recorded_as_shown() -> None:
     _run(_state(adapter, "working", detail="a step that fails"))
 
     assert adapter._stream_step == {}
+
+
+# ── Turns nobody in Slack asked for ──────────────────────────────────────────
+
+
+def _bot_message(adapter: SlackAdapter, ts: str, thread_ts: str | None = None) -> None:
+    event: dict[str, Any] = {
+        "channel": "C1",
+        "ts": ts,
+        "bot_id": "B0WORKFLOW",
+        "username": "Daily summary",
+        "text": "@flint-tracker summarise yesterday",
+        "channel_type": "channel",
+    }
+    if thread_ts:
+        event["thread_ts"] = thread_ts
+    _run(adapter._handle_message_event(event))
+
+
+def test_a_workflow_post_is_marked_like_any_other_request() -> None:
+    """A Slack workflow asking an agent something is a request like any other."""
+    adapter, client = _adapter()
+    adapter._bot_user_id = "UBOT"
+    _bot_message(adapter, "777.0", thread_ts="111.0")
+
+    _run(_state(adapter, "working", detail="reading"))
+
+    assert ("add", "777.0", "eyes") in client.reactions
+
+
+def test_a_message_slack_cannot_find_is_marked_once_not_every_report() -> None:
+    adapter, client = _adapter()
+    client.reaction_error = "message_not_found"
+
+    for _ in range(8):
+        _run(_state(adapter, "working", detail="reading"))
+
+    assert client.reactions == []
+
+
+def test_the_warning_names_the_message_not_just_the_channel(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    adapter, client = _adapter()
+    client.reaction_error = "message_not_found"
+
+    with caplog.at_level("WARNING"):
+        _run(_state(adapter, "working", detail="reading"))
+
+    warnings = [r for r in caplog.records if "working reaction" in r.getMessage()]
+    assert len(warnings) == 1
+    assert "111.0" in warnings[0].getMessage()
