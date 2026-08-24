@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   countCompletedSteps,
+  deriveOnboardingProgress,
   deriveOnboardingSteps,
   EMPTY_ONBOARDING_PROGRESS,
   isOnboardingComplete,
@@ -10,6 +11,58 @@ import {
 function progress(overrides: Partial<OnboardingProgress> = {}): OnboardingProgress {
   return { ...EMPTY_ONBOARDING_PROGRESS, ...overrides };
 }
+
+/** A room the bridge adopted from a channel that already existed — nobody in
+ * this app made it, so it has no owner. */
+const ADOPTED_ROOM = { ownerId: null };
+const USER_CREATED_ROOM = { ownerId: 'user-1' };
+
+function observed(overrides: Partial<Parameters<typeof deriveOnboardingProgress>[0]> = {}) {
+  return {
+    serverCount: 0,
+    hasAvailableAgentType: false,
+    locationCount: 0,
+    rooms: [],
+    ...overrides,
+  };
+}
+
+describe('deriveOnboardingProgress', () => {
+  it('does not count rooms the bridge adopted as creating one', () => {
+    // The reported bug: a first local setup ships with Mattermost's Town Square
+    // and Off-Topic, which the bridge adopts — so "Create a room" was already
+    // ticked before the user had done anything.
+    const townSquareAndOffTopic = observed({ rooms: [ADOPTED_ROOM, ADOPTED_ROOM] });
+    expect(deriveOnboardingProgress(townSquareAndOffTopic).createRoom).toBe(false);
+  });
+
+  it('counts a room somebody actually created', () => {
+    expect(deriveOnboardingProgress(observed({ rooms: [USER_CREATED_ROOM] })).createRoom).toBe(
+      true
+    );
+  });
+
+  it('counts a created room sitting alongside adopted ones', () => {
+    const mixed = observed({ rooms: [ADOPTED_ROOM, USER_CREATED_ROOM, ADOPTED_ROOM] });
+    expect(deriveOnboardingProgress(mixed).createRoom).toBe(true);
+  });
+
+  it('reads no rooms at all as not done', () => {
+    expect(deriveOnboardingProgress(observed()).createRoom).toBe(false);
+  });
+
+  it('derives the other three steps from what exists', () => {
+    expect(deriveOnboardingProgress(observed({ serverCount: 1 })).addServer).toBe(true);
+    expect(deriveOnboardingProgress(observed({ hasAvailableAgentType: true })).agentProviders).toBe(
+      true
+    );
+    expect(deriveOnboardingProgress(observed({ locationCount: 2 })).onboardAgents).toBe(true);
+  });
+
+  it('reads an empty install as nothing done', () => {
+    expect(deriveOnboardingProgress(observed())).toEqual(EMPTY_ONBOARDING_PROGRESS);
+  });
+});
 
 describe('deriveOnboardingSteps', () => {
   it('makes the first step active on a fresh install', () => {

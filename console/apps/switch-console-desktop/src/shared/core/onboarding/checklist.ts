@@ -59,6 +59,46 @@ export const EMPTY_ONBOARDING_PROGRESS: OnboardingProgress = {
   createRoom: false,
 };
 
+/** The room facts the checklist judges. Structural so this module stays free of
+ * the gateway types. */
+type CountableRoom = { ownerId: string | null };
+
+/**
+ * Whether a room means its owner has *created* one.
+ *
+ * A room can appear on a server without anyone in this app making it: a bridge
+ * adopts channels that already exist on the messaging platform, and a fresh
+ * Mattermost comes with Town Square and Off-Topic. Counting those ticked
+ * "Create a room" off before the user had done anything — on a first local
+ * setup, the step was green on arrival (CHOO-2344).
+ *
+ * `ownerId` is the discriminator: a room created through Switch records who
+ * created it, and one adopted from an inbound bridge channel has nobody.
+ */
+function isDeliberatelyCreatedRoom(room: CountableRoom): boolean {
+  return room.ownerId !== null;
+}
+
+/**
+ * What the app can currently see, turned into per-step completion.
+ *
+ * Kept here rather than in the hook that reads the stores so each rule is
+ * stated once, next to the others, and can be tested without a renderer.
+ */
+export function deriveOnboardingProgress(observed: {
+  serverCount: number;
+  hasAvailableAgentType: boolean;
+  locationCount: number;
+  rooms: readonly CountableRoom[];
+}): OnboardingProgress {
+  return {
+    addServer: observed.serverCount > 0,
+    agentProviders: observed.hasAvailableAgentType,
+    onboardAgents: observed.locationCount > 0,
+    createRoom: observed.rooms.some(isDeliberatelyCreatedRoom),
+  };
+}
+
 /**
  * The list as rendered: every step in fixed order, each labelled and given a
  * status. Exactly one step is `active` unless everything is done, in which case

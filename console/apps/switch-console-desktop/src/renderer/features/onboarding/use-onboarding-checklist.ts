@@ -6,6 +6,7 @@ import { useShowModal } from '@renderer/lib/modal/modal-provider';
 import { appState } from '@renderer/lib/stores/app-state';
 import { useAgentTypeAvailability } from '@renderer/lib/stores/use-switch-setup';
 import {
+  deriveOnboardingProgress,
   deriveOnboardingSteps,
   isOnboardingComplete,
   type OnboardingProgress,
@@ -27,12 +28,12 @@ import {
 export function useOnboardingProgress(): OnboardingProgress {
   const { data: agentTypes } = useAgentTypeAvailability();
 
-  return {
-    addServer: switchServersStore.servers.length > 0,
-    agentProviders: (agentTypes ?? []).some((type) => type.available),
-    onboardAgents: appState.locations.locations.size > 0,
-    createRoom: switchRoomsStore.listedRoomsOnAllServers.length > 0,
-  };
+  return deriveOnboardingProgress({
+    serverCount: switchServersStore.servers.length,
+    hasAvailableAgentType: (agentTypes ?? []).some((type) => type.available),
+    locationCount: appState.locations.locations.size,
+    rooms: switchRoomsStore.listedRoomsOnAllServers,
+  });
 }
 
 export type OnboardingChecklist = {
