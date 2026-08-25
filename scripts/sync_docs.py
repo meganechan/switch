@@ -46,6 +46,9 @@ CALLOUTS = {
     "Danger": "Danger",
 }
 
+# Components collapsed into a single line, body and all.
+CAPTURED = {"Card"}
+
 # Components whose `title` attribute becomes a heading.
 TITLED = {"Step": "###", "Accordion": "###", "Tab": "###", "Expandable": "###"}
 
@@ -100,19 +103,21 @@ def rewrite_links(text: str, from_dir: str = "") -> str:
 def convert_body(body: str, from_dir: str = "") -> str:
     body = MDX_COMMENT.sub("", body)
     out: list[str] = []
-    stack: list[tuple[str, int]] = []  # (tag, indent of the body inside it)
+    # (tag, indent of the body inside it, attributes, collected body or None)
+    stack: list[tuple[str, int, dict[str, str], list[str] | None]] = []
     in_fence = False
 
     for raw in body.splitlines():
-        indent = len(stack[-1][1] * " ") if stack else 0
+        indent = stack[-1][1] if stack else 0
         line = raw[indent:] if raw[:indent].strip() == "" else raw.lstrip()
+        sink = stack[-1][3] if stack else None
 
         if line.lstrip().startswith("```"):
             in_fence = not in_fence
-            out.append(line)
+            (sink if sink is not None else out).append(line)
             continue
         if in_fence:
-            out.append(line)
+            (sink if sink is not None else out).append(line)
             continue
 
         if m := ONE_LINER.match(raw):
@@ -125,19 +130,25 @@ def convert_body(body: str, from_dir: str = "") -> str:
             continue
         if m := OPEN_TAG.match(raw):
             tag_indent, tag, raw_attrs = m.groups()
+            if tag in CAPTURED:
+                stack.append((tag, len(tag_indent) + 2, attrs(raw_attrs), []))
+                continue
             if tag in TRANSPARENT or tag in CALLOUTS or tag in TITLED:
                 lead = render_open(tag, attrs(raw_attrs))
                 if lead:
                     out.extend(["", lead, ""])
-                stack.append((tag, len(tag_indent) + 2))
+                stack.append((tag, len(tag_indent) + 2, attrs(raw_attrs), None))
                 continue
         if m := CLOSE_TAG.match(raw):
             if stack and stack[-1][0] == m.group(2):
-                stack.pop()
-                out.append("")
+                tag, _, a, body = stack.pop()
+                if body is not None:
+                    out.append(render_inline(tag, a, " ".join(x.strip() for x in body if x.strip())))
+                else:
+                    out.append("")
                 continue
 
-        out.append(line)
+        (sink if sink is not None else out).append(line)
 
     text = "\n".join(out)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -157,7 +168,7 @@ def render_inline(tag: str, a: dict[str, str], inner: str, from_dir: str = "") -
         title = a.get("title", "").strip()
         href = a.get("href", "")
         body = f" — {inner}" if inner else ""
-        return f"- [{title}]({rewrite_link(href, from_dir)}){body}" if href else f"- **{title}**{body}"
+        return f"- [{title}]({href}){body}" if href else f"- **{title}**{body}"
     if tag in CALLOUTS:
         return f"**{CALLOUTS[tag]}** {inner}".rstrip()
     if tag in TITLED and a.get("title"):
