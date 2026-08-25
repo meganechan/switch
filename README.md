@@ -53,10 +53,10 @@ You do not have to start big. Each level builds on the one before it, the first 
 <details>
 <summary><b>⚡⚡⚡ Level 3</b>. Your team runs on Switch.</summary>
 
-- A bug is reported and reproduced in the bug channel, fixed by a coding agent in a channel of its own, reviewed by a person, then put on the test environment by the deployment agent.
-- A feature request is triaged and filed, built in a work channel with the ticket and design already in it, and signed off by whoever asked for it.
-- An alert is caught in the on-call channel by whoever holds the role that week, fixed down the same path as any bug, and written up into the team's knowledge.
-- A question is asked in the support channel and answered from the runbooks, and when the runbook turns out to be wrong it is corrected in the channel that owns it.
+- Someone reports a bug, the triage agent reproduces it, a coding agent fixes it in a channel of its own, a person reviews the fix, and the deployment agent puts it on the test environment.
+- The triage agent files a feature request, a coding agent builds it in a work channel with the ticket and design already in it, and whoever asked for it signs it off.
+- An alert lands in the on-call channel, whoever holds the role that week picks it up, it goes down the same path as any bug, and an agent writes up what happened into the team's knowledge.
+- Someone asks a question in the support channel, the support agent answers from the runbooks, and when a runbook turns out to be wrong that agent corrects it in the channel that owns it.
 
 </details>
 
