@@ -44,7 +44,11 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.21.0] - 2026-08-25
+
 #### Added
+- The gateway's **registration keys** page can now search agent keys, and its
+  table fills the page height rather than being capped short (#177).
 - Switch's commands appear in Teams' `/` autocomplete picker. The shipped
   manifest moves to schema v1.29 and declares `supportsTargetedMessages` plus a
   second command list with `triggers: ["slash"]`. The two surfaces disagree
@@ -54,6 +58,15 @@ version of their own to them without also giving them a release of their own.
   privately to Switch and needs no `@`-mention.
 
 #### Fixed
+- A Slack turn triggered by another app's post — a workflow, a scheduled summary
+  — is handled as an ordinary request: `bot_id` was read as "nobody asked", so
+  the 👀 went on the thread root (which in such a channel need not be a message)
+  and Slack answered `message_not_found`. The message that asked is now
+  remembered whoever sent it; a mark Slack cannot place is recorded as
+  unmarkable rather than retried every progress report; and the warning names
+  the message, not just the channel. A workflow-triggered turn still gets the
+  status message and mark but no card, since Slack will not open a session
+  addressed to an app (#288).
 - A Teams message that merely began with a slash is no longer swallowed as a
   command. Pasting `/Users/ada/notes.md` came back "unknown command" instead of
   reaching an agent. `/` is not Switch's prefix — it opens paths, dates and
@@ -1058,6 +1071,8 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.31.0] - 2026-08-25
 #### Added
 - Creating an agent, starting a session and adding a server now report whether
   they worked, and an enumerated reason when they did not. Previously only the
@@ -1098,6 +1113,12 @@ version of their own to them without also giving them a release of their own.
 - Installing an update no longer reports that it both worked and failed. The
   success was sent before handing over to the installer, so an install that then
   failed to take was counted twice, in both directions.
+
+#### Changed
+- Local-server mode now bundles and pulls **switch-core `0.21.0`** (was
+  `0.19.0`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
+- Third-party dependency updates (#193).
 
 ### [0.30.0] - 2026-08-24
 
