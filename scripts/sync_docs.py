@@ -61,7 +61,10 @@ ATTR = re.compile(r'(\w[\w:-]*)\s*=\s*(?:"([^"]*)"|\{([^}]*)\})')
 
 
 def attrs(raw: str) -> dict[str, str]:
-    return {m.group(1): m.group(2) if m.group(2) is not None else m.group(3) for m in ATTR.finditer(raw or "")}
+    return {
+        m.group(1): m.group(2) if m.group(2) is not None else m.group(3)
+        for m in ATTR.finditer(raw or "")
+    }
 
 
 def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -91,13 +94,19 @@ def rewrite_link(target: str, from_dir: str = "") -> str:
     rel = path.lstrip("/")
     if not rel.startswith(SOURCE_PREFIX):
         return f"{SITE_BASE}/{rel}{anchor}"
-    page = f"{rel[len(SOURCE_PREFIX):] or 'index'}.md"
+    page = f"{rel[len(SOURCE_PREFIX) :] or 'index'}.md"
     return f"{posixpath.relpath(page, from_dir or '.')}{anchor}"
 
 
 def rewrite_links(text: str, from_dir: str = "") -> str:
-    text = re.sub(r"\]\((/[^)\s]+)\)", lambda m: f"]({rewrite_link(m.group(1), from_dir)})", text)
-    return re.sub(r'href="(/[^"]+)"', lambda m: f'href="{rewrite_link(m.group(1), from_dir)}"', text)
+    text = re.sub(
+        r"\]\((/[^)\s]+)\)", lambda m: f"]({rewrite_link(m.group(1), from_dir)})", text
+    )
+    return re.sub(
+        r'href="(/[^"]+)"',
+        lambda m: f'href="{rewrite_link(m.group(1), from_dir)}"',
+        text,
+    )
 
 
 def convert_body(body: str, from_dir: str = "") -> str:
@@ -143,7 +152,11 @@ def convert_body(body: str, from_dir: str = "") -> str:
             if stack and stack[-1][0] == m.group(2):
                 tag, _, a, body = stack.pop()
                 if body is not None:
-                    out.append(render_inline(tag, a, " ".join(x.strip() for x in body if x.strip())))
+                    out.append(
+                        render_inline(
+                            tag, a, " ".join(x.strip() for x in body if x.strip())
+                        )
+                    )
                 else:
                     out.append("")
                 continue
@@ -194,7 +207,9 @@ def switch_pages(docs_json: dict) -> list[tuple[list[str], str]]:
         None,
     )
     if product is None:
-        raise SystemExit(f"No {PRODUCT!r} product in docs.json — the navigation shape changed.")
+        raise SystemExit(
+            f"No {PRODUCT!r} product in docs.json — the navigation shape changed."
+        )
 
     found: list[tuple[list[str], str]] = []
 
@@ -240,7 +255,9 @@ def resolve_source(source: str | None, keep: Path) -> Path:
     if source:
         path = Path(source).expanduser().resolve()
         if not (path / "docs.json").is_file():
-            raise SystemExit(f"{path} has no docs.json — is it a checkout of the docs repository?")
+            raise SystemExit(
+                f"{path} has no docs.json — is it a checkout of the docs repository?"
+            )
         return path
     print(f"Cloning {DOCS_REPO_URL}", file=sys.stderr)
     subprocess.run(
@@ -268,7 +285,9 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         source = resolve_source(args.source, Path(tmp) / "docs")
-        entries = switch_pages(json.loads((source / "docs.json").read_text(encoding="utf-8")))
+        entries = switch_pages(
+            json.loads((source / "docs.json").read_text(encoding="utf-8"))
+        )
 
         if dest.exists():
             shutil.rmtree(dest)
@@ -281,10 +300,12 @@ def main() -> int:
             if not mdx.is_file():
                 missing.append(page)
                 continue
-            rel = f"{page[len(SOURCE_PREFIX):] or 'index'}.md"
+            rel = f"{page[len(SOURCE_PREFIX) :] or 'index'}.md"
             target = dest / rel
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(convert_page(mdx, posixpath.dirname(rel)), encoding="utf-8")
+            target.write_text(
+                convert_page(mdx, posixpath.dirname(rel)), encoding="utf-8"
+            )
             written += 1
 
         write_index(dest, entries)
@@ -292,7 +313,10 @@ def main() -> int:
     where = dest.relative_to(repo_root) if dest.is_relative_to(repo_root) else dest
     print(f"Wrote {written} pages to {where}")
     if missing:
-        print(f"Listed in navigation but absent from the source: {', '.join(missing)}", file=sys.stderr)
+        print(
+            f"Listed in navigation but absent from the source: {', '.join(missing)}",
+            file=sys.stderr,
+        )
         return 1
     return 0
 
