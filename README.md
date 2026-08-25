@@ -22,7 +22,7 @@ Switch is the underlying infrastructure and framework that allows you to build t
 - 💬 **Bring your agents where your team already collaborates**. Your agents join the conversation in Slack, Microsoft Teams, Discord, Telegram and Mattermost. Nobody has to learn a new tool or move anywhere.
 - 🌍 **Any agent, any provider, any framework, running anywhere**. Your Claude Code agent on your laptop, a teammate's Codex agent on theirs, a LangChain HR agent on your servers. If it speaks the protocol, it can join.
 - 🧩 **Design how humans and agents work together**. Set the instructions a channel runs under, hand out roles, and pass work as tracked tasks. How your team operates is something you design, not something a model improvises.
-- 🛡️ **Run your team with confidence**. Define who can talk to which agent and in what context. Guardrails and cost reporting are coming next, Flint AI among the ways to get them.   
+- 🛡️ **Run your team with confidence**. Define who can talk to which agent and in what context. Guardrails and cost reporting are coming next, Flint AI among the ways to get them.
 
 
 ## Why Switch
@@ -42,10 +42,10 @@ You do not have to start big. Each level builds on the one before it, the first 
 </details>
 
 <details open>
-<summary><b>⚡⚡ Level 2</b>. you start encoding how the work runs.</summary>
+<summary><b>⚡⚡ Level 2</b>. You start encoding how the work runs.</summary>
 
-- A bootstrap channel where anyone asks a manager agent to start a piece of work. it opens the channel, brings in the right people and agents, attaches the context they need, and gets it moving.
-- A feature request channel where an agent triages what comes in, asks the questions you would have asked, and files it in jira, confluence or notion.
+- A bootstrap channel where anyone asks a manager agent to start a piece of work. It opens the channel, brings in the right people and agents, attaches the context they need, and gets it moving.
+- A feature request channel where an agent triages what comes in, asks the questions you would have asked, and files it in Jira, Confluence or Notion.
 - A bug report channel where an agent reproduces what it can, collects the logs and versions, and either files the ticket or tells the reporter what is still missing.
 
 </details>
@@ -61,7 +61,7 @@ You do not have to start big. Each level builds on the one before it, the first 
 </details>
 
 <details>
-<summary><b>⚡⚡⚡⚡ Level 4</b> Your company runs on Switch.</summary>
+<summary><b>⚡⚡⚡⚡ Level 4</b>. Your company runs on Switch.</summary>
 
 Every person, team and department works alongside agents, and work crosses between them the same way it crosses between channels.
 
@@ -69,30 +69,30 @@ Every person, team and department works alongside agents, and work crosses betwe
 
 ## What Switch is not
 
-Most tools in this space want to become the place your team works. Switch does not replace the stack you already have, it connects it.
+Most tools in this space want to become the place your team works. Switch does not replace the stack you already have. It connects it.
 
 - ❌ **Not a messaging app**. Slack, Teams, Discord, Telegram and Mattermost stay where they are. Switch brings your agents and the workflows you define into them, so nobody has to move.
 - ❌ **Not an agent provider**. Switch ships no agents and no models. You keep Claude Code, Codex, OpenCode or whatever you already run, and Switch is what lets them work with your team.
-- ❌ **Not a black box self service platform**. Switch's code is here for everyone to see and contribute. It is designed to be self-hostable and for your data to stay where it is !
+- ❌ **Not a black box self-service platform**. Switch's code is here for everyone to see and contribute to. It is designed to be self-hostable and for your data to stay where it is.
 
 Getting humans and agents to work as one team is the part nobody has solved yet. That is where our effort goes, rather than into rebuilding chat apps and coding agents that already work well.
 
 ## Getting started
 
-### Let an agent walk ou through the onboarding
- 
+### Let an agent walk you through the onboarding
+
 
 Rather than working through the documentation yourself, connect an agent to it
 and have it take you through the steps, answering your questions as they come
 up. The docs are served over MCP at https://docs.flintai.dev/mcp.
 
-Connect your agent to the MCP server and ask it: 
-> How do I get started with Switch? 
+Connect your agent to the MCP server and ask it:
+> How do I get started with Switch?
 
 
 #### Claude Code
 
-Run the following command in a terminal
+Run the following command in a terminal.
 
 ```bash
 claude mcp add switch-docs --transport http https://docs.flintai.dev/mcp
@@ -100,7 +100,7 @@ claude mcp add switch-docs --transport http https://docs.flintai.dev/mcp
 
 #### OpenAI Codex CLI
 
-Run the following command in a terminal
+Run the following command in a terminal.
 
 ```bash
 codex mcp add switch-docs --url https://docs.flintai.dev/mcp
@@ -108,12 +108,12 @@ codex mcp add switch-docs --url https://docs.flintai.dev/mcp
 
 #### OpenCode
 
-Run the following command in a terminal
+Run the following command in a terminal.
 
 ```bash
 opencode mcp add
 ```
-Then follow the procedure and provide `https://docs.flintai.dev/mcp` as the MCP server URL
+Then follow the procedure and provide `https://docs.flintai.dev/mcp` as the MCP server URL.
 
 
 
@@ -122,7 +122,7 @@ Then follow the procedure and provide `https://docs.flintai.dev/mcp` as the MCP 
 **Follow the [getting started guide](https://docs.flintai.dev/flintai/switch/getting-started).**
 It covers the whole path properly. The short version:
 
-1. Download Switch Console App for your platform and install it.
+1. Download the Switch Console app for your platform and install it.
 2. Start a local server from the app.
 3. Add your first agent: a name, a working directory, and the provider you use.
 4. Create a channel and talk to it.
@@ -138,14 +138,13 @@ It covers the whole path properly. The short version:
 
 ### I want to deploy Switch for my team
 
-Read [hosting remotely](https://docs.flintai.dev/flintai/switch/deploy/host-remotely)
-first, then pick one.
+Read [hosting remotely](https://docs.flintai.dev/flintai/switch/deploy/host-remotely).
 
 
 ## Architecture at a glance
 
 
-### Switch Core 
+### Switch Core
 
 <div align="center">
   <img src="assets/switch-architecture.png" alt="Switch Core sits between human messaging apps and AI agents: a collaboration bridge relays Slack, Teams, Discord and Telegram; an agent bridge serves the HTTP API and MCP server to agents; both meet at a Tuwunel Matrix homeserver, with a room service, gateway API, PostgreSQL and the operator dashboard alongside" width="800">
@@ -176,7 +175,7 @@ instructions, permissions, attached knowledge and connected messaging apps. The
 Gateway API is the control plane behind the operator dashboard, and PostgreSQL
 holds the state.
 
-### Switch Console 
+### Switch Console
 
 Switch Console is the desktop app on the other side of the Agent Bridge. It does
 three jobs.
