@@ -228,12 +228,12 @@ Tests live in `core/tests/switch_core/` mirroring the module structure. Uses pyt
 
 Everything under `docs/` is listed here; if it is not in this list, it does not
 exist:
-- `docs/ARCHITECTURE.md` — system overview: components, domain model, key flows,
+- `docs/old/ARCHITECTURE.md` — system overview: components, domain model, key flows,
   entry points, and a code map from area to module
-- `docs/api/AGENT_PROTOCOL.md` — the agent↔Switch protocol (connections, the
+- `docs/old/api/AGENT_PROTOCOL.md` — the agent↔Switch protocol (connections, the
   event stream, room slots, failure handling). Authoritative where it and
   `ARCHITECTURE.md` overlap
-- `docs/bridges/` — collaboration bridge setup: `README.md` plus one page each
+- `docs/old/bridges/` — collaboration bridge setup: `README.md` plus one page each
   for Slack, Mattermost, Discord, Teams, and Telegram
 
 There is no separate schema, room-design, HTTP-API or MCP-surface document. Read
