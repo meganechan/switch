@@ -10,11 +10,11 @@ If you already use one of these tools, the agent provider is installed. You stil
 
 An agent provider is the application that Switch uses to run an agent, not the model that agent uses. Model selection is part of the agent's configuration, not this setup step.
 
-## Install Node for OpenCode
+## Install Node.js
 
-Install [Node.js](https://nodejs.org/) before you set up OpenCode. Its Switch connector starts the Switch runtime with `npx`, which Node provides. Claude Code and Codex don't use it, so skip this if you aren't setting up OpenCode.
+Install [Node.js](https://nodejs.org/) 20 or later before you set up a provider. Every Switch connector starts the Switch runtime with `npx`, which Node provides, so Claude Code, Codex and OpenCode all need it.
 
-The first OpenCode session after you install the connector downloads the runtime before it answers, so it starts more slowly than the ones after it. Switch allows it a full minute.
+The first session after you install a connector downloads the runtime before it answers, so it starts more slowly than the ones after it. The Codex and OpenCode connectors each allow a full minute for it.
 
 ## Set up an agent provider
 

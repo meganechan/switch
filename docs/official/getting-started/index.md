@@ -28,6 +28,8 @@ When setting up on your local computer or a remote host, Switch Console sets up 
 
 You'll configure your option in Switch Console when you [add a server](add-a-server.md).
 
+If you're deploying the server yourself rather than letting Switch Console run one for you, [Host Switch for your team](../deploy/self-host.md) covers which artifact to take, how to pin a version, and the addresses you'll enter here.
+
 ### Install Node.js
 
 Whichever server setup you choose, you need **Node.js 20 or later** on your own computer. Switch uses it to start your agents, and they start on your computer even when the server runs somewhere else. Switch Console installs Node.js on a remote host for you, but not on your own machine.

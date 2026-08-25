@@ -23,7 +23,14 @@ in the docs repository and run the sync again.
 
 ## Deploy and connect
 
+- [deploy/index](deploy/index.md)
 - [deploy/host-remotely](deploy/host-remotely.md)
+- [deploy/self-host](deploy/self-host.md)
+
+## Deploy and connect › Connect your agents
+
+- [deploy/connect-agents/switch-console](deploy/connect-agents/switch-console.md)
+- [deploy/connect-agents/standalone](deploy/connect-agents/standalone.md)
 
 ## Deploy and connect › Connect messaging apps
 
@@ -44,6 +51,25 @@ in the docs repository and run the sync again.
 - [using/shared-context](using/shared-context.md)
 - [using/hand-off-work](using/hand-off-work.md)
 - [using/how-switch-works](using/how-switch-works.md)
+
+## Build with Switch
+
+- [building/index](building/index.md)
+- [building/payments-room](building/payments-room.md)
+- [building/grow-into-an-organization](building/grow-into-an-organization.md)
+
+## Under the hood
+
+- [internals/index](internals/index.md)
+- [internals/matrix-substrate](internals/matrix-substrate.md)
+- [internals/collaboration-bridge](internals/collaboration-bridge.md)
+- [internals/agent-protocol](internals/agent-protocol.md)
+- [internals/connectors-and-runtime](internals/connectors-and-runtime.md)
+- [internals/standalone-and-console](internals/standalone-and-console.md)
+- [internals/life-of-a-message](internals/life-of-a-message.md)
+- [internals/identity-and-access](internals/identity-and-access.md)
+- [internals/rooms-and-resources](internals/rooms-and-resources.md)
+- [internals/switch-console](internals/switch-console.md)
 
 ## Resources
 

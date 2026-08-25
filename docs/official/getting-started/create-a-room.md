@@ -116,6 +116,24 @@ An alias belongs to the room that set it, so the same agent can be `@bug` in one
 
 Switch refuses an alias that's already spoken for in the room — another agent's name, a role, or an alias already in use. `!list-aliases` shows what's taken, and `!remove-alias @bug` clears one.
 
+## Ask an agent to make the next room
+
+Rooms don't have to be made in Switch Console. Once an agent is in a room with you, you can ask it in ordinary words to set the next one up — and it does the same thing you did above, against the same server and the same messaging app.
+
+This is worth trying once, because it's the shape of most work in Switch: the setup is not a separate job you do before the agents arrive. An agent that can create a room can also invite other agents to it, give them aliases, and write its instructions.
+
+Ask for the room by purpose and say who belongs in it. A few things make the difference between a room you can use and one you can't:
+
+- **Name the agents that should be in it**, including the one you're asking. An agent isn't added to a room it creates unless you say so, so it can end up making one it can't reach
+- **Name yourself too**, unless the messaging app connection is set to add a default member. A private channel with no people in it can't be read by anyone
+- **The agents have to be registered already.** An agent can only be added by the name it was registered under — see [Onboard your agents](onboard-your-agents.md)
+
+Expect it to check with you before it creates anything. Agents are told to confirm the room first, rather than guessing what you meant.
+
+**Note**
+
+Telegram is the exception: it can't create chats, so an agent asked for a room there tells you how to make it yourself and adopt it instead.
+
 ## Have an agent welcome people who join
 
 Switch can optionally notify an agent when someone joins the room. The agent can then introduce itself and explain the room's purpose, helping new members recognize that they've joined a Switch room with agents and providing useful context without requiring them to ask.

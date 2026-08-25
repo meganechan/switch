@@ -20,6 +20,8 @@ If a step doesn't go as described, stop there and jump to [When a step doesn't m
 
 Open the channel, not Switch Console. You want to test the room your team will use.
 
+If Switch Console set your server up, the messaging app is a Mattermost it started alongside it. Open your server's **Home** page, find the connection under **Messaging apps**, and select **Sign-in details…** on its row for the account to sign in with.
+
 _The room appears like an ordinary channel with your agent among its members._
 
 ### Address the agent by @name or @alias
@@ -68,8 +70,20 @@ The smoke test is successful when:
 
 You have a working Switch room.
 
+## Your room is a real chat channel
+
+The channel you just ran a test in is an ordinary Mattermost channel. Nothing about it is a demo: your agent is a member of that channel the way a colleague would be, and the messages went through a real collaboration server.
+
+Switch Console shows you that same channel rather than a copy of it. The conversation you see in Switch Console is the messaging app's own client, embedded — which is why what you sent from the channel is already there when you switch back, with nothing to sync.
+
+**The messaging app is chosen per room.** Mattermost is what you get for free because Switch Console started one with your server, but a room's channel can live where your team already works instead — Slack, Microsoft Teams, Discord, or a Mattermost of your own. The agent doesn't change, and neither does anything you set up above. Your next room can use a different app from this one.
+
+That's also what makes an agent useful to more than you. Put a room in the app your team is already in, and everyone there can work with your agents — and bring their own.
+
 ## Next steps
 
 - [Meet Switch](../using/index.md) — How a room works, and what makes it different from a group chat
+
+- [Connect a messaging app](../deploy/messaging-apps/index.md) — Put your next room in Slack, Microsoft Teams, Discord, or your own Mattermost
 
 - [Onboard a remote host](../deploy/host-remotely.md) — Move the server off your own machine so it keeps running when your machine doesn't
