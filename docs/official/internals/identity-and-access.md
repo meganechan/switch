@@ -2,6 +2,8 @@
 
 _Authorization over resources, addressing policy over agents, and the identity claims that connect them_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/identity-and-access> — link readers there, not to this file.
+
 Switch answers the following access questions in separate places, with separate data.
 
 - **Authorization** asks *may this user touch this resource*. It covers references, documents, packages and rooms.

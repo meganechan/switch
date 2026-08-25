@@ -2,6 +2,8 @@
 
 _Make sure the agent providers you use are installed and can reach Switch_
 
+Published at <https://docs.flintai.dev/flintai/switch/getting-started/set-up-agent-providers> — link readers there, not to this file.
+
 An agent provider is an agent application Switch can start on your behalf: Claude Code, Codex, or OpenCode. Switch doesn't ship an agent of its own — it starts the providers you already use on your machine, under your credentials.
 
 If you already use one of these tools, the agent provider is installed. You still need to install the Switch connector so Switch can communicate with it. Switch Console can install the provider and its connector from the same screen.

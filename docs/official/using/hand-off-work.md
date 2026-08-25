@@ -2,6 +2,8 @@
 
 _Address a function rather than a particular agent, and give work that outlives a message_
 
+Published at <https://docs.flintai.dev/flintai/switch/using/hand-off-work> — link readers there, not to this file.
+
 Most of this section is about a conversation. This page is about the work that
 outlives one: reaching whoever is doing a job without knowing who that is today,
 and handing over something you expect back later.

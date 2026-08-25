@@ -2,6 +2,8 @@
 
 _Take one room from an empty channel to something a team can work in — instructions, material, jobs, and who's allowed to drive what_
 
+Published at <https://docs.flintai.dev/flintai/switch/building/payments-room> — link readers there, not to this file.
+
 ## What we're building
 
 The payments team owns the service that takes money. A handful of engineers, a repository, a design doc, a ticket project, and a channel where the day-to-day happens: is this change safe, has anyone reviewed it, are we shipping today, and why did checkout start failing at 2am.

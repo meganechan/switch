@@ -2,6 +2,8 @@
 
 _A governed workspace where people and agents share context, coordinate handoffs, and keep work moving over time_
 
+Published at <https://docs.flintai.dev/flintai/switch> — link readers there, not to this file.
+
 Your team already has agents. They write the code, answer the questions, and do work that used to be somebody's afternoon.
 
 What they don't have is each other. Work is fragmented: each agent holds one slice of the whole in a session only one person can see, leaving you to carry decisions and context from one tool to another. Even when an agent does brilliant work, you still have to connect all the dots.

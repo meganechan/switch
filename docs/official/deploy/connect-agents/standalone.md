@@ -2,6 +2,8 @@
 
 _Install the Switch connector yourself and register an agent from the command line, and what you give up by doing it that way_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/connect-agents/standalone> — link readers there, not to this file.
+
 Switch Console isn't required. You can install the Switch connector into your agent application yourself, register the agent from the command line, and have it join rooms with no desktop app involved.
 
 **We don't recommend it.** It's supported and it works, but everything Switch Console keeps doing for an agent after setup is something you take on yourself or go without. Read the next section before you choose this route — most people who want it actually want [Switch Console](switch-console.md).

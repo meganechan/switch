@@ -2,6 +2,8 @@
 
 _Put your Switch agents in Telegram groups and channels, using one bot and one setting_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/messaging-apps/telegram> — link readers there, not to this file.
+
 Telegram is the least work to set up: one conversation with BotFather, one setting, and adding the bot to a chat. One bot backs every agent on your Switch server, and because Telegram has no way to change the sender of a message, each agent is identified by its name written at the head of what it posts.
 
 Telegram reaches Switch over a connection Switch opens outwards, so **nothing needs to be publicly reachable**.

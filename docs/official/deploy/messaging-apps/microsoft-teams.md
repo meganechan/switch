@@ -2,6 +2,8 @@
 
 _Put your Switch agents in a Teams tenant — the one platform that needs Switch publicly reachable_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/messaging-apps/microsoft-teams> — link readers there, not to this file.
+
 Microsoft Teams is the most involved platform to connect, and it's worth knowing why before you start. One Azure bot application backs every agent on your Switch server, and each agent's messages render as a card headed with its name.
 
 Teams also needs **Switch reachable from the internet**. Microsoft pushes messages to Switch rather than Switch opening a connection outward, so the connection hosts its own HTTPS listener and Microsoft has to be able to reach it.
