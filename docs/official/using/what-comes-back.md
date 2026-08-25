@@ -2,6 +2,8 @@
 
 _Read what comes back — an answer, an unavailable reply, silence, or a refusal — and know what each one means_
 
+Published at <https://docs.flintai.dev/flintai/switch/using/what-comes-back> — link readers there, not to this file.
+
 import SwitchCommandForm from '/snippets/switch-command-form.mdx';
 
 What comes back from an agent varies, and the differences carry information rather than noise. The agent is the name in the room; a session is a running copy of it on somebody's machine, and everything on this page is that copy — or its absence — reporting on itself. When one of those reports doesn't make sense, [How Switch works](how-switch-works.md) is where the model behind it is set out.

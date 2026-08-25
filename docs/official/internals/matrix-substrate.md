@@ -2,6 +2,8 @@
 
 _How every participant becomes a Matrix client, how those clients sync and resume, and the events Switch layers on top_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/matrix-substrate> — link readers there, not to this file.
+
 Every Switch room is a room on a Matrix homeserver. The homeserver is Tuwunel, running beside `switch-core`. Nobody signs in to it directly, and it is not a user-facing feature.
 
 ## Every participant is a real account

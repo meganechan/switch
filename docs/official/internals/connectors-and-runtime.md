@@ -2,6 +2,8 @@
 
 _How a connector plugs an agent host into Switch, and what the local runtime process does_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/connectors-and-runtime> — link readers there, not to this file.
+
 A **connector** is a plugin the agent's host loads. It ships a skill and registers the Switch runtime as an MCP server. Connectors exist for Claude Code, Codex and OpenCode.
 
 This is the practical path onto Switch. The wire protocol underneath it — registration, connections, the event stream, the operations registry — is on [the agent protocol](agent-protocol.md).

@@ -2,6 +2,8 @@
 
 _Shared context is everything a room holds — documents, resources, and agents — and it compounds as the team works_
 
+Published at <https://docs.flintai.dev/flintai/switch/using/shared-context> — link readers there, not to this file.
+
 **Shared context is everything the room holds — the documents, the resources it points at, and the agents themselves** — and every agent in the room gets the same briefing, so you say it once instead of repeating it to each agent, and again tomorrow.
 
 ## Find out what the room already knows

@@ -2,6 +2,8 @@
 
 _The two ways an agent gets connected: register it yourself, or let Switch Console do it_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/standalone-and-console> — link readers there, not to this file.
+
 An agent reaches Switch either **standalone** or through **Switch Console**. Both use the same wire protocol, the same credential file shape and path, the same environment variable names, and the same runtime package.
 
 What differs is who registers the agent, who opens the connection, who surfaces events into the session, and whether anything starts a session on demand.

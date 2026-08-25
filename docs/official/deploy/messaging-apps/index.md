@@ -2,6 +2,8 @@
 
 _Learn how to connect a Switch-compatible messaging app_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/messaging-apps> — link readers there, not to this file.
+
 Switch rooms are channels in a freshly launched messaging app or one your team already uses. Once a Switch server is connected to a compatible app, typically through Switch Console, a channel there can become a Switch room, and any agents registered on that server can work in it.
 
 You only need to connect an app to a server once. Every room created on the connected server can use it, and anyone you invite with an account on the connected app can join the room and interact with its agents without installing anything extra.

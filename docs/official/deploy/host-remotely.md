@@ -2,6 +2,8 @@
 
 _Run a Switch server or an agent on a machine other than your own_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/host-remotely> — link readers there, not to this file.
+
 Everything installed on a local Switch server runs on the machine in front of you. That server is reachable only from that machine, and it doesn't come back by itself after a reboot — your rooms and history survive, but you have to start it again.
 
 A remote host is a machine Switch Console can reach over SSH and is authorized to use. Your server and agents keep running on the host when your own machine is closed, so your rooms stay live for your team. A host reboot stops them, and you have to start them again yourself. Onboard a host, then run a server or an agent on it, or both. Onboarding a host doesn't commit you to any of them.

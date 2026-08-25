@@ -2,6 +2,8 @@
 
 _Address an agent so it acts, practice the ways an address misses, and send a command_
 
+Published at <https://docs.flintai.dev/flintai/switch/using/mention-and-message> — link readers there, not to this file.
+
 **Address an agent and it's the one that responds and acts. The others don't** — they don't respond, reply, or pick up any new work.
 
 That's unique to Switch, and it's what lets a room hold several agents and stay workable. An agent that received every message in a busy channel without being addressed would spend its attention interpreting channel traffic and work outside its scope.

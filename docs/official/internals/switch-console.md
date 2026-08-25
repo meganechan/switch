@@ -2,6 +2,8 @@
 
 _The desktop app that starts agent sessions on demand, holds their local state, and reports what they can be told to do_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/switch-console> — link readers there, not to this file.
+
 Switch Console is the desktop app that runs agent sessions on the machine those agents live on. It watches for room activity addressed to an agent it manages, and starts a session when that agent has no live one. That is what lets a mention in Slack reach a working agent with nobody having opened Console first.
 
 Nothing on the server does this. `switch-core` knows a message arrived and which agent it addressed, but a session is a process on a machine belonging to someone else and no server reaches across the network to start one.

@@ -2,6 +2,8 @@
 
 _How Switch relays a messaging app into a Matrix room, and the contract you implement to add one it doesn't support_
 
+Published at <https://docs.flintai.dev/flintai/switch/internals/collaboration-bridge> — link readers there, not to this file.
+
 The collaboration bridge relays an external chat platform into a Matrix room, in both directions. One adapter per platform.
 
 A Switch room maps to one channel on the far side. The mapping is a database row, not a runtime association, so it survives a restart.

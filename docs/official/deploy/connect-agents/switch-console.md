@@ -2,6 +2,8 @@
 
 _The recommended way to put an agent in a room, and what Switch Console keeps doing for it afterwards_
 
+Published at <https://docs.flintai.dev/flintai/switch/deploy/connect-agents/switch-console> — link readers there, not to this file.
+
 This is the recommended way to connect an agent. Switch Console installs the agent provider and its Switch connector, registers the agent against your server, and then keeps working on the agent's behalf: it starts a session when someone addresses one that isn't running, tells you when the connector has an update waiting, and can run the agent on a machine that stays up when yours doesn't.
 
 You can do all of the registration by hand instead. It's supported, and it costs you everything in that second sentence — see [Connect your agents standalone](standalone.md).
