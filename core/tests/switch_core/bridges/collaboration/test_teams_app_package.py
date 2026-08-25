@@ -1,6 +1,6 @@
 """The Teams app package we ship has to be uploadable as it stands.
 
-`docs/bridges/teams-app/` is a paste-and-upload package, not an illustration:
+`docs/old/bridges/teams-app/` is a paste-and-upload package, not an illustration:
 an operator zips those three files and Teams accepts or rejects them. Teams
 gives no useful error for most of these mistakes — an icon of the wrong size or
 an eleventh command comes back as a generic validation failure — so the limits
@@ -18,7 +18,8 @@ from pathlib import Path
 
 import pytest
 
-PACKAGE = Path(__file__).resolve().parents[5] / "docs" / "bridges" / "teams-app"
+REPO_ROOT = Path(__file__).resolve().parents[5]
+PACKAGE = REPO_ROOT / "docs" / "old" / "bridges" / "teams-app"
 MANIFEST = PACKAGE / "manifest.json"
 
 # The placeholder an operator must replace with their Azure Bot app id. It is
@@ -216,7 +217,7 @@ def _build(tmp_path: Path, *args: str) -> tuple[int, Path]:
     import subprocess
 
     out = tmp_path / "pkg.zip"
-    script = PACKAGE.parents[2] / "scripts" / "build_teams_app_package.py"
+    script = REPO_ROOT / "scripts" / "build_teams_app_package.py"
     result = subprocess.run(
         [sys.executable, str(script), "-o", str(out), *args],
         capture_output=True,
@@ -319,9 +320,9 @@ def test_the_builder_refuses_a_package_teams_would_reject_for_it(
     for icon in stripped["icons"].values():
         (tmp_path / icon).write_bytes((PACKAGE / icon).read_bytes())
 
-    script = PACKAGE.parents[2] / "scripts" / "build_teams_app_package.py"
+    script = REPO_ROOT / "scripts" / "build_teams_app_package.py"
     source = script.read_text().replace(
-        'PACKAGE_DIR = REPO_ROOT / "docs" / "bridges" / "teams-app"',
+        'PACKAGE_DIR = REPO_ROOT / "docs" / "old" / "bridges" / "teams-app"',
         f"PACKAGE_DIR = Path({str(tmp_path)!r})",
     )
     patched = tmp_path / "build.py"
@@ -362,7 +363,7 @@ def test_bump_raises_the_patch_version(tmp_path: Path) -> None:
 def test_an_unbumped_build_says_teams_will_ignore_it(tmp_path: Path) -> None:
     import subprocess
 
-    script = PACKAGE.parents[2] / "scripts" / "build_teams_app_package.py"
+    script = REPO_ROOT / "scripts" / "build_teams_app_package.py"
     result = subprocess.run(
         [
             sys.executable,

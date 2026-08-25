@@ -38,7 +38,7 @@ import zipfile
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_DIR = REPO_ROOT / "docs" / "bridges" / "teams-app"
+PACKAGE_DIR = REPO_ROOT / "docs" / "old" / "bridges" / "teams-app"
 MANIFEST = PACKAGE_DIR / "manifest.json"
 
 # The three files Teams expects at the root of the archive.

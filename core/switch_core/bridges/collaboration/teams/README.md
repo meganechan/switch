@@ -8,7 +8,7 @@ in the bridge's stored `connection_config`, never in global/env config.
 
 > For the operator-facing **setup walkthrough** (Azure prerequisites, onboarding
 > request, and how Teams fits alongside the other bridges), see
-> [`docs/bridges/TEAMS_SETUP.md`](../../../../../docs/bridges/TEAMS_SETUP.md).
+> [`docs/old/bridges/TEAMS_SETUP.md`](../../../../../docs/old/bridges/TEAMS_SETUP.md).
 > This note focuses on the adapter's internal architecture.
 
 ## Architecture
@@ -75,7 +75,7 @@ authenticated by verifying the Bot Connector JWT.
 
 **This is a checklist of what must exist, not instructions for producing it.**
 For the steps —  which portal blade, which button, in what order — follow
-[`docs/bridges/TEAMS_SETUP.md`](../../../../../docs/bridges/TEAMS_SETUP.md),
+[`docs/old/bridges/TEAMS_SETUP.md`](../../../../../docs/old/bridges/TEAMS_SETUP.md),
 whose Part 1 covers these one for one.
 
 Environment/tenant setup owned by an administrator — track as a separate ops task.
@@ -88,7 +88,7 @@ Environment/tenant setup owned by an administrator — track as a separate ops t
 3. **Teams app package** (manifest plus its two icons) including the bot,
    installed into the target team so it can be added to channels and post
    proactively. A ready-made one ships at
-   [`docs/bridges/teams-app/`](../../../../../docs/bridges/teams-app/).
+   [`docs/old/bridges/teams-app/`](../../../../../docs/old/bridges/teams-app/).
 4. **Graph API permissions** with admin consent, for channel capture +
    provisioning: `ChannelMessage.Read.Group` (RSC, preferred) *or* tenant-wide
    `ChannelMessage.Read.All`; plus `Channel.Create`, `Channel.ReadBasic.All`,

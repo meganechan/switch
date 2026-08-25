@@ -115,7 +115,7 @@ Expect `200` with `ping` echoed back as `text/plain`. A timeout means it is not
 public; a 404 means the path is missing or aimed at port 8000.
 
 Full walkthrough, including the Azure side:
-[`docs/bridges/TEAMS_SETUP.md`](../../../../docs/bridges/TEAMS_SETUP.md).
+[`docs/old/bridges/TEAMS_SETUP.md`](../../../../docs/old/bridges/TEAMS_SETUP.md).
 
 ---
 

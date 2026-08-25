@@ -240,7 +240,7 @@ proactively — so this step is a hard prerequisite for Part 4, not a formality.
 Switch ships a complete one. Copy the manifest below into a `manifest.json`,
 put the two icons beside it, change three values, zip the three files and
 upload. The whole package is in the repository at
-[`docs/bridges/teams-app/`](teams-app/) if you would rather download it than
+[`docs/old/bridges/teams-app/`](teams-app/) if you would rather download it than
 copy it — including
 [`color.png`](teams-app/color.png) and [`outline.png`](teams-app/outline.png),
 which you need either way.
@@ -507,7 +507,7 @@ This is the step most likely to need someone else, which is why it is in
 
 A Teams package will not install without two PNGs, and **a manifest cannot
 point at an image URL** — Teams reads them from inside the zip. Both are in
-[`docs/bridges/teams-app/`](teams-app/):
+[`docs/old/bridges/teams-app/`](teams-app/):
 
 | File | Size | What it is |
 | --- | --- | --- |

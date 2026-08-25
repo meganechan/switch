@@ -66,7 +66,7 @@ Run `just` with no arguments to list every recipe. The most-used ones:
 | `switch-expert/` | Instructions and knowledge for an agent that answers questions about Switch |
 | `justfile` | Repo-root task runner (drives all code trees) |
 
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) describes the service's internal
+[`docs/old/ARCHITECTURE.md`](docs/old/ARCHITECTURE.md) describes the service's internal
 module structure and the key request flows.
 
 ## Testing

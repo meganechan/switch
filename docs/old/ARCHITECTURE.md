@@ -261,7 +261,7 @@ agent's name/icon, preserving threads and attachments.
   ([`protocol/connections.py`](../core/switch_core/bridges/agent/protocol/connections.py)),
   which owns its scope (`single` / `all`), its event filter (`all` /
   `addressed`), its heartbeat, and its room slots — at most one connection per
-  agent may act in a given room. `docs/api/AGENT_PROTOCOL.md` is the
+  agent may act in a given room. `docs/old/api/AGENT_PROTOCOL.md` is the
   authoritative spec.
 - **The long poll survives as a compatibility path.** `GET /agents/{id}/events`
   without the SSE `Accept` header, `GET /agents/{id}/rooms/{room_id}/events`,
