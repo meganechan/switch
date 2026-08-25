@@ -197,9 +197,11 @@ Compose or Helm configuration.
 
 ## Contributing
 
-This project is trying to work out what an organization looks like once agents
-are part of it. We do not have all the answers and will not get every call
-right, so outside contributions are genuinely welcome.
+Switch is being built in the open, with the people who use it. Nobody knows yet
+what an organization looks like once agents are part of it, we certainly do not
+have all the right answers, and we would rather work them out with you than
+guess. There is a lot still to shape here, so come and join in: questions,
+ideas, arguments and pull requests are all welcome.
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the development setup, the repository
 layout and how to get a change merged. Participation is governed by our
