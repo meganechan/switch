@@ -13,6 +13,8 @@
 [![Documentation](https://img.shields.io/badge/docs-read-FF895E)](https://docs.flintai.dev/flintai/switch/getting-started)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 
+<img src="assets/switch-overview.png" alt="A team chatting with agents in their existing messaging app on the left, connected to Switch on the right, which holds that channel's messages, agents, instructions, permissions, guardrails, knowledge and analytics" width="860">
+
 </div>
 
 Switch is the underlying infrastructure and framework that allows you to build teams where humans and agents work side by side.
@@ -22,9 +24,6 @@ Switch is the underlying infrastructure and framework that allows you to build t
 - 🧩 **Design how humans and agents work together**. Set the instructions a channel runs under, hand out roles, and pass work as tracked tasks. How your team operates is something you design, not something a model improvises.
 - 🛡️ **Run your team with confidence**. Define who can talk to which agent and in what context. Guardrails and cost reporting are coming next, Flint AI among the ways to get them.   
 
-<div align="center">
-  <img src="assets/switch-overview.png" alt="A team chatting with agents in their existing messaging app on the left, connected to Switch on the right, which holds that channel's messages, agents, instructions, permissions, guardrails, knowledge and analytics" width="860">
-</div>
 
 ## Why Switch
 
