@@ -53,23 +53,32 @@ form lists the live set and the fields each one requires.
 - **Rooms.** Depending on the platform, a Switch room is created for a channel
   either when the bot is added to it (Slack, Mattermost, Teams, Telegram) or
   lazily on the first bridged message (Discord — it has no "app added to channel"
-  signal). Existing Switch rooms can also be bound to a channel at room-creation
+  signal). Teams is a partial case: an app is installed into a *team* rather
+  than a channel, so the signal fires for the channel it is added to and the
+  team's other standard channels are bound explicitly — see
+  [`TEAMS_SETUP.md`](TEAMS_SETUP.md#bringing-switch-into-a-channel-that-already-exists).
+  Existing Switch rooms can also be bound to a channel at room-creation
   time. See **Channel creation** below for the other direction — Switch making
   the channel — which not every connection can or may do.
 - **Addressing agents.** Users `@mention` an agent by name in the channel to
   address it; unaddressed chatter is bridged as context. In-room commands (e.g.
-  `!invite-agent`) work on every platform. Slack, Discord and Telegram
-  additionally expose them as **native slash commands** (`/invite-agent`) routed
-  into the same handler — declared in the app manifest on Slack, registered
-  automatically per guild on Discord, and accepted alongside `!` on Telegram,
-  where `/` is the platform's own convention.
+  `!invite-agent`) work on every platform. Every platform except Mattermost also
+  takes the `/invite-agent` form, routed into the same handler — though what
+  makes it work differs. Slack declares its commands in the app manifest and
+  Discord registers them per guild, so `/` is a real platform command there.
+  Telegram and Teams simply accept `/` alongside `!` as an ordinary message:
+  on Telegram because `/` is the platform's own convention, and on Teams
+  because a manifest command list only *types* the command into the compose box
+  for the bot to parse.
 - **"Open in Switch Console" links.** Agents surface a `switchdash://…` deeplink with
-  their runtime status. Platforms that only render `http(s)` links (Discord and
-  Telegram) need `GATEWAY_PUBLIC_URL` set so Switch can rewrite it to a clickable
-  `https://<switch-api-host>/deeplink/session?…` redirect; the bridge logs a
-  warning at startup when one of those platforms is running without it. Unset,
-  the address is posted as tap-to-copy text rather than as a link the platform
-  would silently discard. See the Discord or Telegram guide.
+  their runtime status. Platforms that only render `http(s)` links (Discord,
+  Telegram and Teams) need `GATEWAY_PUBLIC_URL` set so Switch can rewrite it to
+  a clickable `https://<switch-api-host>/deeplink/session?…` redirect; the
+  bridge logs a warning at startup when one of those platforms is running
+  without it. Unset, the raw address is posted instead of a link — readable on
+  Discord, tap-to-copy on Telegram, and **discarded entirely on Teams**, which
+  strips a non-http link along with its label. See the Discord, Telegram or
+  Teams guide.
 
 ### Channel creation
 
@@ -106,6 +115,12 @@ are deployment-level environment config on switch-core:
   at `/deeplink/session` on the API root (the agent-bridge app), **not** under the
   `/gateway` mount — so front it with a proxy that routes the API root, not only
   `/gateway/*`. Leave unset to post the raw `switchdash://` deeplink (the
-  disclosed fallback). Applies to every platform but matters most for Discord.
-- **Teams** additionally needs public HTTPS ingress to the bridge's listener —
-  see [`TEAMS_SETUP.md`](TEAMS_SETUP.md).
+  disclosed fallback). Applies to every platform, and is **required** on
+  Discord, Telegram and Teams, which render only http(s) links — Teams goes
+  further and strips a link on any other scheme entirely, label included, so
+  without this the deeplink renders as empty brackets.
+- **Teams** additionally needs public HTTPS ingress to the bridge's listener, on
+  its own port — it is the only bridge Switch does not reach outbound. See
+  [`TEAMS_SETUP.md`](TEAMS_SETUP.md) for the bridge side, and the Helm chart's
+  [README](../../deploy/remote/helm/switch/README.md) for which Switch surfaces
+  have to be reachable from where.
