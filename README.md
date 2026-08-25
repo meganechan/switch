@@ -132,9 +132,11 @@ It covers the whole path properly. The short version:
 |---|---|
 | macOS (Apple Silicon) | [.dmg](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-arm64.dmg) |
 | macOS (Intel) | [.dmg](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x64.dmg) |
-| Linux (x64) | [.AppImage](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x86_64.AppImage) · [.deb](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-amd64.deb) |
-| Linux (arm64) | [.AppImage](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-arm64.AppImage) · [.deb](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-arm64.deb) |
-| Windows (x64) | [.exe](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x64.exe) |
+| Linux (x64) — **early access** | [.AppImage](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x86_64.AppImage) · [.deb](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-amd64.deb) |
+| Linux (arm64) — **early access** | [.AppImage](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-arm64.AppImage) · [.deb](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-arm64.deb) |
+| Windows (x64) — **early access** | [.exe](https://github.com/sandbox-quantum/switch/releases/latest/download/switch-console-x64.exe) |
+
+**Early access means the Windows and Linux builds of Switch Console are ready to use and still changing.** Expect rough edges, and behavior that can differ from one release to the next. When you hit one, [open an issue](https://github.com/sandbox-quantum/switch/issues) — a report is what moves it up the list. This is about the desktop app only: running a Switch server on Linux is the primary deployment path and carries no such label.
 
 
 ### I want to deploy Switch for my team
