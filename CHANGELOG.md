@@ -44,6 +44,306 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.21.0] - 2026-08-25
+
+#### Added
+- The gateway's **registration keys** page can now search agent keys, and its
+  table fills the page height rather than being capped short (#177).
+- Switch's commands appear in Teams' `/` autocomplete picker. The shipped
+  manifest moves to schema v1.29 and declares `supportsTargetedMessages` plus a
+  second command list with `triggers: ["slash"]`. The two surfaces disagree
+  about the slash — the picker prints it and inserts the bare name, while the
+  mention menu inserts a title verbatim — so the lists carry the same commands
+  spelled for their own surface. A command picked from the picker is sent
+  privately to Switch and needs no `@`-mention.
+
+#### Fixed
+- A Slack turn triggered by another app's post — a workflow, a scheduled summary
+  — is handled as an ordinary request: `bot_id` was read as "nobody asked", so
+  the 👀 went on the thread root (which in such a channel need not be a message)
+  and Slack answered `message_not_found`. The message that asked is now
+  remembered whoever sent it; a mark Slack cannot place is recorded as
+  unmarkable rather than retried every progress report; and the warning names
+  the message, not just the channel. A workflow-triggered turn still gets the
+  status message and mark but no card, since Slack will not open a session
+  addressed to an app (#288).
+- A Teams message that merely began with a slash is no longer swallowed as a
+  command. Pasting `/Users/ada/notes.md` came back "unknown command" instead of
+  reaching an agent. `/` is not Switch's prefix — it opens paths, dates and
+  fractions — so an unknown `/name` is now read as text. `!` is Switch's own,
+  so `!list-agent` still answers that it is a typo.
+- An agent no longer answers Switch's own notices. A system message — a
+  command's result, "Added X to this room", the guidance shown when someone
+  tags the app itself — is output, not a request for a reply, and the marker
+  saying so was honoured by the admin client but not by agents. Two ways in: a
+  direct room addresses its agent with every message, so running
+  `/list-agents` in a 1:1 chat had the agent start a session to respond to its
+  own roster; and any notice that lists the agents present writes each `@name`,
+  which tagged all of them. Such a message now arrives as ordinary unaddressed
+  context on every platform.
+
+#### Added
+- `just teams-app-package` builds the Teams app package an operator uploads.
+  Every route into a tenant wants a `.zip` — the Developer Portal's Import app,
+  Upload a custom app, the admin centre — and none of them takes a bare
+  `manifest.json`, so the guide's "now zip these three files" was a step people
+  had to get right by hand. It also writes the app id into the three places it
+  has to match, checks the limits Teams enforces without explaining them, and
+  exits non-zero naming any placeholder left in, so a null app id cannot ship
+  quietly.
+
+#### Changed
+- The shipped Teams app manifest declares `supportsChannelFeatures: tier1`.
+  Teams requires it of any manifest at schema v1.25 or later whose bot takes
+  the `team` scope and refuses the upload without it — a validator rule, not a
+  schema one, so the package validated cleanly against the published schema and
+  was still rejected. The package builder now checks the same rule.
+- The shipped Teams app manifest moves to schema v1.27. It was written at v1.19
+  on the reasoning that older schemas upload most reliably; the tenant we
+  actually run on is on v1.27, which settles that better than the reasoning
+  did. Nothing is removed between the two and the required fields are
+  identical, so it is a version bump rather than a rewrite — and v1.25 raised a
+  command list's cap from ten entries to twelve, so the menu gains
+  `/list-switch-agents` and `/room-url`.
+
+#### Fixed
+- A Teams posts channel no longer fills with *"This message has been deleted."*
+  Teams substitutes that for any deleted message and keeps it in the post, so
+  an agent's status line — posted, moved as the conversation went on, and
+  removed at the end — left one behind per move and per turn. Talking to an
+  agent produced a column of them. The status is now posted once, stays where
+  it is, and is edited to `✓ Done · <elapsed>` when the turn ends, as it
+  already was on Mattermost for the same reason. Threads-layout channels delete
+  cleanly and are unchanged.
+- An agent addressing a Teams user by name produces a real mention again,
+  rather than flat text that notifies nobody. Teams offers a *display* name on
+  an inbound activity, and that was taken as the person's handle — so someone
+  was filed under `Louis Amaudruz`, space and all, while the matcher that turns
+  `@name` back into a mention stops at the first space. It looked for `Louis`,
+  the directory held `louis amaudruz`, and the two could never meet: anyone
+  whose handle contained a space was permanently unmentionable. A display name
+  is now traded for the one-word principal name the directory holds, and the
+  matcher recognises the names it knows however many words they run to, so
+  people already stored the old way work without being renamed.
+- Concurrent writes to a bridge's learned `connection_config` no longer lose
+  each other. The Teams bridge records a channel's team the first time it sees
+  that channel, each from its own session, so a burst of new channels was a
+  burst of read-modify-writes on one JSONB value: measured, eight concurrent
+  writes landed two. A dropped entry is exactly the state that makes Graph
+  refuse that channel's subscription after the next restart. The row is now
+  locked for the update, which also stops the serviceUrl writer clobbering it.
+- The Graph notification endpoint compares its `clientState` in constant time.
+  It is the only control that authenticates a notification's origin, and a
+  plain `!=` on a secret leaks its prefix through timing.
+- Repairing a placeholder username costs one lookup per person rather than one
+  per message. It runs on every inbound message on every bridge, and the common
+  case — a stored name that is already fine — was still opening a session and
+  querying.
+- A Graph read of a Teams channel that fails is retried later instead of being
+  believed forever. The name and layout of a channel are read together and
+  cached, and a failure was cached with them — so one blip, or a permission
+  granted a minute after the bridge started, left that channel nameless and
+  threaded as a posts channel for the life of the process. Learning a channel's
+  team now also discards anything read against the previous one, since a read
+  made against the wrong team is exactly the read Graph refuses.
+- The rejection an inbound Teams activity gets when it is addressed to the
+  wrong app id names the audience the token carries — and now reads that back
+  out of a signature-verified decode rather than an unverified one. The
+  signature had in fact already been checked by the time this ran, so nothing
+  was exploitable, but quoting an unverified claim in the message explaining
+  why a caller was rejected is a habit worth not having.
+- Teams channel capture no longer dies at a restart for any channel outside the
+  connection's configured team. A Graph subscription names the team as well as
+  the channel, and the team is only ever carried on an inbound activity — held
+  in memory it was lost on restart, and those channels fell back to the
+  configured team, where Graph answers "Channel is not present in the team".
+  Nothing recovered it: refilling the map needs an activity from the channel,
+  and without capture Teams delivers only messages mentioning the bot, so
+  addressing an agent — the normal way to use the room — never arrived. The
+  mapping is now persisted the way the Bot Connector endpoint already was.
+
+#### Added
+- Teams accepts `/command` as well as `!command`, and the setup guide carries
+  the app-manifest snippet that puts the commands above the compose box. Teams
+  has no server-registered slash commands: a manifest command list types the
+  text and the bot parses it, so the two prefixes are the same thing by the
+  time Switch sees them — but people arriving from Slack try `/` first, and
+  until now got nothing.
+
+- The Helm chart can publish and route the Microsoft Teams bridge listener. The
+  Teams adapter serves Bot Framework activities and Graph change notifications
+  from its own HTTP server on port 3978, separate from the API on 8000, and
+  nothing in the chart exposed it — so a Teams bridge could create channels and
+  post while receiving nothing back, looking healthy throughout. Set
+  `switchCore.teamsBridge.enabled=true` to publish the container and Service
+  port, and `switchCore.teamsBridge.ingress.mode` to say how the two callback
+  paths are routed: `dedicated` renders a second Ingress carrying only those
+  paths on their own host and certificate, so Microsoft can reach them while the
+  gateway stays internal; `shared` adds them to the chart's managed Ingress;
+  `external` leaves the routing to you (see `samples/ingress.example.yaml`).
+  Off by default, because bridges are created at runtime and the chart cannot
+  detect one.
+- The Teams Ingress supports sitting behind a CDN or reverse proxy: leave its
+  `host` empty and TLS off, and it renders a host-less rule that answers
+  whatever `Host` arrives. That is the shape needed when the public name belongs
+  to something upstream, and it is the only option that needs no domain of your
+  own — the setup doc carries the CloudFront recipe, including the two settings
+  (forward query strings, do not cache) without which Graph's subscription
+  handshake fails. Empty `host` with TLS enabled is still rejected, since a
+  host-less rule cannot carry a certificate.
+- The chart now refuses to render a Teams bridge that nothing can reach —
+  enabled with no routing mode, `shared` without a managed Ingress, or either
+  managed mode without a hostname. Publishing the port without a route is the
+  silent half-failure the rest of this work exists to prevent, so it is a
+  render-time error rather than something found days later.
+- `helm test` checks the Teams listener, running Graph's own validation
+  handshake against the Service. It proves the listener is bound and the port
+  published; it runs in-cluster, so it deliberately does not claim anything
+  about public reachability, and says so.
+- Post-install notes print the exact `public_base_url` to paste into the bridge,
+  and warn when its Ingress has TLS disabled — Graph only calls HTTPS it trusts.
+- The Helm chart has a `README.md`, covering which of Switch's three network
+  surfaces have to be reachable from where. Only the Teams listener needs the
+  public internet; every other bridge connects outbound.
+- Registering a bridge that would contend with an existing one for a host
+  resource is refused, naming what clashed. Teams is the case that has one: its
+  inbound listener needs a TCP port, and a second bridge on the same port failed
+  to bind inside a background task, was dropped from the running set, and never
+  retried — surfacing much later as `Bridge not running: <id>` with no stated
+  cause. Adapters declare this by implementing `exclusive_resource`; those that
+  only dial out declare nothing and are unaffected. The same check runs at
+  startup, so rows predating it get a clear error instead of a bind failure.
+- Bridge credentials are verified before a bridge is saved. Adapters start in a
+  background task whose exceptions are logged and swallowed, so credentials that
+  the platform rejects used to be stored, reported as success, and surface hours
+  later as an unrelated-looking failure. Registering a Teams bridge now asks
+  Azure for both tokens it will need first, and a refusal comes back as a 400
+  carrying Microsoft's own explanation — which names the mistake outright,
+  including the client secret **value** vs secret **ID** mix-up. Adapters opt in
+  by implementing `verify_credentials`; the default still accepts anything,
+  because an adapter that cannot check cheaply should not pretend to.
+
+#### Changed
+- A Teams bridge is five fields instead of nine. The `clientState` shared secret
+  and the Graph encryption certificate, public key and private key are generated
+  when the bridge is created rather than asked for: they are values the operator
+  invents rather than gets from Microsoft, and asking meant an invented secret,
+  an `openssl` invocation, and three PEM fields whose only symptom when pasted
+  wrong is channel capture that silently never decrypts. Supplying your own
+  through the API still wins, all three or none. Existing bridges are untouched,
+  including any left without encryption material.
+- The Teams Graph private key is no longer typed into a plaintext form field.
+  The gateway decides which inputs to mask by matching the field name against
+  `token|password|secret|api_key`, which `encryption_private_key` does not match;
+  generating it removes the field from the form entirely.
+- `docs/bridges/TEAMS_SETUP.md` rewritten. It now walks through Azure setup
+  value by value and says where each one comes from, documents the deployment
+  and public-ingress requirements (previously absent), and adds verification and
+  troubleshooting sections keyed to the errors these failures actually produce —
+  starting with the client secret **value** vs secret **ID** mix-up, which
+  surfaces only as an opaque `AADSTS7000215` at the first Graph call.
+
+#### Fixed
+- Following an "Open in Switch Console" link no longer strands the browser tab.
+  The gateway answered the click with a bare `302` to the `switchdash://`
+  deeplink; the browser hands that to the desktop app without loading a page,
+  so the tab kept whatever it last rendered — on Teams, Defender's Safe Links
+  interstitial, still saying "Verifying link . . ." after Switch Console had
+  opened, which reads as a link that hung. It now serves a page that opens the
+  app, tries to close itself, and — since browsers only let a script close a
+  window a script opened — otherwise says the handover worked and the tab can
+  be closed.
+- A Graph permission granted while the bridge is running takes effect on the
+  next call instead of within the hour. An app's roles are stamped into its
+  access token when it is issued, so consent granted afterwards is invisible
+  for the token's lifetime — Graph keeps answering `Authorization_RequestDenied`
+  on a permission the operator can see plainly granted in Azure, which sends
+  them back to look at it again. A `401` or `403` from Graph now discards the
+  cached token and retries once with a fresh one. Once, and only when the token
+  was old enough to have missed the grant, so a genuine denial costs one extra
+  round trip rather than looping.
+- A person recorded under a Teams id gets their name back on their next
+  message. Switch files someone under the name it is first given, and Teams
+  often gives none — a 1:1 activity carries no sender name — so its own id went
+  in and then read as that person's name in room titles, on their Matrix
+  account and in every agent reply addressing them. Resolving names properly
+  helped only people met afterwards; this repairs the records already written,
+  without a migration. One-way by design: an id becomes a name, never the
+  reverse, and one name never replaces another.
+- A Teams channel with no name in its activity is looked up in Graph rather
+  than falling back to its id, so an auto-created room is called something a
+  person recognises instead of `19:7641f9de326b4…`. Cached, including the
+  "asked and could not say" case.
+- An agent's first message in a Teams channel opens a post and everything it
+  says next joins that post. It used to open a fresh one each time, so an agent
+  introducing itself produced a column of one-line posts rather than a
+  conversation.
+- An agent answering in a Teams channel replies inside the post it was asked
+  in. A channel is a list of posts rather than a stream, so posting at the root
+  opens a new conversation — the question sat in one post and the answer
+  appeared as a fresh one below it. A reply that names no thread now goes to
+  the post the bridge last saw that channel speak in. Per channel, so two
+  conversations at once in the same channel can still cross; Teams offers no
+  better signal on an untied reply, and the wrong post beats a new one every
+  time. Chats and group chats are unaffected.
+- Teams messages are rendered for Teams. Shared bridge code emitted Slack's
+  `<@id>` mention form on every platform, so a Teams user was told they had
+  tagged `<@28:11111111-…>`; an `@name` was inert text, because Teams needs
+  `<at>` markup *and* a matching entity and the adapter emitted neither, so an
+  agent could never notify its owner; and single line breaks vanished, because
+  an Adaptive Card text block follows Markdown in treating one newline as
+  whitespace. Outbound bodies were also being rendered twice — callers of
+  `send_message` render first by contract, and Slack and Teams rendered again,
+  which Slack's real conversion has been quietly suffering.
+- A Teams sender with no name attached is looked up rather than filed under
+  their id. Teams omits the sender's name from some activities — 1:1 chats
+  especially — and the raw `29:…` id became that person's name in the room
+  title, on their Matrix account and in every reply addressing them. The
+  directory and the message paths now also agree on one handle (the local part
+  of the principal name) instead of storing a principal name from one and a
+  display name from the other. Existing records keep the name they were
+  created with.
+- Directory search matches on user principal name, so confirming a claim finds
+  the person who was just picked from the list. It searched display name and
+  mail only, then re-searched by principal name to confirm — a 404 for anyone
+  whose mail differs from their UPN or who has none. `User.ReadBasic.All` is
+  also now documented; without it the search fails and nobody can link an
+  account at all.
+- The "Open in Switch Console" link no longer renders as empty brackets on
+  Teams. Teams strips a link whose scheme is not http(s) — label included —
+  and the console deeplink is `switchdash://`. Teams now declares that, so the
+  URL is rewritten to the gateway redirect as it already was for Discord and
+  Telegram, and a deployment missing `GATEWAY_PUBLIC_URL` is told at startup.
+- Adding a room to a bridge no longer answers `500` when the platform refuses
+  to create the channel. Graph says exactly what is wrong — which permission is
+  missing, which value it will not take — and that sentence went to the log
+  while the operator got an unhandled exception. Platform refusals are now
+  `BridgeOperationError`, the counterpart to `BridgeCredentialError` for
+  everything after the credentials are accepted, and room creation returns a
+  `502` quoting the platform. Registering a bridge only proves it will issue a
+  token, so this class of failure always surfaces after setup has reported
+  success. Only the Teams adapter raises it so far.
+- A Teams channel subscription that fails is retried instead of leaving capture
+  dead until someone restarts the process. Graph validates a notification URL
+  by calling it, and the bridge asks for its subscriptions seconds after
+  binding its port — behind a load balancer that is precisely when nothing
+  answers yet, so the first attempt after *every* restart was refused and the
+  restart that broke capture was also the only thing that could fix it. The
+  retry backs off to a few minutes and says so when capture recovers; repeats
+  of an unchanged failure are quiet, but a change of reason is not.
+- Binding a room to a collaboration channel that already exists now establishes
+  message capture for it. Capture was only ever set up as a side effect of
+  *creating* a channel, so a room pointed at an existing one — on creation, on
+  linking a bridge to an internal room, or on moving a room between bridges —
+  heard nothing but the messages that @mentioned it. Invisible on bridges whose
+  capture is one bridge-wide stream, and on Teams it survived only until the
+  next restart happened to reconcile it.
+- A Teams activity rejected for the wrong audience says which audience it
+  carried and which one the bridge expects. The rejection is almost always the
+  Azure Bot resource and the registered app registration having different app
+  ids, and the message it replaced — `Audience doesn't match` — named neither,
+  so the one fact needed to fix it was the one fact not logged.
+
 ### [0.20.0] - 2026-08-24
 
 #### Added
@@ -771,6 +1071,8 @@ version of their own to them without also giving them a release of their own.
 ## switch-console
 
 ### [Unreleased]
+
+### [0.31.0] - 2026-08-25
 #### Added
 - Creating an agent, starting a session and adding a server now report whether
   they worked, and an enumerated reason when they did not. Previously only the
@@ -811,6 +1113,12 @@ version of their own to them without also giving them a release of their own.
 - Installing an update no longer reports that it both worked and failed. The
   success was sent before handing over to the installer, so an install that then
   failed to take was counted twice, in both directions.
+
+#### Changed
+- Local-server mode now bundles and pulls **switch-core `0.21.0`** (was
+  `0.19.0`): the bundle pin / `COMPATIBLE_SWITCH_VERSION` is raised to the
+  current core release.
+- Third-party dependency updates (#193).
 
 ### [0.30.0] - 2026-08-24
 

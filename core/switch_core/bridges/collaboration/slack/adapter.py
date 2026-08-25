@@ -404,7 +404,7 @@ class SlackAdapter(CollaborationAdapter):
         try:
             result = await self._web_client.chat_postMessage(
                 channel=channel_id,
-                text=self.translate_outbound(content),
+                text=content,
                 username=sender_name,
                 icon_url=await self.agent_icon_url(sender_name),
                 thread_ts=thread_ts,
@@ -1436,12 +1436,13 @@ class SlackAdapter(CollaborationAdapter):
         channel_id: str,
         user_names: list[str],
         user_external_ids: list[str],
-    ) -> None:
+    ) -> list[str]:
         if not self._web_client:
             raise RuntimeError(
                 "Cannot add users to channel: Slack client not connected"
             )
 
+        failed: list[str] = []
         for user_id in user_external_ids:
             try:
                 await self._web_client.conversations_invite(
@@ -1455,6 +1456,8 @@ class SlackAdapter(CollaborationAdapter):
                         channel_id,
                         e,
                     )
+                    failed.append(user_id)
+        return failed
 
     # ── Agent identity ───────────────────────────────────────────────────────
 

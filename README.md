@@ -195,7 +195,6 @@ dashboard covers the rest.
 one up for you, on this machine or on a host you own, without you writing any
 Compose or Helm configuration.
 
-
 ## Contributing
 
 Switch is being built in the open, with the people who use it. Nobody knows yet
