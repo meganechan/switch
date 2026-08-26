@@ -1072,6 +1072,12 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.31.1] - 2026-08-26
+
+#### Fixed
+- The setup checklist's ✕ now actually dismisses it. The button did nothing, so
+  a checklist a user had finished with stayed on screen.
+
 ### [0.31.0] - 2026-08-25
 #### Added
 - Creating an agent, starting a session and adding a server now report whether
@@ -2655,6 +2661,13 @@ compatibility signal. History for those is in the git log.
 
 ### [Unreleased]
 
+### [0.9.9] - 2026-08-26
+#### Fixed
+- The `configure` skill's standalone feature list no longer claims the **task
+  protocol** works — it was removed from the connector skills, so an agent
+  reading the old list could try something unavailable. Plugin version bumped so
+  installs re-download.
+
 ### [0.9.8] - 2026-08-24
 #### Changed
 - The `configure` skill's generated connect command now names the agent it was
@@ -2864,6 +2877,14 @@ manifest history.
 `connectors/codex-plugin/`. Version lives in `.codex-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.3.10] - 2026-08-26
+#### Fixed
+- The `configure` skill's standalone feature list no longer claims the **task
+  protocol** works — it was removed from the connector skills, so an agent
+  reading the old list could try something unavailable. Also corrects a
+  `mcp_servers` → `mcpServers` reference. Plugin version bumped so installs
+  re-download.
 
 ### [0.3.9] - 2026-08-24
 #### Changed
