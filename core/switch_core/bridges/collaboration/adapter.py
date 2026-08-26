@@ -515,8 +515,7 @@ class CollaborationAdapter(ABC):
 
         Adapters whose platform removes a message invisibly may override to
         follow the conversation instead, by calling
-        ``_move_runtime_indicator`` — Slack does, and Teams does in a chat
-        channel.
+        ``_move_runtime_indicator`` — Teams does, in a chat channel.
         """
         return
 

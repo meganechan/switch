@@ -104,6 +104,14 @@ _AGENT_SESSIONS_RETRY_AFTER = 600
 # per-turn detail is only wanted when someone is looking for it.
 _TRACE = "[agent-sessions] "
 
+# Kill switch over the per-bridge `agent_sessions` option: no Slack agent
+# session is opened while this is False, whatever a bridge has configured. The
+# option is persisted when a bridge is registered, so turning the default off
+# would not reach one that already exists — and the turn has to fall back to
+# the status message Switch posts, which is the surface being demonstrated.
+# Temporary. Restore this to True and the option decides again.
+_AGENT_SESSIONS_ENABLED = False
+
 # Put on the message an agent is working on, for the whole turn.
 _WORKING_REACTION = "eyes"
 
@@ -361,10 +369,19 @@ class SlackAdapter(CollaborationAdapter):
         )
         await self._socket_client.connect()
         logger.info("Slack Socket Mode connected")
-        logger.debug(
-            _TRACE + "build carries agent sessions; config agent_sessions=%s",
-            self._config.agent_sessions,
-        )
+        if not _AGENT_SESSIONS_ENABLED:
+            logger.warning(
+                "Slack agent sessions are disabled in this build, so no native "
+                "progress card is shown even where a bridge has the option on "
+                "(this one: %s). Turns report through the status message Switch "
+                "posts instead.",
+                self._config.agent_sessions,
+            )
+        else:
+            logger.debug(
+                _TRACE + "build carries agent sessions; config agent_sessions=%s",
+                self._config.agent_sessions,
+            )
 
     async def stop(self) -> None:
         if self._socket_client:
@@ -927,6 +944,8 @@ class SlackAdapter(CollaborationAdapter):
         A session is scoped to a thread, so a turn with none is left to the
         posted messages alone.
         """
+        if not _AGENT_SESSIONS_ENABLED:
+            return
         if not self._config.agent_sessions:
             logger.debug(_TRACE + "skipped for %s: turned off in config", agent_name)
             return
@@ -1310,16 +1329,6 @@ class SlackAdapter(CollaborationAdapter):
                 channel_name=await self._resolve_channel_name(channel_id),
             )
         )
-
-    async def _reposition_runtime_state(
-        self, channel_id: str, agent_name: str, thread_root_id: str | None
-    ) -> None:
-        """Follow the conversation rather than staying where the turn began.
-
-        Slack removes a message without leaving anything in its place, so the
-        indicator can chase the conversation at no cost to the reader.
-        """
-        await self._move_runtime_indicator(channel_id, agent_name, thread_root_id)
 
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
         live = self._working_msg.pop((channel_id, agent_name), None)

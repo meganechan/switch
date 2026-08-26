@@ -693,11 +693,59 @@ def test_runtime_state_idle_clears_working_message() -> None:
     assert ("C123", "agent-bot") not in adapter._working_msg
 
 
-# ── Runtime state (following the latest message) ────────────────────────────
+# ── Runtime state (staying where the turn began) ────────────────────────────
+
+
+def test_the_indicator_stays_put_instead_of_following_the_conversation() -> None:
+    # Slack could move it — it deletes cleanly — but a status that jumps to the
+    # bottom on every message is no longer where the reader last saw it.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123", "agent-bot", "working", mention_handle=None, thread_root_id=None
+        )
+    )
+    posted = len(fake.calls)
+
+    _run(adapter.reposition_runtime_state("C123", "agent-bot", "C123:222.2"))
+
+    assert len(fake.calls) == posted
+    assert fake.deletes == []
+    live = adapter._working_msg[("C123", "agent-bot")]
+    assert live.message_ref == "C123:999.9"
+    assert live.thread_root_id is None
+
+
+# ── The move itself, exercised through an adapter that opts into it ──────────
+#
+# The repost-then-delete lives on the base adapter as `_move_runtime_indicator`
+# and is what Teams calls in a chat channel. Slack no longer opts into it, so
+# these drive it through a subclass that does — the alternative is losing the
+# coverage of the shared code along with the behaviour.
+
+
+class _MovingSlackAdapter(SlackAdapter):
+    async def _reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        await self._move_runtime_indicator(channel_id, agent_name, thread_root_id)
+
+
+def _moving_adapter() -> SlackAdapter:
+    return _MovingSlackAdapter(
+        config=SlackConnectionConfig(
+            bot_token="xoxb-test",
+            app_token="xapp-test",
+            workspace_id="T123",
+        )
+    )
 
 
 def test_reposition_reposts_indicator_below_newer_traffic() -> None:
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -722,7 +770,7 @@ def test_reposition_reposts_indicator_below_newer_traffic() -> None:
 
 
 def test_reposition_stays_in_the_thread_when_the_message_is_in_it() -> None:
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -743,7 +791,7 @@ def test_reposition_stays_in_the_thread_when_the_message_is_in_it() -> None:
 def test_reposition_follows_the_agent_into_a_different_thread() -> None:
     # The indicator re-homes rather than being stranded in whichever thread the
     # turn happened to open in.
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -763,7 +811,7 @@ def test_reposition_follows_the_agent_into_a_different_thread() -> None:
 
 
 def test_reposition_follows_the_agent_back_out_to_the_channel_root() -> None:
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -783,7 +831,7 @@ def test_reposition_follows_the_agent_back_out_to_the_channel_root() -> None:
 
 
 def test_reposition_is_a_noop_without_a_live_indicator() -> None:
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -797,7 +845,7 @@ def test_a_turn_ending_during_a_move_clears_what_the_move_left() -> None:
     # A move and the end-of-turn clear cannot interleave: both run under the
     # agent's runtime lock, so the clear sees the moved indicator rather than
     # the message the move already deleted. Nothing is left in the channel.
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 
@@ -823,7 +871,7 @@ def test_a_turn_ending_during_a_move_clears_what_the_move_left() -> None:
 def test_reposition_leaves_the_original_when_the_repost_fails() -> None:
     # A move must never end with no indicator at all: if the replacement cannot
     # be posted, the original stays where it is rather than being deleted.
-    adapter = _adapter()
+    adapter = _moving_adapter()
     fake = _FakeWebClient()
     adapter._web_client = fake  # type: ignore[assignment]
 

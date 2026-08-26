@@ -69,8 +69,23 @@ class _Platform:
         adapter.delete_message = delete_message  # type: ignore[method-assign]
 
 
+class _MovingSlackAdapter(SlackAdapter):
+    """Slack, opted back into following the conversation.
+
+    The repost-then-delete these tests race against lives on the base adapter
+    and is what Teams calls in a chat channel; Slack itself now leaves the
+    indicator where the turn began. Driving the move through a subclass keeps
+    the race covered against a real adapter rather than a hand-built stub.
+    """
+
+    async def _reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        await self._move_runtime_indicator(channel_id, agent_name, thread_root_id)
+
+
 def _adapter() -> tuple[SlackAdapter, _Platform]:
-    adapter = SlackAdapter(
+    adapter = _MovingSlackAdapter(
         config=SlackConnectionConfig(
             bot_token="xoxb-test", app_token="xapp-test", workspace_id="T-test"
         )

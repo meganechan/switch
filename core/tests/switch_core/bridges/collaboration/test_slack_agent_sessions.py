@@ -16,6 +16,7 @@ import pytest
 from slack_sdk.errors import SlackApiError
 
 from switch_core.bridges.collaboration.models import InboundCommand
+from switch_core.bridges.collaboration.slack import adapter as adapter_module
 from switch_core.bridges.collaboration.slack.adapter import (
     _AGENT_SESSIONS_FAILURE_LIMIT,
     SlackAdapter,
@@ -25,6 +26,18 @@ from switch_core.bridges.collaboration.slack.adapter import (
 
 _TRACE_MARKER = "[agent-sessions]"
 THREAD = "C1:111.0"
+
+
+@pytest.fixture(autouse=True)
+def _sessions_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the build-wide kill switch back on for this file.
+
+    Agent sessions are switched off in the build (see
+    ``_AGENT_SESSIONS_ENABLED``) while the posted status message is the surface
+    being shown. The behaviour is intact and this is its coverage, so it runs
+    against the feature enabled rather than being deleted along with the switch.
+    """
+    monkeypatch.setattr(adapter_module, "_AGENT_SESSIONS_ENABLED", True)
 
 
 def _run(coro: Any) -> Any:
