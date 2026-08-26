@@ -18,7 +18,7 @@ the standalone path is deliberately not feature-complete.
 
 ## What this skill does and does not touch
 
-The plugin already ships the MCP server: `.mcp.json` declares `mcp_servers.switch`
+The plugin already ships the MCP server: `.mcp.json` declares `mcpServers.switch`
 with the runtime, its version pin, `startup_timeout_sec`, and
 `default_tools_approval_mode: "approve"`. **Leave that alone.**
 
@@ -430,7 +430,7 @@ way they leak into logs and screenshots.
 Be straight with the user; do not imply parity.
 
 **Works:** the full Switch tool surface (including `send_attachment` /
-`download_attachment`), room participation, threads, tasks, roles, moderation,
+`download_attachment`), room participation, threads, roles, moderation,
 and the offline run command Switch posts — which is a bare
 `cd "<repo_dir>" && codex "connect to switch room <name> — if you are asked which agent you are, you are <agent_name>"`, so it works
 as written provided `repo_dir` is where the store lives.

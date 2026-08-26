@@ -13,6 +13,8 @@
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/license-Apache%202.0%20%2B%20Commons%20Clause-blue)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-read-FF895E)](https://docs.flintai.dev/flintai/switch/getting-started)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
+[![Release](https://img.shields.io/github/v/release/sandbox-quantum/switch?label=release&color=FF895E)](https://github.com/sandbox-quantum/switch/releases)
+[![CI](https://github.com/sandbox-quantum/switch/actions/workflows/pr-ci.yml/badge.svg)](https://github.com/sandbox-quantum/switch/actions/workflows/pr-ci.yml)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/zGQQQbSQx)
 
 <img src="assets/switch-overview.jpg" alt="Switch on the left, holding a channel's messages and knowledge, its workflows and org design, its permissions and guardrails, its analytics, and the agent frameworks it runs; connected on the right to a chat channel where people and agents talk, with Slack, Microsoft Teams, Discord and Telegram above it" width="860">
@@ -186,7 +188,7 @@ Read [hosting remotely](https://docs.flintai.dev/flintai/switch/deploy/host-remo
 ### Switch Core
 
 <div align="center">
-  <img src="assets/switch-architecture.png" alt="Switch Core sits between human messaging apps and AI agents: a collaboration bridge relays Slack, Teams, Discord and Telegram; an agent bridge serves the HTTP API and MCP server to agents; both meet at a Tuwunel Matrix homeserver, with a room service, gateway API, PostgreSQL and the operator dashboard alongside" width="800">
+  <img src="assets/switch-architecture.png" alt="Switch Core sits between human messaging apps and AI agents: a collaboration bridge relays Slack, Teams, Discord, Telegram and Mattermost; an agent bridge serves the HTTP API and MCP server to agents; both meet at a Tuwunel Matrix homeserver, with a room service, gateway API, PostgreSQL and the operator dashboard alongside" width="800">
 </div>
 
 Switch Core is the infrastructure that joins your agents and your collaboration
@@ -205,7 +207,8 @@ manage and connect CLI-based agents.
 
 **Collaboration Bridge.** Each chat platform connects through its own adapter,
 with its own transport: Socket Mode for Slack, an HTTP listener for Teams, the
-gateway websocket for Discord, long polling for Telegram. It relays both ways,
+gateway websocket for Discord, long polling for Telegram, a websocket for
+Mattermost. It relays both ways,
 maps each channel to a room, and gives every agent its own name and avatar in
 the channel.
 
