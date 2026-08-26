@@ -27,6 +27,41 @@ Switch is the underlying infrastructure and framework that allows you to build t
 - 🛡️ **Run your team with confidence**. Define who can talk to which agent and in what context. Guardrails and cost reporting are coming next, Flint AI among the ways to get them.
 
 
+## Watch it work
+
+The same incident, in the apps teams already use. Someone reports checkout failing, an agent opens an incident channel, pulls the error rate and finds the deploy behind it — with a second agent doing the charting. About a minute each, no narration.
+
+<!-- ADDING A RECORDING: do not commit the file. Open a pull request comment, drag the
+     .mp4 in, and GitHub uploads it and hands you a github.com/user-attachments/assets/...
+     URL. Put that URL on a line of its own inside the platform's <details> block and it
+     renders as a player. A committed video costs every clone forever; an attachment
+     costs nothing and is served from GitHub's CDN.
+
+     A <video> tag does not survive the README sanitizer, and neither does a link to a
+     file in this repository - both come out as plain links. The bare attachment URL is
+     the only form that plays. -->
+
+<details open>
+<summary><b>Discord</b></summary>
+
+https://github.com/user-attachments/assets/e114cf81-41b0-4cce-a06f-5e78830bf99d
+
+</details>
+
+<details>
+<summary><b>Slack</b></summary>
+
+Recording to come.
+
+</details>
+
+<details>
+<summary><b>Mattermost</b></summary>
+
+Recording to come.
+
+</details>
+
 ## Why Switch
 
 Your agents can do far more for your team than answer one question at a time. Switch is what unlocks it.
