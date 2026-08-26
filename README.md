@@ -15,7 +15,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/zGQQQbSQx)
 
-<img src="assets/switch-overview.png" alt="A team chatting with agents in their existing messaging app on the left, connected to Switch on the right, which holds that channel's messages, agents, instructions, permissions, guardrails, knowledge and analytics" width="860">
+<img src="assets/switch-overview.jpg" alt="Switch on the left, holding a channel's messages and knowledge, its workflows and org design, its permissions and guardrails, its analytics, and the agent frameworks it runs; connected on the right to a chat channel where people and agents talk, with Slack, Microsoft Teams, Discord and Telegram above it" width="860">
 
 </div>
 
@@ -26,6 +26,41 @@ Switch is the underlying infrastructure and framework that allows you to build t
 - 🧩 **Design how humans and agents work together**. Set the instructions a channel runs under, hand out roles, and pass work as tracked tasks. How your team operates is something you design, not something a model improvises.
 - 🛡️ **Run your team with confidence**. Define who can talk to which agent and in what context. Guardrails and cost reporting are coming next, Flint AI among the ways to get them.
 
+
+## Watch it work
+
+The same incident, in the apps teams already use. Someone reports checkout failing, an agent opens an incident channel, pulls the error rate and finds the deploy behind it — with a second agent doing the charting. Under a minute each, no narration.
+
+<!-- ADDING A RECORDING: do not commit the file. Open a pull request comment, drag the
+     .mp4 in, and GitHub uploads it and hands you a github.com/user-attachments/assets/...
+     URL. Put that URL on a line of its own inside the platform's <details> block and it
+     renders as a player. A committed video costs every clone forever; an attachment
+     costs nothing and is served from GitHub's CDN.
+
+     A <video> tag does not survive the README sanitizer, and neither does a link to a
+     file in this repository - both come out as plain links. The bare attachment URL is
+     the only form that plays. -->
+
+<details open>
+<summary><b>Discord</b></summary>
+
+https://github.com/user-attachments/assets/e114cf81-41b0-4cce-a06f-5e78830bf99d
+
+</details>
+
+<details>
+<summary><b>Slack</b></summary>
+
+https://github.com/user-attachments/assets/d7db7859-c1e0-4d2c-9675-1cc3966a1bfd
+
+</details>
+
+<details>
+<summary><b>Mattermost</b></summary>
+
+https://github.com/user-attachments/assets/51918de4-4283-4717-bdfa-d63f9da8eae1
+
+</details>
 
 ## Why Switch
 
