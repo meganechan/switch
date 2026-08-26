@@ -7,7 +7,7 @@
 </picture>
 
 
-**The harness for building your team where humans and agents work side by side**
+**Bring humans and AI agents together in the tools where your team already works**
 
 [![Website](https://img.shields.io/badge/website-flintai.dev-FF895E)](https://www.flintai.dev/products/switch)
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/license-Apache%202.0%20%2B%20Commons%20Clause-blue)](LICENSE)
