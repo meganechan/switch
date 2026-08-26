@@ -159,6 +159,7 @@ def _state(
     detail: str | None = None,
     thread: str | None = THREAD,
     deeplink: str | None = None,
+    anchor: str | None = None,
 ) -> Any:
     return adapter.apply_runtime_state(
         "C1",
@@ -168,7 +169,39 @@ def _state(
         thread_root_id=thread,
         detail=detail,
         deeplink_url=deeplink,
+        anchor_message_ref=anchor,
     )
+
+
+# ── The eyes, which do not depend on there being a thread ────────────────────
+
+
+def test_a_turn_asked_at_the_channel_root_is_still_marked() -> None:
+    # The status stays at the root rather than opening a thread to sit in, so
+    # the eyes cannot come from a thread — they go on the message the agent
+    # reports it was handed.
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading", thread=None, anchor="C1:707.0"))
+
+    assert ("add", "707.0", "eyes") in client.reactions
+
+
+def test_the_root_mark_is_taken_off_when_the_turn_ends() -> None:
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading", thread=None, anchor="C1:707.0"))
+    _run(_state(adapter, "idle", thread=None))
+
+    assert ("remove", "707.0", "eyes") in client.reactions
+
+
+def test_a_rootless_turn_with_nothing_to_mark_marks_nothing() -> None:
+    adapter, client = _adapter()
+
+    _run(_state(adapter, "working", detail="reading", thread=None, anchor=None))
+
+    assert client.reactions == []
 
 
 # ── The card replaces the posted message ─────────────────────────────────────

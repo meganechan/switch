@@ -757,6 +757,7 @@ class SlackAdapter(CollaborationAdapter):
             state=state,
             detail=detail,
             deeplink_url=deeplink_url,
+            anchor_message_ref=anchor_message_ref,
         )
 
         key = (channel_id, agent_name)
@@ -810,6 +811,7 @@ class SlackAdapter(CollaborationAdapter):
         state: str,
         detail: str | None,
         deeplink_url: str | None,
+        anchor_message_ref: str | None,
     ) -> None:
         """Keep every thread this agent has in flight, and end them together.
 
@@ -818,11 +820,19 @@ class SlackAdapter(CollaborationAdapter):
         the thread it last touched. Cleaning up just that one leaves the first
         message marked as being worked on for good, and its card frozen
         mid-task. So the threads are remembered per agent and closed together.
+
+        The eyes and the card are separate: the mark goes on the message the
+        agent says it was handed, which exists whether or not the turn has a
+        thread, while a card needs one. A turn asked at the channel root is
+        therefore still marked, and simply has no card.
         """
         akey = (channel_id, agent_name)
         thread_ts = self._thread_ts_of(thread_root_id)
 
         if state in ("working", "awaiting-input"):
+            await self._mark_the_asking_message(
+                channel_id, agent_name, thread_ts, anchor_message_ref
+            )
             if not thread_ts:
                 await self._update_session(
                     channel_id,
@@ -834,9 +844,6 @@ class SlackAdapter(CollaborationAdapter):
                 )
                 return
             self._agent_threads.setdefault(akey, set()).add(thread_ts)
-            asked_on = self._thread_trigger.get((channel_id, thread_ts), thread_ts)
-            self._agent_eyes.setdefault(akey, set()).add(asked_on)
-            await self._mark_being_read(channel_id, asked_on, working=True)
             await self._update_session(
                 channel_id,
                 thread_root_id,
@@ -861,6 +868,29 @@ class SlackAdapter(CollaborationAdapter):
                 detail=None,
                 deeplink_url=None,
             )
+
+    async def _mark_the_asking_message(
+        self,
+        channel_id: str,
+        agent_name: str,
+        thread_ts: str | None,
+        anchor_message_ref: str | None,
+    ) -> None:
+        """Put the eyes on the message this turn is answering.
+
+        The anchor is what the agent reports it was handed, so it is the right
+        message wherever it sits. Inside a thread it can be missing — an older
+        turn, or a report that predates the field — and there the thread's own
+        last message is the closest thing to what asked; the thread root itself
+        is the fallback under that.
+        """
+        asked_on = self._thread_ts_of(anchor_message_ref)
+        if not asked_on and thread_ts:
+            asked_on = self._thread_trigger.get((channel_id, thread_ts), thread_ts)
+        if not asked_on:
+            return
+        self._agent_eyes.setdefault((channel_id, agent_name), set()).add(asked_on)
+        await self._mark_being_read(channel_id, asked_on, working=True)
 
     async def _mark_being_read(
         self, channel_id: str, thread_ts: str | None, *, working: bool
