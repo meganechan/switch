@@ -58,7 +58,7 @@ https://github.com/user-attachments/assets/d7db7859-c1e0-4d2c-9675-1cc3966a1bfd
 <details>
 <summary><b>Mattermost</b></summary>
 
-Recording to come.
+https://github.com/user-attachments/assets/51918de4-4283-4717-bdfa-d63f9da8eae1
 
 </details>
 
