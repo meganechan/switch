@@ -29,7 +29,7 @@ Switch is the underlying infrastructure and framework that allows you to build t
 
 ## Watch it work
 
-The same incident, in the apps teams already use. Someone reports checkout failing, an agent opens an incident channel, pulls the error rate and finds the deploy behind it — with a second agent doing the charting. About a minute each, no narration.
+The same incident, in the apps teams already use. Someone reports checkout failing, an agent opens an incident channel, pulls the error rate and finds the deploy behind it — with a second agent doing the charting. Under a minute each, no narration.
 
 <!-- ADDING A RECORDING: do not commit the file. Open a pull request comment, drag the
      .mp4 in, and GitHub uploads it and hands you a github.com/user-attachments/assets/...
@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/e114cf81-41b0-4cce-a06f-5e78830bf99d
 <details>
 <summary><b>Slack</b></summary>
 
-Recording to come.
+https://github.com/user-attachments/assets/d7db7859-c1e0-4d2c-9675-1cc3966a1bfd
 
 </details>
 
