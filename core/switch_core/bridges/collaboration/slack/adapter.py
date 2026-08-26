@@ -228,11 +228,12 @@ class SlackConnectionConfig(BridgeConnectionConfig):
 
 
 class SlackAdapter(CollaborationAdapter):
-    # Pin a turn's status to the message being worked on, opening a thread on
-    # it when there is none. Without this a question asked at the channel root
-    # has no thread, so its progress has nowhere to live and no session can be
-    # opened for it — which was most turns.
-    runtime_state_follows_anchor: ClassVar[bool] = True
+    # A turn's status stays where the turn was asked for: the thread when the
+    # question was threaded, the channel root when it was not. This was True so
+    # that a root-level question had a thread for a session card to open in;
+    # with the card stood down (see _AGENT_SESSIONS_ENABLED) the status is what
+    # the reader has, and opening a thread to hide it in is the wrong trade.
+    runtime_state_follows_anchor: ClassVar[bool] = False
 
     def __init__(self, *, config: SlackConnectionConfig) -> None:
         super().__init__()

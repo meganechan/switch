@@ -696,6 +696,24 @@ def test_runtime_state_idle_clears_working_message() -> None:
 # ── Runtime state (staying where the turn began) ────────────────────────────
 
 
+def test_the_indicator_is_posted_at_the_channel_root() -> None:
+    # Addressed at the root the report carries no thread, and Slack does not
+    # substitute the message being worked on — so the status is a channel
+    # message, not a reply hidden behind a "1 reply" link.
+    adapter = _adapter()
+    fake = _FakeWebClient()
+    adapter._web_client = fake  # type: ignore[assignment]
+
+    _run(
+        adapter.apply_runtime_state(
+            "C123", "agent-bot", "working", mention_handle=None, thread_root_id=None
+        )
+    )
+
+    assert fake.calls[0]["thread_ts"] is None
+    assert adapter.runtime_state_follows_anchor is False
+
+
 def test_the_indicator_stays_put_instead_of_following_the_conversation() -> None:
     # Slack could move it — it deletes cleanly — but a status that jumps to the
     # bottom on every message is no longer where the reader last saw it.
