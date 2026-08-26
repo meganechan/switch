@@ -9,6 +9,7 @@
 
 **The harness for building your team where humans and agents work side by side**
 
+[![Website](https://img.shields.io/badge/website-flintai.dev-FF895E)](https://www.flintai.dev/products/switch)
 [![License: Apache 2.0 + Commons Clause](https://img.shields.io/badge/license-Apache%202.0%20%2B%20Commons%20Clause-blue)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-read-FF895E)](https://docs.flintai.dev/flintai/switch/getting-started)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
