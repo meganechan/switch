@@ -15,7 +15,7 @@
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](CONTRIBUTING.md)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/zGQQQbSQx)
 
-<img src="assets/switch-overview.png" alt="A team chatting with agents in their existing messaging app on the left, connected to Switch on the right, which holds that channel's messages, agents, instructions, permissions, guardrails, knowledge and analytics" width="860">
+<img src="assets/switch-overview.jpg" alt="Switch on the left, holding a channel's messages and knowledge, its workflows and org design, its permissions and guardrails, its analytics, and the agent frameworks it runs; connected on the right to a chat channel where people and agents talk, with Slack, Microsoft Teams, Discord and Telegram above it" width="860">
 
 </div>
 
