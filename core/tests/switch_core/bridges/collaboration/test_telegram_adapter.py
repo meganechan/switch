@@ -1221,9 +1221,7 @@ def test_going_idle_removes_the_status_and_the_pings() -> None:
     assert len(_bot(adapter).deletes) == 2
 
 
-def test_the_status_message_follows_the_conversation() -> None:
-    # Repositioning comes from the base class, but only for adapters that track
-    # the indicator — this asserts Telegram does.
+def test_the_status_message_stays_where_the_turn_began() -> None:
     adapter = _adapter()
     _run(
         adapter.apply_runtime_state(
@@ -1231,14 +1229,15 @@ def test_the_status_message_follows_the_conversation() -> None:
         )
     )
     original = adapter._working_msg[(str(CHAT_ID), "scout")].message_ref
+    posted = len(_bot(adapter).messages)
 
     _run(adapter.reposition_runtime_state(str(CHAT_ID), "scout", "88"))
 
-    moved = adapter._working_msg[(str(CHAT_ID), "scout")]
-    assert moved.message_ref != original
-    assert moved.thread_root_id == "88"
-    # The replacement goes up before the original comes down.
-    assert _bot(adapter).deletes[0]["message_id"] == int(original.split(":")[1])
+    pinned = adapter._working_msg[(str(CHAT_ID), "scout")]
+    assert pinned.message_ref == original
+    assert pinned.thread_root_id is None
+    assert _bot(adapter).deletes == []
+    assert len(_bot(adapter).messages) == posted
 
 
 # ── Working reaction ─────────────────────────────────────────────────────────

@@ -503,13 +503,31 @@ class CollaborationAdapter(ABC):
     async def _reposition_runtime_state(
         self, channel_id: str, agent_name: str, thread_root_id: str | None
     ) -> None:
-        """Move the agent's live runtime indicator to follow the latest message.
+        """Leave the agent's live runtime indicator where the turn began.
 
         Called when a message the agent is party to has just crossed the bridge,
         so the indicator no longer sits below the conversation it belongs to.
-        The replacement is posted *before* the original is removed: the
-        indicator is therefore never briefly absent, and a failed repost leaves
-        the original in place rather than clearing it.
+        Following it means deleting the indicator and posting it again, and a
+        reader who is watching the channel sees that: the line jumps, and on a
+        platform that marks a removal it leaves something behind each time. A
+        status pinned to where the turn started is less precise about where the
+        agent is up to and costs the reader nothing, so that is the default.
+
+        Adapters whose platform removes a message invisibly may override to
+        follow the conversation instead, by calling
+        ``_move_runtime_indicator`` — Slack does, and Teams does in a chat
+        channel.
+        """
+        return
+
+    async def _move_runtime_indicator(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Repost the live runtime indicator under the latest message.
+
+        The replacement goes up *before* the original comes down: the indicator
+        is therefore never briefly absent, and a failed repost leaves the
+        original in place rather than clearing it.
 
         ``thread_root_id`` is the thread that message belonged to, and is where
         the indicator lands — so it follows the agent between threads (and back
@@ -518,9 +536,6 @@ class CollaborationAdapter(ABC):
 
         Runs under the agent's runtime lock, so the tracked indicator cannot be
         cleared or refreshed part-way through.
-
-        Adapters that render runtime state as a typing indicator have nothing
-        positional to move, so the default does nothing.
         """
         key = (channel_id, agent_name)
         live = self._working_msg.get(key)

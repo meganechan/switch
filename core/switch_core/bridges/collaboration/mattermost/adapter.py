@@ -691,19 +691,6 @@ class MattermostAdapter(CollaborationAdapter):
             if not working:
                 self._eyes.discard(key)
 
-    async def _reposition_runtime_state(
-        self, channel_id: str, agent_name: str, thread_root_id: str | None
-    ) -> None:
-        """Leave the indicator where it was first posted.
-
-        Moving it means removing it from where it is, and any removal shows as
-        "(message deleted)" to everyone currently looking at the channel — once
-        per move, so an active conversation accumulates them fastest. The
-        indicator is pinned to the point the turn began instead: less precise
-        about where the agent is up to, but it costs the reader nothing.
-        """
-        return
-
     async def _dispose_working(self, channel_id: str, agent_name: str) -> None:
         """Retire the live "working on it…" message when the turn ends.
 

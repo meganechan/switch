@@ -944,6 +944,29 @@ def test_runtime_state_working_posts_persistent_indicator() -> None:
     )
 
 
+def test_the_status_message_stays_where_the_turn_began() -> None:
+    adapter, _, webhook = _runtime_setup()
+
+    _run(
+        adapter.apply_runtime_state(
+            str(CHANNEL_ID),
+            "my-agent",
+            "working",
+            mention_handle=None,
+            thread_root_id=None,
+        )
+    )
+    original = adapter._working_msg[(str(CHANNEL_ID), "my-agent")].message_ref
+
+    _run(adapter.reposition_runtime_state(str(CHANNEL_ID), "my-agent", "77"))
+
+    pinned = adapter._working_msg[(str(CHANNEL_ID), "my-agent")]
+    assert pinned.message_ref == original
+    assert pinned.thread_root_id is None
+    assert len(webhook.sent) == 1
+    assert webhook.deletes == []
+
+
 def test_runtime_state_detail_edits_message_in_place() -> None:
     adapter, _, webhook = _runtime_setup()
 

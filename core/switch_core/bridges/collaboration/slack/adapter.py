@@ -1311,6 +1311,16 @@ class SlackAdapter(CollaborationAdapter):
             )
         )
 
+    async def _reposition_runtime_state(
+        self, channel_id: str, agent_name: str, thread_root_id: str | None
+    ) -> None:
+        """Follow the conversation rather than staying where the turn began.
+
+        Slack removes a message without leaving anything in its place, so the
+        indicator can chase the conversation at no cost to the reader.
+        """
+        await self._move_runtime_indicator(channel_id, agent_name, thread_root_id)
+
     async def _clear_working(self, channel_id: str, agent_name: str) -> None:
         live = self._working_msg.pop((channel_id, agent_name), None)
         if live is not None:

@@ -1089,7 +1089,7 @@ class TeamsAdapter(CollaborationAdapter):
         """
         if await self._leaves_a_tombstone(channel_id):
             return
-        await super()._reposition_runtime_state(channel_id, agent_name, thread_root_id)
+        await self._move_runtime_indicator(channel_id, agent_name, thread_root_id)
 
     async def _remove_runtime_indicator(
         self, channel_id: str, message_ref: str
