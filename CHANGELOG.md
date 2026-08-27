@@ -2591,6 +2591,14 @@ by Switch Console rather than published on its own.
 
 ### [Unreleased]
 
+### [1.9.5]
+
+#### Changed
+- Runs agent-runtime `0.3.3`, which now exits when its host does instead of
+  leaving stale runtime processes and loopback listeners behind (#307). The
+  client↔sidecar wire (ready line, endpoints, on-disk layout) is unchanged, so
+  the major stays `1`.
+
 ### [1.9.4]
 
 #### Fixed
@@ -2673,6 +2681,12 @@ compatibility signal. History for those is in the git log.
 `.claude-plugin/plugin.json`.
 
 ### [Unreleased]
+
+### [0.9.10] - 2026-08-27
+#### Changed
+- Pin `@sandboxaq/switch-agent-runtime@0.3.3` (was `0.3.2`) — picks up the
+  runtime's host-exit fix (#307), which stops stale runtime processes and
+  loopback listeners piling up. Plugin version bumps so installs re-download.
 
 ### [0.9.9] - 2026-08-26
 #### Fixed
@@ -2891,6 +2905,12 @@ manifest history.
 
 ### [Unreleased]
 
+### [0.3.11] - 2026-08-27
+#### Changed
+- Pin `@sandboxaq/switch-agent-runtime@0.3.3` (was `0.3.2`) — picks up the
+  runtime's host-exit fix (#307), which stops stale runtime processes and
+  loopback listeners piling up. Plugin version bumps so installs re-download.
+
 ### [0.3.10] - 2026-08-26
 #### Fixed
 - The `configure` skill's standalone feature list no longer claims the **task
@@ -3062,6 +3082,12 @@ for humans reading a diff rather than for an installer, and an install reports
 the app version that wrote it rather than a version of its own.
 
 ### [Unreleased]
+
+### [0.1.6] - 2026-08-27
+#### Changed
+- Pin `@sandboxaq/switch-agent-runtime@0.3.3` (was `0.3.2`) — picks up the
+  runtime's host-exit fix (#307). Reaches users with the next Switch Console
+  release, which writes this connector.
 
 ### [0.1.5] - 2026-08-22
 #### Fixed
