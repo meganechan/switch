@@ -40,6 +40,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@renderer/lib/ui/tooltip';
 import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { type ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
@@ -227,6 +233,32 @@ export const AddAgentModal = observer(function AddAgentModal({
     runHostReady &&
     submitState === 'idle';
 
+  // Why "Add agent" is greyed out, in one line, shown on hover over the button.
+  const disabledReason: string | null =
+    submitState !== 'idle'
+      ? null
+      : !pickState.serverId
+        ? 'Add a Switch server to register this agent on.'
+        : form.agentName.trim().length === 0
+          ? 'Enter a name for the agent.'
+          : !form.nameIsValid
+            ? 'Fix the agent name: lowercase letters, digits, . - _, starting with a letter or digit.'
+            : form.description.trim().length === 0
+              ? 'Add a description so people and agents know what this agent is for.'
+              : !runHostReachable
+                ? `${runLocationLabel} can’t be reached right now — pick a run location that can.`
+                : !runHostReady
+                  ? `Waiting for ${runLocationLabel} to be ready…`
+                  : !pickState.providerId
+                    ? 'Choose an agent type.'
+                    : dir.trim().length === 0
+                      ? isRemoteRun
+                        ? 'Enter the agent’s working directory on the host.'
+                        : 'Choose the agent’s working directory.'
+                      : policyHasDeadRule(form.addressingPolicy)
+                        ? 'One addressing rule can never match — fix it under Settings.'
+                        : null;
+
   /** `agentName` is what picks the agent out of the location — a location can
    * hold several, so navigating on `locationId` alone opens the directory
    * rather than the agent that was just created. */
@@ -342,9 +374,6 @@ export const AddAgentModal = observer(function AddAgentModal({
       }
       footer={
         <DialogFooter>
-          {/* Why Add agent is greyed out, said where the greyed-out button is.
-              Left alone, a disabled primary with no explanation beside it is
-              indistinguishable from a broken one. */}
           {isRemoteRun && hostReadiness.checking && (
             <span className="mr-auto self-center text-xs text-foreground-muted">
               Waiting for {runLocationLabel}…
@@ -358,9 +387,27 @@ export const AddAgentModal = observer(function AddAgentModal({
           >
             Cancel
           </Button>
-          <ConfirmButton type="button" onClick={() => void handleCreate()} disabled={!canSubmit}>
-            {submitState === 'creating' ? 'Adding…' : 'Add agent'}
-          </ConfirmButton>
+          <TooltipProvider delay={150}>
+            <Tooltip>
+              {/* Span, not button, carries the tooltip: a disabled button emits no pointer events. */}
+              <TooltipTrigger
+                render={
+                  <span className="inline-flex">
+                    <ConfirmButton
+                      type="button"
+                      onClick={() => void handleCreate()}
+                      disabled={!canSubmit}
+                    >
+                      {submitState === 'creating' ? 'Adding…' : 'Add agent'}
+                    </ConfirmButton>
+                  </span>
+                }
+              />
+              {disabledReason !== null && (
+                <TooltipContent side="top">{disabledReason}</TooltipContent>
+              )}
+            </Tooltip>
+          </TooltipProvider>
         </DialogFooter>
       }
     >
