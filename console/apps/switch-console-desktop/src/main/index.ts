@@ -33,6 +33,7 @@ import { registerSidecarDiagnostics } from './core/sidecar/sidecar-diagnostics';
 import { sshConnectionManager } from './core/ssh/lifecycle/production-ssh-connection-manager';
 import { autoSessionWatcher } from './core/switch-rooms/auto-session-watcher';
 import { restoreSwitchRoomSessions } from './core/switch-rooms/restore-sessions';
+import { catchUpConnectorsToCurrentVersion } from './core/switch-setup/catch-up-connectors';
 import { registerTelemetryListeners } from './core/telemetry/telemetry-listeners';
 import { trackEvent } from './core/telemetry/telemetry-service';
 import { updateService } from './core/updates/update-service';
@@ -172,6 +173,14 @@ void app.whenReady().then(async () => {
   // directories, and the window must not wait for either.
   void reapOrphanedAgentRuntimes().catch((e: unknown) => {
     log.warn('agent-runtime: failed to reap orphaned runtimes at boot', { error: e });
+  });
+
+  // A one-shot, not a standing auto-updater — it latches on a generation marker
+  // and does nothing on every later launch. Unawaited because it talks to a
+  // plugin marketplace over the network: a session relaunched below may still
+  // start on the old pin, and picks the new one up next launch.
+  void catchUpConnectorsToCurrentVersion().catch((e: unknown) => {
+    log.warn('switch-setup: connector catch-up failed at boot', { error: e });
   });
 
   // Reflect a managed local Switch stack that survived the last quit, so the UI
