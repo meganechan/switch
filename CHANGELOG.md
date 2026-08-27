@@ -2469,6 +2469,19 @@ The Switch protocol client and MCP runtime
 
 ### [Unreleased]
 
+### [0.3.3] - 2026-08-27
+
+#### Fixed
+- The runtime now exits when its host does, instead of running forever. Its
+  intended shutdown path (via the transport's `onclose`) never fired for a host
+  that was killed, crashed or force-quit, and the hook listener's TCP server
+  plus the heartbeat and lease timers kept the process alive against a Switch
+  that was already gone — leaving stale processes and loopback listeners piling
+  up across sessions. Shutdown is now driven by four independent triggers —
+  stdin `end`/`close`, termination signals, a stdout/stderr write error, and a
+  parent-pid watchdog — so the process goes away whichever way its host vanishes
+  (#307).
+
 ### [0.3.2] - 2026-08-19
 
 #### Fixed
