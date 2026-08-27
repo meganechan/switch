@@ -52,6 +52,7 @@ import {
   readAgentStore,
   type ResolvedAgent,
 } from './credentials';
+import { reapOrphanedRuntimes } from './reap';
 import { readSse, type SseFrame } from './sse';
 
 const ENV_ENDPOINT = process.env.SWITCH_API_ENDPOINT ?? '';
@@ -84,7 +85,8 @@ function looksUnresolved(value: string): boolean {
 }
 
 const SESSION_PPID = process.ppid;
-const SESSION_DIR = path.join(os.homedir(), '.switch', 'sessions', String(SESSION_PPID));
+const SESSIONS_ROOT = path.join(os.homedir(), '.switch', 'sessions');
+const SESSION_DIR = path.join(SESSIONS_ROOT, String(SESSION_PPID));
 const PORT_FILE = path.join(SESSION_DIR, 'port');
 const STARTUP_ERROR_FILE = path.join(SESSION_DIR, 'startup-error.log');
 
@@ -1941,6 +1943,16 @@ if (!isDegraded()) {
 
 await mcp.connect(transport);
 serving = true;
+
+// After the handshake and never awaited: this scans every process on the
+// machine and may remove thousands of directories, and a host waiting on
+// `initialize` must not pay for either. Needs no identity, so it runs degraded
+// too — an orphan from a previous session is there to clear up regardless.
+void reapOrphanedRuntimes({
+  sessionsRoot: SESSIONS_ROOT,
+  ownSessionDir: SESSION_DIR,
+  log: (message) => process.stderr.write(`switch: ${message}\n`),
+});
 
 // Degraded, none of the machinery below has anything to act on: no identity to
 // open a connection as, no room to route a hook to. Publishing no port also
