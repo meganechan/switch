@@ -1948,11 +1948,21 @@ serving = true;
 // machine and may remove thousands of directories, and a host waiting on
 // `initialize` must not pay for either. Needs no identity, so it runs degraded
 // too — an orphan from a previous session is there to clear up regardless.
-void reapOrphanedRuntimes({
-  sessionsRoot: SESSIONS_ROOT,
-  ownSessionDir: SESSION_DIR,
-  log: (message) => process.stderr.write(`switch: ${message}\n`),
-});
+void reapOrphanedRuntimes({ sessionsRoot: SESSIONS_ROOT, keepSessionDir: SESSION_DIR }).then(
+  (outcome) => {
+    if (outcome.reaped > 0) {
+      process.stderr.write(`switch: reaped ${outcome.reaped} runtime(s) whose host is gone\n`);
+    }
+    if (outcome.removedSessionDirs > 0) {
+      process.stderr.write(
+        `switch: removed ${outcome.removedSessionDirs} stale session director(ies)\n`
+      );
+    }
+    for (const failure of outcome.failures) {
+      process.stderr.write(`switch: reap ${failure.stage} failed: ${failure.error}\n`);
+    }
+  }
+);
 
 // Degraded, none of the machinery below has anything to act on: no identity to
 // open a connection as, no room to route a hook to. Publishing no port also

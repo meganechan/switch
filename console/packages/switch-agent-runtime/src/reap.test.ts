@@ -174,4 +174,13 @@ describe('sweeping stale session directories', () => {
   it('returns nothing for an empty directory', () => {
     expect(staleSessionDirs([], alive, 'none')).toEqual([]);
   });
+
+  // The app sweeps the same root and owns no session directory of its own.
+  it('spares nothing extra when the caller has no directory to keep', () => {
+    expect(staleSessionDirs(['900', '901'], alive, null)).toEqual(['901']);
+  });
+
+  it('still spares a live pid when there is nothing to keep', () => {
+    expect(staleSessionDirs(['900'], alive, null)).toEqual([]);
+  });
 });
