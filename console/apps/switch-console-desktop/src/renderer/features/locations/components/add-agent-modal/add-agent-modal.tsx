@@ -40,12 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@renderer/lib/ui/select';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@renderer/lib/ui/tooltip';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@renderer/lib/ui/tooltip';
 import { log } from '@renderer/utils/logger';
 import type { AgentProviderConfig } from '@shared/core/agents/agent-provider-config';
 import { type ProvisionAgentResult } from '@shared/core/switch-servers/switch-servers';
@@ -247,17 +242,19 @@ export const AddAgentModal = observer(function AddAgentModal({
               ? 'Add a description so people and agents know what this agent is for.'
               : !runHostReachable
                 ? `${runLocationLabel} can’t be reached right now — pick a run location that can.`
-                : !runHostReady
-                  ? `Waiting for ${runLocationLabel} to be ready…`
-                  : !pickState.providerId
-                    ? 'Choose an agent type.'
-                    : dir.trim().length === 0
-                      ? isRemoteRun
-                        ? 'Enter the agent’s working directory on the host.'
-                        : 'Choose the agent’s working directory.'
-                      : policyHasDeadRule(form.addressingPolicy)
-                        ? 'One addressing rule can never match — fix it under Settings.'
-                        : null;
+                : hostReadiness.checking
+                  ? `Checking what ${runLocationLabel} has installed…`
+                  : hostReadiness.blocked
+                    ? `${runLocationLabel} is missing setup this agent needs — the notice below has the details.`
+                    : !pickState.providerId
+                      ? 'Choose an agent type.'
+                      : dir.trim().length === 0
+                        ? isRemoteRun
+                          ? 'Enter the agent’s working directory on the host.'
+                          : 'Choose the agent’s working directory.'
+                        : policyHasDeadRule(form.addressingPolicy)
+                          ? 'One addressing rule can never match — fix it under Settings.'
+                          : null;
 
   /** `agentName` is what picks the agent out of the location — a location can
    * hold several, so navigating on `locationId` alone opens the directory
