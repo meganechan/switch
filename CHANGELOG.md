@@ -1072,6 +1072,24 @@ version of their own to them without also giving them a release of their own.
 
 ### [Unreleased]
 
+### [0.31.2] - 2026-08-27
+
+#### Added
+- Orphaned agent runtimes are reaped at boot: a runtime whose host has gone —
+  left behind because a user updated the app but never revisited the connector —
+  is cleared on startup, using the same "is this runtime abandoned?" predicate
+  the runtime itself uses, so a live session is never touched (#309).
+- A one-shot catch-up brings already-installed Switch connectors up to date once,
+  so an install that never revisits Settings → Agents stops drifting several
+  runtime versions behind. It runs once, latches, and leaves the Update button
+  as the normal path; it never installs a connector that isn't already there
+  (#309).
+
+#### Changed
+- The bundled sidecar (`1.9.5`) and the OpenCode connector (`0.1.6`) this build
+  writes now run agent-runtime `0.3.3`, which exits with its host instead of
+  leaving stale processes behind.
+
 ### [0.31.1] - 2026-08-26
 
 #### Fixed
