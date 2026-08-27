@@ -10,6 +10,7 @@ import { setupApplicationMenu } from './app/menu';
 import { registerAppScheme, setupAppProtocol } from './app/protocol';
 import { createMainWindow, getMainWindow } from './app/window';
 import { agentHookService } from './core/agent-hooks/agent-hook-service';
+import { reapOrphanedAgentRuntimes } from './core/agent-runtime/reap-orphaned-runtimes';
 import { migrateAgentStorage } from './core/agents/migrate-agent-storage';
 import { initializeRemoteDiscovery, initializeRemoteWatchers } from './core/agents/remote-watcher';
 import { resolveAgentServers } from './core/agents/resolve-servers';
@@ -164,6 +165,14 @@ void app.whenReady().then(async () => {
   registerRPCRouter(rpcRouter, ipcMain, withRPCLogContext);
 
   void reconcileResourceSampler();
+
+  // Before any session is relaunched below, so a runtime abandoned by a
+  // previous run is gone before its replacement starts — but not awaited: it
+  // scans every process on the machine and may remove thousands of stale
+  // directories, and the window must not wait for either.
+  void reapOrphanedAgentRuntimes().catch((e: unknown) => {
+    log.warn('agent-runtime: failed to reap orphaned runtimes at boot', { error: e });
+  });
 
   // Reflect a managed local Switch stack that survived the last quit, so the UI
   // shows it running without the user restarting it.

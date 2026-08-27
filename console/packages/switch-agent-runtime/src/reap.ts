@@ -134,7 +134,7 @@ export function findOrphanedRuntimes(rows: ProcessRow[], selfPid: number): numbe
 export function staleSessionDirs(
   entries: string[],
   isAlive: (pid: number) => boolean,
-  keep: string
+  keep: string | null
 ): string[] {
   return entries.filter(
     (entry) => entry !== keep && /^\d+$/.test(entry) && !isAlive(Number(entry))
@@ -152,56 +152,73 @@ function pidIsAlive(pid: number): boolean {
   }
 }
 
+/** What one sweep did, for the caller to report however it reports things. */
+export type ReapOutcome = {
+  reaped: number;
+  removedSessionDirs: number;
+  /** Enumerated rather than free text: both callers log a code, not a sentence. */
+  failures: Array<{ stage: 'scan' | 'sweep'; error: unknown }>;
+};
+
 /**
- * Clear up after previous runtimes. Best-effort throughout: this runs beside a
- * live session and must never be able to fail it.
+ * Clear up after runtimes that outlived their host.
+ *
+ * Returns what it did instead of logging it. There are two callers with two
+ * different ideas of a log line — the runtime writes prose to stderr, the app
+ * wants a structured event — and neither should have to be threaded through
+ * here as a callback.
+ *
+ * Best-effort throughout: this runs beside something already serving a user and
+ * must never be able to fail it, so every failure is collected rather than
+ * thrown.
  *
  * `ps` covers macOS and Linux; Windows has no equivalent worth reimplementing
- * for a population that will reboot away, so only the directory sweep runs
- * there.
+ * for a population that reboots away, so only the directory sweep runs there.
  */
 export async function reapOrphanedRuntimes(options: {
   sessionsRoot: string;
-  ownSessionDir: string;
-  log: (message: string) => void;
-}): Promise<void> {
-  const { sessionsRoot, ownSessionDir, log } = options;
+  /**
+   * A session directory to spare — the caller's own, when the caller is itself
+   * a runtime. The app has none and passes null.
+   */
+  keepSessionDir: string | null;
+}): Promise<ReapOutcome> {
+  const { sessionsRoot, keepSessionDir } = options;
+  const outcome: ReapOutcome = { reaped: 0, removedSessionDirs: 0, failures: [] };
 
   if (process.platform !== 'win32') {
     try {
       const { stdout } = await execFileAsync('ps', ['-axo', 'pid=,ppid=,command=']);
-      const orphaned = findOrphanedRuntimes(parseProcessTable(stdout), process.pid);
-
-      if (orphaned.length > 0) {
-        log(`reaping ${orphaned.length} runtime process(es) whose host is gone`);
-        for (const pid of orphaned) {
-          try {
-            // Every version being reaped predates the shutdown handlers, so
-            // this lands on node's default disposition and terminates them.
-            process.kill(pid, 'SIGTERM');
-          } catch {
-            // Already gone, or not ours to signal.
-          }
+      for (const pid of findOrphanedRuntimes(parseProcessTable(stdout), process.pid)) {
+        try {
+          // Every version being reaped predates the shutdown handlers, so this
+          // lands on node's default disposition and terminates them.
+          process.kill(pid, 'SIGTERM');
+          outcome.reaped += 1;
+        } catch {
+          // Already gone, or not ours to signal.
         }
       }
-    } catch (err) {
-      log(`could not scan for orphaned runtimes: ${err}`);
+    } catch (error) {
+      outcome.failures.push({ stage: 'scan', error });
     }
   }
 
   try {
     const entries = await fs.readdir(sessionsRoot);
-    const stale = staleSessionDirs(entries, pidIsAlive, path.basename(ownSessionDir));
-    if (stale.length === 0) return;
-
-    log(`removing ${stale.length} stale session director(ies)`);
-    for (const entry of stale) {
+    const keep = keepSessionDir === null ? null : path.basename(keepSessionDir);
+    for (const entry of staleSessionDirs(entries, pidIsAlive, keep)) {
       // Awaited one at a time rather than in bulk: there can be thousands, and
-      // this shares an event loop with a session that is already serving.
+      // this shares an event loop with something already serving.
       await fs.rm(path.join(sessionsRoot, entry), { recursive: true, force: true });
+      outcome.removedSessionDirs += 1;
     }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
-    log(`could not sweep stale session directories: ${err}`);
+  } catch (error) {
+    // Nothing has ever run here; there is nothing to clean and nothing to say.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      outcome.failures.push({ stage: 'sweep', error });
+    }
   }
+
+  return outcome;
 }
