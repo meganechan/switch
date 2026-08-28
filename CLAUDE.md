@@ -173,10 +173,6 @@ commands, room workflow, or anything an agent-facing client needs to know:
   matches actual behavior on every host.
   `core/tests/switch_core/bridges/agent/test_mcp_tool_surface.py` asserts the
   count, so it fails rather than letting a host quietly go undocumented.
-- **Bump the versions of whatever you changed, in the same commit.** Not at
-  release time — it gets forgotten, and then a version number is a claim nobody
-  can trust. `console/AGENTS.md` has the table (all three plugins, runtime
-  package, sidecar) and the rules for which digit moves.
 - **Diff the skills against each other after editing.** They are deliberately not identical
   (host-specific wording for tool namespacing, event delivery, attachments, and
   MCP registration), so diff them to confirm
