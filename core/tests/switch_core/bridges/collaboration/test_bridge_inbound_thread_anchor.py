@@ -74,7 +74,9 @@ def _fake_bridge(*, matrix_events: dict[str, str]) -> SimpleNamespace:
     )
 
 
-def _msg(*, message_ref: str, root_id: str | None, content: str = "hi") -> InboundMessage:
+def _msg(
+    *, message_ref: str, root_id: str | None, content: str = "hi"
+) -> InboundMessage:
     return InboundMessage(
         channel_id="chan-1",
         channel_type="channel_public",
